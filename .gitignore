@@ -1,0 +1,27 @@
+# Build
+bin/
+*.exe
+*.test
+*.out
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Uploads & local data
+data/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Go
+coverage.out
+coverage.html
+vendor/
+
+# Logs
+*.log

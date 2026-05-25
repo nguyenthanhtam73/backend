@@ -1,0 +1,160 @@
+// Package config loads application configuration from YAML and environment variables.
+// Env vars use the prefix DADIARY_ and override file values (12-factor friendly).
+package config
+
+import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/joho/godotenv"
+	"github.com/spf13/viper"
+)
+
+// Config is the root application configuration.
+type Config struct {
+	Env        string           `mapstructure:"env"`
+	HTTP       HTTPConfig       `mapstructure:"http"`
+	Database   DatabaseConfig   `mapstructure:"database"`
+	JWT        JWTConfig        `mapstructure:"jwt"`
+	Upload     UploadConfig     `mapstructure:"upload"`
+	OpenAI     OpenAIConfig     `mapstructure:"openai"`
+	Anthropic  AnthropicConfig  `mapstructure:"anthropic"`
+	Moderation ModerationConfig `mapstructure:"moderation"`
+	Turnstile  TurnstileConfig  `mapstructure:"turnstile"`
+}
+
+// TurnstileConfig is Cloudflare Turnstile — used to reduce spam on POST /auth/register.
+// When SecretKey is non-empty, registrations must include a valid turnstile_token.
+type TurnstileConfig struct {
+	SecretKey string `mapstructure:"secret_key"` // Widget secret key (server-only); DADIARY_TURNSTILE_SECRET_KEY
+}
+
+// UploadConfig controls local file storage for skin check-in photos.
+type UploadConfig struct {
+	Dir   string `mapstructure:"dir"`    // absolute or relative path for saved uploads
+	MaxMB int    `mapstructure:"max_mb"` // max size per file
+}
+
+// OpenAIConfig holds API access for moderation, **vision** (skin photos), and optional legacy/fallback text calls.
+type OpenAIConfig struct {
+	APIKey string `mapstructure:"api_key"`
+	// Model is used for: (1) legacy single-pass multimodal when Anthropic is OFF, (2) optional text calls (e.g. starter fallback).
+	Model string `mapstructure:"model"`
+	// VisionModel is the chat/vision model for the observation-only photo pass (e.g. gpt-4o, gpt-4o-mini).
+	// When empty, Model is used, then default gpt-4o.
+	VisionModel string `mapstructure:"vision_model"`
+}
+
+// AnthropicConfig is the **primary** coach for structured JSON coaching (skin check output, starter routine).
+type AnthropicConfig struct {
+	APIKey string `mapstructure:"api_key"`
+	// Model e.g. claude-sonnet-4-20250514 (Claude 4 Sonnet), claude-3-5-sonnet-20241022
+	Model string `mapstructure:"model"`
+}
+
+// ModerationConfig toggles safety checks before persisting check-ins.
+type ModerationConfig struct {
+	// Skip disables OpenAI moderation calls (local dev only; do not use in production).
+	Skip bool `mapstructure:"skip"`
+}
+
+// HTTPConfig holds HTTP server settings.
+type HTTPConfig struct {
+	Port         int           `mapstructure:"port"`
+	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
+	WriteTimeout time.Duration `mapstructure:"write_timeout"`
+}
+
+// DatabaseConfig holds database connection settings.
+type DatabaseConfig struct {
+	URL string `mapstructure:"url"`
+}
+
+// JWTConfig holds signing and TTL settings for access/refresh tokens.
+type JWTConfig struct {
+	Secret     string        `mapstructure:"secret"`
+	AccessTTL  time.Duration `mapstructure:"access_ttl"`
+	RefreshTTL time.Duration `mapstructure:"refresh_ttl"`
+}
+
+// Load reads config from optional .env (repo root), config.yaml, and DADIARY_* env vars.
+func Load(relativeEnvPath string) (*Config, error) {
+	_ = godotenv.Load(relativeEnvPath) // optional; ignore missing file
+
+	v := viper.New()
+	v.SetConfigName("config")
+	v.SetConfigType("yaml")
+	v.AddConfigPath(".")
+	v.AddConfigPath("./backend")
+
+	v.SetEnvPrefix("DADIARY")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+	// Explicit binds for common 12-factor names (clearer than nested env mapping).
+	_ = v.BindEnv("database.url", "DADIARY_DATABASE_URL")
+	_ = v.BindEnv("jwt.secret", "DADIARY_JWT_SECRET")
+	_ = v.BindEnv("http.port", "DADIARY_HTTP_PORT")
+	_ = v.BindEnv("openai.api_key", "DADIARY_OPENAI_API_KEY")
+	_ = v.BindEnv("openai.model", "DADIARY_OPENAI_MODEL")
+	_ = v.BindEnv("openai.vision_model", "DADIARY_OPENAI_VISION_MODEL")
+	_ = v.BindEnv("anthropic.api_key", "DADIARY_ANTHROPIC_API_KEY")
+	_ = v.BindEnv("anthropic.model", "DADIARY_ANTHROPIC_MODEL")
+	_ = v.BindEnv("moderation.skip", "DADIARY_MODERATION_SKIP")
+	_ = v.BindEnv("turnstile.secret_key", "DADIARY_TURNSTILE_SECRET_KEY")
+	_ = v.BindEnv("upload.dir", "DADIARY_UPLOAD_DIR")
+	_ = v.BindEnv("upload.max_mb", "DADIARY_UPLOAD_MAX_MB")
+
+	if err := v.ReadInConfig(); err != nil {
+		// Allow env-only mode if no yaml on disk
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return nil, fmt.Errorf("read config: %w", err)
+		}
+	}
+
+	var cfg Config
+	if err := v.Unmarshal(&cfg); err != nil {
+		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+
+	if cfg.HTTP.Port == 0 {
+		cfg.HTTP.Port = 8080
+	}
+	// Railway, Render, Fly, etc. inject PORT; prefer it over config file defaults.
+	if p := strings.TrimSpace(os.Getenv("PORT")); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			cfg.HTTP.Port = parsed
+		}
+	}
+	if cfg.HTTP.ReadTimeout == 0 {
+		// Multipart photo uploads may take longer than default browser idle timeouts.
+		cfg.HTTP.ReadTimeout = 2 * time.Minute
+	}
+	if cfg.HTTP.WriteTimeout == 0 {
+		// Skin-check AI (vision + Claude) can take minutes — response is held until coach JSON is ready.
+		cfg.HTTP.WriteTimeout = 12 * time.Minute
+	}
+	if cfg.JWT.AccessTTL == 0 {
+		cfg.JWT.AccessTTL = 24 * time.Hour
+	}
+	if cfg.JWT.RefreshTTL == 0 {
+		cfg.JWT.RefreshTTL = 7 * 24 * time.Hour
+	}
+	if strings.TrimSpace(cfg.Upload.Dir) == "" {
+		cfg.Upload.Dir = "./data/uploads"
+	}
+	if cfg.Upload.MaxMB == 0 {
+		cfg.Upload.MaxMB = 10
+	}
+	if strings.TrimSpace(cfg.OpenAI.Model) == "" {
+		cfg.OpenAI.Model = "gpt-4o"
+	}
+	if strings.TrimSpace(cfg.Anthropic.Model) == "" {
+		// Default: Claude 4 Sonnet (text coach + starter routine). Override with DADIARY_ANTHROPIC_MODEL if needed.
+		cfg.Anthropic.Model = "claude-sonnet-4-20250514"
+	}
+
+	return &cfg, nil
+}

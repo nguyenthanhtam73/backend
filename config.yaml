@@ -1,0 +1,35 @@
+# DaDiary API — default config (override with env: DADIARY_*)
+env: development
+
+http:
+  port: 8080
+  read_timeout: 15s
+  write_timeout: 15s
+
+database:
+  # Overridden by DADIARY_DATABASE_URL when set
+  url: "postgres://dadiary:dadiary@localhost:5433/dadiary?sslmode=disable"
+
+jwt:
+  secret: "change-me-in-production-use-long-random-string"
+  access_ttl: 24h
+  refresh_ttl: 168h
+
+upload:
+  dir: "./data/uploads"
+  max_mb: 10
+
+openai:
+  api_key: ""
+  model: "gpt-4o"
+
+# Set `skip: true` ONLY in local development without an OpenAI key. In
+# production keep moderation enabled — uploaded skin photos pass through
+# OpenAI moderations to filter unsafe content before LLM analysis.
+moderation:
+  skip: false
+
+# Cloudflare Turnstile — spam protection for registration (optional for local dev).
+# Set DADIARY_TURNSTILE_SECRET_KEY from the Turnstile widget’s Secret key (server).
+turnstile:
+  secret_key: ""
