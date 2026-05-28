@@ -13,5 +13,6 @@ jobs:
 
       - name: Deploy backend
         env:
+          # Project token from Railway → Project Settings → Tokens
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: railway up --detach --ci --service backend --environment production --project d256f6f2-651d-4c8a-b880-95e19c9ce09c
