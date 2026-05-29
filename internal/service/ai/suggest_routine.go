@@ -20,7 +20,6 @@ import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
-	"github.com/dadiary/backend/internal/platform/openai"
 	"github.com/google/uuid"
 )
 
@@ -75,23 +74,16 @@ func GenerateSuggestedRoutine(ctx context.Context, cfg *config.Config, in Sugges
 
 	client := &http.Client{Timeout: 4 * time.Minute}
 
-	if strings.TrimSpace(cfg.Anthropic.APIKey) != "" {
-		text, err := AnthropicMessages(ctx, cfg, client, systemMsg, userMsg)
-		if err != nil {
-			return zero, err
-		}
-		out, err := parseSuggestedRoutine(text)
-		if err == nil {
-			LogSuggestedRoutineOutput("", out)
-		}
-		return out, err
-	}
-
-	text, err := openai.ChatCompletionJSON(ctx, cfg, client, systemMsg, userMsg)
+	result, err := TextCoachCompletion(ctx, cfg, client, "routine-suggest", systemMsg, userMsg)
 	if err != nil {
 		return zero, err
 	}
-	out, err := parseSuggestedRoutine(text)
+	slog.Debug("routine suggest llm",
+		"provider", result.Provider,
+		"model", result.Model,
+		"fallback", result.Fallback,
+	)
+	out, err := parseSuggestedRoutine(result.Text)
 	if err == nil {
 		LogSuggestedRoutineOutput("", out)
 	}

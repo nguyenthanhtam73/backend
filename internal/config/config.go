@@ -48,10 +48,11 @@ type OpenAIConfig struct {
 	VisionModel string `mapstructure:"vision_model"`
 }
 
-// AnthropicConfig is the **primary** coach for structured JSON coaching (skin check output, starter routine).
+// AnthropicConfig is the **primary** text coach (daily feedback, routine suggest, starter routine).
+// Vision stays on OpenAI. On Claude error, TextCoachCompletion falls back to OpenAI text model.
 type AnthropicConfig struct {
 	APIKey string `mapstructure:"api_key"`
-	// Model e.g. claude-sonnet-4-20250514 (Claude 4 Sonnet), claude-3-5-sonnet-20241022
+	// Model e.g. claude-sonnet-4-6 (default), claude-haiku-4-5-20251001
 	Model string `mapstructure:"model"`
 }
 
@@ -152,9 +153,52 @@ func Load(relativeEnvPath string) (*Config, error) {
 		cfg.OpenAI.Model = "gpt-4o"
 	}
 	if strings.TrimSpace(cfg.Anthropic.Model) == "" {
-		// Default: Claude 4 Sonnet (text coach + starter routine). Override with DADIARY_ANTHROPIC_MODEL if needed.
-		cfg.Anthropic.Model = "claude-sonnet-4-20250514"
+		// Default: Claude Sonnet 4.6 (current API). Override via DADIARY_ANTHROPIC_MODEL.
+		cfg.Anthropic.Model = "claude-sonnet-4-6"
 	}
 
 	return &cfg, nil
+}
+
+// AnthropicModel returns the configured Claude model with package default applied.
+func (c *Config) AnthropicModel() string {
+	if c == nil {
+		return "claude-sonnet-4-6"
+	}
+	if m := strings.TrimSpace(c.Anthropic.Model); m != "" {
+		return m
+	}
+	return "claude-sonnet-4-6"
+}
+
+// OpenAITextModel is the GPT model for text-coaching fallback (default gpt-4o).
+func (c *Config) OpenAITextModel() string {
+	if c == nil {
+		return "gpt-4o"
+	}
+	if m := strings.TrimSpace(c.OpenAI.Model); m != "" {
+		return m
+	}
+	return "gpt-4o"
+}
+
+// OpenAIVisionModel is the GPT model for photo vision + moderation (default gpt-4o).
+func (c *Config) OpenAIVisionModel() string {
+	if c == nil {
+		return "gpt-4o"
+	}
+	if m := strings.TrimSpace(c.OpenAI.VisionModel); m != "" {
+		return m
+	}
+	return c.OpenAITextModel()
+}
+
+// HasAnthropicKey reports whether Claude text coaching can be attempted.
+func (c *Config) HasAnthropicKey() bool {
+	return c != nil && strings.TrimSpace(c.Anthropic.APIKey) != ""
+}
+
+// HasOpenAIKey reports whether OpenAI vision / text fallback is available.
+func (c *Config) HasOpenAIKey() bool {
+	return c != nil && strings.TrimSpace(c.OpenAI.APIKey) != ""
 }

@@ -36,6 +36,8 @@ func TestCoachPersonaLive(t *testing.T) {
 
 func runDailyFeedbackComparison(t *testing.T, ctx context.Context, cfg *config.Config, p CoachPersona) {
 	t.Helper()
+	t.Logf("hybrid coach: anthropic=%v openai=%v claude_model=%q gpt_text=%q",
+		cfg.HasAnthropicKey(), cfg.HasOpenAIKey(), cfg.AnthropicModel(), cfg.OpenAITextModel())
 
 	outNoMem, err := GenerateDailyFeedback(ctx, cfg, p.TodayContextWithoutHistory(), p.SkillLevel)
 	if err != nil {

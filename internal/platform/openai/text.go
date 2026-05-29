@@ -14,8 +14,17 @@ import (
 	"github.com/dadiary/backend/internal/config"
 )
 
+var chatCompletionsURL = "https://api.openai.com/v1/chat/completions"
+
+// SetChatCompletionsURLForTest overrides the OpenAI chat endpoint. Returns a restore func.
+func SetChatCompletionsURLForTest(url string) func() {
+	prev := chatCompletionsURL
+	chatCompletionsURL = url
+	return func() { chatCompletionsURL = prev }
+}
+
 // ChatCompletionJSON returns the assistant message content (expected JSON) for a text system+user turn.
-// Uses cfg.OpenAI.Model (e.g. gpt-4o-mini for cheaper text); not the vision-only model.
+// Uses cfg.OpenAI.Model (default gpt-4o) for text-coaching fallback — not the vision-only model.
 func ChatCompletionJSON(ctx context.Context, cfg *config.Config, httpClient *http.Client, system, user string) (string, error) {
 	if cfg == nil || strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
 		return "", fmt.Errorf("openai: missing api key")
@@ -25,7 +34,7 @@ func ChatCompletionJSON(ctx context.Context, cfg *config.Config, httpClient *htt
 	}
 	model := strings.TrimSpace(cfg.OpenAI.Model)
 	if model == "" {
-		model = "gpt-4o"
+		model = cfg.OpenAITextModel()
 	}
 	body := map[string]any{
 		"model":           model,
@@ -40,7 +49,7 @@ func ChatCompletionJSON(ctx context.Context, cfg *config.Config, httpClient *htt
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsURL, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}

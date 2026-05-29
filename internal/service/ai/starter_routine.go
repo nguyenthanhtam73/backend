@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
-	"github.com/dadiary/backend/internal/platform/openai"
 )
 
 // StarterRoutine is the AM/PM scaffold and supportive coach copy returned to clients (API keys stable).
@@ -112,29 +111,17 @@ func GenerateStarterRoutine(ctx context.Context, cfg *config.Config, onboardingJ
 		)
 	}
 
-	// Claude Sonnet primary; OpenAI JSON fallback when Anthropic is unset.
-	if strings.TrimSpace(cfg.Anthropic.APIKey) != "" {
-		text, err := AnthropicMessages(ctx, cfg, client, StarterRoutineSystemPrompt(), userMsg)
-		if err != nil {
-			return zero, err
-		}
-		raw, err := ExtractJSONObject(text)
-		if err != nil {
-			return zero, err
-		}
-		var out StarterRoutine
-		if err := json.Unmarshal(raw, &out); err != nil {
-			return zero, fmt.Errorf("ai starter: parse json: %w", err)
-		}
-		normalizeStarterRoutine(&out)
-		return out, nil
-	}
-
-	text, err := openai.ChatCompletionJSON(ctx, cfg, client, StarterRoutineSystemPrompt(), userMsg)
+	// Hybrid: Claude Sonnet primary; GPT-4o text fallback on missing key or Claude error.
+	result, err := TextCoachCompletion(ctx, cfg, client, "starter-routine", StarterRoutineSystemPrompt(), userMsg)
 	if err != nil {
 		return zero, err
 	}
-	raw, err := ExtractJSONObject(text)
+	slog.Debug("starter routine llm",
+		"provider", result.Provider,
+		"model", result.Model,
+		"fallback", result.Fallback,
+	)
+	raw, err := ExtractJSONObject(result.Text)
 	if err != nil {
 		return zero, err
 	}

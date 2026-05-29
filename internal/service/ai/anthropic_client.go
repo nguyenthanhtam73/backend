@@ -13,6 +13,9 @@ import (
 	"github.com/dadiary/backend/internal/config"
 )
 
+// anthropicMessagesURL is the Anthropic Messages API endpoint (overridable in tests).
+var anthropicMessagesURL = "https://api.anthropic.com/v1/messages"
+
 // AnthropicMessages calls the Messages API (Claude) and returns concatenated text blocks from the assistant.
 func AnthropicMessages(ctx context.Context, cfg *config.Config, httpClient *http.Client, system, user string) (string, error) {
 	if cfg == nil || strings.TrimSpace(cfg.Anthropic.APIKey) == "" {
@@ -23,7 +26,7 @@ func AnthropicMessages(ctx context.Context, cfg *config.Config, httpClient *http
 	}
 	model := strings.TrimSpace(cfg.Anthropic.Model)
 	if model == "" {
-		model = "claude-sonnet-4-20250514"
+		model = cfg.AnthropicModel()
 	}
 	body := map[string]any{
 		"model":       model,
@@ -43,7 +46,7 @@ func AnthropicMessages(ctx context.Context, cfg *config.Config, httpClient *http
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicMessagesURL, bytes.NewReader(payload))
 	if err != nil {
 		return "", err
 	}

@@ -11,7 +11,6 @@ import (
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
-	"github.com/dadiary/backend/internal/platform/openai"
 	"github.com/google/uuid"
 )
 
@@ -118,19 +117,16 @@ func GenerateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 }
 
 func callDailyFeedbackLLM(ctx context.Context, cfg *config.Config, client *http.Client, system, textBody string) (*CoachStructuredOutput, error) {
-	if strings.TrimSpace(cfg.Anthropic.APIKey) != "" {
-		text, err := AnthropicMessages(ctx, cfg, client, system, textBody)
-		if err != nil {
-			return nil, fmt.Errorf("ai daily feedback (claude): %w", err)
-		}
-		return parseCoachStructuredOutput(text, "ai daily feedback")
-	}
-
-	text, err := openai.ChatCompletionJSON(ctx, cfg, client, system, textBody)
+	result, err := TextCoachCompletion(ctx, cfg, client, "daily-feedback", system, textBody)
 	if err != nil {
-		return nil, fmt.Errorf("ai daily feedback (openai fallback): %w", err)
+		return nil, err
 	}
-	return parseCoachStructuredOutput(text, "ai daily feedback")
+	slog.Debug("daily feedback llm",
+		"provider", result.Provider,
+		"model", result.Model,
+		"fallback", result.Fallback,
+	)
+	return parseCoachStructuredOutput(result.Text, "ai daily feedback")
 }
 
 func parseCoachStructuredOutput(text, label string) (*CoachStructuredOutput, error) {
