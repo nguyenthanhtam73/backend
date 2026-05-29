@@ -127,11 +127,14 @@ func (o UserMemoryOptions) normalize() UserMemoryOptions {
 	if o.RecentCheckLimit <= 0 {
 		o.RecentCheckLimit = 6
 	}
-	if o.RecentCheckLimit > 10 {
-		o.RecentCheckLimit = 10
+	if o.RecentCheckLimit > 8 {
+		o.RecentCheckLimit = 8
 	}
 	if o.FeedbackLimit <= 0 {
-		o.FeedbackLimit = 12
+		o.FeedbackLimit = 6
+	}
+	if o.FeedbackLimit > 8 {
+		o.FeedbackLimit = 8
 	}
 	if o.RoutineWindowDays <= 0 {
 		o.RoutineWindowDays = 14
@@ -236,7 +239,7 @@ func BuildUserMemoryWithDebug(
 	}
 
 	var b strings.Builder
-	b.WriteString("USER_MEMORY (long-term context — same user across sessions; use to personalise tone and avoid contradicting yourself across days):\n")
+	b.WriteString("USER_MEMORY (lịch sử da — dùng để cá nhân hoá, paraphrase ấm áp, không quote nguyên văn):\n")
 	if len(sections) == 0 {
 		b.WriteString("(no saved memory yet — this is a fresh user; rely on TODAY context only.)\n")
 		out := b.String()
@@ -253,7 +256,7 @@ func BuildUserMemoryWithDebug(
 		}
 		b.WriteString(s)
 	}
-	b.WriteString("\nGUIDANCE: Treat this block as background memory. Quote nothing verbatim — paraphrase warmly. If TODAY's input contradicts memory, trust TODAY and acknowledge the change kindly.\n")
+	b.WriteString("\nGUIDANCE: Dựa mạnh vào block này + HÔM NAY. Mâu thuẫn → tin HÔM NAY. 👎 trước đó → đổi góc gợi ý.\n")
 	out := b.String()
 	debug.CharCount = len([]rune(out))
 	if debug.CacheEligible {
@@ -277,7 +280,7 @@ func inferSectionsFromText(text string) []string {
 	if strings.Contains(text, "## Older history (monthly digest") {
 		sections = append(sections, "monthly_digest")
 	}
-	if strings.Contains(text, "## Past AI feedback votes") {
+	if strings.Contains(text, "## Feedback summary") || strings.Contains(text, "## Past AI feedback votes") {
 		sections = append(sections, "feedback")
 	}
 	if strings.Contains(text, "## Routine adherence") {
@@ -373,7 +376,7 @@ func buildRecentChecksSectionDbg(
 			fmt.Fprintf(&b, " | title: %s", truncateRunes(t, 60))
 		}
 		if note := strings.TrimSpace(c.UserNote); note != "" {
-			fmt.Fprintf(&b, " | note: %s", truncateRunes(note, 100))
+			fmt.Fprintf(&b, " | note: %s", truncateRunes(note, 80))
 		}
 		if line := summarizePreviousAIFeedback(c.Analysis); line != "" {
 			fmt.Fprintf(&b, "\n    └─ previous AI line: %s", line)
@@ -395,7 +398,7 @@ func summarizePreviousAIFeedback(a *domain.SkinAnalysis) string {
 		return ""
 	}
 	if s := strings.TrimSpace(a.SummaryNotes); s != "" {
-		return truncateRunes(s, 160)
+		return truncateRunes(s, 120)
 	}
 	// situation_analysis lives inside skin_scores JSON (see analysis.Process
 	// — it's merged in there as "situation_analysis"). Fall back to it when
@@ -405,7 +408,7 @@ func summarizePreviousAIFeedback(a *domain.SkinAnalysis) string {
 		if err := json.Unmarshal(a.SkinScores, &m); err == nil {
 			if v, ok := m["situation_analysis"].(string); ok {
 				if s := strings.TrimSpace(v); s != "" {
-					return truncateRunes(s, 160)
+					return truncateRunes(s, 120)
 				}
 			}
 		}
@@ -492,10 +495,39 @@ func buildFeedbackSectionDbg(
 		}
 	}
 	var b strings.Builder
+	b.WriteString("## Feedback summary\n")
+	b.WriteString(buildFeedbackSummaryLine(rows, helpful, notHelpful))
 	b.WriteString("## Past AI feedback votes\n")
 	b.WriteString(body)
 	b.WriteString("\n")
 	return b.String(), len(rows), helpful, notHelpful
+}
+
+// buildFeedbackSummaryLine is a one-line digest so the model grasps vote
+// patterns without reading every row first.
+func buildFeedbackSummaryLine(rows []domain.AIUserFeedback, helpful, notHelpful int) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "- 👍 %d helpful / 👎 %d not_helpful (recent %d votes)", helpful, notHelpful, len(rows))
+	var reasons []string
+	for _, r := range rows {
+		if r.Rating != string(domain.AIFeedbackNotHelpful) {
+			continue
+		}
+		if c := strings.TrimSpace(r.Comment); c != "" {
+			reasons = append(reasons, truncateRunes(c, 60))
+		}
+		if len(reasons) >= 2 {
+			break
+		}
+	}
+	if len(reasons) > 0 {
+		b.WriteString(" | latest 👎: ")
+		b.WriteString(strings.Join(reasons, "; "))
+	} else if notHelpful > helpful {
+		b.WriteString(" | user often marks not_helpful — soften & be specific")
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 // buildRoutineCompletionSectionDbg also returns the adherence tier label
@@ -565,17 +597,9 @@ func buildRoutineCompletionSectionDbg(
 	b.WriteString("## Routine adherence\n")
 	fmt.Fprintf(
 		&b,
-		"- Window: last %d days (%d days have a saved routine)\n",
-		opts.RoutineWindowDays, daysWithEntry,
-	)
-	fmt.Fprintf(
-		&b,
-		"- Step completion: %d / %d (%.0f%%) — %s\n",
+		"- Last %d days: steps %d/%d (%.0f%%) — %s; days with tick %d/%d (%.0f%%)\n",
+		opts.RoutineWindowDays,
 		completedSteps, totalSteps, stepRate*100, tier,
-	)
-	fmt.Fprintf(
-		&b,
-		"- Days with at least one tick: %d / %d (%.0f%%)\n",
 		daysWithAnyTick, daysWithEntry, dayRate*100,
 	)
 	return b.String(), tierShort

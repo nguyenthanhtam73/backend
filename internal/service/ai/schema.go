@@ -70,4 +70,7 @@ const VisionObservationSchemaBlock = `Return ONE JSON object only (no markdown).
 }`
 
 // DefaultMedicalDisclaimerVI used when the model omits an explicit disclaimer.
-const DefaultMedicalDisclaimerVI = "Đây chỉ là gợi ý chăm da thân thiện, không phải chẩn đoán y khoa và không thay thế bác sĩ da liễu. Nếu da đau rát, sốt, lan nhanh hoặc bạn thấy lo lắng — hãy đi gặp bác sĩ nhé."
+const DefaultMedicalDisclaimerVI = "Đây chỉ là gợi ý tham khảo. Không thay thế tư vấn bác sĩ da liễu."
+
+// DefaultMedicalDisclaimerEN is the English fallback disclaimer.
+const DefaultMedicalDisclaimerEN = "This is informational guidance only — not a substitute for a dermatologist's advice."

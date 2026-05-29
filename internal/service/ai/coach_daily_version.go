@@ -7,4 +7,8 @@ package ai
 // to coachCorePromptVI. Coach now MUST surface at least one of 4 callback
 // patterns (trend callback / pivot away from 👎 / repeat 👍 / adherence-tuned
 // suggestion difficulty) whenever USER_MEMORY has data. Schema unchanged.
-const CoachDailyPromptVersion = 9
+//
+// v10 (2026-05-30) — Optimised persona + 6-step contract; stronger USER_MEMORY
+// emphasis; compact feedback summary + routine adherence in memory block;
+// default VI disclaimer shortened. Schema unchanged.
+const CoachDailyPromptVersion = 10

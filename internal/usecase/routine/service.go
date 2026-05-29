@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -252,17 +251,7 @@ func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.Suggest
 		memDeps,
 		ai.UserMemoryOptions{ExcludeCheckID: lastCheckID},
 	)
-	slog.Info(
-		"routine-suggest: user_memory injected",
-		"user_id", userID.String(),
-		"chars", memDebug.CharCount,
-		"sections", strings.Join(memDebug.SectionsPresent, ","),
-		"recent_checks", memDebug.RecentChecks,
-		"feedback_helpful", memDebug.HelpfulVotes,
-		"feedback_not_helpful", memDebug.NotHelpfulVotes,
-		"adherence", memDebug.AdherenceTier,
-		"cache_hit", memDebug.CacheHit,
-	)
+	ai.LogMemoryInjection("routine-suggest", userID, uuid.Nil, memDebug)
 
 	in := ai.SuggestRoutineInput{
 		Profile:    profile,

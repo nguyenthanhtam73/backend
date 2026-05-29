@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -56,6 +57,14 @@ func GenerateSuggestedRoutine(ctx context.Context, cfg *config.Config, in Sugges
 	var zero SuggestedRoutine
 	if cfg == nil {
 		return zero, fmt.Errorf("ai suggest routine: config required")
+	}
+
+	if mem := strings.TrimSpace(in.UserMemory); mem != "" {
+		slog.Debug(
+			"routine-suggest: user_memory in prompt",
+			"chars", len([]rune(mem)),
+			"sections", strings.Join(inferSectionsFromText(mem), ","),
+		)
 	}
 
 	locale := normalizeRoutineLocale(in.Locale)

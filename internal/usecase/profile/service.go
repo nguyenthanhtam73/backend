@@ -175,7 +175,7 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	// the starter prompt so the new starter routine stays coherent with
 	// what the coach already knows. For brand-new users the memory string
 	// is empty and we fall through to first-time mode.
-	memory := ai.BuildUserMemoryContext(
+	memory, memDebug := ai.BuildUserMemoryWithDebug(
 		ctx,
 		userID,
 		ai.UserMemoryDeps{
@@ -189,9 +189,9 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	)
 	memoryForAI := memory
 	if !hasMeaningfulHistory(memory) {
-		// First-time onboarder — keep the prompt minimal so we don't tell
-		// the model "this user has memory" when there's nothing to share.
 		memoryForAI = ""
+	} else {
+		ai.LogMemoryInjection("starter-routine", userID, uuid.Nil, memDebug)
 	}
 
 	starter, err := ai.GenerateStarterRoutine(ctx, s.cfg, snapJSON, loc, memoryForAI)

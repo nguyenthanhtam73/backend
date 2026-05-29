@@ -9,7 +9,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -138,18 +137,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		},
 		ai.UserMemoryOptions{ExcludeCheckID: o.ID},
 	)
-	slog.Info(
-		"daily-coach: user_memory injected",
-		"user_id", o.UserID.String(),
-		"skin_check_id", o.ID.String(),
-		"chars", memDebug.CharCount,
-		"sections", strings.Join(memDebug.SectionsPresent, ","),
-		"recent_checks", memDebug.RecentChecks,
-		"feedback_helpful", memDebug.HelpfulVotes,
-		"feedback_not_helpful", memDebug.NotHelpfulVotes,
-		"adherence", memDebug.AdherenceTier,
-		"prompt_version", ai.CoachDailyPromptVersion,
-	)
+	ai.LogMemoryInjection("skin-check", o.UserID, o.ID, memDebug)
 
 	parsed, ver, err := ai.RunSkinCheckCoach(ctx, s.cfg, s.httpClient, uploadRoot, o, prof, memory)
 	if err != nil {

@@ -218,7 +218,7 @@ func BuildPriorFeedbackContext(feedback []domain.AIUserFeedback) string {
 	if len(feedback) == 0 {
 		return ""
 	}
-	const maxRows = 12
+	const maxRows = 6
 
 	rows := feedback
 	if len(rows) > maxRows {

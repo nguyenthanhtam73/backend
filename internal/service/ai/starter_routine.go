@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -103,6 +104,15 @@ func GenerateStarterRoutine(ctx context.Context, cfg *config.Config, onboardingJ
 	client := &http.Client{Timeout: 4 * time.Minute}
 	userMsg := starterUserMessage(onboardingJSON, locale, userMemory)
 
+	if mem := strings.TrimSpace(userMemory); mem != "" {
+		slog.Debug(
+			"starter-routine: user_memory in prompt",
+			"chars", len([]rune(mem)),
+			"sections", strings.Join(inferSectionsFromText(mem), ","),
+		)
+	}
+
+	// Claude Sonnet primary; OpenAI JSON fallback when Anthropic is unset.
 	if strings.TrimSpace(cfg.Anthropic.APIKey) != "" {
 		text, err := AnthropicMessages(ctx, cfg, client, StarterRoutineSystemPrompt(), userMsg)
 		if err != nil {
