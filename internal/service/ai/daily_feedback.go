@@ -88,8 +88,12 @@ func GenerateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 
 	userMsg := strings.Builder{}
 	userMsg.WriteString("The user did not attach new photos for this turn. Base your coaching ONLY on USER_CONTEXT below (and acknowledge you have no fresh vision cues).\n\n")
+	if priority := prependCoachActionPriority(u); priority != "" {
+		userMsg.WriteString(priority)
+	}
 	userMsg.WriteString("USER_CONTEXT:\n")
 	userMsg.WriteString(u)
+	userMsg.WriteString(coachMemoryTurnChecklist(u))
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")
 	userMsg.WriteString(CoachOutputJSONSchemaBlock)
 
@@ -100,7 +104,20 @@ func GenerateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 	system := GetCoachPrompt(skill)
 	textBody := userMsg.String()
 
-	// Claude Sonnet is the primary text coach; OpenAI is fallback only.
+	out, err := callDailyFeedbackLLM(ctx, cfg, client, system, textBody)
+	if err != nil {
+		return nil, err
+	}
+	if needsAdherenceRetry(u, out) {
+		retryBody := textBody + "\n\nVALIDATION FAILED: your JSON did not mention routine adherence in strengths or summary_notes. Regenerate the FULL JSON — include one sentence about routine ticks/effort per COACH_ACTION.\n"
+		if retryOut, retryErr := callDailyFeedbackLLM(ctx, cfg, client, system, retryBody); retryErr == nil && retryOut != nil {
+			out = retryOut
+		}
+	}
+	return out, nil
+}
+
+func callDailyFeedbackLLM(ctx context.Context, cfg *config.Config, client *http.Client, system, textBody string) (*CoachStructuredOutput, error) {
 	if strings.TrimSpace(cfg.Anthropic.APIKey) != "" {
 		text, err := AnthropicMessages(ctx, cfg, client, system, textBody)
 		if err != nil {
@@ -125,5 +142,6 @@ func parseCoachStructuredOutput(text, label string) (*CoachStructuredOutput, err
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("%s: parse json: %w", label, err)
 	}
+	LogCoachOutput(label, "", &out)
 	return &out, nil
 }

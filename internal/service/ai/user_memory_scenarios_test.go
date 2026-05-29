@@ -80,7 +80,7 @@ func TestPersona_BrandNewBeginner(t *testing.T) {
 	mustContain(t, prompt, "USER_MEMORY")
 	mustContain(t, prompt, "Cá nhân hoá theo USER_MEMORY")
 	mustContain(t, prompt, "Callback xu hướng")
-	mustContain(t, prompt, "Pivot tránh angle user đã 👎")
+	mustContain(t, prompt, "Pivot 👎")
 }
 
 // --- Test 2: profile section formatting ------------------------------
@@ -210,7 +210,8 @@ func TestCoachPrompts_HaveMemoryGuidance(t *testing.T) {
 			mustContain(t, p, "USER_MEMORY")
 			mustContain(t, p, "## Cá nhân hoá theo USER_MEMORY")
 			mustContain(t, p, "Callback xu hướng")
-			mustContain(t, p, "USER_FEEDBACK_HISTORY")
+			mustContain(t, p, "Feedback summary")
+			mustContain(t, p, "Past AI feedback votes")
 			mustContain(t, p, "Routine adherence")
 			mustContain(t, p, "Older history")
 		})
@@ -221,8 +222,8 @@ func TestCoachPrompts_HaveMemoryGuidance(t *testing.T) {
 // semantics. If you change coachCorePromptVI materially, also bump
 // CoachDailyPromptVersion in coach_daily_version.go.
 func TestCoachPromptVersion(t *testing.T) {
-	if CoachDailyPromptVersion < 10 {
-		t.Fatalf("expected CoachDailyPromptVersion >= 10 (coach persona refresh), got %d", CoachDailyPromptVersion)
+	if CoachDailyPromptVersion < 12 {
+		t.Fatalf("expected CoachDailyPromptVersion >= 12 (adherence binding), got %d", CoachDailyPromptVersion)
 	}
 }
 

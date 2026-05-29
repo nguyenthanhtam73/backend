@@ -283,7 +283,7 @@ func inferSectionsFromText(text string) []string {
 	if strings.Contains(text, "## Feedback summary") || strings.Contains(text, "## Past AI feedback votes") {
 		sections = append(sections, "feedback")
 	}
-	if strings.Contains(text, "## Routine adherence") {
+	if strings.Contains(text, "## Routine adherence") || strings.Contains(text, "Routine adherence (IMPORTANT") {
 		sections = append(sections, "routine_adherence")
 	}
 	return sections
@@ -594,15 +594,34 @@ func buildRoutineCompletionSectionDbg(
 	tierShort := shortTierLabel(tier)
 
 	var b strings.Builder
-	b.WriteString("## Routine adherence\n")
+	b.WriteString("## Routine adherence (IMPORTANT — coach MUST mention & adjust routine_hints today)\n")
+	fmt.Fprintf(&b, "- COACH_ACTION: %s\n", adherenceCoachAction(stepRate, dayRate))
 	fmt.Fprintf(
 		&b,
-		"- Last %d days: steps %d/%d (%.0f%%) — %s; days with tick %d/%d (%.0f%%)\n",
+		"- Last %d days: completed %d/%d routine steps (%.0f%%); days with at least one tick %d/%d (%.0f%%)\n",
 		opts.RoutineWindowDays,
-		completedSteps, totalSteps, stepRate*100, tier,
+		completedSteps, totalSteps, stepRate*100,
 		daysWithAnyTick, daysWithEntry, dayRate*100,
 	)
 	return b.String(), tierShort
+}
+
+// adherenceCoachAction tells the model exactly how to react to the adherence block.
+func adherenceCoachAction(stepRate, dayRate float64) string {
+	_ = dayRate // reserved for future day-level nuance
+	switch {
+	case stepRate >= 0.75:
+		return "strong adherence — praise consistency in strengths; routine_hints may include one small upgrade (still ≤5 lines)"
+	case stepRate >= 0.4:
+		return "moderate adherence — acknowledge effort; do NOT add new steps vs a typical day; keep routine_hints doable"
+	case stepRate > 0:
+		return fmt.Sprintf(
+			"low adherence (%.0f%% steps) — MUST say routine has been hard to keep; cap routine_hints at 3 lines; simplify wording",
+			stepRate*100,
+		)
+	default:
+		return "no ticks in window — MUST encourage gently; routine_hints max 2 lines (1 AM + 1 PM); zero guilt"
+	}
 }
 
 // shortTierLabel collapses the long human-friendly tier description back to

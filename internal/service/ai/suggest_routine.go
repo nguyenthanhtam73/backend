@@ -80,14 +80,22 @@ func GenerateSuggestedRoutine(ctx context.Context, cfg *config.Config, in Sugges
 		if err != nil {
 			return zero, err
 		}
-		return parseSuggestedRoutine(text)
+		out, err := parseSuggestedRoutine(text)
+		if err == nil {
+			LogSuggestedRoutineOutput("", out)
+		}
+		return out, err
 	}
 
 	text, err := openai.ChatCompletionJSON(ctx, cfg, client, systemMsg, userMsg)
 	if err != nil {
 		return zero, err
 	}
-	return parseSuggestedRoutine(text)
+	out, err := parseSuggestedRoutine(text)
+	if err == nil {
+		LogSuggestedRoutineOutput("", out)
+	}
+	return out, err
 }
 
 func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
@@ -323,7 +331,11 @@ You receive: their saved SkinProfile (skin type, goal, concerns, skill level, re
 - Output language is dictated by the user message (vi or en). Translate copy fully; JSON keys stay English.
 
 ## Personalising via USER_MEMORY (CRITICAL)
-Whenever USER_MEMORY contains data, the **rationale** + **encouragement** + **week_notes** fields MUST reflect at least one of these signals (pick what fits, don't list them all):
+When USER_MEMORY is present (not "no saved memory yet"):
+- rationale MUST reference at least one signal from Recent SkinChecks or Feedback summary.
+- If 👎 reasons mention "quá mạnh" / "chung chung" / "quá nhiều bước" → adjust this routine (gentler, fewer steps, more specific step titles).
+- Match routine step count to adherence tier (low/none → 2–3 steps per side max).
+- Do NOT invent product names — generic roles only.
 
 - **Recent SkinChecks** (5–8 latest):
   * If today's tags echo a recent pattern → write rationale to acknowledge continuity ("vài lần gần đây bạn cũng ghi da khô — routine hôm nay tiếp tục focus giữ ẩm").

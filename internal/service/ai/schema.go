@@ -6,13 +6,14 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
 {
   "score": <number 0–1 — soft “how supported / on-track TODAY feels” from context + habits.
             NEVER a guilt, beauty, or moral grade. Avoid extreme 0/1 unless clearly justified.>,
-  "strengths": [<string> — 1–4 genuine praise bullets tied to TODAY (effort journaling, consistency,
-                 helpful photos, smart context, barrier care, sleep/hydration mentions).
-                 Beginner mode: 1–3. NEVER flattery about the user's appearance.>],
-  "situation_analysis": <string — 2–7 sentences (Beginner: 2–4) ONLY for TODAY.
-                         Merge VISION_SUMMARY_JSON (if any) + self-tags + notes + environment.
-                         Describe and gently infer. ZERO disease names, ZERO clinical diagnosis,
-                         ZERO comparison to "perfect skin". Acknowledge uncertainty when photo unclear.>,
+  "strengths": [<string> — 1–4 genuine praise bullets tied to TODAY effort (journaling, photos, context).
+                 When USER_MEMORY has ## Routine adherence, ≥1 bullet MUST acknowledge routine effort per COACH_ACTION
+                 (praise consistency / validate low ticks / encourage restart — never guilt).
+                 Beginner mode: 1–3. NEVER flattery about appearance.>],
+  "situation_analysis": <string — 2–7 sentences (Beginner: 2–4). Lead with TODAY skin + environment.
+                         When USER_MEMORY has ## Recent SkinChecks, include ≥1 history-callback sentence
+                         ("mấy lần gần đây…", "vài hôm trước…") comparing pattern to today.
+                         Merge vision + tags + notes. No diagnosis.>,
   "improvements": [
     {
       "tip": <string — ONE small actionable step for today or tonight. Generic product ROLE
@@ -23,8 +24,9 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
     }
     // 2–3 items for Beginner mode; 2–5 for Normal mode.
   ],
-  "routine_hints": [<string> — EVERY line MUST start with "Sáng:" or "Tối:" (VI) or "AM:" / "PM:" (EN)
-                     followed by the micro-tweak. No bare lines. Beginner: 2–4 total; Normal: 3–6 total.>],
+  "routine_hints": [<string> — EVERY line MUST start with "Sáng:" or "Tối:" (VI) or "AM:" / "PM:" (EN).
+                     When USER_MEMORY ## Routine adherence COACH_ACTION says low/none: cap at 2–3 lines total.
+                     Beginner: 2–4 total; Normal: 3–6 total.>],
   "avoid_or_patch": [<string> — what to ease off / patch-test / not stack today.
                       Always include a patch-test reminder when user mentions any new product.>],
   "safety_reminders": [<string> — SPF reapply habit, one-change-at-a-time rule, when to seek
