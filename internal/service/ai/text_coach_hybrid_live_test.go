@@ -2,10 +2,13 @@ package ai
 
 import (
 	"context"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
 )
+
+const hybridLiveTestTimeout = 45 * time.Second
 
 // TestTextCoachHybridLive verifies TextCoachCompletion against real APIs.
 // Requires DADIARY_ANTHROPIC_API_KEY and/or DADIARY_OPENAI_API_KEY in .env.
@@ -15,13 +18,15 @@ func TestTextCoachHybridLive(t *testing.T) {
 		t.Skip("set DADIARY_ANTHROPIC_API_KEY or DADIARY_OPENAI_API_KEY")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), hybridLiveTestTimeout)
 	defer cancel()
 
-	system := "You are a test assistant. Reply with exactly: {\"provider_check\":\"ok\"}"
-	user := "Return the JSON now."
+	client := &http.Client{Timeout: hybridLiveTestTimeout}
 
-	res, err := TextCoachCompletion(ctx, cfg, nil, "hybrid-live-test", system, user)
+	system := "Reply JSON only."
+	user := `{"provider_check":"ok"}`
+
+	res, err := TextCoachCompletion(ctx, cfg, client, "hybrid-live-test", system, user)
 	if err != nil {
 		t.Fatal(err)
 	}
