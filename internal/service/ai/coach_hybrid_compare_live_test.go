@@ -15,6 +15,9 @@ import (
 //
 // Run: go test ./internal/service/ai/... -run TestCoachHybridPersonaCompare -v -count=1 -timeout 25m
 func TestCoachHybridPersonaCompare(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping live A/B compare test in short mode")
+	}
 	cfg := loadCoachTestConfig(t)
 	if !cfg.HasAnthropicKey() || !cfg.HasOpenAIKey() {
 		t.Skip("set both DADIARY_ANTHROPIC_API_KEY and DADIARY_OPENAI_API_KEY for A/B compare")

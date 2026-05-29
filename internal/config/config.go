@@ -49,10 +49,11 @@ type OpenAIConfig struct {
 }
 
 // AnthropicConfig is the **primary** text coach (daily feedback, routine suggest, starter routine).
-// Vision stays on OpenAI. On Claude error, TextCoachCompletion falls back to OpenAI text model.
+// Vision stays on OpenAI. On Claude error/timeout, TextCoachCompletion falls back to OpenAI text model.
 type AnthropicConfig struct {
 	APIKey string `mapstructure:"api_key"`
-	// Model e.g. claude-sonnet-4-6 (default), claude-haiku-4-5-20251001
+	// Model — recommended Sonnet IDs (override via DADIARY_ANTHROPIC_MODEL):
+	//   claude-sonnet-4-6 (default), claude-sonnet-4-20250514, claude-3-5-sonnet-20241022 (may 404 on some keys)
 	Model string `mapstructure:"model"`
 }
 

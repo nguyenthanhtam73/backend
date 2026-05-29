@@ -31,7 +31,15 @@
 // Vision / photos (OpenAI):
 //   - Onboarding skin analyze, skin-check observation pass (onboarding_skin.go, vision_openai.go).
 //
-// Environment: DADIARY_OPENAI_* (vision + text fallback), DADIARY_ANTHROPIC_* (text coach primary).
+// Environment:
+//   DADIARY_OPENAI_API_KEY          — vision + text fallback (required for photos)
+//   DADIARY_OPENAI_MODEL            — text fallback model (default gpt-4o)
+//   DADIARY_OPENAI_VISION_MODEL     — vision/moderation model (default gpt-4o; gpt-4o-mini ok)
+//   DADIARY_ANTHROPIC_API_KEY       — text coach primary (recommended)
+//   DADIARY_ANTHROPIC_MODEL         — Claude Sonnet ID (default claude-sonnet-4-6)
+//
+// Logs (slog Info): "Using Claude for text coaching", "Fallback to GPT-4o for text coaching",
+// "Using OpenAI for vision".
 // Prompts: coach personas + skill routing in coach_prompt.go (GetCoachPrompt, ResolveCoachSkillLevel);
 // Claude-specific stubs and other prompts in prompts_claude.go, prompts_onboarding.go, schema.go.
 package ai

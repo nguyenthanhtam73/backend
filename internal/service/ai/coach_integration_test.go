@@ -16,6 +16,9 @@ import (
 //
 // Run: go test ./internal/service/ai/... -run TestCoachPersonaLive -v -count=1
 func TestCoachPersonaLive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping live coach persona test in short mode")
+	}
 	cfg := loadCoachTestConfig(t)
 	if strings.TrimSpace(cfg.Anthropic.APIKey) == "" && strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
 		t.Skip("set DADIARY_ANTHROPIC_API_KEY or DADIARY_OPENAI_API_KEY to run live coach tests")

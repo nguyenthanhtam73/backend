@@ -52,41 +52,47 @@ func TextCoachCompletion(
 	claudeKey := strings.TrimSpace(cfg.Anthropic.APIKey)
 	openAIKey := strings.TrimSpace(cfg.OpenAI.APIKey)
 
+	var claudeErr error
 	if claudeKey != "" {
 		text, err := AnthropicMessages(ctx, cfg, httpClient, system, user)
 		if err == nil && strings.TrimSpace(text) != "" {
-			return TextCoachResult{
+			res := TextCoachResult{
 				Text:     text,
 				Provider: TextCoachProviderClaude,
 				Model:    cfg.AnthropicModel(),
-			}, nil
+			}
+			logTextCoachSelection(pipeline, res, nil)
+			return res, nil
 		}
-		if err != nil {
-			slog.Warn("text coach: claude failed, trying openai fallback",
+		claudeErr = err
+		if claudeErr != nil {
+			slog.Warn("text coach: claude unavailable, will try openai fallback",
 				"pipeline", pipeline,
 				"model", cfg.AnthropicModel(),
-				"err", err,
+				"err", claudeErr,
+			)
+		} else {
+			claudeErr = fmt.Errorf("empty response")
+			slog.Warn("text coach: claude returned empty, will try openai fallback",
+				"pipeline", pipeline,
+				"model", cfg.AnthropicModel(),
 			)
 		}
 		if openAIKey == "" {
-			if err != nil {
-				return TextCoachResult{}, fmt.Errorf("text coach (%s): claude failed and openai key missing: %w", pipeline, err)
-			}
-			return TextCoachResult{}, fmt.Errorf("text coach (%s): claude returned empty and openai key missing", pipeline)
+			return TextCoachResult{}, fmt.Errorf("text coach (%s): claude failed and openai key missing: %w", pipeline, claudeErr)
 		}
 		text, oErr := openai.ChatCompletionJSON(ctx, cfg, httpClient, system, user)
 		if oErr != nil {
-			if err != nil {
-				return TextCoachResult{}, fmt.Errorf("text coach (%s): claude: %v; openai fallback: %w", pipeline, err, oErr)
-			}
-			return TextCoachResult{}, fmt.Errorf("text coach (%s): openai fallback: %w", pipeline, oErr)
+			return TextCoachResult{}, fmt.Errorf("text coach (%s): claude: %v; openai fallback: %w", pipeline, claudeErr, oErr)
 		}
-		return TextCoachResult{
+		res := TextCoachResult{
 			Text:     text,
 			Provider: TextCoachProviderOpenAI,
 			Model:    cfg.OpenAITextModel(),
 			Fallback: true,
-		}, nil
+		}
+		logTextCoachSelection(pipeline, res, claudeErr)
+		return res, nil
 	}
 
 	if openAIKey == "" {
@@ -97,11 +103,13 @@ func TextCoachCompletion(
 	if err != nil {
 		return TextCoachResult{}, fmt.Errorf("text coach (%s): openai: %w", pipeline, err)
 	}
-	return TextCoachResult{
+	res := TextCoachResult{
 		Text:     text,
 		Provider: TextCoachProviderOpenAI,
 		Model:    cfg.OpenAITextModel(),
-	}, nil
+	}
+	logTextCoachSelection(pipeline, res, nil)
+	return res, nil
 }
 
 func defaultTextCoachHTTPClient() *http.Client {

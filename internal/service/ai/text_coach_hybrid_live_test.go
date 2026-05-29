@@ -13,6 +13,9 @@ const hybridLiveTestTimeout = 45 * time.Second
 // TestTextCoachHybridLive verifies TextCoachCompletion against real APIs.
 // Requires DADIARY_ANTHROPIC_API_KEY and/or DADIARY_OPENAI_API_KEY in .env.
 func TestTextCoachHybridLive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping hybrid live smoke test in short mode")
+	}
 	cfg := loadCoachTestConfig(t)
 	if !cfg.HasAnthropicKey() && !cfg.HasOpenAIKey() {
 		t.Skip("set DADIARY_ANTHROPIC_API_KEY or DADIARY_OPENAI_API_KEY")

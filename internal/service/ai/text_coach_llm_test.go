@@ -42,6 +42,36 @@ func TestTextCoachCompletion_OpenAIOnly(t *testing.T) {
 	}
 }
 
+func TestTextCoachCompletion_ClaudeSuccess(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/messages" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"{\"provider\":\"claude\"}"}]}`))
+	}))
+	defer srv.Close()
+
+	prevAnthropic := anthropicMessagesURL
+	anthropicMessagesURL = srv.URL + "/v1/messages"
+	defer func() { anthropicMessagesURL = prevAnthropic }()
+
+	cfg := &config.Config{
+		Anthropic: config.AnthropicConfig{APIKey: "sk-ant-test", Model: "claude-sonnet-4-20250514"},
+		OpenAI:    config.OpenAIConfig{APIKey: "sk-test", Model: "gpt-4o"},
+	}
+	res, err := TextCoachCompletion(context.Background(), cfg, srv.Client(), "test", "sys", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Provider != TextCoachProviderClaude || res.Fallback {
+		t.Fatalf("provider=%q fallback=%v", res.Provider, res.Fallback)
+	}
+	if res.Model != "claude-sonnet-4-20250514" {
+		t.Fatalf("model=%q", res.Model)
+	}
+}
+
 func TestTextCoachCompletion_ClaudeThenOpenAIFallback(t *testing.T) {
 	var hits []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +111,40 @@ func TestTextCoachCompletion_ClaudeThenOpenAIFallback(t *testing.T) {
 	}
 	if !strings.Contains(res.Text, "gpt") {
 		t.Fatalf("text=%q", res.Text)
+	}
+}
+
+func TestTextCoachCompletion_ClaudeTimeoutFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/messages":
+			w.WriteHeader(http.StatusGatewayTimeout)
+			_, _ = w.Write([]byte(`{"error":"timeout"}`))
+		case "/v1/chat/completions":
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"from\":\"gpt-fallback\"}"}}]}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	prevAnthropic := anthropicMessagesURL
+	anthropicMessagesURL = srv.URL + "/v1/messages"
+	defer func() { anthropicMessagesURL = prevAnthropic }()
+	restore := openai.SetChatCompletionsURLForTest(srv.URL + "/v1/chat/completions")
+	defer restore()
+
+	cfg := &config.Config{
+		Anthropic: config.AnthropicConfig{APIKey: "sk-ant-test", Model: "claude-sonnet-4-20250514"},
+		OpenAI:    config.OpenAIConfig{APIKey: "sk-test", Model: "gpt-4o"},
+	}
+	res, err := TextCoachCompletion(context.Background(), cfg, srv.Client(), "daily-feedback", "sys", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Fallback || res.Provider != TextCoachProviderOpenAI {
+		t.Fatalf("provider=%q fallback=%v", res.Provider, res.Fallback)
 	}
 }
 

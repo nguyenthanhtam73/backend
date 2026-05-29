@@ -24,13 +24,8 @@ func VisionObservationPass(ctx context.Context, cfg *config.Config, httpClient *
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 4 * time.Minute}
 	}
-	model := strings.TrimSpace(cfg.OpenAI.VisionModel)
-	if model == "" {
-		model = strings.TrimSpace(cfg.OpenAI.Model)
-	}
-	if model == "" {
-		model = "gpt-4o"
-	}
+	model := cfg.OpenAIVisionModel()
+	logVisionModelSelection("vision-observation", model)
 	userText := VisionObservationSchemaBlock + "\n\nThe images are user skin check-in photo(s)."
 	parts := []map[string]any{
 		{"type": "text", "text": userText},
