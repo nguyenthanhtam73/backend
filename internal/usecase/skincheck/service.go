@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path"
 	"strings"
 	"time"
@@ -161,10 +162,16 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 	if s.analyzer != nil {
 		aiCtx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
 		defer cancel()
-		_ = s.analyzer.Process(aiCtx, check.ID)
+		if procErr := s.analyzer.Process(aiCtx, check.ID); procErr != nil {
+			slog.Warn("skin-check: analysis pipeline failed", "check_id", check.ID, "err", procErr)
+		}
 	}
 
-	reloaded, err := s.checks.GetByID(ctx, check.ID)
+	// Reload with a detached ctx — the HTTP client may disconnect while AI runs, which
+	// cancels Fiber's UserContext even though Process finished successfully.
+	reloadCtx, reloadCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer reloadCancel()
+	reloaded, err := s.checks.GetByID(reloadCtx, check.ID)
 	if err != nil || reloaded == nil {
 		return zero, fmt.Errorf("%w: reload skin check after analysis", ErrDatabase)
 	}

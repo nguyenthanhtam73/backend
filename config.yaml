@@ -3,8 +3,9 @@ env: development
 
 http:
   port: 8080
-  read_timeout: 15s
-  write_timeout: 15s
+  # Skin-check AI (vision + coach) holds the response open for minutes.
+  read_timeout: 2m
+  write_timeout: 12m
 
 database:
   # Overridden by DADIARY_DATABASE_URL when set

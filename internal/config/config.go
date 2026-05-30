@@ -84,7 +84,9 @@ type JWTConfig struct {
 
 // Load reads config from optional .env (repo root), config.yaml, and DADIARY_* env vars.
 func Load(relativeEnvPath string) (*Config, error) {
-	_ = godotenv.Load(relativeEnvPath) // optional; ignore missing file
+	// Optional; ignore missing files. Try CWD and repo root (when `go run` from backend/).
+	_ = godotenv.Load(relativeEnvPath)
+	_ = godotenv.Load("../.env")
 
 	v := viper.New()
 	v.SetConfigName("config")
@@ -99,6 +101,8 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("database.url", "DADIARY_DATABASE_URL")
 	_ = v.BindEnv("jwt.secret", "DADIARY_JWT_SECRET")
 	_ = v.BindEnv("http.port", "DADIARY_HTTP_PORT")
+	_ = v.BindEnv("http.read_timeout", "DADIARY_HTTP_READ_TIMEOUT")
+	_ = v.BindEnv("http.write_timeout", "DADIARY_HTTP_WRITE_TIMEOUT")
 	_ = v.BindEnv("openai.api_key", "DADIARY_OPENAI_API_KEY")
 	_ = v.BindEnv("openai.model", "DADIARY_OPENAI_MODEL")
 	_ = v.BindEnv("openai.vision_model", "DADIARY_OPENAI_VISION_MODEL")
