@@ -62,7 +62,7 @@ func NewService(
 	}
 }
 
-// Create runs moderation, persists SkinCheck + pending SkinAnalysis, runs AI synchronously, then returns the saved check with coach feedback.
+// Create runs moderation, persists SkinCheck + pending SkinAnalysis, enqueues AI in the background, and returns immediately so the client can poll GET /skin-checks/:id.
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) (dto.CreateSkinCheckResponse, error) {
 	var zero dto.CreateSkinCheckResponse
 	if s == nil || s.checks == nil {
@@ -157,19 +157,13 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		publicURLs = append(publicURLs, "/"+clean)
 	}
 
-	// Synchronous AI so the client receives coach JSON in the same response (daily check-in core loop).
-	// Detached timeout: do not tie to Fiber's request deadline (often too short for vision + Claude).
 	if s.analyzer != nil {
-		aiCtx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
-		defer cancel()
-		if procErr := s.analyzer.Process(aiCtx, check.ID); procErr != nil {
-			slog.Warn("skin-check: analysis pipeline failed", "check_id", check.ID, "err", procErr)
-		}
+		s.analyzer.EnqueueAnalysis(check.ID)
+	} else {
+		slog.Warn("skin-check: analysis service not configured", "check_id", check.ID)
 	}
 
-	// Reload with a detached ctx — the HTTP client may disconnect while AI runs, which
-	// cancels Fiber's UserContext even though Process finished successfully.
-	reloadCtx, reloadCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	reloadCtx, reloadCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer reloadCancel()
 	reloaded, err := s.checks.GetByID(reloadCtx, check.ID)
 	if err != nil || reloaded == nil {

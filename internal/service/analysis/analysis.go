@@ -1,5 +1,5 @@
 // Package analysis runs the skin-check AI pipeline and persists SkinAnalysis rows.
-// skincheck.Service calls Process synchronously before HTTP returns so clients get coach JSON immediately.
+// skincheck.Service enqueues Process in the background; clients poll GET /skin-checks/:id for results.
 // It loads SkinProfile (when repo is wired) so Claude/GPT personalize feedback with long-term skin type, undertone, and onboarding goals.
 // Preferred path: GPT vision (observations only) → Anthropic Claude (structured coach JSON).
 // Fallback: single GPT multimodal call when DADIARY_ANTHROPIC_API_KEY is not set.
@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -18,6 +19,16 @@ import (
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/google/uuid"
+)
+
+const (
+	// analysisJobTimeout caps total wall time for one skin-check AI job (vision + coach).
+	analysisJobTimeout = 4 * time.Minute
+	// analysisHTTPTimeout caps each outbound LLM HTTP call so one slow provider cannot block for many minutes.
+	analysisHTTPTimeout = 2 * time.Minute
+	// staleAnalysisAge marks pending/processing rows as failed when polled after the job should have finished.
+	staleAnalysisAge = analysisJobTimeout + 30*time.Second
+	staleFailedMessage = "Analysis timed out. Please try submitting again."
 )
 
 // Service runs the skin-check AI pipeline (optionally enriched with SkinProfile for personalization).
@@ -61,7 +72,7 @@ func New(
 		routines: routines,
 		cache:    cache,
 		httpClient: &http.Client{
-			Timeout: 8 * time.Minute,
+			Timeout: analysisHTTPTimeout,
 		},
 	}
 }
@@ -72,10 +83,36 @@ func (s *Service) EnqueueAnalysis(skinCheckID uuid.UUID) {
 		return
 	}
 	go func(id uuid.UUID) {
-		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), analysisJobTimeout)
 		defer cancel()
-		_ = s.Process(ctx, id)
+		if err := s.Process(ctx, id); err != nil {
+			slog.Warn("skin-check: background analysis failed", "check_id", id, "err", err)
+		}
 	}(skinCheckID)
+}
+
+// ExpireStaleAnalysis marks long-running pending/processing rows as failed so clients stop polling forever.
+// Returns true when the row was updated.
+func ExpireStaleAnalysis(ctx context.Context, checks *repository.GormSkinCheckRepository, a *domain.SkinAnalysis) bool {
+	if checks == nil || a == nil {
+		return false
+	}
+	if a.Status != domain.AnalysisStatusPending && a.Status != domain.AnalysisStatusProcessing {
+		return false
+	}
+	ref := a.UpdatedAt
+	if ref.IsZero() {
+		ref = a.CreatedAt
+	}
+	if time.Since(ref) < staleAnalysisAge {
+		return false
+	}
+	a.Status = domain.AnalysisStatusFailed
+	a.ErrorMessage = staleFailedMessage
+	if err := checks.SaveAnalysis(ctx, a); err != nil {
+		return false
+	}
+	return true
 }
 
 // Process loads images, runs the AI coach pipeline, and saves structured fields to SkinAnalysis.
@@ -146,7 +183,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 
 	a2, err := s.checks.GetByID(ctx, skinCheckID)
 	if err != nil || a2 == nil || a2.Analysis == nil {
-		return err
+		return s.failWithMessage(ctx, skinCheckID, "could not reload analysis after coach run")
 	}
 	up := a2.Analysis
 
@@ -196,7 +233,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	up.ErrorMessage = ""
 
 	if err := s.checks.SaveAnalysis(ctx, up); err != nil {
-		return err
+		return s.failWithMessage(ctx, skinCheckID, "could not save completed analysis")
 	}
 	// Fresh analysis row → next AI call (Routine Suggest, Daily Feedback,
 	// or /me/memory) should see it. Busting now keeps the cache honest
@@ -205,8 +242,10 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	return nil
 }
 
-func (s *Service) failWithMessage(ctx context.Context, skinCheckID uuid.UUID, msg string) error {
-	o, err := s.checks.GetByID(ctx, skinCheckID)
+func (s *Service) failWithMessage(_ context.Context, skinCheckID uuid.UUID, msg string) error {
+	saveCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	o, err := s.checks.GetByID(saveCtx, skinCheckID)
 	if err != nil {
 		return err
 	}
@@ -216,5 +255,8 @@ func (s *Service) failWithMessage(ctx context.Context, skinCheckID uuid.UUID, ms
 	a := o.Analysis
 	a.Status = domain.AnalysisStatusFailed
 	a.ErrorMessage = msg
-	return s.checks.SaveAnalysis(ctx, a)
+	if err := s.checks.SaveAnalysis(saveCtx, a); err != nil {
+		return fmt.Errorf("%s (save failed: %v)", msg, err)
+	}
+	return fmt.Errorf("%s", msg)
 }

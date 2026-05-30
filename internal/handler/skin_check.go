@@ -16,6 +16,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/service/analysis"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
@@ -172,6 +173,9 @@ func (h *SkinCheckHandler) Get(c *fiber.Ctx) error {
 	}
 	if check == nil {
 		return response.Error(c, fiber.StatusNotFound, "not_found", "skin check not found")
+	}
+	if check.Analysis != nil {
+		analysis.ExpireStaleAnalysis(c.UserContext(), h.repo, check.Analysis)
 	}
 
 	publicURLs := buildPublicImageURLs(check.ImageURLs)
