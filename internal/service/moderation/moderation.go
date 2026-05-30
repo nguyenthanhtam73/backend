@@ -34,6 +34,9 @@ func New(cfg *config.Config) *Service {
 }
 
 // CheckSkinContent runs omni moderation on free-form text and each local image file.
+//
+// OpenAI omni-moderation accepts at most one image per request, so we send text
+// alone (when present) and then one request per photo instead of batching images.
 func (s *Service) CheckSkinContent(ctx context.Context, text string, imagePaths []string) error {
 	if s == nil || s.cfg == nil {
 		return fmt.Errorf("moderation: not configured")
@@ -45,42 +48,59 @@ func (s *Service) CheckSkinContent(ctx context.Context, text string, imagePaths 
 		return fmt.Errorf("moderation requires DADIARY_OPENAI_API_KEY or set DADIARY_MODERATION_SKIP=true for local dev")
 	}
 
-	parts := make([]map[string]any, 0, 1+len(imagePaths))
 	combined := strings.TrimSpace(text)
+	if combined == "" && len(imagePaths) == 0 {
+		return fmt.Errorf("nothing to moderate")
+	}
+
 	if combined != "" {
-		parts = append(parts, map[string]any{
-			"type": "text",
-			"text": combined,
-		})
+		if err := s.moderateInput(ctx, []map[string]any{
+			{"type": "text", "text": combined},
+		}); err != nil {
+			return err
+		}
 	}
 
 	for _, p := range imagePaths {
-		abs, err := filepath.Abs(p)
+		part, err := imageModerationPart(p)
 		if err != nil {
-			return fmt.Errorf("moderation image path: %w", err)
+			return err
 		}
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			return fmt.Errorf("read image for moderation: %w", err)
+		if err := s.moderateInput(ctx, []map[string]any{part}); err != nil {
+			return err
 		}
-		head := data
-		if len(head) > 512 {
-			head = head[:512]
-		}
-		mime := http.DetectContentType(head)
-		if !strings.HasPrefix(mime, "image/") {
-			return fmt.Errorf("file is not an image: %s", mime)
-		}
-		b64 := base64.StdEncoding.EncodeToString(data)
-		url := fmt.Sprintf("data:%s;base64,%s", mime, b64)
-		parts = append(parts, map[string]any{
-			"type": "image_url",
-			"image_url": map[string]any{
-				"url": url,
-			},
-		})
 	}
+	return nil
+}
 
+func imageModerationPart(path string) (map[string]any, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("moderation image path: %w", err)
+	}
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, fmt.Errorf("read image for moderation: %w", err)
+	}
+	head := data
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	mime := http.DetectContentType(head)
+	if !strings.HasPrefix(mime, "image/") {
+		return nil, fmt.Errorf("file is not an image: %s", mime)
+	}
+	b64 := base64.StdEncoding.EncodeToString(data)
+	url := fmt.Sprintf("data:%s;base64,%s", mime, b64)
+	return map[string]any{
+		"type": "image_url",
+		"image_url": map[string]any{
+			"url": url,
+		},
+	}, nil
+}
+
+func (s *Service) moderateInput(ctx context.Context, parts []map[string]any) error {
 	if len(parts) == 0 {
 		return fmt.Errorf("nothing to moderate")
 	}
