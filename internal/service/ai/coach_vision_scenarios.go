@@ -17,7 +17,7 @@ type VisionCoachScenario struct {
 	WantCues    []string
 }
 
-// VisionCoachScenarios returns 6 photo-backed coach scenarios for v18 QA.
+// VisionCoachScenarios returns 6 photo-backed coach scenarios for v19 QA.
 func VisionCoachScenarios() []VisionCoachScenario {
 	return []VisionCoachScenario{
 		scenarioOilyAcneVision(),
@@ -26,6 +26,14 @@ func VisionCoachScenarios() []VisionCoachScenario {
 		scenarioComboBarrierVision(),
 		scenarioSevereAcneVision(),
 		scenarioMelasmaVision(),
+	}
+}
+
+// UserPhotoCoachScenarios returns 2 cheek-focused fixtures mirroring recent user check-in photos.
+func UserPhotoCoachScenarios() []VisionCoachScenario {
+	return []VisionCoachScenario{
+		scenarioUserCheekCloseup(),
+		scenarioUserCheekNearEar(),
 	}
 }
 
@@ -199,5 +207,57 @@ func scenarioMelasmaVision() VisionCoachScenario {
 		VisionJSON:  vision,
 		WantRegions: []string{"má", "cheek", "trán", "mũi"},
 		WantCues:    []string{"nám", "thâm", "brown", "patch", "dầu", "tone"},
+	}
+}
+
+func scenarioUserCheekCloseup() VisionCoachScenario {
+	p := personaIntermediateCombo()
+	p.TodayCheck.UserNote = "Chụp cận vùng má — thấy lỗ chân lông và vài chấm thâm nhỏ, da hơi hồng."
+	vision := `{
+  "photo_assessment": {"lighting": "indoor warm light, close-up crop", "angle_clarity": "left cheek apple fills frame, pores visible", "limitations": "single cheek crop — cannot assess full-face pattern"},
+  "visible_observations": [
+    "left cheek apple shows enlarged pores across central cheek area",
+    "2-3 small flat brown post-inflammatory spots on lower cheek apple",
+    "mild pink tone on cheek apple — not widespread facial redness",
+    "skin surface looks slightly rough with uneven micro-texture on cheek",
+    "cheek appears matte-dull with low natural glow (slightly xỉn)"
+  ],
+  "texture_and_oil_cues": "low surface oil on cheek crop; texture slightly rough with visible pores",
+  "redness_or_discoloration_cues": "mild pink on cheek apple; small brown PIH macules; no active red inflamed papules",
+  "uncertainty_note": "close-up only — cannot compare to T-zone or other facial zones in this photo"
+}`
+	return VisionCoachScenario{
+		ID:          "user_cheek_closeup",
+		Label:       "User photo — cận vùng má",
+		Persona:     p,
+		VisionJSON:  vision,
+		WantRegions: []string{"má", "cheek", "gò má"},
+		WantCues:    []string{"lỗ chân lông", "thâm", "đỏ", "xỉn", "texture", "pore"},
+	}
+}
+
+func scenarioUserCheekNearEar() VisionCoachScenario {
+	p := personaBeginnerOily()
+	p.TodayCheck.UserNote = "Vùng má gần tai hơi sần, có vài chấm nhỏ và khô nhẹ sát chân tóc."
+	vision := `{
+  "photo_assessment": {"lighting": "bathroom mirror light", "angle_clarity": "preauricular cheek and temple hairline visible", "limitations": "hairline border may cast shadow on upper cheek"},
+  "visible_observations": [
+    "preauricular cheek (near ear) shows slightly rough texture with small bumps",
+    "3-4 tiny closed comedones scattered near temple hairline border",
+    "mild dryness/flaking at hairline edge where cheek meets temple",
+    "visible pores enlarged in preauricular cheek zone",
+    "cheek near ear slightly more pink than center cheek in photo"
+  ],
+  "texture_and_oil_cues": "combo — slightly oily sheen near temple but dry-flaky at hairline edge",
+  "redness_or_discoloration_cues": "mild pink tone on preauricular cheek; no deep erythema",
+  "uncertainty_note": "hairline proximity may exaggerate dryness cues — cannot confirm severity clinically"
+}`
+	return VisionCoachScenario{
+		ID:          "user_cheek_near_ear",
+		Label:       "User photo — má gần tai",
+		Persona:     p,
+		VisionJSON:  vision,
+		WantRegions: []string{"má", "gần tai", "tai", "thái dương", "hairline", "cheek"},
+		WantCues:    []string{"sần", "mụn", "khô", "vảy", "lỗ chân lông", "đỏ", "texture"},
 	}
 }

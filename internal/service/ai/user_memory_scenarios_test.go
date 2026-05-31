@@ -220,8 +220,8 @@ func TestCoachPrompts_HaveMemoryGuidance(t *testing.T) {
 // semantics. If you change coachCorePromptVI materially, also bump
 // CoachDailyPromptVersion in coach_daily_version.go.
 func TestCoachPromptVersion(t *testing.T) {
-	if CoachDailyPromptVersion < 18 {
-		t.Fatalf("expected CoachDailyPromptVersion >= 18 (balanced warmth v18), got %d", CoachDailyPromptVersion)
+	if CoachDailyPromptVersion < 19 {
+		t.Fatalf("expected CoachDailyPromptVersion >= 19 (specific vision v19), got %d", CoachDailyPromptVersion)
 	}
 }
 

@@ -58,7 +58,12 @@ func RunSkinCheckCoach(
 		visionStatus = "no_openai_key"
 	}
 
-	userMsg := buildSkinCheckCoachUserMessage(check, profile, userMemory, visionRaw, visionStatus)
+	fullCtx := BuildDailyCheckInCoachContext(check, profile)
+	if s := strings.TrimSpace(userMemory); s != "" {
+		fullCtx += "\n" + s
+	}
+
+	userMsg := buildSkinCheckCoachUserMessage(check, profile, userMemory, visionRaw, visionStatus, fullCtx)
 	coachResult, cErr := TextCoachCompletion(ctx, cfg, httpClient, "skin-check", system, userMsg)
 	if cErr != nil {
 		return nil, "", cErr
@@ -68,9 +73,9 @@ func RunSkinCheckCoach(
 	if pErr != nil {
 		return nil, "", pErr
 	}
-	if visionStatus == "ok" && needsVisionDetailRetry(visionRaw, parsed) {
+	if visionStatus == "ok" && needsCoachOutputRetry(visionRaw, fullCtx, parsed) {
 		retryBody := userMsg + fmt.Sprintf(
-			"\n\nVALIDATION FAILED: Regenerate the FULL JSON. Requirements: (1) ≥%d photo-specific details woven naturally (region+cue, e.g. T-zone bóng dầu, 4-5 nốt đỏ cằm, lỗ chân lông mũi to, má xỉn); (2) open situation_analysis with \"Mình thấy…\" / \"Hôm nay da bạn…\"; (3) history callback if memory present; (4) NO report tone, NO numbered lists, NO vague \"da hơi khô\" without region.\n",
+			"\n\nVALIDATION FAILED: Regenerate the FULL JSON. Requirements: (1) ≥%d photo-specific details (region+cue, e.g. vùng má lỗ chân lông to, 2-3 chấm thâm, da hồng nhẹ, texture sần); (2) open with \"Mình thấy hôm nay…\" / \"Trên ảnh mình thấy…\" / \"Vùng … của bạn…\"; (3) history callback if ## Recent SkinChecks present; (4) concrete tips (step+region+role) — NO \"sản phẩm nhẹ nhàng\"; (5) warm opener/closing; NO report tone or vague phrases.\n",
 			MinVisionDetailCitations,
 		)
 		if retryResult, retryErr := TextCoachCompletion(ctx, cfg, httpClient, "skin-check-retry", system, retryBody); retryErr == nil {
@@ -98,11 +103,13 @@ func RunSkinCheckCoach(
 func buildSkinCheckCoachUserMessage(
 	check *domain.SkinCheck,
 	profile *domain.SkinProfile,
-	userMemory, visionRaw, visionStatus string,
+	userMemory, visionRaw, visionStatus, fullCtx string,
 ) string {
-	fullCtx := BuildDailyCheckInCoachContext(check, profile)
-	if s := strings.TrimSpace(userMemory); s != "" {
-		fullCtx += "\n" + s
+	if strings.TrimSpace(fullCtx) == "" {
+		fullCtx = BuildDailyCheckInCoachContext(check, profile)
+		if s := strings.TrimSpace(userMemory); s != "" {
+			fullCtx += "\n" + s
+		}
 	}
 
 	var userMsg strings.Builder

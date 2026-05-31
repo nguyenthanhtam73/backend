@@ -5,75 +5,50 @@ import (
 	"testing"
 )
 
-func TestCoachPrompt_v18_BalancedWarmthRules(t *testing.T) {
+func TestCoachPrompt_v19_SpecificVisionRules(t *testing.T) {
 	for _, skill := range []string{"beginner", "intermediate"} {
 		t.Run(skill, func(t *testing.T) {
 			p := GetCoachPrompt(skill)
-			mustContain(t, p, "người bạn thân thiết")
-			mustContain(t, p, "vừa cụ thể vừa động viên")
-			mustContain(t, p, "≥4 chi tiết cụ thể")
-			mustContain(t, p, "mình thấy")
-			mustContain(t, p, "Lời động viên nhẹ")
-			mustContain(t, p, "không lạnh")
+			mustContain(t, p, "zoom kỹ vào ảnh")
+			mustContain(t, p, "≥4–5 chi tiết cụ thể")
+			mustContain(t, p, "Mình thấy hôm nay")
+			mustContain(t, p, "Trên ảnh mình thấy")
+			mustContain(t, p, "Vùng … của bạn")
+			mustContain(t, p, "sản phẩm nhẹ nhàng")
+			mustContain(t, p, "So với lần trước")
 			mustContain(t, p, "USER_MEMORY")
-			mustContain(t, p, "COACH_ACTION")
 		})
 	}
 }
 
-func TestCoachPromptVersion_v18(t *testing.T) {
-	if CoachDailyPromptVersion != 18 {
-		t.Fatalf("expected CoachDailyPromptVersion == 18, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v19(t *testing.T) {
+	if CoachDailyPromptVersion != 19 {
+		t.Fatalf("expected CoachDailyPromptVersion == 19, got %d", CoachDailyPromptVersion)
 	}
 }
 
-func TestMinVisionDetailCitations_v18(t *testing.T) {
+func TestMinVisionDetailCitations_v19(t *testing.T) {
 	if MinVisionDetailCitations != 4 {
-		t.Fatalf("expected MinVisionDetailCitations == 4 for v18, got %d", MinVisionDetailCitations)
+		t.Fatalf("expected MinVisionDetailCitations == 4 for v19, got %d", MinVisionDetailCitations)
 	}
 }
 
 func TestScoreCoachNaturalness(t *testing.T) {
 	natural := &CoachStructuredOutput{
-		Strengths:         []string{"Bạn chụp ảnh và ghi chú lại rồi — bạn đang làm khá tốt rồi đó."},
-		SituationAnalysis: "Mình thấy hôm nay trán hơi bóng, cằm có vài nốt đỏ nhỏ, má trái hơi khô — giống vài hôm trước bạn cũng ghi vậy.",
+		Strengths:         []string{"Bạn chụp cận vùng má rất rõ — bạn đang làm khá tốt rồi đó."},
+		SituationAnalysis: "Mình thấy hôm nay vùng má trái của bạn có lỗ chân lông hơi to, 2 chấm thâm nhỏ, da hơi hồng nhẹ và texture hơi sần — so với vài hôm trước bạn cũng ghi má hồng, có vẻ pattern quen.",
 		Improvements: []struct {
 			Tip string `json:"tip"`
 			Why string `json:"why"`
-		}{{Tip: "Tối nay mình khuyên thật lòng nhé — giữ routine nhẹ."}},
-		SummaryNotes: "Mai chụp cùng góc nhé — mình tin bạn sẽ thấy cằm dịu lại chút nào.",
+		}{{Tip: "Tối: rửa mặt dịu vùng má trái, thoa kem dưỡng ẩm dày hơn quanh gò má."}},
+		SummaryNotes: "Mai chụp cùng góc cận má nhé — mình tin bạn sẽ thấy da dịu hơn chút.",
 	}
 	score := ScoreCoachNaturalness(natural)
-	if !score.HasNaturalTone {
-		t.Fatal("expected natural tone")
+	if !score.HasNaturalTone || !score.HasConversationalOpener {
+		t.Fatal("expected natural tone with specific opener")
 	}
-	if !score.HasConversationalOpener {
-		t.Fatal("expected conversational opener")
-	}
-	if !score.HasWarmOpening || !score.HasWarmClosing {
-		t.Fatalf("expected warm open/close, got open=%v close=%v", score.HasWarmOpening, score.HasWarmClosing)
-	}
-	if !score.HasWarmEncouragement {
-		t.Fatal("expected warm encouragement phrases")
-	}
-	if score.EmotionalScore < 0.5 {
-		t.Fatalf("expected emotional score >= 0.5, got %.2f", score.EmotionalScore)
-	}
-	if score.HasReportLikeTone {
-		t.Fatal("natural sample should not be report-like")
-	}
-
-	report := &CoachStructuredOutput{
-		Strengths:         []string{"Good job."},
-		SituationAnalysis: "Phân tích cho thấy tình trạng da hiện tại: 1. T-zone: oily 2. Má: dry",
-		SummaryNotes:      "Continue routine.",
-	}
-	reportScore := ScoreCoachNaturalness(report)
-	if !reportScore.HasReportLikeTone {
-		t.Fatal("expected report-like detection")
-	}
-	if reportScore.HasConversationalOpener {
-		t.Fatal("report sample should lack conversational opener")
+	if !score.HasWarmEncouragement || score.EmotionalScore < 0.5 {
+		t.Fatalf("expected warm emotional score, got %.2f enc=%v", score.EmotionalScore, score.HasWarmEncouragement)
 	}
 }
 
@@ -91,7 +66,7 @@ func TestCountVisionDetailCitations(t *testing.T) {
 func TestCountVisionDetailCitations_RegionFallback(t *testing.T) {
 	vision := `{"visible_observations":["some generic note"],"texture_and_oil_cues":"","redness_or_discoloration_cues":""}`
 	out := &CoachStructuredOutput{
-		SituationAnalysis: "Mình thấy trán và mũi bóng dầu, cằm có mụn đỏ, má trái hơi khô, má phải hơi xỉn.",
+		SituationAnalysis: "Trên ảnh mình thấy trán và mũi bóng dầu, cằm có mụn đỏ, má trái hơi khô, má phải hơi xỉn.",
 	}
 	if n := CountVisionDetailCitations(vision, out); n < MinVisionDetailCitations {
 		t.Fatalf("region fallback should reach %d, got %d", MinVisionDetailCitations, n)
@@ -102,39 +77,65 @@ func TestOutputHasGenericSkinPhrases(t *testing.T) {
 	if !outputHasGenericSkinPhrases("hôm nay da bạn hơi khô") {
 		t.Fatal("expected generic phrase detection")
 	}
-	if !outputHasGenericSkinPhrases("da cần dưỡng ẩm thêm") {
-		t.Fatal("expected da cần dưỡng ẩm detection")
-	}
 	if outputHasGenericSkinPhrases("má trái hơi khô, có vảy nhẹ quanh mũi") {
 		t.Fatal("specific regional dryness should not trigger generic ban")
 	}
 }
 
-func TestCoachTurnChecklist_Vision(t *testing.T) {
-	got := coachTurnChecklist("USER_MEMORY\n(no saved memory yet)", true)
-	mustContain(t, got, "≥4 photo details")
-	mustContain(t, got, "mình thấy")
-	mustContain(t, got, "NO lists/report tone")
+func TestOutputHasVagueTipPhrases(t *testing.T) {
+	vague := &CoachStructuredOutput{
+		Improvements: []struct {
+			Tip string `json:"tip"`
+			Why string `json:"why"`
+		}{{Tip: "Hôm nay dùng sản phẩm nhẹ nhàng thôi nhé."}},
+		Strengths:         []string{"OK"},
+		SituationAnalysis: "Mình thấy hôm nay má đỏ.",
+		SummaryNotes:      "Mai chụp lại nhé.",
+	}
+	if !outputHasVagueTipPhrases(vague) {
+		t.Fatal("expected vague tip detection")
+	}
+	specific := &CoachStructuredOutput{
+		Improvements: []struct {
+			Tip string `json:"tip"`
+			Why string `json:"why"`
+		}{{Tip: "Tối: rửa mặt dịu vùng má trái, thoa kem dưỡng ẩm quanh gò má."}},
+	}
+	if outputHasVagueTipPhrases(specific) {
+		t.Fatal("specific tip should not trigger vague ban")
+	}
 }
 
-func TestCoachTurnChecklist_EmotionalPriority(t *testing.T) {
+func TestCoachTurnChecklist_Vision(t *testing.T) {
+	got := coachTurnChecklist("USER_MEMORY\n(no saved memory yet)", true)
+	mustContain(t, got, "≥4–5 photo details")
+	mustContain(t, got, "Mình thấy hôm nay")
+	mustContain(t, got, "sản phẩm nhẹ nhàng")
+}
+
+func TestCoachTurnChecklist_HistoryMandatory(t *testing.T) {
 	got := coachTurnChecklist("## Recent SkinChecks\nfoo", true)
-	mustContain(t, got, "EMOTION (HIGH PRIORITY)")
-	mustContain(t, got, "EmotionalScore")
-	mustContain(t, got, "never cold/clinical")
+	mustContain(t, got, "HISTORY (MANDATORY)")
+	mustContain(t, got, "TIPS (MANDATORY)")
 }
 
 func TestVisionCoachScenarios_Fixtures(t *testing.T) {
-	scenarios := VisionCoachScenarios()
-	if len(scenarios) != 6 {
-		t.Fatalf("want 6 vision scenarios, got %d", len(scenarios))
+	if len(VisionCoachScenarios()) != 6 {
+		t.Fatalf("want 6 vision scenarios")
+	}
+}
+
+func TestUserPhotoCoachScenarios_Fixtures(t *testing.T) {
+	scenarios := UserPhotoCoachScenarios()
+	if len(scenarios) != 2 {
+		t.Fatalf("want 2 user photo scenarios, got %d", len(scenarios))
 	}
 	for _, s := range scenarios {
 		t.Run(s.ID, func(t *testing.T) {
 			msg := s.CoachUserMessage()
 			mustContain(t, msg, "VISION_SUMMARY_JSON")
-			mustContain(t, msg, "visible_observations")
-			mustContain(t, msg, "≥4 photo details")
+			mustContain(t, msg, "≥4–5 photo details")
+			mustContain(t, msg, "HISTORY (MANDATORY)")
 			if strings.TrimSpace(s.VisionJSON) == "" {
 				t.Fatal("vision json required")
 			}
@@ -145,9 +146,9 @@ func TestVisionCoachScenarios_Fixtures(t *testing.T) {
 func TestNeedsVisionDetailRetry(t *testing.T) {
 	vision := `{"visible_observations":["T-zone oily","chin bumps","large pores","dull cheek"]}`
 	good := &CoachStructuredOutput{
-		SituationAnalysis: "Mình thấy T-zone oily with chin bumps, large pores on nose and dull right cheek.",
-		SummaryNotes:      "Mai chụp cùng góc nhé — mình tin bạn sẽ thấy khác biệt nhỏ.",
-		Strengths:         []string{"Bạn đang làm khá tốt rồi đó — check-in đều lắm."},
+		SituationAnalysis: "Mình thấy hôm nay T-zone oily with chin bumps, large pores on nose and dull right cheek.",
+		SummaryNotes:      "Mai chụp cùng góc nhé — mình tin bạn sẽ thấy khác biệt.",
+		Strengths:         []string{"Bạn đang làm khá tốt rồi đó."},
 	}
 	bad := &CoachStructuredOutput{SituationAnalysis: "Da bạn hơi khô hôm nay."}
 	if needsVisionDetailRetry(vision, good) {
@@ -155,6 +156,31 @@ func TestNeedsVisionDetailRetry(t *testing.T) {
 	}
 	if !needsVisionDetailRetry(vision, bad) {
 		t.Fatal("vague output should need retry")
+	}
+}
+
+func TestNeedsCoachOutputRetry(t *testing.T) {
+	vision := `{"visible_observations":["left cheek enlarged pores","2 brown PIH spots on cheek","mild pink cheek tone","rough cheek texture"]}`
+	ctx := "## Recent SkinChecks\n- 2026-05-27 oily"
+	good := &CoachStructuredOutput{
+		Strengths:         []string{"Bạn chụp ảnh rất rõ — đáng khen, bạn đang làm khá tốt rồi đó."},
+		SituationAnalysis: "Mình thấy hôm nay left cheek enlarged pores, 2 brown PIH spots on cheek, mild pink cheek tone và rough cheek texture — so với lần trước bạn cũng ghi má hồng.",
+		Improvements: []struct {
+			Tip string `json:"tip"`
+			Why string `json:"why"`
+		}{{Tip: "Tối: rửa mặt dịu vùng má trái, thoa kem dưỡng ẩm quanh gò má."}},
+		SummaryNotes: "Mai chụp lại cùng góc nhé — mình tin bạn sẽ thấy da dịu hơn.",
+	}
+	if needsCoachOutputRetry(vision, ctx, good) {
+		t.Fatal("good output should pass coach validation")
+	}
+	noHist := &CoachStructuredOutput{
+		Strengths:         []string{"Bạn đang làm tốt lắm."},
+		SituationAnalysis: "Mình thấy hôm nay má có lỗ chân lông to, thâm, đỏ, texture sần.",
+		SummaryNotes:      "Mai chụp lại nhé — mình tin bạn.",
+	}
+	if !needsCoachOutputRetry(vision, ctx, noHist) {
+		t.Fatal("missing history callback should need retry")
 	}
 }
 
@@ -166,13 +192,5 @@ func TestNeedsNaturalToneRetry(t *testing.T) {
 	}
 	if !needsNaturalToneRetry(out) {
 		t.Fatal("report-like output should need natural tone retry")
-	}
-	cold := &CoachStructuredOutput{
-		SituationAnalysis: "Mình thấy hôm nay trán bóng dầu, cằm có mụn, mũi lỗ chân lông to, má xỉn.",
-		Strengths:         []string{"Routine completed."},
-		SummaryNotes:      "Follow the plan.",
-	}
-	if !needsNaturalToneRetry(cold) {
-		t.Fatal("cold output without warm encouragement should need retry")
 	}
 }

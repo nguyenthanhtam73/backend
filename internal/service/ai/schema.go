@@ -11,14 +11,15 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
                  When USER_MEMORY has ## Routine adherence, ≥1 bullet MUST acknowledge routine effort per COACH_ACTION
                  (praise consistency / validate low ticks / encourage restart — never guilt).
                  Beginner mode: 1–3. NEVER flattery about appearance.>],
-  "situation_analysis": <string — 2–5 sentences (Beginner: 2–3). Friend-like chat ("mình thấy", "hôm nay da bạn").
-                         ≥4 photo-specific details when vision available. NO numbered lists or report tone.
-                         History callback when ## Recent SkinChecks present. Warm but specific — not cold/objective.>,
+  "situation_analysis": <string — 2–6 sentences (Beginner: 2–4). MUST open with "Mình thấy hôm nay…",
+                         "Trên ảnh mình thấy…", or "Vùng … của bạn…". Weave ≥4–5 photo-specific details
+                         (region + cue + degree: mụn, thâm, dầu, đỏ, lỗ chân lông, khô, xỉn, texture…).
+                         History callback when ## Recent SkinChecks present. Warm, specific — not cold/objective.>,
   "improvements": [
     {
-      "tip": <string — ONE small actionable step for today or tonight. Generic product ROLE
-              only ("kem dưỡng dày hơn", "lotion humectant") unless user already named brand
-              or active. Never push more than ONE new product or active per check-in.>,
+      "tip": <string — ONE concrete actionable step: name the step + body region + product ROLE or action
+              ("Tối: rửa mặt dịu vùng má đỏ", "Sáng: kem chống nắng SPF50 vùng thâm").
+              BAN vague tips like "sản phẩm nhẹ nhàng" or "chăm sóc nhẹ". Never push >1 new active per check-in.>,
       "why": <string — 1–2 plain-language clauses. Cite barrier, sun, inflammation pacing,
               stress-skin, sleep, hydration. Beginner: skip jargon entirely.>
     }

@@ -29,4 +29,7 @@ package ai
 //
 // v18 (2026-05-31) — Balanced warmth: keeps ≥4 vision + history enforcement while
 // strengthening sincere encouragement in opener/closing; checklist emotional priority.
-const CoachDailyPromptVersion = 18
+//
+// v19 (2026-05-31) — Hyper-specific vision coaching: 4–5 photo details with mandatory
+// openers ("Mình thấy hôm nay…"), history callback enforcement, concrete actionable tips.
+const CoachDailyPromptVersion = 19

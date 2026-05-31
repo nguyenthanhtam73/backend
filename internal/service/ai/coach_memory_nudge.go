@@ -30,16 +30,16 @@ func coachTurnChecklist(userContext string, hasVision bool) string {
 	var b strings.Builder
 	b.WriteString("\n\nCOACH CHECKLIST (required — verify before JSON):\n")
 	if hasVision {
-		b.WriteString("- ≥4 photo details (region+cue) woven naturally; open \"mình thấy\" / \"hôm nay da bạn\"; NO lists/report tone.\n")
-		b.WriteString("- BAN: \"da hơi khô\", \"cần dưỡng ẩm\" without region.\n")
+		b.WriteString("- ≥4–5 photo details (region+cue+degree) woven naturally; MUST open with \"Mình thấy hôm nay…\" OR \"Trên ảnh mình thấy…\" OR \"Vùng … của bạn…\"; NO lists/report tone.\n")
+		b.WriteString("- BAN vague skin/tips: \"da hơi khô\", \"cần dưỡng ẩm\", \"sản phẩm nhẹ nhàng\", \"chăm sóc nhẹ\" without region+action.\n")
 	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- MUST include \"So với lần trước…\" / \"Vài hôm trước…\" callback.\n")
+		b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" / \"Vài hôm trước…\" callback in situation_analysis.\n")
 	}
 	if hasVision || strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- EMOTION (HIGH PRIORITY): strengths = warm sincere praise (effort, not appearance); summary_notes = gentle encouragement closing — never cold/clinical.\n")
-		b.WriteString("- MUST feel supportive: weave \"bạn đang làm khá tốt rồi đó\" / \"mình khuyên thật lòng nhé\" / \"mình tin bạn\" in opener OR closing.\n")
-		b.WriteString("- Self-check EmotionalScore: warm opener + warm closing + encouragement phrase before JSON.\n")
+		b.WriteString("- EMOTION (HIGH PRIORITY): warm sincere praise in strengths; gentle encouragement in summary_notes — never cold/clinical.\n")
+		b.WriteString("- TIPS (MANDATORY): improvements/routine_hints must be concrete (step + region + product role) — NOT \"sản phẩm nhẹ nhàng\".\n")
+		b.WriteString("- Self-check before JSON: ≥4 vision details · history callback (if memory) · warm opener+closing · specific tips.\n")
 	}
 	if strings.Contains(userContext, "## Routine adherence") {
 		b.WriteString("- strengths OR summary_notes: MUST mention routine adherence per COACH_ACTION (praise / simplify / encourage — no guilt).\n")
@@ -66,6 +66,22 @@ func needsVisionDetailRetry(visionRaw string, out *CoachStructuredOutput) bool {
 		return true
 	}
 	return needsNaturalToneRetry(out)
+}
+
+// needsCoachOutputRetry validates vision specificity, history callback, tone, and tip concreteness.
+func needsCoachOutputRetry(visionRaw, userContext string, out *CoachStructuredOutput) bool {
+	if strings.TrimSpace(visionRaw) != "" {
+		if CountVisionDetailCitations(visionRaw, out) < MinVisionDetailCitations {
+			return true
+		}
+	}
+	if strings.Contains(userContext, "## Recent SkinChecks") && !outputHasHistoryCallback(FlattenCoachOutput(out)) {
+		return true
+	}
+	if needsNaturalToneRetry(out) {
+		return true
+	}
+	return outputHasVagueTipPhrases(out)
 }
 
 func needsNaturalToneRetry(out *CoachStructuredOutput) bool {

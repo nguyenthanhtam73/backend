@@ -2,112 +2,69 @@ package ai
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/dadiary/backend/internal/config"
 )
 
 const coachLiveCompareTestTimeout = 60 * time.Minute
 
-// coachCorePromptV17Archive — pre-v18 system prompt for A/B live comparison only.
-const coachCorePromptV17Archive = `Bạn là DaDiary AI Skincare Coach — người bạn thân thiết luôn quan sát kỹ ảnh da và khích lệ user một cách chân thành.
+// coachCorePromptV18Archive — pre-v19 system prompt for A/B live comparison only.
+const coachCorePromptV18Archive = `Bạn là DaDiary AI Skincare Coach — người bạn thân thiết, luôn quan sát kỹ ảnh da và khích lệ user một cách chân thành, gần gũi.
 
-Hôm nay mình nhìn kỹ ảnh và ghi chú của bạn rồi nhé. Mình sẽ nói thật lòng những gì mình thấy, không vòng vo.
+Hôm nay mình đã nhìn kỹ ảnh và ghi chú của bạn rồi. Mình sẽ nói thật lòng những gì mình thấy, vừa cụ thể vừa động viên bạn nhé.
 
-## Giọng (BẮT BUỘC)
-- Như nhắn tin bạn: "mình thấy", "hôm nay da bạn", "bạn đang làm khá tốt rồi đó", "mình khuyên thật lòng nhé", "nghe có vẻ…".
-- Khen chân thành (effort, không ngoại hình) · khích lệ ấm · không sến · không hứa chữa khỏi.
-- **Ngắn gọn** — mỗi câu súc tích, tránh lặp, tiết kiệm token.
-- **Cấm:** báo cáo ("Phân tích cho thấy…"), liệt kê "1.2.3." / "T-zone:", câu chung ("da hơi khô", "cần dưỡng ẩm" không gắn vùng).
+## Giọng (BẮT BUỘC — ấm, không lạnh)
+- Như bạn thân nhắn tin · khen chân thành · closing động viên nhẹ.
+- ≥4 chi tiết ảnh · mở "Mình thấy hôm nay…" / "Hôm nay da bạn…".
+- So với lần trước khi có ## Recent SkinChecks.
 
-## Ảnh (BẮT BUỘC khi có VISION_SUMMARY_JSON)
-- **≥4 chi tiết cụ thể** (vùng + dấu hiệu + mức) trong situation_analysis / concern_alignment — weave tự nhiên, không liệt kê khô.
-- Mở situation_analysis: "Mình thấy hôm nay…" / "Hôm nay da bạn…". Không chẩn đoán, không kê thuốc.
+## USER_MEMORY + JSON output per schema.`
 
-## Lịch sử (BẮT BUỘC khi có ## Recent SkinChecks)
-- ≥1 câu: "So với lần trước…" / "Vài hôm trước bạn cũng ghi…" / "Mấy lần gần đây…".
-
-## Cấu trúc tự nhiên → JSON
-1. Lời khen nhỏ → strengths
-2. Mình thấy hôm nay da bạn thế nào (≥4 chi tiết ảnh) → situation_analysis + concern_alignment
-3. So với lần trước → câu trong situation_analysis
-4. Hôm nay mình khuyên bạn thử gì → improvements[].tip + routine_hints (Sáng:/Tối:)
-5. Lý do + lưu ý an toàn → improvements[].why + avoid_or_patch + safety_reminders
-6. Disclaimer nhẹ → medical_disclaimer + summary_notes
-
-## USER_MEMORY
-Callback bắt buộc · pivot 👎 · adherence + COACH_ACTION tier · không bịa brand.
-Output: ONE JSON object per schema.`
-
-func coachPromptV17Archive(skillLevel string) string {
-	core := coachCorePromptV17Archive
+func coachPromptV18Archive(skillLevel string) string {
+	core := coachCorePromptV18Archive
 	if strings.EqualFold(strings.TrimSpace(skillLevel), "beginner") {
-		return core + "\n\n## BEGINNER\nTừ dễ · ≥4 chi tiết ảnh · strengths 1–3 · improvements 2–3."
+		return core + "\n\n## BEGINNER\nTừ dễ · ≥4 chi tiết ảnh."
 	}
-	return core + "\n\n## INTERMEDIATE/ADVANCED\nThuật ngữ OK · strengths 1–4 · improvements 2–5."
+	return core + "\n\n## INTERMEDIATE\n≥4 chi tiết · gợi ý cụ thể."
 }
 
-// TestCoachV18_BalancedLiveCompare runs 6 vision scenarios through v17 vs v18 prompts.
-//
-// Run: go test ./internal/service/ai/... -run TestCoachV18_BalancedLiveCompare -v -count=1 -timeout 60m
-func TestCoachV18_BalancedLiveCompare(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping live v18 compare in short mode")
-	}
-	cfg := loadCoachTestConfig(t)
-	if strings.TrimSpace(cfg.Anthropic.APIKey) == "" && strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
-		t.Skip("set DADIARY_ANTHROPIC_API_KEY or DADIARY_OPENAI_API_KEY")
-	}
+type coachCompareRow struct {
+	id, prompt       string
+	vision           int
+	naturalness      float64
+	emotional        float64
+	opener, enc      bool
+	report, generic  bool
+	hist             bool
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), coachLiveCompareTestTimeout-time.Minute)
-	defer cancel()
-	client := httpClientForCoachTests()
-
-	sep := strings.Repeat("=", 130)
-	t.Log(sep)
-	t.Logf("Coach prompt A/B — v17 archive vs v18 (current) | scenarios=%d | timeout=%s",
-		len(VisionCoachScenarios()), coachLiveCompareTestTimeout)
-	t.Logf("v18 prompt chars (intermediate): %d", len(GetCoachPrompt("intermediate")))
-	t.Log(sep)
-	t.Log(fmt.Sprintf("%-18s | %-6s | vis | nat | emo | opn | enc | rpt | gen | hist | preview",
-		"Scenario", "Prompt"))
-	t.Log(strings.Repeat("-", 130))
-
-	type row struct {
-		id, prompt       string
-		vision           int
-		naturalness      float64
-		emotional        float64
-		opener, enc      bool
-		report, generic  bool
-		hist             bool
-	}
-	var rows []row
-
-	for _, sc := range VisionCoachScenarios() {
+func runCoachCompare(t *testing.T, ctx context.Context, cfg *config.Config, client *http.Client, scenarios []VisionCoachScenario, variants []struct {
+	name   string
+	system func(string) string
+}) []coachCompareRow {
+	t.Helper()
+	var rows []coachCompareRow
+	for _, sc := range scenarios {
 		userMsg := sc.CoachUserMessage()
-		for _, variant := range []struct {
-			name   string
-			system string
-		}{
-			{"v17", coachPromptV17Archive(sc.Persona.SkillLevel)},
-			{"v18", GetCoachPrompt(sc.Persona.SkillLevel)},
-		} {
+		for _, variant := range variants {
 			t.Run(sc.ID+"/"+variant.name, func(t *testing.T) {
-				result, err := TextCoachCompletion(ctx, cfg, client, "v18-compare-"+variant.name, variant.system, userMsg)
+				system := variant.system(sc.Persona.SkillLevel)
+				result, err := TextCoachCompletion(ctx, cfg, client, "v19-compare-"+variant.name, system, userMsg)
 				if err != nil {
 					t.Fatalf("%s: %v", variant.name, err)
 				}
-				out, err := parseCoachStructuredOutput(result.Text, "v18-compare")
+				out, err := parseCoachStructuredOutput(result.Text, "v19-compare")
 				if err != nil {
 					t.Fatalf("parse: %v", err)
 				}
 				sc.Persona.VisionJSON = sc.VisionJSON
 				pers := ScoreCoachPersonalization(sc.Persona, out, true)
 				nat := ScoreCoachNaturalness(out)
-				rows = append(rows, row{
+				rows = append(rows, coachCompareRow{
 					id: sc.ID, prompt: variant.name,
 					vision: pers.VisionDetailCount, naturalness: nat.NaturalnessScore,
 					emotional: nat.EmotionalScore,
@@ -115,25 +72,35 @@ func TestCoachV18_BalancedLiveCompare(t *testing.T) {
 					report: pers.HasReportLikeTone, generic: pers.HasGenericPhrases,
 					hist: pers.HasHistoryCallback,
 				})
-				t.Logf("%-18s | %-6s | %3d | %.2f | %.2f | %4v | %4v | %4v | %4v | %4v | %q",
+				t.Logf("%-22s | %-6s | %3d | %.2f | %.2f | %4v | %4v | %4v | %4v | %4v | %q",
 					sc.ID, variant.name, pers.VisionDetailCount, nat.NaturalnessScore, nat.EmotionalScore,
 					nat.HasConversationalOpener, nat.HasWarmEncouragement, pers.HasReportLikeTone,
 					pers.HasGenericPhrases, pers.HasHistoryCallback, truncateRunes(out.SituationAnalysis, 85))
 				t.Logf("  strengths: %q", truncateRunes(strings.Join(out.Strengths, " | "), 95))
+				t.Logf("  tip:       %q", truncateRunes(firstImprovementTip(out), 95))
 				t.Logf("  closing:   %q", truncateRunes(out.SummaryNotes, 95))
 			})
 		}
 	}
+	return rows
+}
 
-	t.Log("")
-	t.Log("### Aggregate — naturalness & emotion (v17 vs v18)")
-	type agg struct {
-		n                                                       int
-		vis                                                     int
-		nat, emo                                                float64
-		opn, enc, rep, gen, hist                                int
+func firstImprovementTip(out *CoachStructuredOutput) string {
+	if out == nil || len(out.Improvements) == 0 {
+		return ""
 	}
-	byPrompt := map[string]*agg{"v17": {}, "v18": {}}
+	return out.Improvements[0].Tip
+}
+
+func logCoachCompareAggregate(t *testing.T, rows []coachCompareRow, left, right string) {
+	t.Helper()
+	type agg struct {
+		n                                        int
+		vis                                      int
+		nat, emo                                 float64
+		opn, enc, rep, gen, hist                 int
+	}
+	byPrompt := map[string]*agg{left: {}, right: {}}
 	for _, r := range rows {
 		a := byPrompt[r.prompt]
 		a.n++
@@ -156,7 +123,7 @@ func TestCoachV18_BalancedLiveCompare(t *testing.T) {
 			a.hist++
 		}
 	}
-	for _, label := range []string{"v17", "v18"} {
+	for _, label := range []string{left, right} {
 		a := byPrompt[label]
 		if a.n == 0 {
 			continue
@@ -166,20 +133,73 @@ func TestCoachV18_BalancedLiveCompare(t *testing.T) {
 			float64(a.vis)/float64(a.n), a.nat/float64(a.n), a.emo/float64(a.n),
 			a.opn, a.n, a.enc, a.n, a.rep, a.n, a.gen, a.n, a.hist, a.n)
 	}
-	v17, v18 := byPrompt["v17"], byPrompt["v18"]
-	if v17.n > 0 && v18.n > 0 {
-		if float64(v18.vis)/float64(v18.n) < float64(MinVisionDetailCitations) {
-			t.Errorf("v18 avg vision details below target %d", MinVisionDetailCitations)
+	l, r := byPrompt[left], byPrompt[right]
+	if l.n > 0 && r.n > 0 {
+		t.Logf("Delta %s-%s: vision %+.1f | naturalness %+.2f | emotional %+.2f",
+			right, left,
+			float64(r.vis)/float64(r.n)-float64(l.vis)/float64(l.n),
+			r.nat/float64(r.n)-l.nat/float64(l.n),
+			r.emo/float64(r.n)-l.emo/float64(l.n))
+	}
+}
+
+// TestCoachV19_UserPhotoLiveCompare runs 2 user cheek photo scenarios (v18 vs v19).
+//
+// Run: go test ./internal/service/ai/... -run TestCoachV19_UserPhotoLiveCompare -v -count=1 -timeout 60m
+func TestCoachV19_UserPhotoLiveCompare(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping live v19 user photo compare in short mode")
+	}
+	cfg := loadCoachTestConfig(t)
+	if strings.TrimSpace(cfg.Anthropic.APIKey) == "" && strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
+		t.Skip("set DADIARY_ANTHROPIC_API_KEY or DADIARY_OPENAI_API_KEY")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), coachLiveCompareTestTimeout-time.Minute)
+	defer cancel()
+	client := httpClientForCoachTests()
+
+	scenarios := UserPhotoCoachScenarios()
+	sep := strings.Repeat("=", 130)
+	t.Log(sep)
+	t.Logf("User photo A/B — v18 archive vs v19 (current) | scenarios=%d (%s, %s)",
+		len(scenarios), scenarios[0].ID, scenarios[1].ID)
+	t.Logf("v19 prompt chars (intermediate): %d", len(GetCoachPrompt("intermediate")))
+	t.Log(sep)
+
+	variants := []struct {
+		name   string
+		system func(string) string
+	}{
+		{"v18", coachPromptV18Archive},
+		{"v19", GetCoachPrompt},
+	}
+	rows := runCoachCompare(t, ctx, cfg, client, scenarios, variants)
+
+	t.Log("")
+	t.Log("### Aggregate — user cheek photos (v18 vs v19)")
+	logCoachCompareAggregate(t, rows, "v18", "v19")
+
+	v19Rows := 0
+	v19Vis := 0
+	for _, r := range rows {
+		if r.prompt != "v19" {
+			continue
 		}
-		natDelta := v18.nat/float64(v18.n) - v17.nat/float64(v17.n)
-		emoDelta := v18.emo/float64(v18.n) - v17.emo/float64(v17.n)
-		t.Logf("Delta v18-v17: naturalness %+.2f | emotional %+.2f", natDelta, emoDelta)
-		if v18.enc < v18.n {
-			t.Logf("WARN: v18 missing warm encouragement on %d/%d runs", v18.n-v18.enc, v18.n)
+		v19Rows++
+		v19Vis += r.vision
+		if r.vision < MinVisionDetailCitations {
+			t.Errorf("%s: v19 vision details %d below target %d", r.id, r.vision, MinVisionDetailCitations)
 		}
-		if emoDelta < 0 {
-			t.Logf("WARN: v18 emotional score below v17 — review warm opener/closing enforcement")
+		if !r.hist {
+			t.Errorf("%s: v19 missing history callback", r.id)
 		}
+		if !r.opener {
+			t.Errorf("%s: v19 missing specific conversational opener", r.id)
+		}
+	}
+	if v19Rows > 0 && float64(v19Vis)/float64(v19Rows) < float64(MinVisionDetailCitations) {
+		t.Errorf("v19 avg vision details below target %d", MinVisionDetailCitations)
 	}
 	t.Log(sep)
 }

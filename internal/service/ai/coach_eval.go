@@ -149,7 +149,7 @@ type CoachNaturalnessResult struct {
 	EmotionalScore          float64
 }
 
-// ScoreCoachNaturalness evaluates v18 balanced warmth on structured coach output.
+// ScoreCoachNaturalness evaluates v19 hyper-specific warm coaching on structured coach output.
 func ScoreCoachNaturalness(out *CoachStructuredOutput) CoachNaturalnessResult {
 	if out == nil {
 		return CoachNaturalnessResult{}
@@ -204,7 +204,8 @@ func ScoreCoachNaturalness(out *CoachStructuredOutput) CoachNaturalnessResult {
 
 func outputHasConversationalOpener(situation string) bool {
 	for _, phrase := range []string{
-		"mình thấy", "nhìn ảnh", "hôm nay da bạn", "trên ảnh", "mình nhìn", "nhìn vào ảnh",
+		"mình thấy hôm nay", "trên ảnh mình thấy", "vùng ", "của bạn",
+		"mình thấy", "hôm nay da bạn", "trên ảnh", "mình nhìn",
 	} {
 		if strings.Contains(situation, phrase) {
 			return true
@@ -347,29 +348,55 @@ func splitObservationClauses(s string) []string {
 	return out
 }
 
-// countRegionCueDetails counts clauses that pair a face region with a visible cue.
+// countRegionCueDetails counts distinct visible cues when output anchors to a body region.
 func countRegionCueDetails(text string) int {
 	regions := []string{
 		"t-zone", "t zone", "trán", "mũi", "cằm", "má", "vùng mắt", "quanh miệng",
-		"má trái", "má phải", "forehead", "cheek", "chin", "nose",
+		"má trái", "má phải", "forehead", "cheek", "chin", "nose", "preauricular",
+		"gần tai", "tai", "thái dương", "temporal", "hairline", "gò má", "vùng ",
 	}
 	cues := []string{
-		"bóng", "dầu", "khô", "đỏ", "mụn", "thâm", "sẩn", "lỗ chân lông",
-		"viêm", "flak", "matte", "shiny", "red", "bump", "pore", "dark mark",
+		"bóng", "dầu", "khô", "đỏ", "mụn", "thâm", "sẩn", "lỗ chân lông", "chấm",
+		"viêm", "flak", "matte", "shiny", "red", "bump", "pore", "dark mark", "papule",
+		"xỉn", "texture", "sần", "vảy", "hồng", "comedone", "spot", "macule", "glow",
+		"oily", "dull",
 	}
-	count := 0
-	for _, region := range regions {
-		if !strings.Contains(text, region) {
-			continue
-		}
-		for _, cue := range cues {
-			if strings.Contains(text, cue) {
-				count++
+	hasRegion := strings.Contains(text, "vùng ")
+	if !hasRegion {
+		for _, region := range regions {
+			if strings.Contains(text, region) {
+				hasRegion = true
 				break
 			}
 		}
 	}
-	return count
+	if !hasRegion {
+		return 0
+	}
+	seen := make(map[string]struct{})
+	for _, cue := range cues {
+		if strings.Contains(text, cue) {
+			seen[cue] = struct{}{}
+		}
+	}
+	return len(seen)
+}
+
+func outputHasVagueTipPhrases(out *CoachStructuredOutput) bool {
+	if out == nil {
+		return false
+	}
+	text := FlattenCoachOutput(out)
+	for _, phrase := range []string{
+		"sản phẩm nhẹ nhàng", "sản phẩm nhẹ", "chăm sóc nhẹ nhàng", "routine nhẹ nhàng",
+		"dưỡng ẩm nhẹ", "kem nhẹ", "chăm da nhẹ", "skincare nhẹ", "gentle product",
+		"mild product", "light product", "nhẹ nhàng thôi",
+	} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
 }
 
 func outputHasGenericSkinPhrases(text string) bool {
