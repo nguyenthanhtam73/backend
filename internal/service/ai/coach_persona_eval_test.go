@@ -44,10 +44,10 @@ func TestCoachPersona_FrequentNotHelpful_HasFeedbackSummary(t *testing.T) {
 
 func TestCoachPrompt_v11_MemoryBindingRules(t *testing.T) {
 	p := GetCoachPrompt("intermediate")
-	mustContain(t, p, "BẮT BUỘC khi USER_MEMORY")
+	mustContain(t, p, "USER_MEMORY")
 	mustContain(t, p, "Routine adherence")
 	mustContain(t, p, "COACH_ACTION")
-	mustContain(t, p, "Ví dụ tone")
+	mustContain(t, p, "≥3 chi tiết cụ thể từ ảnh")
 	mustContain(t, p, "KHÔNG bịa")
 }
 
@@ -56,6 +56,7 @@ func TestCoachPrompt_BeginnerExamples(t *testing.T) {
 	mustContain(t, p, "mấy lần gần đây")
 	mustContain(t, p, "adherence thấp")
 	mustContain(t, p, "2 bước")
+	mustContain(t, p, "≥3 chi tiết")
 }
 
 // TestScoreCoachPersonalization_Heuristic validates the offline scorer on synthetic output.

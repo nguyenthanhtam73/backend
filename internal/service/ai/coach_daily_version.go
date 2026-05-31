@@ -13,4 +13,8 @@ package ai
 // v11 (2026-05-30) — Stronger USER_MEMORY binding + adherence-driven routine sizing.
 // v12 (2026-05-30) — Refinement from live persona tests: mandatory 1–2 history
 // callbacks, explicit adherence mention, richer Beginner examples. Schema unchanged.
-const CoachDailyPromptVersion = 12
+//
+// v14 (2026-05-31) — Vision-first coaching: ≥3 photo-specific citations mandatory
+// when VISION_SUMMARY_JSON is present; ban generic dryness/uneven-tone phrases;
+// explicit 6-step structure (praise → observe → compare → suggest → safety → disclaimer).
+const CoachDailyPromptVersion = 14

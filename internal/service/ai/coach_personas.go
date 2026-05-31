@@ -18,6 +18,7 @@ type CoachPersona struct {
 	Profile            *domain.SkinProfile
 	TodayCheck         *domain.SkinCheck
 	Memory             string
+	VisionJSON         string // optional VISION_SUMMARY_JSON for vision-coach QA
 	WantInOutput       []string // substrings expected in output
 	WantWithMemoryOnly []string // should appear when memory wired, not required without
 	AvoidInOutput      []string

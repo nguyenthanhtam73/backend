@@ -2,7 +2,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -65,16 +64,20 @@ func RunSkinCheckCoach(
 		return nil, "", cErr
 	}
 
-	raw, ej := ExtractJSONObject(coachResult.Text)
-	if ej != nil {
-		return nil, "", fmt.Errorf("extract json: %w", ej)
+	parsed, pErr := parseCoachStructuredOutput(coachResult.Text, "skin-check")
+	if pErr != nil {
+		return nil, "", pErr
 	}
-	if len(raw) == 0 || strings.TrimSpace(string(raw)) == "" {
-		return nil, "", fmt.Errorf("coach returned non-JSON text: %.200q", coachResult.Text)
-	}
-	var parsed CoachStructuredOutput
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, "", fmt.Errorf("parse coach json: %w (first 200 chars: %.200q)", err, coachResult.Text)
+	if visionStatus == "ok" && needsVisionDetailRetry(visionRaw, parsed) {
+		retryBody := userMsg + fmt.Sprintf(
+			"\n\nVALIDATION FAILED: your JSON cited fewer than %d photo-specific details from VISION_SUMMARY_JSON. Regenerate the FULL JSON — situation_analysis MUST include ≥%d concrete region+cue details from the photo (e.g. T-zone bóng dầu, nốt đỏ ở cằm, má khô). Avoid vague-only phrases.\n",
+			MinVisionDetailCitations, MinVisionDetailCitations,
+		)
+		if retryResult, retryErr := TextCoachCompletion(ctx, cfg, httpClient, "skin-check-retry", system, retryBody); retryErr == nil {
+			if retryOut, retryParseErr := parseCoachStructuredOutput(retryResult.Text, "skin-check-retry"); retryParseErr == nil {
+				parsed = retryOut
+			}
+		}
 	}
 
 	ver := fmt.Sprintf(
@@ -89,7 +92,7 @@ func RunSkinCheckCoach(
 		"coach_model", coachResult.Model,
 		"coach_fallback", coachResult.Fallback,
 	)
-	return &parsed, ver, nil
+	return parsed, ver, nil
 }
 
 func buildSkinCheckCoachUserMessage(
@@ -117,7 +120,7 @@ func buildSkinCheckCoachUserMessage(
 	}
 	userMsg.WriteString("\n\nUSER_CONTEXT (saved profile + today's self-report + environment):\n")
 	userMsg.WriteString(fullCtx)
-	userMsg.WriteString(coachMemoryTurnChecklist(fullCtx))
+	userMsg.WriteString(coachTurnChecklist(fullCtx, visionStatus == "ok"))
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")
 	userMsg.WriteString(CoachOutputJSONSchemaBlock)
 	return userMsg.String()

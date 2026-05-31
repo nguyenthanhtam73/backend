@@ -18,13 +18,22 @@ func prependCoachActionPriority(userContext string) string {
 // coachMemoryTurnChecklist appends a short required checklist when USER_MEMORY
 // blocks are present so the model cannot miss adherence / callback rules.
 func coachMemoryTurnChecklist(userContext string) string {
-	if strings.Contains(userContext, "no saved memory yet") {
+	return coachTurnChecklist(userContext, false)
+}
+
+// coachTurnChecklist appends required pre-flight checks before JSON output.
+// hasVision is true when VISION_SUMMARY_JSON was produced successfully for this turn.
+func coachTurnChecklist(userContext string, hasVision bool) string {
+	if strings.Contains(userContext, "no saved memory yet") && !hasVision {
 		return ""
 	}
 	var b strings.Builder
 	b.WriteString("\n\nCOACH CHECKLIST (required — verify before JSON):\n")
+	if hasVision {
+		b.WriteString("- situation_analysis/concern_alignment: cite ≥3 photo-specific details (region + visible cue). No vague-only dryness/uneven-tone lines.\n")
+	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- situation_analysis: include ≥1 history callback (e.g. \"mấy lần gần đây…\", \"vài hôm trước…\").\n")
+		b.WriteString("- situation_analysis: include ≥1 history callback (e.g. \"mấy lần gần đây…\", \"vài hôm trước…\", \"so với lần trước…\").\n")
 	}
 	if strings.Contains(userContext, "## Routine adherence") {
 		b.WriteString("- strengths OR summary_notes: MUST mention routine adherence per COACH_ACTION (praise / simplify / encourage — no guilt).\n")
@@ -41,4 +50,11 @@ func needsAdherenceRetry(userContext string, out *CoachStructuredOutput) bool {
 		return false
 	}
 	return !outputMentionsAdherence(FlattenCoachOutput(out))
+}
+
+func needsVisionDetailRetry(visionRaw string, out *CoachStructuredOutput) bool {
+	if strings.TrimSpace(visionRaw) == "" {
+		return false
+	}
+	return CountVisionDetailCitations(visionRaw, out) < MinVisionDetailCitations
 }

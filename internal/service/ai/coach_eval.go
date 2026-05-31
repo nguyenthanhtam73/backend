@@ -19,6 +19,8 @@ type CoachPersonalizationResult struct {
 	MemoryOnlyScore    float64
 	HasHistoryCallback bool
 	MentionsAdherence  bool
+	VisionDetailCount  int
+	HasGenericPhrases  bool
 	RoutineHintCount   int
 	OutputPreview      string
 }
@@ -62,6 +64,10 @@ func ScoreCoachPersonalization(persona CoachPersona, out *CoachStructuredOutput,
 		WithMemory:         withMemory,
 		HasHistoryCallback: outputHasHistoryCallback(text),
 		MentionsAdherence:  outputMentionsAdherence(text),
+		HasGenericPhrases:  outputHasGenericSkinPhrases(text),
+	}
+	if persona.VisionJSON != "" {
+		res.VisionDetailCount = CountVisionDetailCitations(persona.VisionJSON, out)
 	}
 	for _, w := range persona.WantInOutput {
 		if strings.Contains(text, strings.ToLower(w)) {
@@ -100,7 +106,7 @@ func ScoreCoachPersonalization(persona CoachPersona, out *CoachStructuredOutput,
 func outputHasHistoryCallback(text string) bool {
 	for _, phrase := range []string{
 		"mấy lần gần đây", "vài hôm trước", "vài hôm nay", "gần đây bạn",
-		"tuần trước", "mấy hôm", "lần gần",
+		"tuần trước", "mấy hôm", "lần gần", "so với",
 	} {
 		if strings.Contains(text, phrase) {
 			return true
@@ -114,6 +120,111 @@ func outputMentionsAdherence(text string) bool {
 		"routine", "tick", "bước", "duy trì", "đều đặn", "đều ",
 		"adherence", "mấy hôm bận", "mấy hôm tick", "tick ít", "rút gọn",
 		"2 bước", "ít bước", "hoàn thành", "kiên trì", "duy trì routine",
+	} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// CountVisionDetailCitations counts how many distinct vision observation phrases
+// appear in coach output (situation_analysis + concern_alignment).
+func CountVisionDetailCitations(visionJSON string, out *CoachStructuredOutput) int {
+	if out == nil || strings.TrimSpace(visionJSON) == "" {
+		return 0
+	}
+	text := strings.ToLower(out.SituationAnalysis + " " + out.ConcernAlignment)
+	phrases := extractVisionObservationPhrases(visionJSON)
+	matched := 0
+	seen := make(map[string]struct{})
+	for _, phrase := range phrases {
+		p := strings.ToLower(strings.TrimSpace(phrase))
+		if p == "" || len([]rune(p)) < 4 {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		if strings.Contains(text, p) {
+			seen[p] = struct{}{}
+			matched++
+		}
+	}
+	if matched < MinVisionDetailCitations {
+		matched = countRegionCueDetails(text)
+	}
+	return matched
+}
+
+func extractVisionObservationPhrases(visionJSON string) []string {
+	type visionPayload struct {
+		VisibleObservations        []string `json:"visible_observations"`
+		TextureAndOilCues          string   `json:"texture_and_oil_cues"`
+		RednessOrDiscolorationCues string   `json:"redness_or_discoloration_cues"`
+	}
+	var payload visionPayload
+	if err := json.Unmarshal([]byte(visionJSON), &payload); err != nil {
+		return splitObservationClauses(visionJSON)
+	}
+	var phrases []string
+	phrases = append(phrases, payload.VisibleObservations...)
+	if s := strings.TrimSpace(payload.TextureAndOilCues); s != "" {
+		phrases = append(phrases, splitObservationClauses(s)...)
+	}
+	if s := strings.TrimSpace(payload.RednessOrDiscolorationCues); s != "" {
+		phrases = append(phrases, splitObservationClauses(s)...)
+	}
+	return phrases
+}
+
+func splitObservationClauses(s string) []string {
+	s = strings.ReplaceAll(s, "—", ",")
+	s = strings.ReplaceAll(s, ";", ",")
+	parts := strings.Split(s, ",")
+	var out []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// countRegionCueDetails counts clauses that pair a face region with a visible cue.
+func countRegionCueDetails(text string) int {
+	regions := []string{
+		"t-zone", "t zone", "trán", "mũi", "cằm", "má", "vùng mắt", "quanh miệng",
+		"má trái", "má phải", "forehead", "cheek", "chin", "nose",
+	}
+	cues := []string{
+		"bóng", "dầu", "khô", "đỏ", "mụn", "thâm", "sẩn", "lỗ chân lông",
+		"viêm", "flak", "matte", "shiny", "red", "bump", "pore", "dark mark",
+	}
+	count := 0
+	for _, region := range regions {
+		if !strings.Contains(text, region) {
+			continue
+		}
+		for _, cue := range cues {
+			if strings.Contains(text, cue) {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
+func outputHasGenericSkinPhrases(text string) bool {
+	for _, phrase := range []string{
+		"da bạn hơi khô",
+		"da hơi khô",
+		"da không đều màu",
+		"da cần dưỡng ẩm",
+		"cần chăm sóc thêm",
+		"da cần được chăm sóc",
 	} {
 		if strings.Contains(text, phrase) {
 			return true

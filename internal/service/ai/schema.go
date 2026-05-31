@@ -11,8 +11,11 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
                  (praise consistency / validate low ticks / encourage restart — never guilt).
                  Beginner mode: 1–3. NEVER flattery about appearance.>],
   "situation_analysis": <string — 2–7 sentences (Beginner: 2–4). Lead with TODAY skin + environment.
+                         When VISION_SUMMARY_JSON is present (not unavailable): cite ≥3 photo-specific
+                         details (body region + visible cue — e.g. "T-zone bóng dầu", "4 nốt đỏ ở cằm",
+                         "má trái hơi khô"). NEVER use vague-only lines like "da hơi khô" without region.
                          When USER_MEMORY has ## Recent SkinChecks, include ≥1 history-callback sentence
-                         ("mấy lần gần đây…", "vài hôm trước…") comparing pattern to today.
+                         ("mấy lần gần đây…", "vài hôm trước…", "so với lần trước…") comparing pattern to today.
                          Merge vision + tags + notes. No diagnosis.>,
   "improvements": [
     {
@@ -40,8 +43,10 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
     // Soft gauges from TODAY context only — not clinical. Use mid-range unless context is strong.
   },
   "concern_alignment": <string — ONE short paragraph: how the user's TODAY tags line up
-                        (or gently diverge) from soft vision cues. Always acknowledge
-                        uncertainty ("ảnh chỉ là một góc thôi"). No diagnosis.>,
+                        (or gently diverge) from soft vision cues. When vision is available,
+                        include at least 1 additional photo-specific detail not repeated verbatim
+                        from situation_analysis. Always acknowledge uncertainty ("ảnh chỉ là một góc thôi").
+                        No diagnosis.>,
   "medical_disclaimer": <string — Must clearly say this is informational coaching only,
                          not medical diagnosis or treatment, and not a substitute for a clinician.
                          Match the user's language (VI if notes/tags Vietnamese; EN otherwise).>,
@@ -72,7 +77,7 @@ const VisionObservationSchemaBlock = `Return ONE JSON object only (no markdown).
 }`
 
 // DefaultMedicalDisclaimerVI used when the model omits an explicit disclaimer.
-const DefaultMedicalDisclaimerVI = "Đây chỉ là gợi ý tham khảo. Không thay thế tư vấn bác sĩ da liễu."
+const DefaultMedicalDisclaimerVI = "Đây chỉ là gợi ý tham khảo dựa trên thông tin bạn cung cấp. Không thay thế tư vấn bác sĩ da liễu."
 
 // DefaultMedicalDisclaimerEN is the English fallback disclaimer.
 const DefaultMedicalDisclaimerEN = "This is informational guidance only — not a substitute for a dermatologist's advice."
