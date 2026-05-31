@@ -27,10 +27,11 @@ import (
 // occasional onboarding) while keeping vendor cost predictable and stopping
 // scripted abuse. Tune via env if you ever want to expose these as config.
 const (
-	// Onboarding analyze: visitors typically run this once during setup;
-	// allow a few retries for image quality issues.
-	onboardingAnalyzeRateMax    = 6
-	onboardingAnalyzeRateWindow = time.Hour
+	// Onboarding analyze: users often retake photos and retry analysis several
+	// times during setup. Keep a cap for cost control, but avoid locking out
+	// normal onboarding (6/hour was too tight in beta).
+	onboardingAnalyzeRateMax    = 12
+	onboardingAnalyzeRateWindow = 15 * time.Minute
 
 	// Skin check create: combines moderation + multimodal vision; the most
 	// expensive endpoint. Three a minute / ~30 an hour is plenty for daily
