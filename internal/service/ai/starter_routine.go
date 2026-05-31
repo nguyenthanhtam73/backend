@@ -136,5 +136,9 @@ func GenerateStarterRoutine(ctx context.Context, cfg *config.Config, onboardingJ
 	}
 	normalizeStarterRoutine(&out)
 	out.ProductSuggestions = FinalizeProductSuggestions(out.ProductSuggestions, userMemory)
+	if len(out.ProductSuggestions) == 0 {
+		picks := PickStarterAffiliateSuggestions(onboardingJSON, locale)
+		out.ProductSuggestions = FinalizeProductSuggestions(picks, userMemory)
+	}
 	return out, nil
 }

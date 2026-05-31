@@ -76,7 +76,9 @@ func (s *Service) GetSkin(ctx context.Context, userID uuid.UUID) (dto.SkinProfil
 			Version:    1,
 		}, nil
 	}
-	return dto.SkinProfileFromDomain(p), nil
+	res := dto.SkinProfileFromDomain(p)
+	res.OnboardingSnapshot = s.enrichStarterAffiliateSnapshot(ctx, userID, res.OnboardingSnapshot)
+	return res, nil
 }
 
 // PutSkin applies a partial manual update (does not call AI).
@@ -203,7 +205,6 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 		// Persist profile even if AI fails — frontend can retry completing later via PUT.
 		starter = fallbackStarterRoutine(loc)
 	}
-
 	snap["starter_routine"] = starter
 	fullSnap, err := json.Marshal(snap)
 	if err != nil {
@@ -284,6 +285,33 @@ func parseSkillLevel(raw string) domain.SkillLevel {
 	default:
 		return domain.SkillLevelUnspecified
 	}
+}
+
+func (s *Service) enrichStarterAffiliateSnapshot(ctx context.Context, userID uuid.UUID, snap json.RawMessage) json.RawMessage {
+	if len(snap) == 0 {
+		return snap
+	}
+	loc := ai.LocaleFromOnboardingSnapshot(snap)
+	return ai.EnrichOnboardingSnapshotStarterAffiliate(snap, loc, s.listOwnedWardrobe(ctx, userID))
+}
+
+func (s *Service) listOwnedWardrobe(ctx context.Context, userID uuid.UUID) []ai.OwnedWardrobeItem {
+	if s == nil || s.wardrobe == nil || userID == uuid.Nil {
+		return nil
+	}
+	rows, err := s.wardrobe.ListByUser(ctx, userID)
+	if err != nil || len(rows) == 0 {
+		return nil
+	}
+	out := make([]ai.OwnedWardrobeItem, 0, len(rows))
+	for _, p := range rows {
+		out = append(out, ai.OwnedWardrobeItem{
+			Name:     p.Name,
+			Brand:    p.Brand,
+			Category: string(p.Category),
+		})
+	}
+	return out
 }
 
 func onboardingLocale(raw string) string {

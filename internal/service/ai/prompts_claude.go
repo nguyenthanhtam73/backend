@@ -49,6 +49,7 @@ func StarterRoutineSystemPrompt() string {
 - week_notes: first-week habits — consistency, frequency, what “slightly dry vs tight” might mean, when to pause active ingredients.
 - safety_notes: sunscreen, patch test, red-flag symptoms, see a dermatologist — calm, clear, kind.
 - closing_reminder: one supportive closing sentence + reminder this is educational guidance, not medical advice.
+- product_suggestions: include **exactly 1** pick from AFFILIATE_CATALOG when a clear match exists for skin_type + goal (prioritize SPF if outdoor/gym/travel in contexts). Copy catalog fields exactly; reason must cite their goal/skin and end with affiliate transparency. Use [] only if nothing fits.
 
 ## Output
 ONE JSON object only, no markdown. Follow the exact keys in the user message.`
