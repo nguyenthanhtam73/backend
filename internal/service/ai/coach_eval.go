@@ -149,7 +149,7 @@ type CoachNaturalnessResult struct {
 	EmotionalScore          float64
 }
 
-// ScoreCoachNaturalness evaluates v17 warm chat persona on structured coach output.
+// ScoreCoachNaturalness evaluates v18 balanced warmth on structured coach output.
 func ScoreCoachNaturalness(out *CoachStructuredOutput) CoachNaturalnessResult {
 	if out == nil {
 		return CoachNaturalnessResult{}
@@ -187,16 +187,16 @@ func ScoreCoachNaturalness(out *CoachStructuredOutput) CoachNaturalnessResult {
 
 	emo := 0.0
 	if res.HasWarmOpening {
-		emo += 0.30
+		emo += 0.25
 	}
 	if res.HasWarmEncouragement {
-		emo += 0.35
+		emo += 0.40
 	}
 	if res.HasWarmClosing {
-		emo += 0.20
+		emo += 0.25
 	}
 	if res.HasConversationalOpener {
-		emo += 0.15
+		emo += 0.10
 	}
 	res.EmotionalScore = emo
 	return res
@@ -274,8 +274,9 @@ func outputHasWarmEncouragement(text string) bool {
 	for _, phrase := range []string{
 		"bạn đang làm khá tốt", "bạn đang làm tốt", "bạn đang làm rất tốt", "đang làm khá tốt",
 		"mình khuyên thật lòng", "thật lòng nhé", "khá tốt rồi", "tốt lắm", "đáng khen",
-		"cố lên", "kiên trì", "mình biết phần này không dễ", "cảm ơn bạn", "đang cố gắng",
-		"đang đi đúng hướng", "mình trân trọng",
+		"cố lên", "cố lên nhé", "kiên trì", "mình biết phần này không dễ", "cảm ơn bạn", "đang cố gắng",
+		"đang đi đúng hướng", "mình trân trọng", "mình tin bạn", "động viên", "ở đây cùng bạn",
+		"vừa cụ thể vừa", "không dễ chút nào",
 	} {
 		if strings.Contains(text, phrase) {
 			return true

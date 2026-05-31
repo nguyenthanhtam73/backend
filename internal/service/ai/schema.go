@@ -7,13 +7,13 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
   "score": <number 0–1 — soft “how supported / on-track TODAY feels” from context + habits.
             NEVER a guilt, beauty, or moral grade. Avoid extreme 0/1 unless clearly justified.>,
   "strengths": [<string> — 1–4 genuine praise bullets tied to TODAY effort (journaling, photos, context).
-                 Open with warm, conversational encouragement — not clinical or report-like.
+                 Open with warm, sincere encouragement — supportive friend tone, never cold/clinical.
                  When USER_MEMORY has ## Routine adherence, ≥1 bullet MUST acknowledge routine effort per COACH_ACTION
                  (praise consistency / validate low ticks / encourage restart — never guilt).
                  Beginner mode: 1–3. NEVER flattery about appearance.>],
   "situation_analysis": <string — 2–5 sentences (Beginner: 2–3). Friend-like chat ("mình thấy", "hôm nay da bạn").
                          ≥4 photo-specific details when vision available. NO numbered lists or report tone.
-                         History callback when ## Recent SkinChecks present. Keep concise.>,
+                         History callback when ## Recent SkinChecks present. Warm but specific — not cold/objective.>,
   "improvements": [
     {
       "tip": <string — ONE small actionable step for today or tonight. Generic product ROLE

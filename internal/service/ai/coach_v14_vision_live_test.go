@@ -11,44 +11,50 @@ import (
 
 const coachLiveCompareTestTimeout = 60 * time.Minute
 
-// coachCorePromptV16Archive — pre-v17 system prompt for A/B live comparison only.
-const coachCorePromptV16Archive = `Bạn là DaDiary AI Skincare Coach — người bạn thân thiết, luôn nhìn kỹ ảnh da và khích lệ user một cách chân thành.
+// coachCorePromptV17Archive — pre-v18 system prompt for A/B live comparison only.
+const coachCorePromptV17Archive = `Bạn là DaDiary AI Skincare Coach — người bạn thân thiết luôn quan sát kỹ ảnh da và khích lệ user một cách chân thành.
 
-Hôm nay hãy quan sát thật kỹ ảnh và ghi chú của user. Nói chuyện tự nhiên như đang nhắn tin cho bạn thân, đừng dùng giọng báo cáo hay liệt kê khô khan.
+Hôm nay mình nhìn kỹ ảnh và ghi chú của bạn rồi nhé. Mình sẽ nói thật lòng những gì mình thấy, không vòng vo.
 
-## Giọng văn (BẮT BUỘC — v16)
-- Chat như bạn thân: "mình thấy", "hôm nay da bạn", "bạn đang làm tốt lắm", "mình khuyên thật lòng nhé".
-- CẤM: "1. 2. 3.", "T-zone:", "Phân tích cho thấy", "Tình trạng da hiện tại".
+## Giọng (BẮT BUỘC)
+- Như nhắn tin bạn: "mình thấy", "hôm nay da bạn", "bạn đang làm khá tốt rồi đó", "mình khuyên thật lòng nhé", "nghe có vẻ…".
+- Khen chân thành (effort, không ngoại hình) · khích lệ ấm · không sến · không hứa chữa khỏi.
+- **Ngắn gọn** — mỗi câu súc tích, tránh lặp, tiết kiệm token.
+- **Cấm:** báo cáo ("Phân tích cho thấy…"), liệt kê "1.2.3." / "T-zone:", câu chung ("da hơi khô", "cần dưỡng ẩm" không gắn vùng).
 
-## Quan sát ảnh (BẮT BUỘC — ≥3–4 chi tiết cụ thể)
-- Weave ≥3–4 chi tiết (vùng + dấu hiệu + mức) vào situation_analysis/concern_alignment.
-- Mở bằng "Mình thấy hôm nay…" / "Hôm nay da bạn…".
-- CẤM HOÀN TOÀN: "da hơi khô", "da cần dưỡng ẩm" không gắn vùng.
+## Ảnh (BẮT BUỘC khi có VISION_SUMMARY_JSON)
+- **≥4 chi tiết cụ thể** (vùng + dấu hiệu + mức) trong situation_analysis / concern_alignment — weave tự nhiên, không liệt kê khô.
+- Mở situation_analysis: "Mình thấy hôm nay…" / "Hôm nay da bạn…". Không chẩn đoán, không kê thuốc.
 
-## So sánh lịch sử (BẮT BUỘC khi có ## Recent SkinChecks)
-- ≥1 câu "So với lần trước…" / "Vài hôm trước…"
+## Lịch sử (BẮT BUỘC khi có ## Recent SkinChecks)
+- ≥1 câu: "So với lần trước…" / "Vài hôm trước bạn cũng ghi…" / "Mấy lần gần đây…".
 
-## 6 bước → JSON
-1. strengths 2. situation_analysis + concern_alignment 3. history callback
-4. improvements + routine_hints 5. why + safety 6. disclaimer + summary_notes
+## Cấu trúc tự nhiên → JSON
+1. Lời khen nhỏ → strengths
+2. Mình thấy hôm nay da bạn thế nào (≥4 chi tiết ảnh) → situation_analysis + concern_alignment
+3. So với lần trước → câu trong situation_analysis
+4. Hôm nay mình khuyên bạn thử gì → improvements[].tip + routine_hints (Sáng:/Tối:)
+5. Lý do + lưu ý an toàn → improvements[].why + avoid_or_patch + safety_reminders
+6. Disclaimer nhẹ → medical_disclaimer + summary_notes
 
 ## USER_MEMORY
-Callback + COACH_ACTION adherence when sections present. Output: ONE JSON object per schema.`
+Callback bắt buộc · pivot 👎 · adherence + COACH_ACTION tier · không bịa brand.
+Output: ONE JSON object per schema.`
 
-func coachPromptV16Archive(skillLevel string) string {
-	core := coachCorePromptV16Archive
+func coachPromptV17Archive(skillLevel string) string {
+	core := coachCorePromptV17Archive
 	if strings.EqualFold(strings.TrimSpace(skillLevel), "beginner") {
-		return core + "\n\n## BEGINNER\nCâu ngắn · ≥3–4 chi tiết ảnh · strengths 1–3 · improvements 2–3."
+		return core + "\n\n## BEGINNER\nTừ dễ · ≥4 chi tiết ảnh · strengths 1–3 · improvements 2–3."
 	}
-	return core + "\n\n## INTERMEDIATE/ADVANCED\nVision ≥3–4 chi tiết · strengths 1–4 · improvements 2–5."
+	return core + "\n\n## INTERMEDIATE/ADVANCED\nThuật ngữ OK · strengths 1–4 · improvements 2–5."
 }
 
-// TestCoachV17_WarmLiveCompare runs 6 vision scenarios through v16 vs v17 prompts.
+// TestCoachV18_BalancedLiveCompare runs 6 vision scenarios through v17 vs v18 prompts.
 //
-// Run: go test ./internal/service/ai/... -run TestCoachV17_WarmLiveCompare -v -count=1 -timeout 60m
-func TestCoachV17_WarmLiveCompare(t *testing.T) {
+// Run: go test ./internal/service/ai/... -run TestCoachV18_BalancedLiveCompare -v -count=1 -timeout 60m
+func TestCoachV18_BalancedLiveCompare(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping live v17 compare in short mode")
+		t.Skip("skipping live v18 compare in short mode")
 	}
 	cfg := loadCoachTestConfig(t)
 	if strings.TrimSpace(cfg.Anthropic.APIKey) == "" && strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
@@ -61,9 +67,9 @@ func TestCoachV17_WarmLiveCompare(t *testing.T) {
 
 	sep := strings.Repeat("=", 130)
 	t.Log(sep)
-	t.Logf("Coach prompt A/B — v16 archive vs v17 (current) | scenarios=%d | timeout=%s",
+	t.Logf("Coach prompt A/B — v17 archive vs v18 (current) | scenarios=%d | timeout=%s",
 		len(VisionCoachScenarios()), coachLiveCompareTestTimeout)
-	t.Logf("v17 prompt chars (intermediate): %d", len(GetCoachPrompt("intermediate")))
+	t.Logf("v18 prompt chars (intermediate): %d", len(GetCoachPrompt("intermediate")))
 	t.Log(sep)
 	t.Log(fmt.Sprintf("%-18s | %-6s | vis | nat | emo | opn | enc | rpt | gen | hist | preview",
 		"Scenario", "Prompt"))
@@ -86,15 +92,15 @@ func TestCoachV17_WarmLiveCompare(t *testing.T) {
 			name   string
 			system string
 		}{
-			{"v16", coachPromptV16Archive(sc.Persona.SkillLevel)},
-			{"v17", GetCoachPrompt(sc.Persona.SkillLevel)},
+			{"v17", coachPromptV17Archive(sc.Persona.SkillLevel)},
+			{"v18", GetCoachPrompt(sc.Persona.SkillLevel)},
 		} {
 			t.Run(sc.ID+"/"+variant.name, func(t *testing.T) {
-				result, err := TextCoachCompletion(ctx, cfg, client, "v17-compare-"+variant.name, variant.system, userMsg)
+				result, err := TextCoachCompletion(ctx, cfg, client, "v18-compare-"+variant.name, variant.system, userMsg)
 				if err != nil {
 					t.Fatalf("%s: %v", variant.name, err)
 				}
-				out, err := parseCoachStructuredOutput(result.Text, "v17-compare")
+				out, err := parseCoachStructuredOutput(result.Text, "v18-compare")
 				if err != nil {
 					t.Fatalf("parse: %v", err)
 				}
@@ -120,14 +126,14 @@ func TestCoachV17_WarmLiveCompare(t *testing.T) {
 	}
 
 	t.Log("")
-	t.Log("### Aggregate — naturalness & emotion (v16 vs v17)")
+	t.Log("### Aggregate — naturalness & emotion (v17 vs v18)")
 	type agg struct {
-		n                                                                    int
-		vis                                                                  int
-		nat, emo                                                             float64
-		opn, enc, rep, gen, hist                                             int
+		n                                                       int
+		vis                                                     int
+		nat, emo                                                float64
+		opn, enc, rep, gen, hist                                int
 	}
-	byPrompt := map[string]*agg{"v16": {}, "v17": {}}
+	byPrompt := map[string]*agg{"v17": {}, "v18": {}}
 	for _, r := range rows {
 		a := byPrompt[r.prompt]
 		a.n++
@@ -150,7 +156,7 @@ func TestCoachV17_WarmLiveCompare(t *testing.T) {
 			a.hist++
 		}
 	}
-	for _, label := range []string{"v16", "v17"} {
+	for _, label := range []string{"v17", "v18"} {
 		a := byPrompt[label]
 		if a.n == 0 {
 			continue
@@ -160,16 +166,19 @@ func TestCoachV17_WarmLiveCompare(t *testing.T) {
 			float64(a.vis)/float64(a.n), a.nat/float64(a.n), a.emo/float64(a.n),
 			a.opn, a.n, a.enc, a.n, a.rep, a.n, a.gen, a.n, a.hist, a.n)
 	}
-	v16, v17 := byPrompt["v16"], byPrompt["v17"]
-	if v16.n > 0 && v17.n > 0 {
-		if float64(v17.vis)/float64(v17.n) < float64(MinVisionDetailCitations) {
-			t.Errorf("v17 avg vision details below target %d", MinVisionDetailCitations)
+	v17, v18 := byPrompt["v17"], byPrompt["v18"]
+	if v17.n > 0 && v18.n > 0 {
+		if float64(v18.vis)/float64(v18.n) < float64(MinVisionDetailCitations) {
+			t.Errorf("v18 avg vision details below target %d", MinVisionDetailCitations)
 		}
-		natDelta := v17.nat/float64(v17.n) - v16.nat/float64(v16.n)
-		emoDelta := v17.emo/float64(v17.n) - v16.emo/float64(v16.n)
-		t.Logf("Delta v17-v16: naturalness %+.2f | emotional %+.2f", natDelta, emoDelta)
-		if v17.opn < v17.n {
-			t.Logf("WARN: v17 missing conversational opener on %d/%d runs", v17.n-v17.opn, v17.n)
+		natDelta := v18.nat/float64(v18.n) - v17.nat/float64(v17.n)
+		emoDelta := v18.emo/float64(v18.n) - v17.emo/float64(v17.n)
+		t.Logf("Delta v18-v17: naturalness %+.2f | emotional %+.2f", natDelta, emoDelta)
+		if v18.enc < v18.n {
+			t.Logf("WARN: v18 missing warm encouragement on %d/%d runs", v18.n-v18.enc, v18.n)
+		}
+		if emoDelta < 0 {
+			t.Logf("WARN: v18 emotional score below v17 — review warm opener/closing enforcement")
 		}
 	}
 	t.Log(sep)

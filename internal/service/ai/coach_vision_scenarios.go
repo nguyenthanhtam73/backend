@@ -17,7 +17,7 @@ type VisionCoachScenario struct {
 	WantCues    []string
 }
 
-// VisionCoachScenarios returns 6 photo-backed coach scenarios for v17 QA.
+// VisionCoachScenarios returns 6 photo-backed coach scenarios for v18 QA.
 func VisionCoachScenarios() []VisionCoachScenario {
 	return []VisionCoachScenario{
 		scenarioOilyAcneVision(),

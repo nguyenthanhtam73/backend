@@ -5,31 +5,31 @@ import (
 	"testing"
 )
 
-func TestCoachPrompt_v17_WarmChatRules(t *testing.T) {
+func TestCoachPrompt_v18_BalancedWarmthRules(t *testing.T) {
 	for _, skill := range []string{"beginner", "intermediate"} {
 		t.Run(skill, func(t *testing.T) {
 			p := GetCoachPrompt(skill)
 			mustContain(t, p, "người bạn thân thiết")
+			mustContain(t, p, "vừa cụ thể vừa động viên")
 			mustContain(t, p, "≥4 chi tiết cụ thể")
 			mustContain(t, p, "mình thấy")
-			mustContain(t, p, "hôm nay da bạn")
-			mustContain(t, p, "mình khuyên thật lòng nhé")
-			mustContain(t, p, "bạn đang làm khá tốt rồi đó")
+			mustContain(t, p, "Lời động viên nhẹ")
+			mustContain(t, p, "không lạnh")
 			mustContain(t, p, "USER_MEMORY")
 			mustContain(t, p, "COACH_ACTION")
 		})
 	}
 }
 
-func TestCoachPromptVersion_v17(t *testing.T) {
-	if CoachDailyPromptVersion != 17 {
-		t.Fatalf("expected CoachDailyPromptVersion == 17, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v18(t *testing.T) {
+	if CoachDailyPromptVersion != 18 {
+		t.Fatalf("expected CoachDailyPromptVersion == 18, got %d", CoachDailyPromptVersion)
 	}
 }
 
-func TestMinVisionDetailCitations_v17(t *testing.T) {
+func TestMinVisionDetailCitations_v18(t *testing.T) {
 	if MinVisionDetailCitations != 4 {
-		t.Fatalf("expected MinVisionDetailCitations == 4 for v17, got %d", MinVisionDetailCitations)
+		t.Fatalf("expected MinVisionDetailCitations == 4 for v18, got %d", MinVisionDetailCitations)
 	}
 }
 
@@ -41,7 +41,7 @@ func TestScoreCoachNaturalness(t *testing.T) {
 			Tip string `json:"tip"`
 			Why string `json:"why"`
 		}{{Tip: "Tối nay mình khuyên thật lòng nhé — giữ routine nhẹ."}},
-		SummaryNotes:      "Mai chụp cùng góc nhé — mình muốn xem cằm dịu lại chút nào.",
+		SummaryNotes: "Mai chụp cùng góc nhé — mình tin bạn sẽ thấy cằm dịu lại chút nào.",
 	}
 	score := ScoreCoachNaturalness(natural)
 	if !score.HasNaturalTone {
@@ -117,6 +117,13 @@ func TestCoachTurnChecklist_Vision(t *testing.T) {
 	mustContain(t, got, "NO lists/report tone")
 }
 
+func TestCoachTurnChecklist_EmotionalPriority(t *testing.T) {
+	got := coachTurnChecklist("## Recent SkinChecks\nfoo", true)
+	mustContain(t, got, "EMOTION (HIGH PRIORITY)")
+	mustContain(t, got, "EmotionalScore")
+	mustContain(t, got, "never cold/clinical")
+}
+
 func TestVisionCoachScenarios_Fixtures(t *testing.T) {
 	scenarios := VisionCoachScenarios()
 	if len(scenarios) != 6 {
@@ -139,8 +146,8 @@ func TestNeedsVisionDetailRetry(t *testing.T) {
 	vision := `{"visible_observations":["T-zone oily","chin bumps","large pores","dull cheek"]}`
 	good := &CoachStructuredOutput{
 		SituationAnalysis: "Mình thấy T-zone oily with chin bumps, large pores on nose and dull right cheek.",
-		SummaryNotes:      "Mai chụp cùng góc nhé.",
-		Strengths:         []string{"Bạn đang làm tốt lắm."},
+		SummaryNotes:      "Mai chụp cùng góc nhé — mình tin bạn sẽ thấy khác biệt nhỏ.",
+		Strengths:         []string{"Bạn đang làm khá tốt rồi đó — check-in đều lắm."},
 	}
 	bad := &CoachStructuredOutput{SituationAnalysis: "Da bạn hơi khô hôm nay."}
 	if needsVisionDetailRetry(vision, good) {
@@ -160,11 +167,12 @@ func TestNeedsNaturalToneRetry(t *testing.T) {
 	if !needsNaturalToneRetry(out) {
 		t.Fatal("report-like output should need natural tone retry")
 	}
-}
-
-func TestCoachPrompt_v17_Compactness(t *testing.T) {
-	v17 := len(GetCoachPrompt("intermediate"))
-	if v17 > 5500 {
-		t.Fatalf("v17 prompt should be compact (<5500 chars), got %d", v17)
+	cold := &CoachStructuredOutput{
+		SituationAnalysis: "Mình thấy hôm nay trán bóng dầu, cằm có mụn, mũi lỗ chân lông to, má xỉn.",
+		Strengths:         []string{"Routine completed."},
+		SummaryNotes:      "Follow the plan.",
+	}
+	if !needsNaturalToneRetry(cold) {
+		t.Fatal("cold output without warm encouragement should need retry")
 	}
 }

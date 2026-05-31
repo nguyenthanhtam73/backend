@@ -37,7 +37,9 @@ func coachTurnChecklist(userContext string, hasVision bool) string {
 		b.WriteString("- MUST include \"So với lần trước…\" / \"Vài hôm trước…\" callback.\n")
 	}
 	if hasVision || strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- Warm praise in strengths; weave \"mình khuyên thật lòng nhé\" or \"bạn đang làm khá tốt rồi đó\" naturally; gentle closing in summary_notes; keep copy concise.\n")
+		b.WriteString("- EMOTION (HIGH PRIORITY): strengths = warm sincere praise (effort, not appearance); summary_notes = gentle encouragement closing — never cold/clinical.\n")
+		b.WriteString("- MUST feel supportive: weave \"bạn đang làm khá tốt rồi đó\" / \"mình khuyên thật lòng nhé\" / \"mình tin bạn\" in opener OR closing.\n")
+		b.WriteString("- Self-check EmotionalScore: warm opener + warm closing + encouragement phrase before JSON.\n")
 	}
 	if strings.Contains(userContext, "## Routine adherence") {
 		b.WriteString("- strengths OR summary_notes: MUST mention routine adherence per COACH_ACTION (praise / simplify / encourage — no guilt).\n")
@@ -72,6 +74,9 @@ func needsNaturalToneRetry(out *CoachStructuredOutput) bool {
 	}
 	nat := ScoreCoachNaturalness(out)
 	if nat.HasReportLikeTone || !nat.HasConversationalOpener {
+		return true
+	}
+	if !nat.HasWarmEncouragement || !nat.HasWarmOpening || !nat.HasWarmClosing {
 		return true
 	}
 	return outputHasGenericSkinPhrases(FlattenCoachOutput(out))

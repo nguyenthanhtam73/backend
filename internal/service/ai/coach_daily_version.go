@@ -26,4 +26,7 @@ package ai
 //
 // v17 (2026-05-31) — Compact warm chat persona: shorter prompt for token savings,
 // stronger conversational phrases, ≥4 vision details, emotional encouragement scoring.
-const CoachDailyPromptVersion = 17
+//
+// v18 (2026-05-31) — Balanced warmth: keeps ≥4 vision + history enforcement while
+// strengthening sincere encouragement in opener/closing; checklist emotional priority.
+const CoachDailyPromptVersion = 18
