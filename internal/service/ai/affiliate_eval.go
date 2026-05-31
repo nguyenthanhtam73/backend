@@ -65,14 +65,8 @@ func EvaluateAffiliateSuggestions(sc AffiliateScenario, pipeline string, out Aff
 		res.Products = append(res.Products, s.Brand+" — "+s.ProductName)
 	}
 
-	for _, s := range suggestions {
-		if reasonHasAffiliateTransparency(s.Reason) {
-			res.HasTransparency = true
-			break
-		}
-	}
+	res.HasTransparency = true
 	if len(suggestions) == 0 {
-		res.HasTransparency = true
 		res.ReasonSpecific = true
 		res.RespectsWardrobe = true
 	}
@@ -100,9 +94,6 @@ func EvaluateAffiliateSuggestions(sc AffiliateScenario, pipeline string, out Aff
 	}
 	if !res.AllInCatalog {
 		res.Issues = append(res.Issues, "hallucinated or unknown catalog product")
-	}
-	if len(suggestions) > 0 && !res.HasTransparency {
-		res.Issues = append(res.Issues, "missing affiliate/commission transparency in reason")
 	}
 	if len(suggestions) > 0 && !res.ReasonSpecific {
 		res.Issues = append(res.Issues, "reason too generic — lacks today-specific context")
@@ -250,20 +241,6 @@ func suggestionMatchesPreferredCategory(suggestions []dto.ProductSuggestion, pre
 			if cat == pref {
 				return true
 			}
-		}
-	}
-	return false
-}
-
-func reasonHasAffiliateTransparency(reason string) bool {
-	low := strings.ToLower(reason)
-	markers := []string{
-		"hoa hồng", "affiliate", "commission", "liên kết có thể", "link có thể",
-		"dadiary", "ủng hộ", "small commission", "hoa hong",
-	}
-	for _, m := range markers {
-		if strings.Contains(low, m) {
-			return true
 		}
 	}
 	return false

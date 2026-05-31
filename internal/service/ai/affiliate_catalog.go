@@ -64,7 +64,6 @@ const AffiliateRecommendationRulesBlock = `## Affiliate product picks (product_s
 - Suggest **0–2 items max** (ideal **1**). Never stack 3+ products — feels salesy.
 - If USER_MEMORY has ## Wardrobe listing products the user already owns → **do NOT** re-recommend those; suggest only a clear gap (e.g. missing SPF) or return [].
 - "reason" MUST be specific to TODAY (tags, photo cues, profile goal, wardrobe gap) — warm friend tone, not ad copy.
-- End each "reason" with a brief transparency line: e.g. "Link affiliate có thể giúp DaDiary duy trì app (hoa hồng nhỏ)." / EN: "Affiliate link — DaDiary may earn a small commission."
 - "priority": "high" = directly fills today's top gap; "medium" = optional add-on.
 - Routine steps stay generic roles; product_suggestions is the ONLY branded slot.
 - Skip affiliate picks when: stinging/redness flare, user 👎 affiliate picks often, wardrobe already complete, or no catalog item clearly fits.

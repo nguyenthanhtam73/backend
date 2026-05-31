@@ -250,12 +250,12 @@ func starterPickReason(locale, goal, skin string, entry affiliateCatalogEntry) s
 			g = strings.ReplaceAll(g, "_", " ")
 		}
 		return "Based on " + g + " and " + skin + " skin, " + entry.Brand + " " + entry.ProductName +
-			" is a gentle starter step for your new AM/PM routine. Affiliate link — DaDiary may earn a small commission."
+			" is a gentle starter step for your new AM/PM routine."
 	}
 	goalVI := goalLabelVI(goal)
 	skinVI := skinLabelVI(skin)
 	return "Theo " + goalVI + " và loại da " + skinVI + ", " + entry.Brand + " — " + entry.ProductName +
-		" có thể là món khởi đầu nhẹ cho routine sáng/tối của bạn. Link affiliate có thể giúp DaDiary duy trì app (hoa hồng nhỏ)."
+		" có thể là món khởi đầu nhẹ cho routine sáng/tối của bạn."
 }
 
 func goalLabelVI(goal string) string {

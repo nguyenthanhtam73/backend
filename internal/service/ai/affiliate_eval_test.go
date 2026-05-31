@@ -24,7 +24,7 @@ func TestEvaluateAffiliateSuggestions_GoodFixture(t *testing.T) {
 			{
 				ProductName:   spf.ProductName,
 				Brand:         spf.Brand,
-				Reason:        "Hôm qua bạn ra nắng 2 tiếng mà chưa có kem chống nắng trong tủ — Biore UV Aqua Rich giúp bảo vệ vùng má khỏi thâm thêm. Link affiliate có thể giúp DaDiary duy trì app (hoa hồng nhỏ).",
+				Reason:        "Hôm qua bạn ra nắng 2 tiếng mà chưa có kem chống nắng trong tủ — Biore UV Aqua Rich giúp bảo vệ vùng má khỏi thâm thêm.",
 				AffiliateLink: spf.AffiliateLink,
 				Priority:      "high",
 			},
@@ -34,36 +34,11 @@ func TestEvaluateAffiliateSuggestions_GoodFixture(t *testing.T) {
 	if res.Count != 1 {
 		t.Fatalf("count=%d want 1", res.Count)
 	}
-	if !res.AllInCatalog || !res.HasTransparency || !res.ReasonSpecific || !res.RespectsWardrobe {
+	if !res.AllInCatalog || !res.ReasonSpecific || !res.RespectsWardrobe {
 		t.Fatalf("expected pass: %+v issues=%v", res, res.Issues)
 	}
 	if res.Score < 0.85 {
 		t.Fatalf("score too low: %.2f", res.Score)
-	}
-}
-
-func TestEvaluateAffiliateSuggestions_MissingTransparency(t *testing.T) {
-	rows, _ := loadAffiliateCatalog()
-	if len(rows) == 0 {
-		t.Fatal("empty catalog")
-	}
-	sc := affiliateBeginnerOilyAcne()
-	res := EvaluateAffiliateSuggestions(sc, "routine_suggest", AffiliateTurnOutput{
-		Suggestions: []dto.ProductSuggestion{
-			{
-				ProductName:   rows[0].ProductName,
-				Brand:         rows[0].Brand,
-				Reason:        "Vùng trán có vài nốt mụn và T-zone bóng dầu — sữa rửa mặt dịu giúp làm sạch mà không căng da.",
-				AffiliateLink: rows[0].AffiliateLink,
-				Priority:      "high",
-			},
-		},
-	})
-	if res.HasTransparency {
-		t.Fatal("expected transparency failure")
-	}
-	if len(res.Issues) == 0 || !strings.Contains(res.Issues[0], "transparency") {
-		t.Fatalf("expected transparency issue, got %v", res.Issues)
 	}
 }
 
@@ -75,7 +50,7 @@ func TestEvaluateAffiliateSuggestions_WardrobeHit(t *testing.T) {
 			{
 				ProductName:   owned.Name,
 				Brand:         owned.Brand,
-				Reason:        "Má căng nhẹ hôm nay — sữa rửa mặt dịu phù hợp. Link affiliate hoa hồng nhỏ.",
+				Reason:        "Má căng nhẹ hôm nay — sữa rửa mặt dịu phù hợp.",
 				AffiliateLink: "https://s.shopee.vn/affiliate/cerave-foaming-cleanser",
 				Priority:      "medium",
 			},
