@@ -28,17 +28,17 @@ type Service struct {
 	profiles *repository.GormSkinProfileRepository
 	feedback *repository.GormAIFeedbackRepository
 	routines *repository.GormRoutineEntryRepository
+	wardrobe *repository.GormSkincareProductRepository
 	cache    *ai.MemoryCache
 }
 
 // NewService wires dependencies. Every repo + cache argument is optional;
-// the underlying ai.BuildUserMemoryContext gracefully omits any section it
-// can't load.
 func NewService(
 	checks *repository.GormSkinCheckRepository,
 	profiles *repository.GormSkinProfileRepository,
 	feedback *repository.GormAIFeedbackRepository,
 	routines *repository.GormRoutineEntryRepository,
+	wardrobe *repository.GormSkincareProductRepository,
 	cache *ai.MemoryCache,
 ) *Service {
 	return &Service{
@@ -46,6 +46,7 @@ func NewService(
 		profiles: profiles,
 		feedback: feedback,
 		routines: routines,
+		wardrobe: wardrobe,
 		cache:    cache,
 	}
 }
@@ -72,6 +73,7 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID, forceFresh bool) (d
 			Checks:   s.checks,
 			Feedback: s.feedback,
 			Routines: s.routines,
+			Wardrobe: s.wardrobe,
 			Cache:    s.cache,
 		},
 		ai.UserMemoryOptions{SkipCache: forceFresh},

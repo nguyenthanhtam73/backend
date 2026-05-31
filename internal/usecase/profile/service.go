@@ -33,6 +33,7 @@ type Service struct {
 	checks   *repository.GormSkinCheckRepository
 	feedback *repository.GormAIFeedbackRepository
 	routines *repository.GormRoutineEntryRepository
+	wardrobe *repository.GormSkincareProductRepository
 	cache    *ai.MemoryCache
 }
 
@@ -44,6 +45,7 @@ func NewService(
 	checks *repository.GormSkinCheckRepository,
 	feedback *repository.GormAIFeedbackRepository,
 	routines *repository.GormRoutineEntryRepository,
+	wardrobe *repository.GormSkincareProductRepository,
 	cache *ai.MemoryCache,
 ) *Service {
 	return &Service{
@@ -52,6 +54,7 @@ func NewService(
 		checks:   checks,
 		feedback: feedback,
 		routines: routines,
+		wardrobe: wardrobe,
 		cache:    cache,
 	}
 }
@@ -183,6 +186,7 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 			Checks:   s.checks,
 			Feedback: s.feedback,
 			Routines: s.routines,
+			Wardrobe: s.wardrobe,
 			Cache:    s.cache,
 		},
 		ai.UserMemoryOptions{},
@@ -240,14 +244,15 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	out := dto.OnboardingCompleteResponse{
 		Profile: dto.SkinProfileFromDomain(reloaded),
 		StarterRoutine: dto.StarterRoutineResponse{
-			Morning:         starter.Morning,
-			Evening:         starter.Evening,
-			WeekNotes:       starter.WeekNotes,
-			SafetyNotes:     starter.SafetyNotes,
-			Encouragement:   starter.Encouragement,
-			SkinReadback:    starter.SkinReadback,
-			Rationale:       starter.Rationale,
-			ClosingReminder: starter.ClosingReminder,
+			Morning:            starter.Morning,
+			Evening:            starter.Evening,
+			WeekNotes:          starter.WeekNotes,
+			SafetyNotes:        starter.SafetyNotes,
+			Encouragement:      starter.Encouragement,
+			SkinReadback:       starter.SkinReadback,
+			Rationale:          starter.Rationale,
+			ClosingReminder:    starter.ClosingReminder,
+			ProductSuggestions: starter.ProductSuggestions,
 		},
 	}
 	return out, nil

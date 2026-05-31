@@ -48,6 +48,7 @@ type SkinCoachDetail struct {
 	AvoidOrPatch       []string               `json:"avoid_or_patch,omitempty"`
 	SafetyReminders    []string               `json:"safety_reminders,omitempty"`
 	MedicalDisclaimer  string                 `json:"medical_disclaimer,omitempty"`
+	ProductSuggestions []ProductSuggestion    `json:"product_suggestions,omitempty"`
 	ErrorMessage       string                 `json:"error_message,omitempty"`
 }
 
@@ -144,6 +145,9 @@ func buildCoachDetailFromDomain(a *domain.SkinAnalysis) *SkinCoachDetail {
 	}
 	if len(a.RoutineHints) > 0 {
 		_ = json.Unmarshal(a.RoutineHints, &d.RoutineHints)
+	}
+	if len(a.ProductSuggestions) > 0 {
+		_ = json.Unmarshal(a.ProductSuggestions, &d.ProductSuggestions)
 	}
 	if len(a.AvoidOrPatch) > 0 {
 		_ = json.Unmarshal(a.AvoidOrPatch, &d.AvoidOrPatch)

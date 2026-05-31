@@ -33,6 +33,5 @@ package ai
 // v19 (2026-05-31) — Hyper-specific vision coaching: 4–5 photo details with mandatory
 // openers ("Mình thấy hôm nay…"), history callback enforcement, concrete actionable tips.
 //
-// v20 (2026-05-31) — Zero generic tolerance: bans "da hỗn hợp"/"dễ nổi mụn", 4–6 photo
-// specifics with counts, mandatory vision openers, up to 2 validation retries.
-const CoachDailyPromptVersion = 20
+// v22 (2026-05-31) — Affiliate QA: cap 2 suggestions, wardrobe skip, mandatory transparency line.
+const CoachDailyPromptVersion = 22

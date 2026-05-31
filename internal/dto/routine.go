@@ -81,6 +81,7 @@ type SuggestRoutineResponse struct {
 	WeekNotes       string        `json:"week_notes,omitempty"`
 	SafetyNotes     string        `json:"safety_notes,omitempty"`
 	ClosingReminder string        `json:"closing_reminder,omitempty"`
+	ProductSuggestions []ProductSuggestion `json:"product_suggestions,omitempty"`
 	SkillMode       string        `json:"skill_mode,omitempty"`
 	Locale          string        `json:"locale,omitempty"`
 	// Source is always "ai_suggested" — present so the UI can label the card.

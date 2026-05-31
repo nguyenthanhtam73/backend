@@ -1,0 +1,122 @@
+[
+  {
+    "id": "cerave-foaming-cleanser",
+    "product_name": "Sữa rửa mặt tạo bọt",
+    "brand": "CeraVe",
+    "category": "cleanser",
+    "skin_types": ["oily", "combination", "normal"],
+    "concerns": ["acne", "oily", "clogged_pores"],
+    "price_range": "280k-350k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/cerave-foaming-cleanser"
+  },
+  {
+    "id": "cerave-hydrating-cleanser",
+    "product_name": "Sữa rửa mặt dưỡng ẩm",
+    "brand": "CeraVe",
+    "category": "cleanser",
+    "skin_types": ["dry", "normal", "sensitive"],
+    "concerns": ["dry", "dehydrated", "weak_barrier", "sensitive"],
+    "price_range": "280k-350k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/cerave-hydrating-cleanser"
+  },
+  {
+    "id": "lrp-anthelios-spf50",
+    "product_name": "Kem chống nắng Anthelios SPF50+",
+    "brand": "La Roche-Posay",
+    "category": "spf",
+    "skin_types": ["all"],
+    "concerns": ["hyperpigmentation", "pih", "sensitive", "recent_sun_exposure"],
+    "price_range": "450k-650k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/lrp-anthelios-spf50"
+  },
+  {
+    "id": "anessa-perfect-uv",
+    "product_name": "Kem chống nắng Perfect UV Milk SPF50+",
+    "brand": "Anessa",
+    "category": "spf",
+    "skin_types": ["oily", "combination"],
+    "concerns": ["oily", "recent_sun_exposure", "hyperpigmentation"],
+    "price_range": "550k-750k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/anessa-perfect-uv"
+  },
+  {
+    "id": "to-niacinamide",
+    "product_name": "Serum Niacinamide 10% + Zinc 1%",
+    "brand": "The Ordinary",
+    "category": "serum",
+    "skin_types": ["oily", "combination", "normal"],
+    "concerns": ["acne", "breakout", "clogged_pores", "large_pores", "oily"],
+    "price_range": "180k-250k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/to-niacinamide"
+  },
+  {
+    "id": "to-hyaluronic-acid",
+    "product_name": "Serum Hyaluronic Acid 2% + B5",
+    "brand": "The Ordinary",
+    "category": "serum",
+    "skin_types": ["dry", "normal", "combination", "dehydrated"],
+    "concerns": ["dry", "dehydrated", "weak_barrier"],
+    "price_range": "180k-250k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/to-hyaluronic-acid"
+  },
+  {
+    "id": "cosrx-snail-96",
+    "product_name": "Tinh chất ốc sên Advanced Snail 96 Mucin",
+    "brand": "COSRX",
+    "category": "serum",
+    "skin_types": ["dry", "normal", "sensitive", "combination"],
+    "concerns": ["dry", "dehydrated", "weak_barrier", "redness", "sensitive"],
+    "price_range": "320k-420k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/cosrx-snail-96"
+  },
+  {
+    "id": "cosrx-bha-liquid",
+    "product_name": "Toner BHA Blackhead Power Liquid",
+    "brand": "COSRX",
+    "category": "treatment",
+    "skin_types": ["oily", "combination"],
+    "concerns": ["clogged_pores", "large_pores", "breakout", "acne"],
+    "price_range": "280k-380k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/cosrx-bha-liquid"
+  },
+  {
+    "id": "cerave-moisturizing-cream",
+    "product_name": "Kem dưỡng ẩm đa chức năng",
+    "brand": "CeraVe",
+    "category": "moisturizer",
+    "skin_types": ["dry", "normal", "sensitive"],
+    "concerns": ["dry", "dehydrated", "weak_barrier", "sensitive"],
+    "price_range": "350k-450k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/cerave-moisturizing-cream"
+  },
+  {
+    "id": "klairs-supple-toner",
+    "product_name": "Toner Supple Preparation Unscented",
+    "brand": "Klairs",
+    "category": "toner",
+    "skin_types": ["dry", "normal", "sensitive", "combination"],
+    "concerns": ["dry", "dehydrated", "sensitive", "redness"],
+    "price_range": "320k-420k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/klairs-supple-toner"
+  },
+  {
+    "id": "melano-cc-vitamin-c",
+    "product_name": "Serum Melano CC Vitamin C",
+    "brand": "Rohto Melano CC",
+    "category": "serum",
+    "skin_types": ["normal", "combination", "oily"],
+    "concerns": ["hyperpigmentation", "pih", "post_acne_marks", "dull"],
+    "price_range": "250k-350k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/melano-cc-vitamin-c"
+  },
+  {
+    "id": "bioderma-sensibio-gel",
+    "product_name": "Sữa rửa mặt Sensibio Gel Moussant",
+    "brand": "Bioderma",
+    "category": "cleanser",
+    "skin_types": ["sensitive", "dry", "normal"],
+    "concerns": ["sensitive", "redness", "stinging", "weak_barrier"],
+    "price_range": "380k-480k",
+    "affiliate_link": "https://s.shopee.vn/affiliate/bioderma-sensibio-gel"
+  }
+]

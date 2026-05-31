@@ -11,22 +11,20 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/dto"
 )
 
 // StarterRoutine is the AM/PM scaffold and supportive coach copy returned to clients (API keys stable).
 type StarterRoutine struct {
-	Morning     []string `json:"morning"`
-	Evening     []string `json:"evening"`
-	WeekNotes   string   `json:"week_notes"`
-	SafetyNotes string   `json:"safety_notes"`
-	// Encouragement opens with praise / positive framing (no clinical claims).
-	Encouragement string `json:"encouragement"`
-	// SkinReadback reflects user goals and concerns in plain language.
-	SkinReadback string `json:"skin_readback"`
-	// Rationale explains why the AM/PM order fits their profile (short, jargon-light).
-	Rationale string `json:"rationale"`
-	// ClosingReminder is one warm closing line with non-diagnostic tone.
-	ClosingReminder string `json:"closing_reminder"`
+	Morning            []string                `json:"morning"`
+	Evening            []string                `json:"evening"`
+	WeekNotes          string                  `json:"week_notes"`
+	SafetyNotes        string                  `json:"safety_notes"`
+	Encouragement      string                  `json:"encouragement"`
+	SkinReadback       string                  `json:"skin_readback"`
+	Rationale          string                  `json:"rationale"`
+	ClosingReminder    string                  `json:"closing_reminder"`
+	ProductSuggestions []dto.ProductSuggestion `json:"product_suggestions"`
 }
 
 // starterUserMessage shapes the user turn for Claude / OpenAI JSON.
@@ -61,7 +59,7 @@ This user has re-entered onboarding — they are NOT brand new. Use the long-ter
 
 ` + langLine + `
 The payload may contain English enum codes (e.g. goal, budget, undertone). Interpret them, but write **all** of encouragement, skin_readback, morning/evening steps, rationale, week_notes, safety_notes, and closing_reminder entirely in ` + lang + `.
-
+` + affiliateStarterTail() + `
 Respond with ONE JSON object exactly (all keys required; use "" or [] where there is nothing to say):
 {
   "encouragement": "string",
@@ -71,10 +69,16 @@ Respond with ONE JSON object exactly (all keys required; use "" or [] where ther
   "rationale": "string",
   "week_notes": "string",
   "safety_notes": "string",
-  "closing_reminder": "string"
+  "closing_reminder": "string",` + ProductSuggestionsJSONField + `
 }
 Output only this JSON object — no markdown fences, no extra text.
 `
+}
+
+func affiliateStarterTail() string {
+	var b strings.Builder
+	AppendAffiliateCoachContext(&b)
+	return b.String()
 }
 
 func normalizeStarterRoutine(s *StarterRoutine) {
@@ -87,6 +91,7 @@ func normalizeStarterRoutine(s *StarterRoutine) {
 	if s.Evening == nil {
 		s.Evening = []string{}
 	}
+	s.ProductSuggestions = SanitizeProductSuggestions(s.ProductSuggestions)
 }
 
 // GenerateStarterRoutine uses Anthropic when configured; otherwise OpenAI JSON chat (Model field).
@@ -130,5 +135,6 @@ func GenerateStarterRoutine(ctx context.Context, cfg *config.Config, onboardingJ
 		return zero, fmt.Errorf("ai starter: parse json: %w", err)
 	}
 	normalizeStarterRoutine(&out)
+	out.ProductSuggestions = FinalizeProductSuggestions(out.ProductSuggestions, userMemory)
 	return out, nil
 }

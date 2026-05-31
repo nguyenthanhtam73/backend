@@ -49,6 +49,7 @@ type StarterRoutineResponse struct {
 	SkinReadback    string `json:"skin_readback"`
 	Rationale       string `json:"rationale"`
 	ClosingReminder string `json:"closing_reminder"`
+	ProductSuggestions []ProductSuggestion `json:"product_suggestions,omitempty"`
 }
 
 // OnboardingCompleteResponse returns saved profile + AI starter routine scaffold.

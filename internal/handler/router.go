@@ -11,6 +11,7 @@ import (
 	"github.com/dadiary/backend/internal/service/moderation"
 	"github.com/dadiary/backend/internal/token"
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
+	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
@@ -99,13 +100,15 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		// thumbs-up/down votes AND routine adherence — into prompts.
 		fbRepo := repository.NewAIFeedbackRepository(db)
 		routineRepo := repository.NewRoutineEntryRepository(db)
+		wardRepo := repository.NewSkincareProductRepository(db)
+		affiliateRepo := repository.NewAffiliateClickRepository(db)
 		// One in-process memory cache shared by all services that read or
 		// invalidate the long-term USER_MEMORY block. 5-minute TTL +
 		// explicit bust from each write path keeps results fresh without
 		// pegging the DB on every AI call.
 		memCache := ai.NewMemoryCache()
 		mod := moderation.New(cfg)
-		analyzer := analysis.New(cfg, repo, profRepo, fbRepo, routineRepo, memCache)
+		analyzer := analysis.New(cfg, repo, profRepo, fbRepo, routineRepo, wardRepo, memCache)
 		svc := skincheckuc.NewService(cfg, repo, mod, analyzer)
 		h := NewSkinCheckHandler(svc, repo, cfg)
 		api.Post("/skin-checks", jwt, skinCheckLimit, h.Create)
@@ -121,7 +124,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		// can pull the user's existing memory and inject it into the
 		// starter routine prompt — keeping the new starter coherent with
 		// what the coach already knows about them.
-		profSvc := profileuc.NewService(cfg, profRepo, repo, fbRepo, routineRepo, memCache)
+		profSvc := profileuc.NewService(cfg, profRepo, repo, fbRepo, routineRepo, wardRepo, memCache)
 		ph := NewProfileHandler(profSvc)
 		api.Get("/profile/skin", jwt, ph.GetSkin)
 		api.Put("/profile/skin", jwt, ph.PutSkin)
@@ -132,11 +135,14 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 			ph.CompleteOnboarding,
 		)
 
-		wardRepo := repository.NewSkincareProductRepository(db)
-		wardSvc := wardrobeuc.NewService(wardRepo)
+		wardSvc := wardrobeuc.NewService(wardRepo, memCache)
 		wh := NewWardrobeHandler(wardSvc)
 		api.Post("/wardrobe/products", jwt, wh.CreateProduct)
 		api.Get("/wardrobe", jwt, wh.List)
+
+		affiliateSvc := affiliateuc.NewService(affiliateRepo)
+		affH := NewAffiliateHandler(affiliateSvc)
+		api.Post("/affiliate/clicks", jwt, affH.LogClick)
 
 		fbSvc := aifeedbackuc.NewService(fbRepo, memCache)
 		fbh := NewAIFeedbackHandler(fbSvc)
@@ -150,7 +156,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		// diagnostic block (char count, cache stats, history counts).
 		// Useful for the frontend "what does the AI know about me?"
 		// transparency view and for engineers verifying the prompt loop.
-		memSvc := usermemoryuc.NewService(repo, profRepo, fbRepo, routineRepo, memCache)
+		memSvc := usermemoryuc.NewService(repo, profRepo, fbRepo, routineRepo, wardRepo, memCache)
 		mh := NewMeMemoryHandler(memSvc)
 		api.Get("/me/memory", jwt, mh.Get)
 
@@ -161,7 +167,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		// feedback repo lets the suggest prompt adapt to past votes; the
 		// routine repo is reused below for adherence stats in the memory
 		// builder; the memory cache is busted after every Upsert.
-		routineSvc := routineuc.NewService(cfg, routineRepo, profRepo, repo, fbRepo, memCache)
+		routineSvc := routineuc.NewService(cfg, routineRepo, profRepo, repo, fbRepo, wardRepo, memCache)
 		rh := NewRoutineHandler(routineSvc)
 		api.Get("/routines", jwt, rh.GetCurrent)
 		api.Post("/routines", jwt, rh.Put)

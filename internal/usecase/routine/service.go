@@ -40,6 +40,7 @@ type Service struct {
 	// feedback is optional — when wired, Suggest reads recent feedback
 	// rows so the AI can adapt to the user's tone preferences.
 	feedback *repository.GormAIFeedbackRepository
+	wardrobe *repository.GormSkincareProductRepository
 	// cache is the shared in-process memory cache; busted after every
 	// Upsert so adherence stats reflect the new tick immediately.
 	cache *ai.MemoryCache
@@ -53,6 +54,7 @@ func NewService(
 	profiles *repository.GormSkinProfileRepository,
 	skinCheck *repository.GormSkinCheckRepository,
 	feedback *repository.GormAIFeedbackRepository,
+	wardrobe *repository.GormSkincareProductRepository,
 	cache *ai.MemoryCache,
 ) *Service {
 	return &Service{
@@ -61,6 +63,7 @@ func NewService(
 		profiles:  profiles,
 		skinCheck: skinCheck,
 		feedback:  feedback,
+		wardrobe:  wardrobe,
 		cache:     cache,
 	}
 }
@@ -241,6 +244,7 @@ func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.Suggest
 		Checks:   s.skinCheck,
 		Feedback: s.feedback,
 		Routines: s.routines,
+		Wardrobe: s.wardrobe,
 	}
 	if lastCheckID == uuid.Nil {
 		memDeps.Cache = s.cache
@@ -273,14 +277,15 @@ func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.Suggest
 	}
 
 	return dto.SuggestRoutineResponse{
-		Morning:         res.Morning,
-		Evening:         res.Evening,
-		Encouragement:   res.Encouragement,
-		Rationale:       res.Rationale,
-		WeekNotes:       res.WeekNotes,
-		SafetyNotes:     res.SafetyNotes,
-		ClosingReminder: res.ClosingReminder,
-		SkillMode:       skillMode,
+		Morning:            res.Morning,
+		Evening:            res.Evening,
+		Encouragement:      res.Encouragement,
+		Rationale:          res.Rationale,
+		WeekNotes:          res.WeekNotes,
+		SafetyNotes:        res.SafetyNotes,
+		ClosingReminder:    res.ClosingReminder,
+		ProductSuggestions: res.ProductSuggestions,
+		SkillMode:          skillMode,
 		Locale:          strings.ToLower(strings.TrimSpace(req.Locale)),
 		Source:          "ai_suggested",
 		// Suggestion isn't persisted server-side, but the UI still needs a

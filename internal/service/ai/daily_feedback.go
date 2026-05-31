@@ -91,9 +91,11 @@ func GenerateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 	if err != nil {
 		return nil, err
 	}
+	out.ProductSuggestions = FinalizeProductSuggestions(out.ProductSuggestions, u)
 	if needsAdherenceRetry(u, out) {
 		retryBody := textBody + "\n\nVALIDATION FAILED: your JSON did not mention routine adherence in strengths or summary_notes. Regenerate the FULL JSON — include one sentence about routine ticks/effort per COACH_ACTION.\n"
 		if retryOut, retryErr := callDailyFeedbackLLM(ctx, cfg, client, system, retryBody); retryErr == nil && retryOut != nil {
+			retryOut.ProductSuggestions = FinalizeProductSuggestions(retryOut.ProductSuggestions, u)
 			out = retryOut
 		}
 	}
@@ -110,6 +112,7 @@ func buildDailyFeedbackPrompt(userContextMarkdown, skillLevel string) (system, u
 	userMsg.WriteString("USER_CONTEXT:\n")
 	userMsg.WriteString(u)
 	userMsg.WriteString(coachMemoryTurnChecklist(u))
+	AppendAffiliateCoachContext(&userMsg)
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")
 	userMsg.WriteString(CoachOutputJSONSchemaBlock)
 
@@ -142,6 +145,7 @@ func parseCoachStructuredOutput(text, label string) (*CoachStructuredOutput, err
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return nil, fmt.Errorf("%s: parse json: %w", label, err)
 	}
+	out.ProductSuggestions = SanitizeProductSuggestions(out.ProductSuggestions)
 	LogCoachOutput(label, "", &out)
 	return &out, nil
 }

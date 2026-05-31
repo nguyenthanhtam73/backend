@@ -50,6 +50,7 @@ type Service struct {
 	profiles   *repository.GormSkinProfileRepository
 	feedback   *repository.GormAIFeedbackRepository
 	routines   *repository.GormRoutineEntryRepository
+	wardrobe   *repository.GormSkincareProductRepository
 	cache      *ai.MemoryCache
 }
 
@@ -62,6 +63,7 @@ func New(
 	profiles *repository.GormSkinProfileRepository,
 	feedback *repository.GormAIFeedbackRepository,
 	routines *repository.GormRoutineEntryRepository,
+	wardrobe *repository.GormSkincareProductRepository,
 	cache *ai.MemoryCache,
 ) *Service {
 	return &Service{
@@ -70,6 +72,7 @@ func New(
 		profiles: profiles,
 		feedback: feedback,
 		routines: routines,
+		wardrobe: wardrobe,
 		cache:    cache,
 		httpClient: &http.Client{
 			Timeout: analysisHTTPTimeout,
@@ -171,6 +174,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 			Checks:   s.checks,
 			Feedback: s.feedback,
 			Routines: s.routines,
+			Wardrobe: s.wardrobe,
 		},
 		ai.UserMemoryOptions{ExcludeCheckID: o.ID},
 	)
@@ -201,6 +205,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	str, _ := json.Marshal(parsed.Strengths)
 	imp, _ := json.Marshal(parsed.Improvements)
 	rh, _ := json.Marshal(parsed.RoutineHints)
+	ps, _ := json.Marshal(parsed.ProductSuggestions)
 	av, _ := json.Marshal(parsed.AvoidOrPatch)
 
 	disclaimer := strings.TrimSpace(parsed.MedicalDisclaimer)
@@ -224,6 +229,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	up.Strengths = str
 	up.Improvements = imp
 	up.RoutineHints = rh
+	up.ProductSuggestions = ps
 	up.AvoidOrPatch = av
 	up.SafetyFlags = sf
 	up.SummaryNotes = strings.TrimSpace(parsed.SummaryNotes)

@@ -39,13 +39,14 @@ type SuggestRoutineInput struct {
 
 // SuggestedRoutine is the model-side projection (later mapped to dto.SuggestRoutineResponse).
 type SuggestedRoutine struct {
-	Morning         []dto.RoutineStep `json:"morning"`
-	Evening         []dto.RoutineStep `json:"evening"`
-	Encouragement   string            `json:"encouragement"`
-	Rationale       string            `json:"rationale"`
-	WeekNotes       string            `json:"week_notes"`
-	SafetyNotes     string            `json:"safety_notes"`
-	ClosingReminder string            `json:"closing_reminder"`
+	Morning            []dto.RoutineStep       `json:"morning"`
+	Evening            []dto.RoutineStep       `json:"evening"`
+	Encouragement      string                  `json:"encouragement"`
+	Rationale          string                  `json:"rationale"`
+	WeekNotes          string                  `json:"week_notes"`
+	SafetyNotes        string                  `json:"safety_notes"`
+	ClosingReminder    string                  `json:"closing_reminder"`
+	ProductSuggestions []dto.ProductSuggestion `json:"product_suggestions"`
 }
 
 // GenerateSuggestedRoutine calls Anthropic (preferred) or OpenAI to produce
@@ -85,6 +86,7 @@ func GenerateSuggestedRoutine(ctx context.Context, cfg *config.Config, in Sugges
 	)
 	out, err := parseSuggestedRoutine(result.Text)
 	if err == nil {
+		out.ProductSuggestions = FinalizeProductSuggestions(out.ProductSuggestions, in.UserMemory)
 		LogSuggestedRoutineOutput("", out)
 	}
 	return out, err
@@ -104,29 +106,32 @@ func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
 	if err := json.Unmarshal(raw, &rich); err == nil && (len(rich.Morning) > 0 || len(rich.Evening) > 0) {
 		normalizeSteps(rich.Morning)
 		normalizeSteps(rich.Evening)
+		rich.ProductSuggestions = SanitizeProductSuggestions(rich.ProductSuggestions)
 		return rich, nil
 	}
 
 	var loose struct {
-		Morning         json.RawMessage `json:"morning"`
-		Evening         json.RawMessage `json:"evening"`
-		Encouragement   string          `json:"encouragement"`
-		Rationale       string          `json:"rationale"`
-		WeekNotes       string          `json:"week_notes"`
-		SafetyNotes     string          `json:"safety_notes"`
-		ClosingReminder string          `json:"closing_reminder"`
+		Morning            json.RawMessage         `json:"morning"`
+		Evening            json.RawMessage         `json:"evening"`
+		Encouragement      string                  `json:"encouragement"`
+		Rationale          string                  `json:"rationale"`
+		WeekNotes          string                  `json:"week_notes"`
+		SafetyNotes        string                  `json:"safety_notes"`
+		ClosingReminder    string                  `json:"closing_reminder"`
+		ProductSuggestions []dto.ProductSuggestion `json:"product_suggestions"`
 	}
 	if err := json.Unmarshal(raw, &loose); err != nil {
 		return zero, fmt.Errorf("ai suggest: parse json: %w", err)
 	}
 	return SuggestedRoutine{
-		Morning:         coerceSteps(loose.Morning),
-		Evening:         coerceSteps(loose.Evening),
-		Encouragement:   loose.Encouragement,
-		Rationale:       loose.Rationale,
-		WeekNotes:       loose.WeekNotes,
-		SafetyNotes:     loose.SafetyNotes,
-		ClosingReminder: loose.ClosingReminder,
+		Morning:            coerceSteps(loose.Morning),
+		Evening:            coerceSteps(loose.Evening),
+		Encouragement:      loose.Encouragement,
+		Rationale:          loose.Rationale,
+		WeekNotes:          loose.WeekNotes,
+		SafetyNotes:        loose.SafetyNotes,
+		ClosingReminder:    loose.ClosingReminder,
+		ProductSuggestions: SanitizeProductSuggestions(loose.ProductSuggestions),
 	}, nil
 }
 
@@ -296,13 +301,15 @@ func buildSuggestRoutineUserMessage(in SuggestRoutineInput, locale, skill string
   "rationale": "string — short why-this-order in plain language",
   "week_notes": "string — what to expect / track this week",
   "safety_notes": "string — SPF, patch test, red-flag reminders",
-  "closing_reminder": "string — gentle one-liner"
+  "closing_reminder": "string — gentle one-liner",` + ProductSuggestionsJSONField + `
 }`)
 	b.WriteString("\n\nConstraints:\n")
 	b.WriteString("- 3–5 steps each for AM and PM; beginners stay near 3, advanced may use 5.\n")
 	b.WriteString("- AM must include SPF (or an equivalent leave-on photoprotection step).\n")
-	b.WriteString("- Use generic product roles, no brand names unless the profile already names them.\n")
+	b.WriteString("- Routine step titles stay generic roles; branded picks go in product_suggestions only.\n")
+	b.WriteString("- If tags/note mention missing SPF, sun exposure, or no sunscreen in wardrobe → suggest ONE spf item from catalog.\n")
 	b.WriteString("- Never claim diagnosis. Stay supportive, evidence-aware, non-pushy.\n")
+	AppendAffiliateCoachContext(&b)
 	return b.String()
 }
 
@@ -318,7 +325,8 @@ You receive: their saved SkinProfile (skin type, goal, concerns, skill level, re
 - Not medical advice. Suggest seeing a dermatologist for severe / painful / rapidly worsening skin.
 - Match skill level: **beginner (simple mode)** → 3 short steps, plain everyday words, NO strong active ingredients by default; **mid** → can mention one active with a short why; **advanced** → can layer / alternate actives.
 - Morning always has sunscreen / photoprotection. Evening may include treatments (BHA, retinoid, etc.) only when appropriate to skill + tolerance signals from the check-in. If today’s tags signal irritation (sensitive, redness, weak_barrier, stinging), pause actives and pivot to soothing the skin barrier.
-- Generic product **roles** — “gentle cleanser”, “hydrating toner”, “niacinamide serum” — never brand names unless the user already named brands in their profile.
+- Generic product **roles** in routine step titles — “gentle cleanser”, “hydrating toner”, “niacinamide serum”.
+- Branded affiliate picks belong ONLY in ` + "`product_suggestions`" + ` (from AFFILIATE_CATALOG in the user message).
 - Keep every step under ~12 words. Frontend renders one bullet per step; long lines look bad on mobile.
 - Output language is dictated by the user message (vi or en). Translate copy fully; JSON keys stay English.
 
@@ -327,7 +335,7 @@ When USER_MEMORY is present (not "no saved memory yet"):
 - rationale MUST reference at least one signal from Recent SkinChecks or Feedback summary.
 - If 👎 reasons mention "quá mạnh" / "chung chung" / "quá nhiều bước" → adjust this routine (gentler, fewer steps, more specific step titles).
 - Match routine step count to adherence tier (low/none → 2–3 steps per side max).
-- Do NOT invent product names — generic roles only.
+- Do NOT invent products or links — use AFFILIATE_CATALOG for product_suggestions only.
 
 - **Recent SkinChecks** (5–8 latest):
   * If today's tags echo a recent pattern → write rationale to acknowledge continuity ("vài lần gần đây bạn cũng ghi da khô — routine hôm nay tiếp tục focus giữ ẩm").

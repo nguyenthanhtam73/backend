@@ -50,7 +50,7 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
                          not medical diagnosis or treatment, and not a substitute for a clinician.
                          Match the user's language (VI if notes/tags Vietnamese; EN otherwise).>,
   "summary_notes": <string — ONE warm, friend-like closing + ONE concrete focus for tomorrow's check-in.
-                    Encourage gently ("Mai chụp cùng góc nhé — mình muốn xem…"). No report tone, emoji floods, or platitudes.>
+                    Encourage gently ("Mai chụp cùng góc nhé — mình muốn xem…"). No report tone, emoji floods, or platitudes.>,` + ProductSuggestionsJSONField + `
 }
 
 Strict output rules:

@@ -22,8 +22,8 @@ func TestCoachPrompt_v20_ZeroGenericRules(t *testing.T) {
 }
 
 func TestCoachPromptVersion_v20(t *testing.T) {
-	if CoachDailyPromptVersion != 20 {
-		t.Fatalf("expected CoachDailyPromptVersion == 20, got %d", CoachDailyPromptVersion)
+	if CoachDailyPromptVersion != 22 {
+		t.Fatalf("expected CoachDailyPromptVersion == 22, got %d", CoachDailyPromptVersion)
 	}
 }
 

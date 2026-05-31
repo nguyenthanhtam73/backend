@@ -90,6 +90,7 @@ func RunSkinCheckCoach(
 			parsed = retryOut
 		}
 	}
+	parsed.ProductSuggestions = FinalizeProductSuggestions(parsed.ProductSuggestions, fullCtx)
 
 	ver := fmt.Sprintf(
 		"pipeline=hybrid|vision=%s(%s)|coach=%s(%s%s)",
@@ -134,6 +135,7 @@ func buildSkinCheckCoachUserMessage(
 	userMsg.WriteString("\n\nUSER_CONTEXT (saved profile + today's self-report + environment):\n")
 	userMsg.WriteString(fullCtx)
 	userMsg.WriteString(coachTurnChecklist(fullCtx, visionStatus == "ok"))
+	AppendAffiliateCoachContext(&userMsg)
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")
 	userMsg.WriteString(CoachOutputJSONSchemaBlock)
 	return userMsg.String()

@@ -31,8 +31,9 @@ type SkinAnalysis struct {
 	SkinScores   json.RawMessage `gorm:"type:jsonb" json:"skin_scores,omitempty"`
 	Strengths    json.RawMessage `gorm:"type:jsonb" json:"strengths,omitempty"`
 	Improvements json.RawMessage `gorm:"type:jsonb" json:"improvements,omitempty"`
-	RoutineHints json.RawMessage `gorm:"type:jsonb" json:"routine_hints,omitempty"`
-	AvoidOrPatch json.RawMessage `gorm:"type:jsonb" json:"avoid_or_patch,omitempty"`
+	RoutineHints         json.RawMessage `gorm:"type:jsonb" json:"routine_hints,omitempty"`
+	ProductSuggestions   json.RawMessage `gorm:"type:jsonb" json:"product_suggestions,omitempty"`
+	AvoidOrPatch         json.RawMessage `gorm:"type:jsonb" json:"avoid_or_patch,omitempty"`
 	SummaryNotes string          `gorm:"type:text" json:"summary_notes,omitempty"`
 	SafetyFlags  json.RawMessage `gorm:"type:jsonb" json:"safety_flags,omitempty"`
 	ErrorMessage string          `gorm:"type:text" json:"error_message,omitempty"`

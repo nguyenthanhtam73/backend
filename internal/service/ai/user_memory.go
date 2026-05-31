@@ -49,6 +49,7 @@ type UserMemoryDeps struct {
 	Checks   *repository.GormSkinCheckRepository
 	Feedback *repository.GormAIFeedbackRepository
 	Routines *repository.GormRoutineEntryRepository
+	Wardrobe *repository.GormSkincareProductRepository
 	Cache    *MemoryCache
 }
 
@@ -112,6 +113,7 @@ type MemoryDebug struct {
 	HelpfulVotes    int    `json:"helpful_votes"`
 	NotHelpfulVotes int    `json:"not_helpful_votes"`
 	AdherenceTier   string `json:"adherence_tier"` // "" when no routine data
+	WardrobeItems   int    `json:"wardrobe_items"`
 
 	// CacheHit reports whether the build was short-circuited by the cache.
 	// When true, all other counters represent the cached values inferred
@@ -237,6 +239,11 @@ func BuildUserMemoryWithDebug(
 		debug.SectionsPresent = append(debug.SectionsPresent, "routine_adherence")
 		debug.AdherenceTier = tier
 	}
+	if section, n := buildWardrobeSectionDbg(ctx, userID, deps.Wardrobe); section != "" {
+		sections = append(sections, section)
+		debug.SectionsPresent = append(debug.SectionsPresent, "wardrobe")
+		debug.WardrobeItems = n
+	}
 
 	var b strings.Builder
 	b.WriteString("USER_MEMORY (lịch sử da — dùng để cá nhân hoá, paraphrase ấm áp, không quote nguyên văn):\n")
@@ -286,6 +293,9 @@ func inferSectionsFromText(text string) []string {
 	if strings.Contains(text, "## Routine adherence") || strings.Contains(text, "Routine adherence (IMPORTANT") {
 		sections = append(sections, "routine_adherence")
 	}
+	if strings.Contains(text, "## Wardrobe") {
+		sections = append(sections, "wardrobe")
+	}
 	return sections
 }
 
@@ -308,6 +318,7 @@ func logMemoryBuild(userID uuid.UUID, d MemoryDebug) {
 		"helpful", d.HelpfulVotes,
 		"not_helpful", d.NotHelpfulVotes,
 		"adherence", d.AdherenceTier,
+		"wardrobe_items", d.WardrobeItems,
 		"monthly_digest", d.HasMonthlyDigest,
 	)
 }
@@ -604,6 +615,51 @@ func buildRoutineCompletionSectionDbg(
 		daysWithAnyTick, daysWithEntry, dayRate*100,
 	)
 	return b.String(), tierShort
+}
+
+const wardrobeMemoryMaxItems = 20
+
+// buildWardrobeSectionDbg renders products the user already owns so affiliate
+// picks can skip duplicates. Format matches FinalizeProductSuggestions parser.
+func buildWardrobeSectionDbg(
+	ctx context.Context,
+	userID uuid.UUID,
+	repo *repository.GormSkincareProductRepository,
+) (string, int) {
+	if repo == nil {
+		return "", 0
+	}
+	rows, err := repo.ListByUser(ctx, userID)
+	if err != nil || len(rows) == 0 {
+		return "", 0
+	}
+	if len(rows) > wardrobeMemoryMaxItems {
+		rows = rows[:wardrobeMemoryMaxItems]
+	}
+	var b strings.Builder
+	b.WriteString("## Wardrobe (products user already owns — DO NOT re-recommend these)\n")
+	count := 0
+	for _, p := range rows {
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			continue
+		}
+		brand := strings.TrimSpace(p.Brand)
+		if brand == "" {
+			brand = "—"
+		}
+		category := strings.TrimSpace(p.Category)
+		if category == "" {
+			category = "other"
+		}
+		fmt.Fprintf(&b, "- %s | brand: %s | category: %s\n", name, brand, category)
+		count++
+	}
+	if count == 0 {
+		return "", 0
+	}
+	b.WriteString("If wardrobe already covers today's gap, return product_suggestions: [].\n")
+	return b.String(), count
 }
 
 // adherenceCoachAction tells the model exactly how to react to the adherence block.

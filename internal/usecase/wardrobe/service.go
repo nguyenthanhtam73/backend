@@ -10,6 +10,7 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/google/uuid"
 )
 
@@ -21,11 +22,12 @@ var (
 // Service handles product CRUD for the wardrobe API.
 type Service struct {
 	products *repository.GormSkincareProductRepository
+	cache    *ai.MemoryCache
 }
 
-// NewService wires dependencies.
-func NewService(products *repository.GormSkincareProductRepository) *Service {
-	return &Service{products: products}
+// NewService wires dependencies. cache may be nil.
+func NewService(products *repository.GormSkincareProductRepository, cache *ai.MemoryCache) *Service {
+	return &Service{products: products, cache: cache}
 }
 
 // Create adds a product owned by the user.
@@ -47,6 +49,9 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req dto.CreateWa
 	}
 	if err := s.products.Create(ctx, p); err != nil {
 		return zero, err
+	}
+	if s.cache != nil {
+		s.cache.Bust(userID)
 	}
 	return dto.WardrobeProductFromDomain(p), nil
 }
