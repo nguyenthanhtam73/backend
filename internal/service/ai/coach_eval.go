@@ -203,9 +203,28 @@ func ScoreCoachNaturalness(out *CoachStructuredOutput) CoachNaturalnessResult {
 }
 
 func outputHasConversationalOpener(situation string) bool {
+	return outputHasRequiredVisionOpenerText(situation)
+}
+
+func outputHasRequiredVisionOpener(out *CoachStructuredOutput) bool {
+	if out == nil {
+		return false
+	}
+	return outputHasRequiredVisionOpenerText(strings.ToLower(out.SituationAnalysis))
+}
+
+func outputHasRequiredVisionOpenerText(situation string) bool {
+	if strings.Contains(situation, "mình thấy hôm nay") {
+		return true
+	}
+	if strings.Contains(situation, "trên ảnh mình thấy") {
+		return true
+	}
+	if strings.Contains(situation, "có ") && (strings.Contains(situation, "nốt mụn") || strings.Contains(situation, "chấm thâm") || strings.Contains(situation, "mụn")) {
+		return true
+	}
 	for _, phrase := range []string{
-		"mình thấy hôm nay", "trên ảnh mình thấy", "vùng ", "của bạn",
-		"mình thấy", "hôm nay da bạn", "trên ảnh", "mình nhìn",
+		"vùng ", "của bạn", "hôm nay da bạn", "mình thấy",
 	} {
 		if strings.Contains(situation, phrase) {
 			return true
@@ -400,6 +419,10 @@ func outputHasVagueTipPhrases(out *CoachStructuredOutput) bool {
 }
 
 func outputHasGenericSkinPhrases(text string) bool {
+	return outputHasBannedGenericLabels(text)
+}
+
+func outputHasBannedGenericLabels(text string) bool {
 	for _, phrase := range []string{
 		"da bạn hơi khô",
 		"da hơi khô",
@@ -407,6 +430,13 @@ func outputHasGenericSkinPhrases(text string) bool {
 		"da cần dưỡng ẩm",
 		"cần chăm sóc thêm",
 		"da cần được chăm sóc",
+		"da hỗn hợp",
+		"da dễ nổi mụn",
+		"dễ nổi mụn",
+		"da dầu mụn",
+		"da nhạy cảm",
+		"da không khỏe",
+		"chăm da nhẹ",
 	} {
 		if strings.Contains(text, phrase) {
 			return true

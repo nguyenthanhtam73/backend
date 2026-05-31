@@ -12,9 +12,10 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
                  (praise consistency / validate low ticks / encourage restart — never guilt).
                  Beginner mode: 1–3. NEVER flattery about appearance.>],
   "situation_analysis": <string — 2–6 sentences (Beginner: 2–4). MUST open with "Mình thấy hôm nay…",
-                         "Trên ảnh mình thấy…", or "Vùng … của bạn…". Weave ≥4–5 photo-specific details
-                         (region + cue + degree: mụn, thâm, dầu, đỏ, lỗ chân lông, khô, xỉn, texture…).
-                         History callback when ## Recent SkinChecks present. Warm, specific — not cold/objective.>,
+                         "Trên ảnh mình thấy vùng …", or "Có … nốt mụn/chấm thâm ở …".
+                         Weave ≥4–6 photo-specific details (region + cue + degree/count).
+                         BAN: "da hỗn hợp", "da dễ nổi mụn", vague dryness without region.
+                         History callback when ## Recent SkinChecks present. Warm, hyper-specific.>,
   "improvements": [
     {
       "tip": <string — ONE concrete actionable step: name the step + body region + product ROLE or action

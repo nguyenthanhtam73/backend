@@ -12,24 +12,24 @@ import (
 
 const coachLiveCompareTestTimeout = 60 * time.Minute
 
-// coachCorePromptV18Archive — pre-v19 system prompt for A/B live comparison only.
-const coachCorePromptV18Archive = `Bạn là DaDiary AI Skincare Coach — người bạn thân thiết, luôn quan sát kỹ ảnh da và khích lệ user một cách chân thành, gần gũi.
+// coachCorePromptV19Archive — pre-v20 system prompt for A/B live comparison only.
+const coachCorePromptV19Archive = `Bạn là DaDiary AI Skincare Coach — người bạn thân thiết, quan sát rất kỹ ảnh da và nói thật lòng với user.
 
-Hôm nay mình đã nhìn kỹ ảnh và ghi chú của bạn rồi. Mình sẽ nói thật lòng những gì mình thấy, vừa cụ thể vừa động viên bạn nhé.
+Hôm nay mình đã zoom kỹ vào ảnh da của bạn rồi. Mình sẽ nói cụ thể những gì mình thấy, không nói chung chung.
 
-## Giọng (BẮT BUỘC — ấm, không lạnh)
-- Như bạn thân nhắn tin · khen chân thành · closing động viên nhẹ.
-- ≥4 chi tiết ảnh · mở "Mình thấy hôm nay…" / "Hôm nay da bạn…".
+## Ảnh (BẮT BUỘC)
+- ≥4–5 chi tiết cụ thể · mở "Mình thấy hôm nay…" / "Trên ảnh mình thấy…" / "Vùng … của bạn…"
+- Cấm "sản phẩm nhẹ nhàng", "da hơi khô" không gắn vùng.
 - So với lần trước khi có ## Recent SkinChecks.
 
 ## USER_MEMORY + JSON output per schema.`
 
-func coachPromptV18Archive(skillLevel string) string {
-	core := coachCorePromptV18Archive
+func coachPromptV19Archive(skillLevel string) string {
+	core := coachCorePromptV19Archive
 	if strings.EqualFold(strings.TrimSpace(skillLevel), "beginner") {
-		return core + "\n\n## BEGINNER\nTừ dễ · ≥4 chi tiết ảnh."
+		return core + "\n\n## BEGINNER\n≥4 chi tiết ảnh cụ thể."
 	}
-	return core + "\n\n## INTERMEDIATE\n≥4 chi tiết · gợi ý cụ thể."
+	return core + "\n\n## INTERMEDIATE\n≥4–5 chi tiết · gợi ý cụ thể."
 }
 
 type coachCompareRow struct {
@@ -53,29 +53,32 @@ func runCoachCompare(t *testing.T, ctx context.Context, cfg *config.Config, clie
 		for _, variant := range variants {
 			t.Run(sc.ID+"/"+variant.name, func(t *testing.T) {
 				system := variant.system(sc.Persona.SkillLevel)
-				result, err := TextCoachCompletion(ctx, cfg, client, "v19-compare-"+variant.name, system, userMsg)
+				result, err := TextCoachCompletion(ctx, cfg, client, "v20-compare-"+variant.name, system, userMsg)
 				if err != nil {
 					t.Fatalf("%s: %v", variant.name, err)
 				}
-				out, err := parseCoachStructuredOutput(result.Text, "v19-compare")
+				out, err := parseCoachStructuredOutput(result.Text, "v20-compare")
 				if err != nil {
 					t.Fatalf("parse: %v", err)
 				}
 				sc.Persona.VisionJSON = sc.VisionJSON
 				pers := ScoreCoachPersonalization(sc.Persona, out, true)
 				nat := ScoreCoachNaturalness(out)
+				flat := FlattenCoachOutput(out)
 				rows = append(rows, coachCompareRow{
 					id: sc.ID, prompt: variant.name,
 					vision: pers.VisionDetailCount, naturalness: nat.NaturalnessScore,
 					emotional: nat.EmotionalScore,
-					opener: nat.HasConversationalOpener, enc: nat.HasWarmEncouragement,
-					report: pers.HasReportLikeTone, generic: pers.HasGenericPhrases,
+					opener: outputHasRequiredVisionOpener(out), enc: nat.HasWarmEncouragement,
+					report: pers.HasReportLikeTone,
+					generic: pers.HasGenericPhrases || outputHasBannedGenericLabels(flat) || outputHasVagueTipPhrases(out),
 					hist: pers.HasHistoryCallback,
 				})
 				t.Logf("%-22s | %-6s | %3d | %.2f | %.2f | %4v | %4v | %4v | %4v | %4v | %q",
 					sc.ID, variant.name, pers.VisionDetailCount, nat.NaturalnessScore, nat.EmotionalScore,
-					nat.HasConversationalOpener, nat.HasWarmEncouragement, pers.HasReportLikeTone,
-					pers.HasGenericPhrases, pers.HasHistoryCallback, truncateRunes(out.SituationAnalysis, 85))
+					outputHasRequiredVisionOpener(out), nat.HasWarmEncouragement, pers.HasReportLikeTone,
+					pers.HasGenericPhrases || outputHasBannedGenericLabels(flat), pers.HasHistoryCallback,
+					truncateRunes(out.SituationAnalysis, 85))
 				t.Logf("  strengths: %q", truncateRunes(strings.Join(out.Strengths, " | "), 95))
 				t.Logf("  tip:       %q", truncateRunes(firstImprovementTip(out), 95))
 				t.Logf("  closing:   %q", truncateRunes(out.SummaryNotes, 95))
@@ -135,20 +138,21 @@ func logCoachCompareAggregate(t *testing.T, rows []coachCompareRow, left, right 
 	}
 	l, r := byPrompt[left], byPrompt[right]
 	if l.n > 0 && r.n > 0 {
-		t.Logf("Delta %s-%s: vision %+.1f | naturalness %+.2f | emotional %+.2f",
+		t.Logf("Delta %s-%s: vision %+.1f | naturalness %+.2f | emotional %+.2f | generic %d→%d",
 			right, left,
 			float64(r.vis)/float64(r.n)-float64(l.vis)/float64(l.n),
 			r.nat/float64(r.n)-l.nat/float64(l.n),
-			r.emo/float64(r.n)-l.emo/float64(l.n))
+			r.emo/float64(r.n)-l.emo/float64(l.n),
+			l.gen, r.gen)
 	}
 }
 
-// TestCoachV19_UserPhotoLiveCompare runs 2 user cheek photo scenarios (v18 vs v19).
+// TestCoachV20_UserPhotoLiveCompare runs 2 user cheek photo scenarios (v19 vs v20).
 //
-// Run: go test ./internal/service/ai/... -run TestCoachV19_UserPhotoLiveCompare -v -count=1 -timeout 60m
-func TestCoachV19_UserPhotoLiveCompare(t *testing.T) {
+// Run: go test ./internal/service/ai/... -run TestCoachV20_UserPhotoLiveCompare -v -count=1 -timeout 60m
+func TestCoachV20_UserPhotoLiveCompare(t *testing.T) {
 	if testing.Short() {
-		t.Skip("skipping live v19 user photo compare in short mode")
+		t.Skip("skipping live v20 user photo compare in short mode")
 	}
 	cfg := loadCoachTestConfig(t)
 	if strings.TrimSpace(cfg.Anthropic.APIKey) == "" && strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
@@ -162,44 +166,41 @@ func TestCoachV19_UserPhotoLiveCompare(t *testing.T) {
 	scenarios := UserPhotoCoachScenarios()
 	sep := strings.Repeat("=", 130)
 	t.Log(sep)
-	t.Logf("User photo A/B — v18 archive vs v19 (current) | scenarios=%d (%s, %s)",
+	t.Logf("User photo A/B — v19 archive vs v20 (current) | scenarios=%d (%s, %s)",
 		len(scenarios), scenarios[0].ID, scenarios[1].ID)
-	t.Logf("v19 prompt chars (intermediate): %d", len(GetCoachPrompt("intermediate")))
+	t.Logf("v20 prompt chars (intermediate): %d | MaxCoachValidationRetries=%d",
+		len(GetCoachPrompt("intermediate")), MaxCoachValidationRetries)
 	t.Log(sep)
 
 	variants := []struct {
 		name   string
 		system func(string) string
 	}{
-		{"v18", coachPromptV18Archive},
-		{"v19", GetCoachPrompt},
+		{"v19", coachPromptV19Archive},
+		{"v20", GetCoachPrompt},
 	}
 	rows := runCoachCompare(t, ctx, cfg, client, scenarios, variants)
 
 	t.Log("")
-	t.Log("### Aggregate — user cheek photos (v18 vs v19)")
-	logCoachCompareAggregate(t, rows, "v18", "v19")
+	t.Log("### Aggregate — user cheek photos (v19 vs v20)")
+	logCoachCompareAggregate(t, rows, "v19", "v20")
 
-	v19Rows := 0
-	v19Vis := 0
 	for _, r := range rows {
-		if r.prompt != "v19" {
+		if r.prompt != "v20" {
 			continue
 		}
-		v19Rows++
-		v19Vis += r.vision
 		if r.vision < MinVisionDetailCitations {
-			t.Errorf("%s: v19 vision details %d below target %d", r.id, r.vision, MinVisionDetailCitations)
+			t.Errorf("%s: v20 vision details %d below target %d", r.id, r.vision, MinVisionDetailCitations)
 		}
 		if !r.hist {
-			t.Errorf("%s: v19 missing history callback", r.id)
+			t.Errorf("%s: v20 missing history callback", r.id)
 		}
 		if !r.opener {
-			t.Errorf("%s: v19 missing specific conversational opener", r.id)
+			t.Errorf("%s: v20 missing required vision opener", r.id)
 		}
-	}
-	if v19Rows > 0 && float64(v19Vis)/float64(v19Rows) < float64(MinVisionDetailCitations) {
-		t.Errorf("v19 avg vision details below target %d", MinVisionDetailCitations)
+		if r.generic {
+			t.Errorf("%s: v20 hit banned generic/vague phrases", r.id)
+		}
 	}
 	t.Log(sep)
 }

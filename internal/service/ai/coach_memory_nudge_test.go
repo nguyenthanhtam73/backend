@@ -12,8 +12,8 @@ func TestCoachMemoryTurnChecklist(t *testing.T) {
 	mustContain(t, got, "COACH_ACTION")
 
 	visionOnly := coachTurnChecklist("USER_MEMORY\n(no saved memory yet)", true)
-	mustContain(t, visionOnly, "≥4–5 photo details")
-	mustContain(t, visionOnly, "EMOTION (HIGH PRIORITY)")
+	mustContain(t, visionOnly, "≥4–6 photo details")
+	mustContain(t, visionOnly, "da hỗn hợp")
 }
 
 func TestPrependCoachActionPriority(t *testing.T) {

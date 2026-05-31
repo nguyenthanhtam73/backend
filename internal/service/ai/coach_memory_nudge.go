@@ -1,6 +1,9 @@
 package ai
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // prependCoachActionPriority surfaces the COACH_ACTION line before USER_CONTEXT so
 // small models do not bury it under long memory blocks.
@@ -30,16 +33,16 @@ func coachTurnChecklist(userContext string, hasVision bool) string {
 	var b strings.Builder
 	b.WriteString("\n\nCOACH CHECKLIST (required — verify before JSON):\n")
 	if hasVision {
-		b.WriteString("- ≥4–5 photo details (region+cue+degree) woven naturally; MUST open with \"Mình thấy hôm nay…\" OR \"Trên ảnh mình thấy…\" OR \"Vùng … của bạn…\"; NO lists/report tone.\n")
-		b.WriteString("- BAN vague skin/tips: \"da hơi khô\", \"cần dưỡng ẩm\", \"sản phẩm nhẹ nhàng\", \"chăm sóc nhẹ\" without region+action.\n")
+		b.WriteString("- ≥4–6 photo details (region+cue+degree/count) — MUST open \"Mình thấy hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; NO lists/report tone.\n")
+		b.WriteString("- BAN ALL vague: \"da hỗn hợp\", \"da dễ nổi mụn\", \"dễ nổi mụn\", \"da hơi khô\", \"sản phẩm nhẹ nhàng\", \"chăm sóc nhẹ\".\n")
 	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" / \"Vài hôm trước…\" callback in situation_analysis.\n")
+		b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" callback in situation_analysis.\n")
 	}
 	if hasVision || strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- EMOTION (HIGH PRIORITY): warm sincere praise in strengths; gentle encouragement in summary_notes — never cold/clinical.\n")
-		b.WriteString("- TIPS (MANDATORY): improvements/routine_hints must be concrete (step + region + product role) — NOT \"sản phẩm nhẹ nhàng\".\n")
-		b.WriteString("- Self-check before JSON: ≥4 vision details · history callback (if memory) · warm opener+closing · specific tips.\n")
+		b.WriteString("- EMOTION: warm sincere praise + gentle closing — never cold/clinical.\n")
+		b.WriteString("- TIPS: concrete step+region+role — NOT vague product advice.\n")
+		b.WriteString("- Self-check: ≥4 vision specifics · zero banned phrases · validation will retry up to 2× if vague.\n")
 	}
 	if strings.Contains(userContext, "## Routine adherence") {
 		b.WriteString("- strengths OR summary_notes: MUST mention routine adherence per COACH_ACTION (praise / simplify / encourage — no guilt).\n")
@@ -74,6 +77,9 @@ func needsCoachOutputRetry(visionRaw, userContext string, out *CoachStructuredOu
 		if CountVisionDetailCitations(visionRaw, out) < MinVisionDetailCitations {
 			return true
 		}
+		if !outputHasRequiredVisionOpener(out) {
+			return true
+		}
 	}
 	if strings.Contains(userContext, "## Recent SkinChecks") && !outputHasHistoryCallback(FlattenCoachOutput(out)) {
 		return true
@@ -81,7 +87,24 @@ func needsCoachOutputRetry(visionRaw, userContext string, out *CoachStructuredOu
 	if needsNaturalToneRetry(out) {
 		return true
 	}
-	return outputHasVagueTipPhrases(out)
+	return outputHasVagueTipPhrases(out) || outputHasBannedGenericLabels(FlattenCoachOutput(out))
+}
+
+// coachOutputRetryPrompt builds a validation failure appendix for coach re-generation.
+func coachOutputRetryPrompt(visionRaw, userContext string, attempt int) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("\n\nVALIDATION FAILED (attempt %d/%d): Regenerate the FULL JSON.\n", attempt, MaxCoachValidationRetries))
+	b.WriteString(fmt.Sprintf("- ≥%d photo-specific details with region+cue+degree (counts OK: \"2-3 nốt đỏ ở cằm\").\n", MinVisionDetailCitations))
+	b.WriteString("- MUST open situation_analysis with \"Mình thấy hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\".\n")
+	if strings.Contains(userContext, "## Recent SkinChecks") {
+		b.WriteString("- MUST include \"So với lần trước…\" history callback.\n")
+	}
+	b.WriteString("- BAN: \"da hỗn hợp\", \"da dễ nổi mụn\", \"dễ nổi mụn\", \"sản phẩm nhẹ nhàng\", vague dryness without region.\n")
+	b.WriteString("- Tips must be concrete (step + region + product role). Warm opener/closing. NO report tone.\n")
+	if strings.TrimSpace(visionRaw) != "" {
+		b.WriteString("- Weave cues from VISION_SUMMARY_JSON — do not invent details not in photo.\n")
+	}
+	return b.String()
 }
 
 func needsNaturalToneRetry(out *CoachStructuredOutput) bool {

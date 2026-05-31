@@ -73,15 +73,21 @@ func RunSkinCheckCoach(
 	if pErr != nil {
 		return nil, "", pErr
 	}
-	if visionStatus == "ok" && needsCoachOutputRetry(visionRaw, fullCtx, parsed) {
-		retryBody := userMsg + fmt.Sprintf(
-			"\n\nVALIDATION FAILED: Regenerate the FULL JSON. Requirements: (1) ≥%d photo-specific details (region+cue, e.g. vùng má lỗ chân lông to, 2-3 chấm thâm, da hồng nhẹ, texture sần); (2) open with \"Mình thấy hôm nay…\" / \"Trên ảnh mình thấy…\" / \"Vùng … của bạn…\"; (3) history callback if ## Recent SkinChecks present; (4) concrete tips (step+region+role) — NO \"sản phẩm nhẹ nhàng\"; (5) warm opener/closing; NO report tone or vague phrases.\n",
-			MinVisionDetailCitations,
-		)
-		if retryResult, retryErr := TextCoachCompletion(ctx, cfg, httpClient, "skin-check-retry", system, retryBody); retryErr == nil {
-			if retryOut, retryParseErr := parseCoachStructuredOutput(retryResult.Text, "skin-check-retry"); retryParseErr == nil {
-				parsed = retryOut
+	if visionStatus == "ok" {
+		retryBody := userMsg
+		for attempt := 1; attempt <= MaxCoachValidationRetries && needsCoachOutputRetry(visionRaw, fullCtx, parsed); attempt++ {
+			retryBody = userMsg + coachOutputRetryPrompt(visionRaw, fullCtx, attempt)
+			retryResult, retryErr := TextCoachCompletion(ctx, cfg, httpClient, fmt.Sprintf("skin-check-retry-%d", attempt), system, retryBody)
+			if retryErr != nil {
+				slog.Warn("skin-check: coach validation retry failed", "attempt", attempt, "err", retryErr)
+				break
 			}
+			retryOut, retryParseErr := parseCoachStructuredOutput(retryResult.Text, fmt.Sprintf("skin-check-retry-%d", attempt))
+			if retryParseErr != nil {
+				slog.Warn("skin-check: coach validation retry parse failed", "attempt", attempt, "err", retryParseErr)
+				break
+			}
+			parsed = retryOut
 		}
 	}
 
