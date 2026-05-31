@@ -17,6 +17,7 @@ import (
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	usermemoryuc "github.com/dadiary/backend/internal/usecase/usermemory"
+	userdatauc "github.com/dadiary/backend/internal/usecase/userdata"
 	wardrobeuc "github.com/dadiary/backend/internal/usecase/wardrobe"
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -159,6 +160,15 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		memSvc := usermemoryuc.NewService(repo, profRepo, fbRepo, routineRepo, wardRepo, memCache)
 		mh := NewMeMemoryHandler(memSvc)
 		api.Get("/me/memory", jwt, mh.Get)
+
+		userDataRepo := repository.NewUserDataRepository(db)
+		uploadDir := ""
+		if cfg != nil {
+			uploadDir = cfg.Upload.Dir
+		}
+		userDataSvc := userdatauc.NewService(userDataRepo, uploadDir, memCache)
+		mdh := NewMeDataHandler(userDataSvc)
+		api.Delete("/me/data", jwt, mdh.Delete)
 
 		// Routine Management — daily AM/PM skincare routines, AI suggestion,
 		// and history for the progress view. The skinCheck repo is reused

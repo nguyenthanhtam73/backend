@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
@@ -47,6 +48,11 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req dto.CreateWa
 		Category: strings.TrimSpace(req.Category),
 		Notes:    strings.TrimSpace(req.Notes),
 	}
+	if opened, err := parseOpenedAt(req.OpenedAt); err != nil {
+		return zero, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	} else if opened != nil {
+		p.OpenedAt = opened
+	}
 	if err := s.products.Create(ctx, p); err != nil {
 		return zero, err
 	}
@@ -71,4 +77,17 @@ func (s *Service) List(ctx context.Context, userID uuid.UUID) (dto.WardrobeListR
 		out.Products = append(out.Products, dto.WardrobeProductFromDomain(&rows[i]))
 	}
 	return out, nil
+}
+
+func parseOpenedAt(raw string) (*time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	t, err := time.Parse("2006-01-02", raw)
+	if err != nil {
+		return nil, fmt.Errorf("opened_at must be YYYY-MM-DD")
+	}
+	utc := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+	return &utc, nil
 }
