@@ -208,8 +208,7 @@ func TestCoachPrompts_HaveMemoryGuidance(t *testing.T) {
 		t.Run(skill, func(t *testing.T) {
 			p := GetCoachPrompt(skill)
 			mustContain(t, p, "USER_MEMORY")
-			mustContain(t, p, "## Cá nhân hoá theo USER_MEMORY")
-			mustContain(t, p, "Callback xu hướng")
+			mustContain(t, p, "Callback")
 			mustContain(t, p, "Feedback summary")
 			mustContain(t, p, "Past AI feedback votes")
 			mustContain(t, p, "Routine adherence")
@@ -222,8 +221,8 @@ func TestCoachPrompts_HaveMemoryGuidance(t *testing.T) {
 // semantics. If you change coachCorePromptVI materially, also bump
 // CoachDailyPromptVersion in coach_daily_version.go.
 func TestCoachPromptVersion(t *testing.T) {
-	if CoachDailyPromptVersion < 14 {
-		t.Fatalf("expected CoachDailyPromptVersion >= 14 (vision-first coaching), got %d", CoachDailyPromptVersion)
+	if CoachDailyPromptVersion < 16 {
+		t.Fatalf("expected CoachDailyPromptVersion >= 16 (best-friend tone), got %d", CoachDailyPromptVersion)
 	}
 }
 

@@ -70,8 +70,8 @@ func RunSkinCheckCoach(
 	}
 	if visionStatus == "ok" && needsVisionDetailRetry(visionRaw, parsed) {
 		retryBody := userMsg + fmt.Sprintf(
-			"\n\nVALIDATION FAILED: your JSON cited fewer than %d photo-specific details from VISION_SUMMARY_JSON. Regenerate the FULL JSON — situation_analysis MUST include ≥%d concrete region+cue details from the photo (e.g. T-zone bóng dầu, nốt đỏ ở cằm, má khô). Avoid vague-only phrases.\n",
-			MinVisionDetailCitations, MinVisionDetailCitations,
+			"\n\nVALIDATION FAILED: Regenerate the FULL JSON. Requirements: (1) ≥%d photo-specific details woven naturally (region+cue, e.g. T-zone bóng dầu, 4-5 nốt đỏ cằm, lỗ chân lông mũi to, má xỉn); (2) open situation_analysis with \"Mình thấy…\" / \"Hôm nay da bạn…\"; (3) history callback if memory present; (4) NO report tone, NO numbered lists, NO vague \"da hơi khô\" without region.\n",
+			MinVisionDetailCitations,
 		)
 		if retryResult, retryErr := TextCoachCompletion(ctx, cfg, httpClient, "skin-check-retry", system, retryBody); retryErr == nil {
 			if retryOut, retryParseErr := parseCoachStructuredOutput(retryResult.Text, "skin-check-retry"); retryParseErr == nil {

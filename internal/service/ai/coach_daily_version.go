@@ -17,4 +17,10 @@ package ai
 // v14 (2026-05-31) — Vision-first coaching: ≥3 photo-specific citations mandatory
 // when VISION_SUMMARY_JSON is present; ban generic dryness/uneven-tone phrases;
 // explicit 6-step structure (praise → observe → compare → suggest → safety → disclaimer).
-const CoachDailyPromptVersion = 14
+//
+// v15 (2026-05-31) — Natural conversational tone: less report-like phrasing, warmer
+// encouragement at open/close, smoother 6-part flow; keeps v14 vision + history enforcement.
+//
+// v16 (2026-05-31) — Best-friend tone: ≥3–4 vision details, mandatory conversational
+// openers ("mình thấy"), stronger anti-report/list enforcement, 6 scenarios QA.
+const CoachDailyPromptVersion = 16

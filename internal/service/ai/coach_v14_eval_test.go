@@ -5,30 +5,70 @@ import (
 	"testing"
 )
 
-func TestCoachPrompt_v14_VisionRules(t *testing.T) {
+func TestCoachPrompt_v16_BestFriendToneRules(t *testing.T) {
 	for _, skill := range []string{"beginner", "intermediate"} {
 		t.Run(skill, func(t *testing.T) {
 			p := GetCoachPrompt(skill)
-			mustContain(t, p, "≥3 chi tiết cụ thể từ ảnh")
-			mustContain(t, p, "Vision Observation")
-			mustContain(t, p, "da bạn hơi khô")
-			mustContain(t, p, "So sánh lịch sử")
-			mustContain(t, p, "thâm sau mụn")
+			mustContain(t, p, "người bạn thân thiết")
+			mustContain(t, p, "≥3–4 chi tiết cụ thể")
+			mustContain(t, p, "mình thấy")
+			mustContain(t, p, "nhắn tin cho bạn thân")
+			mustContain(t, p, "CẤM HOÀN TOÀN")
 			mustContain(t, p, "USER_MEMORY")
 		})
 	}
 }
 
-func TestCoachPromptVersion_v14(t *testing.T) {
-	if CoachDailyPromptVersion != 14 {
-		t.Fatalf("expected CoachDailyPromptVersion == 14, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v16(t *testing.T) {
+	if CoachDailyPromptVersion != 16 {
+		t.Fatalf("expected CoachDailyPromptVersion == 16, got %d", CoachDailyPromptVersion)
+	}
+}
+
+func TestMinVisionDetailCitations_v16(t *testing.T) {
+	if MinVisionDetailCitations != 4 {
+		t.Fatalf("expected MinVisionDetailCitations == 4 for v16, got %d", MinVisionDetailCitations)
+	}
+}
+
+func TestScoreCoachNaturalness(t *testing.T) {
+	natural := &CoachStructuredOutput{
+		Strengths:         []string{"Bạn chụp ảnh và ghi chú lại rồi — mình biết phần này không dễ, bạn đang làm tốt lắm."},
+		SituationAnalysis: "Mình thấy hôm nay trán hơi bóng, cằm có vài nốt đỏ nhỏ, má trái hơi khô — giống vài hôm trước bạn cũng ghi vậy.",
+		SummaryNotes:      "Mai chụp cùng góc nhé — mình muốn xem cằm dịu lại chút nào.",
+	}
+	score := ScoreCoachNaturalness(natural)
+	if !score.HasNaturalTone {
+		t.Fatal("expected natural tone")
+	}
+	if !score.HasConversationalOpener {
+		t.Fatal("expected conversational opener")
+	}
+	if !score.HasWarmOpening || !score.HasWarmClosing {
+		t.Fatalf("expected warm open/close, got open=%v close=%v", score.HasWarmOpening, score.HasWarmClosing)
+	}
+	if score.HasReportLikeTone {
+		t.Fatal("natural sample should not be report-like")
+	}
+
+	report := &CoachStructuredOutput{
+		Strengths:         []string{"Good job."},
+		SituationAnalysis: "Phân tích cho thấy tình trạng da hiện tại: 1. T-zone: oily 2. Má: dry",
+		SummaryNotes:      "Continue routine.",
+	}
+	reportScore := ScoreCoachNaturalness(report)
+	if !reportScore.HasReportLikeTone {
+		t.Fatal("expected report-like detection")
+	}
+	if reportScore.HasConversationalOpener {
+		t.Fatal("report sample should lack conversational opener")
 	}
 }
 
 func TestCountVisionDetailCitations(t *testing.T) {
-	vision := `{"visible_observations":["T-zone bóng dầu rõ","4 nốt mụn đỏ ở cằm","lỗ chân lông to ở mũi"],"texture_and_oil_cues":"","redness_or_discoloration_cues":""}`
+	vision := `{"visible_observations":["T-zone bóng dầu rõ","4 nốt mụn đỏ ở cằm","lỗ chân lông to ở mũi","má phải hơi xỉn"],"texture_and_oil_cues":"","redness_or_discoloration_cues":""}`
 	out := &CoachStructuredOutput{
-		SituationAnalysis: "Hôm nay T-zone bóng dầu rõ, thấy 4 nốt mụn đỏ ở cằm và lỗ chân lông to ở mũi.",
+		SituationAnalysis: "Mình thấy hôm nay T-zone bóng dầu rõ, thấy 4 nốt mụn đỏ ở cằm, lỗ chân lông to ở mũi và má phải hơi xỉn.",
 		ConcernAlignment:  "Ảnh khớp với ghi chú da dầu vùng T.",
 	}
 	if n := CountVisionDetailCitations(vision, out); n < MinVisionDetailCitations {
@@ -39,7 +79,7 @@ func TestCountVisionDetailCitations(t *testing.T) {
 func TestCountVisionDetailCitations_RegionFallback(t *testing.T) {
 	vision := `{"visible_observations":["some generic note"],"texture_and_oil_cues":"","redness_or_discoloration_cues":""}`
 	out := &CoachStructuredOutput{
-		SituationAnalysis: "Trán và mũi bóng dầu, cằm có mụn đỏ, má trái hơi khô.",
+		SituationAnalysis: "Mình thấy trán và mũi bóng dầu, cằm có mụn đỏ, má trái hơi khô, má phải hơi xỉn.",
 	}
 	if n := CountVisionDetailCitations(vision, out); n < MinVisionDetailCitations {
 		t.Fatalf("region fallback should reach %d, got %d", MinVisionDetailCitations, n)
@@ -50,6 +90,9 @@ func TestOutputHasGenericSkinPhrases(t *testing.T) {
 	if !outputHasGenericSkinPhrases("hôm nay da bạn hơi khô") {
 		t.Fatal("expected generic phrase detection")
 	}
+	if !outputHasGenericSkinPhrases("da cần dưỡng ẩm thêm") {
+		t.Fatal("expected da cần dưỡng ẩm detection")
+	}
 	if outputHasGenericSkinPhrases("má trái hơi khô, có vảy nhẹ quanh mũi") {
 		t.Fatal("specific regional dryness should not trigger generic ban")
 	}
@@ -57,20 +100,22 @@ func TestOutputHasGenericSkinPhrases(t *testing.T) {
 
 func TestCoachTurnChecklist_Vision(t *testing.T) {
 	got := coachTurnChecklist("USER_MEMORY\n(no saved memory yet)", true)
-	mustContain(t, got, "≥3 photo-specific details")
+	mustContain(t, got, "≥3–4 photo-specific details")
+	mustContain(t, got, "mình thấy")
+	mustContain(t, got, "BAN report tone")
 }
 
 func TestVisionCoachScenarios_Fixtures(t *testing.T) {
 	scenarios := VisionCoachScenarios()
-	if len(scenarios) != 4 {
-		t.Fatalf("want 4 vision scenarios, got %d", len(scenarios))
+	if len(scenarios) != 6 {
+		t.Fatalf("want 6 vision scenarios, got %d", len(scenarios))
 	}
 	for _, s := range scenarios {
 		t.Run(s.ID, func(t *testing.T) {
 			msg := s.CoachUserMessage()
 			mustContain(t, msg, "VISION_SUMMARY_JSON")
 			mustContain(t, msg, "visible_observations")
-			mustContain(t, msg, "≥3 photo-specific details")
+			mustContain(t, msg, "≥3–4 photo-specific details")
 			if strings.TrimSpace(s.VisionJSON) == "" {
 				t.Fatal("vision json required")
 			}
@@ -79,13 +124,28 @@ func TestVisionCoachScenarios_Fixtures(t *testing.T) {
 }
 
 func TestNeedsVisionDetailRetry(t *testing.T) {
-	vision := `{"visible_observations":["T-zone oily","chin bumps","large pores"]}`
-	good := &CoachStructuredOutput{SituationAnalysis: "T-zone oily with chin bumps and large pores on nose."}
+	vision := `{"visible_observations":["T-zone oily","chin bumps","large pores","dull cheek"]}`
+	good := &CoachStructuredOutput{
+		SituationAnalysis: "Mình thấy T-zone oily with chin bumps, large pores on nose and dull right cheek.",
+		SummaryNotes:      "Mai chụp cùng góc nhé.",
+		Strengths:         []string{"Bạn đang làm tốt lắm."},
+	}
 	bad := &CoachStructuredOutput{SituationAnalysis: "Da bạn hơi khô hôm nay."}
 	if needsVisionDetailRetry(vision, good) {
 		t.Fatal("good output should not need retry")
 	}
 	if !needsVisionDetailRetry(vision, bad) {
 		t.Fatal("vague output should need retry")
+	}
+}
+
+func TestNeedsNaturalToneRetry(t *testing.T) {
+	out := &CoachStructuredOutput{
+		SituationAnalysis: "Phân tích cho thấy: 1. T-zone dầu 2. Má khô",
+		Strengths:         []string{"OK"},
+		SummaryNotes:      "Done",
+	}
+	if !needsNaturalToneRetry(out) {
+		t.Fatal("report-like output should need natural tone retry")
 	}
 }

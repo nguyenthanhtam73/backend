@@ -30,10 +30,15 @@ func coachTurnChecklist(userContext string, hasVision bool) string {
 	var b strings.Builder
 	b.WriteString("\n\nCOACH CHECKLIST (required — verify before JSON):\n")
 	if hasVision {
-		b.WriteString("- situation_analysis/concern_alignment: cite ≥3 photo-specific details (region + visible cue). No vague-only dryness/uneven-tone lines.\n")
+		b.WriteString("- situation_analysis/concern_alignment: cite ≥3–4 photo-specific details (region + cue + degree). Open with \"mình thấy\" / \"hôm nay da bạn\" — weave naturally, NO numbered lists or \"T-zone:\" headers.\n")
+		b.WriteString("- BAN vague-only: \"da hơi khô\", \"da cần dưỡng ẩm\", \"da không đều màu\" without naming a region.\n")
+		b.WriteString("- BAN report tone: \"Phân tích cho thấy\", \"Tình trạng da hiện tại\", \"1. 2. 3.\" lists.\n")
 	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- situation_analysis: include ≥1 history callback (e.g. \"mấy lần gần đây…\", \"vài hôm trước…\", \"so với lần trước…\").\n")
+		b.WriteString("- situation_analysis: MUST include ≥1 history callback starting with \"So với…\" / \"Vài hôm trước…\" / \"Mấy lần gần đây…\".\n")
+	}
+	if hasVision || strings.Contains(userContext, "## Recent SkinChecks") {
+		b.WriteString("- strengths: warm sincere praise (effort, not appearance). summary_notes: gentle closing + tomorrow focus.\n")
 	}
 	if strings.Contains(userContext, "## Routine adherence") {
 		b.WriteString("- strengths OR summary_notes: MUST mention routine adherence per COACH_ACTION (praise / simplify / encourage — no guilt).\n")
@@ -56,5 +61,19 @@ func needsVisionDetailRetry(visionRaw string, out *CoachStructuredOutput) bool {
 	if strings.TrimSpace(visionRaw) == "" {
 		return false
 	}
-	return CountVisionDetailCitations(visionRaw, out) < MinVisionDetailCitations
+	if CountVisionDetailCitations(visionRaw, out) < MinVisionDetailCitations {
+		return true
+	}
+	return needsNaturalToneRetry(out)
+}
+
+func needsNaturalToneRetry(out *CoachStructuredOutput) bool {
+	if out == nil {
+		return true
+	}
+	nat := ScoreCoachNaturalness(out)
+	if nat.HasReportLikeTone || !nat.HasConversationalOpener {
+		return true
+	}
+	return outputHasGenericSkinPhrases(FlattenCoachOutput(out))
 }

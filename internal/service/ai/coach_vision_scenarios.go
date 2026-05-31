@@ -17,13 +17,15 @@ type VisionCoachScenario struct {
 	WantCues    []string
 }
 
-// VisionCoachScenarios returns 4 photo-backed coach scenarios for v14 QA.
+// VisionCoachScenarios returns 6 photo-backed coach scenarios for v16 QA.
 func VisionCoachScenarios() []VisionCoachScenario {
 	return []VisionCoachScenario{
 		scenarioOilyAcneVision(),
 		scenarioDrySkinVision(),
 		scenarioHyperpigmentationVision(),
 		scenarioComboBarrierVision(),
+		scenarioSevereAcneVision(),
+		scenarioMelasmaVision(),
 	}
 }
 
@@ -147,5 +149,55 @@ func scenarioComboBarrierVision() VisionCoachScenario {
 		VisionJSON: vision,
 		WantRegions: []string{"má", "trán", "mũi", "cằm"},
 		WantCues:    []string{"đỏ", "dầu", "châm", "dịu", "barrier"},
+	}
+}
+
+func scenarioSevereAcneVision() VisionCoachScenario {
+	p := personaBeginnerOily()
+	p.TodayCheck.UserNote = "Mụn viêm nhiều vùng cằm và hàm, T-zone bóng dầu. Stress tuần này, ngủ muộn."
+	vision := `{
+  "photo_assessment": {"lighting": "daylight near window", "angle_clarity": "chin and jawline clearly visible", "limitations": "depth of cysts cannot be confirmed"},
+  "visible_observations": [
+    "8-12 inflamed red papules and pustules clustered on chin and jawline",
+    "T-zone forehead and nose with moderate to strong oil sheen",
+    "enlarged pores on nose and adjacent cheeks",
+    "post-inflammatory brown marks scattered on lower cheeks"
+  ],
+  "texture_and_oil_cues": "oily T-zone with active inflammatory lesions on lower face",
+  "redness_or_discoloration_cues": "multiple red inflamed bumps on chin/jaw; brown marks on cheeks",
+  "uncertainty_note": "cannot distinguish acne severity grade or need for prescription care from photo alone"
+}`
+	return VisionCoachScenario{
+		ID:          "severe_acne",
+		Label:       "Da mụn nhiều (viêm + thâm)",
+		Persona:     p,
+		VisionJSON:  vision,
+		WantRegions: []string{"cằm", "hàm", "trán", "mũi", "má"},
+		WantCues:    []string{"mụn", "viêm", "đỏ", "dầu", "thâm", "lỗ chân lông"},
+	}
+}
+
+func scenarioMelasmaVision() VisionCoachScenario {
+	p := personaIntermediateCombo()
+	p.TodayCheck.UserNote = "Thâm nám má hai bên rõ hơn, đi nắng cuối tuần qua. T-zone vẫn hơi dầu."
+	vision := `{
+  "photo_assessment": {"lighting": "outdoor indirect sunlight", "angle_clarity": "both cheeks and forehead visible", "limitations": "melasma vs sun spots vs PIH cannot be confirmed clinically"},
+  "visible_observations": [
+    "symmetric brown patches on both malar cheeks (cheekbone area)",
+    "additional lighter brown macules on forehead temples",
+    "T-zone mild oil sheen on nose",
+    "no obvious active red inflamed acne today"
+  ],
+  "texture_and_oil_cues": "cheeks matte with pigmentation patches; nose slightly shiny",
+  "redness_or_discoloration_cues": "brown melasma-like patches on cheeks; uneven tone between cheek and forehead",
+  "uncertainty_note": "photo alone cannot confirm melasma diagnosis or depth of pigmentation"
+}`
+	return VisionCoachScenario{
+		ID:          "melasma",
+		Label:       "Da thâm nám (má hai bên)",
+		Persona:     p,
+		VisionJSON:  vision,
+		WantRegions: []string{"má", "cheek", "trán", "mũi"},
+		WantCues:    []string{"nám", "thâm", "brown", "patch", "dầu", "tone"},
 	}
 }
