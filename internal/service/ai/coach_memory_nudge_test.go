@@ -8,11 +8,11 @@ func TestCoachMemoryTurnChecklist(t *testing.T) {
 	}
 	withAdherence := "## Routine adherence (IMPORTANT\n- COACH_ACTION: low"
 	got := coachMemoryTurnChecklist("## Recent SkinChecks\nfoo\n" + withAdherence)
-	mustContain(t, got, "history callback")
+	mustContain(t, got, "So với lần trước")
 	mustContain(t, got, "COACH_ACTION")
 
 	visionOnly := coachTurnChecklist("USER_MEMORY\n(no saved memory yet)", true)
-	mustContain(t, visionOnly, "≥3 photo-specific details")
+	mustContain(t, visionOnly, "≥4 photo details")
 }
 
 func TestPrependCoachActionPriority(t *testing.T) {

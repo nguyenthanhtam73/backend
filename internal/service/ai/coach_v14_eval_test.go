@@ -5,36 +5,42 @@ import (
 	"testing"
 )
 
-func TestCoachPrompt_v16_BestFriendToneRules(t *testing.T) {
+func TestCoachPrompt_v17_WarmChatRules(t *testing.T) {
 	for _, skill := range []string{"beginner", "intermediate"} {
 		t.Run(skill, func(t *testing.T) {
 			p := GetCoachPrompt(skill)
 			mustContain(t, p, "người bạn thân thiết")
-			mustContain(t, p, "≥3–4 chi tiết cụ thể")
+			mustContain(t, p, "≥4 chi tiết cụ thể")
 			mustContain(t, p, "mình thấy")
-			mustContain(t, p, "nhắn tin cho bạn thân")
-			mustContain(t, p, "CẤM HOÀN TOÀN")
+			mustContain(t, p, "hôm nay da bạn")
+			mustContain(t, p, "mình khuyên thật lòng nhé")
+			mustContain(t, p, "bạn đang làm khá tốt rồi đó")
 			mustContain(t, p, "USER_MEMORY")
+			mustContain(t, p, "COACH_ACTION")
 		})
 	}
 }
 
-func TestCoachPromptVersion_v16(t *testing.T) {
-	if CoachDailyPromptVersion != 16 {
-		t.Fatalf("expected CoachDailyPromptVersion == 16, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v17(t *testing.T) {
+	if CoachDailyPromptVersion != 17 {
+		t.Fatalf("expected CoachDailyPromptVersion == 17, got %d", CoachDailyPromptVersion)
 	}
 }
 
-func TestMinVisionDetailCitations_v16(t *testing.T) {
+func TestMinVisionDetailCitations_v17(t *testing.T) {
 	if MinVisionDetailCitations != 4 {
-		t.Fatalf("expected MinVisionDetailCitations == 4 for v16, got %d", MinVisionDetailCitations)
+		t.Fatalf("expected MinVisionDetailCitations == 4 for v17, got %d", MinVisionDetailCitations)
 	}
 }
 
 func TestScoreCoachNaturalness(t *testing.T) {
 	natural := &CoachStructuredOutput{
-		Strengths:         []string{"Bạn chụp ảnh và ghi chú lại rồi — mình biết phần này không dễ, bạn đang làm tốt lắm."},
+		Strengths:         []string{"Bạn chụp ảnh và ghi chú lại rồi — bạn đang làm khá tốt rồi đó."},
 		SituationAnalysis: "Mình thấy hôm nay trán hơi bóng, cằm có vài nốt đỏ nhỏ, má trái hơi khô — giống vài hôm trước bạn cũng ghi vậy.",
+		Improvements: []struct {
+			Tip string `json:"tip"`
+			Why string `json:"why"`
+		}{{Tip: "Tối nay mình khuyên thật lòng nhé — giữ routine nhẹ."}},
 		SummaryNotes:      "Mai chụp cùng góc nhé — mình muốn xem cằm dịu lại chút nào.",
 	}
 	score := ScoreCoachNaturalness(natural)
@@ -46,6 +52,12 @@ func TestScoreCoachNaturalness(t *testing.T) {
 	}
 	if !score.HasWarmOpening || !score.HasWarmClosing {
 		t.Fatalf("expected warm open/close, got open=%v close=%v", score.HasWarmOpening, score.HasWarmClosing)
+	}
+	if !score.HasWarmEncouragement {
+		t.Fatal("expected warm encouragement phrases")
+	}
+	if score.EmotionalScore < 0.5 {
+		t.Fatalf("expected emotional score >= 0.5, got %.2f", score.EmotionalScore)
 	}
 	if score.HasReportLikeTone {
 		t.Fatal("natural sample should not be report-like")
@@ -100,9 +112,9 @@ func TestOutputHasGenericSkinPhrases(t *testing.T) {
 
 func TestCoachTurnChecklist_Vision(t *testing.T) {
 	got := coachTurnChecklist("USER_MEMORY\n(no saved memory yet)", true)
-	mustContain(t, got, "≥3–4 photo-specific details")
+	mustContain(t, got, "≥4 photo details")
 	mustContain(t, got, "mình thấy")
-	mustContain(t, got, "BAN report tone")
+	mustContain(t, got, "NO lists/report tone")
 }
 
 func TestVisionCoachScenarios_Fixtures(t *testing.T) {
@@ -115,7 +127,7 @@ func TestVisionCoachScenarios_Fixtures(t *testing.T) {
 			msg := s.CoachUserMessage()
 			mustContain(t, msg, "VISION_SUMMARY_JSON")
 			mustContain(t, msg, "visible_observations")
-			mustContain(t, msg, "≥3–4 photo-specific details")
+			mustContain(t, msg, "≥4 photo details")
 			if strings.TrimSpace(s.VisionJSON) == "" {
 				t.Fatal("vision json required")
 			}
@@ -147,5 +159,12 @@ func TestNeedsNaturalToneRetry(t *testing.T) {
 	}
 	if !needsNaturalToneRetry(out) {
 		t.Fatal("report-like output should need natural tone retry")
+	}
+}
+
+func TestCoachPrompt_v17_Compactness(t *testing.T) {
+	v17 := len(GetCoachPrompt("intermediate"))
+	if v17 > 5500 {
+		t.Fatalf("v17 prompt should be compact (<5500 chars), got %d", v17)
 	}
 }

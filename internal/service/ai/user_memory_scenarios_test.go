@@ -78,9 +78,8 @@ func TestPersona_BrandNewBeginner(t *testing.T) {
 	// and include the cá-nhân-hoá callback section.
 	prompt := GetCoachPrompt("beginner")
 	mustContain(t, prompt, "USER_MEMORY")
-	mustContain(t, prompt, "Cá nhân hoá theo USER_MEMORY")
-	mustContain(t, prompt, "Callback xu hướng")
-	mustContain(t, prompt, "Pivot 👎")
+	mustContain(t, prompt, "Callback bắt buộc")
+	mustContain(t, prompt, "pivot 👎")
 }
 
 // --- Test 2: profile section formatting ------------------------------
@@ -221,8 +220,8 @@ func TestCoachPrompts_HaveMemoryGuidance(t *testing.T) {
 // semantics. If you change coachCorePromptVI materially, also bump
 // CoachDailyPromptVersion in coach_daily_version.go.
 func TestCoachPromptVersion(t *testing.T) {
-	if CoachDailyPromptVersion < 16 {
-		t.Fatalf("expected CoachDailyPromptVersion >= 16 (best-friend tone), got %d", CoachDailyPromptVersion)
+	if CoachDailyPromptVersion < 17 {
+		t.Fatalf("expected CoachDailyPromptVersion >= 17 (warm chat v17), got %d", CoachDailyPromptVersion)
 	}
 }
 

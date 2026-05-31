@@ -30,15 +30,14 @@ func coachTurnChecklist(userContext string, hasVision bool) string {
 	var b strings.Builder
 	b.WriteString("\n\nCOACH CHECKLIST (required — verify before JSON):\n")
 	if hasVision {
-		b.WriteString("- situation_analysis/concern_alignment: cite ≥3–4 photo-specific details (region + cue + degree). Open with \"mình thấy\" / \"hôm nay da bạn\" — weave naturally, NO numbered lists or \"T-zone:\" headers.\n")
-		b.WriteString("- BAN vague-only: \"da hơi khô\", \"da cần dưỡng ẩm\", \"da không đều màu\" without naming a region.\n")
-		b.WriteString("- BAN report tone: \"Phân tích cho thấy\", \"Tình trạng da hiện tại\", \"1. 2. 3.\" lists.\n")
+		b.WriteString("- ≥4 photo details (region+cue) woven naturally; open \"mình thấy\" / \"hôm nay da bạn\"; NO lists/report tone.\n")
+		b.WriteString("- BAN: \"da hơi khô\", \"cần dưỡng ẩm\" without region.\n")
 	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- situation_analysis: MUST include ≥1 history callback starting with \"So với…\" / \"Vài hôm trước…\" / \"Mấy lần gần đây…\".\n")
+		b.WriteString("- MUST include \"So với lần trước…\" / \"Vài hôm trước…\" callback.\n")
 	}
 	if hasVision || strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- strengths: warm sincere praise (effort, not appearance). summary_notes: gentle closing + tomorrow focus.\n")
+		b.WriteString("- Warm praise in strengths; weave \"mình khuyên thật lòng nhé\" or \"bạn đang làm khá tốt rồi đó\" naturally; gentle closing in summary_notes; keep copy concise.\n")
 	}
 	if strings.Contains(userContext, "## Routine adherence") {
 		b.WriteString("- strengths OR summary_notes: MUST mention routine adherence per COACH_ACTION (praise / simplify / encourage — no guilt).\n")

@@ -23,4 +23,7 @@ package ai
 //
 // v16 (2026-05-31) — Best-friend tone: ≥3–4 vision details, mandatory conversational
 // openers ("mình thấy"), stronger anti-report/list enforcement, 6 scenarios QA.
-const CoachDailyPromptVersion = 16
+//
+// v17 (2026-05-31) — Compact warm chat persona: shorter prompt for token savings,
+// stronger conversational phrases, ≥4 vision details, emotional encouragement scoring.
+const CoachDailyPromptVersion = 17

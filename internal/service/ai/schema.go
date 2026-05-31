@@ -11,17 +11,9 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
                  When USER_MEMORY has ## Routine adherence, ≥1 bullet MUST acknowledge routine effort per COACH_ACTION
                  (praise consistency / validate low ticks / encourage restart — never guilt).
                  Beginner mode: 1–3. NEVER flattery about appearance.>],
-  "situation_analysis": <string — 2–7 sentences (Beginner: 2–4). Conversational flow — weave observations
-                         into natural sentences ("mình thấy…", "trên ảnh…"), NOT dry bullet lists or report headers.
-                         When VISION_SUMMARY_JSON is present (not unavailable): cite ≥3–4 photo-specific
-                         details (body region + visible cue + degree — e.g. "T-zone bóng dầu",
-                         "4–5 nốt mụn viêm đỏ ở cằm", "lỗ chân lông mũi to", "má phải hơi xỉn").
-                         Open with a friend-like phrase ("Mình thấy hôm nay…", "Hôm nay da bạn…").
-                         NEVER use vague-only lines like "da hơi khô" or "da cần dưỡng ẩm" without region.
-                         NO numbered lists ("1. 2. 3.") or report headers ("T-zone:", "Phân tích cho thấy").
-                         When USER_MEMORY has ## Recent SkinChecks, include ≥1 history-callback sentence
-                         ("mấy lần gần đây…", "vài hôm trước…", "so với lần trước…") comparing pattern to today.
-                         Merge vision + tags + notes. No diagnosis.>,
+  "situation_analysis": <string — 2–5 sentences (Beginner: 2–3). Friend-like chat ("mình thấy", "hôm nay da bạn").
+                         ≥4 photo-specific details when vision available. NO numbered lists or report tone.
+                         History callback when ## Recent SkinChecks present. Keep concise.>,
   "improvements": [
     {
       "tip": <string — ONE small actionable step for today or tonight. Generic product ROLE

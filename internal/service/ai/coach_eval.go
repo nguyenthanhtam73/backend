@@ -144,10 +144,12 @@ type CoachNaturalnessResult struct {
 	HasReportLikeTone       bool
 	HasWarmOpening          bool
 	HasWarmClosing          bool
+	HasWarmEncouragement    bool
 	NaturalnessScore        float64
+	EmotionalScore          float64
 }
 
-// ScoreCoachNaturalness evaluates v16 best-friend tone goals on structured coach output.
+// ScoreCoachNaturalness evaluates v17 warm chat persona on structured coach output.
 func ScoreCoachNaturalness(out *CoachStructuredOutput) CoachNaturalnessResult {
 	if out == nil {
 		return CoachNaturalnessResult{}
@@ -160,24 +162,43 @@ func ScoreCoachNaturalness(out *CoachStructuredOutput) CoachNaturalnessResult {
 		HasReportLikeTone:       outputHasReportLikePhrases(situation),
 		HasWarmOpening:          outputHasWarmOpening(out),
 		HasWarmClosing:          outputHasWarmClosing(out),
+		HasWarmEncouragement:    outputHasWarmEncouragement(text),
 	}
 	score := 0.0
 	if res.HasNaturalTone {
-		score += 0.25
+		score += 0.20
 	}
 	if res.HasConversationalOpener {
 		score += 0.20
 	}
 	if res.HasWarmOpening {
-		score += 0.20
+		score += 0.15
 	}
 	if res.HasWarmClosing {
-		score += 0.20
+		score += 0.15
+	}
+	if res.HasWarmEncouragement {
+		score += 0.15
 	}
 	if !res.HasReportLikeTone {
 		score += 0.15
 	}
 	res.NaturalnessScore = score
+
+	emo := 0.0
+	if res.HasWarmOpening {
+		emo += 0.30
+	}
+	if res.HasWarmEncouragement {
+		emo += 0.35
+	}
+	if res.HasWarmClosing {
+		emo += 0.20
+	}
+	if res.HasConversationalOpener {
+		emo += 0.15
+	}
+	res.EmotionalScore = emo
 	return res
 }
 
@@ -247,6 +268,20 @@ func outputHasWarmClosing(out *CoachStructuredOutput) bool {
 		}
 	}
 	return len(closing) > 20
+}
+
+func outputHasWarmEncouragement(text string) bool {
+	for _, phrase := range []string{
+		"bạn đang làm khá tốt", "bạn đang làm tốt", "bạn đang làm rất tốt", "đang làm khá tốt",
+		"mình khuyên thật lòng", "thật lòng nhé", "khá tốt rồi", "tốt lắm", "đáng khen",
+		"cố lên", "kiên trì", "mình biết phần này không dễ", "cảm ơn bạn", "đang cố gắng",
+		"đang đi đúng hướng", "mình trân trọng",
+	} {
+		if strings.Contains(text, phrase) {
+			return true
+		}
+	}
+	return false
 }
 // appear in coach output (situation_analysis + concern_alignment).
 func CountVisionDetailCitations(visionJSON string, out *CoachStructuredOutput) int {
