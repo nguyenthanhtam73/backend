@@ -112,9 +112,9 @@ func affiliateWardrobeFull() AffiliateScenario {
 		"Má hơi căng, routine vẫn giữ đều. Không muốn mua thêm nhiều.", "intermediate")
 	wardrobe := []wardrobeItem{
 		{Name: "Sữa rửa mặt tạo bọt", Brand: "CeraVe", Category: "cleanser"},
-		{Name: "Kem chống nắng Anthelios SPF50+", Brand: "La Roche-Posay", Category: "spf"},
+		{Name: "Kem chống nắng Relief Sun SPF50+", Brand: "Beauty of Joseon", Category: "spf"},
 		{Name: "Serum Niacinamide 10% + Zinc 1%", Brand: "The Ordinary", Category: "serum"},
-		{Name: "Kem dưỡng ẩm đa chức năng", Brand: "CeraVe", Category: "moisturizer"},
+		{Name: "Kem dưỡng ẩm Hydro Boost Water Gel", Brand: "Neutrogena", Category: "moisturizer"},
 		{Name: "Tinh chất ốc sên Advanced Snail 96 Mucin", Brand: "COSRX", Category: "serum"},
 	}
 	memory := assembleMemory(
@@ -155,7 +155,7 @@ func affiliateMissingSPF() AffiliateScenario {
 		"Da hơi xỉn, hôm qua ra ngoài nắng 2 tiếng không bôi kem chống nắng.", "beginner")
 	wardrobe := []wardrobeItem{
 		{Name: "Sữa rửa mặt dưỡng ẩm", Brand: "CeraVe", Category: "cleanser"},
-		{Name: "Kem dưỡng ẩm đa chức năng", Brand: "CeraVe", Category: "moisturizer"},
+		{Name: "Kem dưỡng ẩm Hydro Boost Water Gel", Brand: "Neutrogena", Category: "moisturizer"},
 	}
 	memory := assembleMemory(
 		profileSection(profile),

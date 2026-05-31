@@ -4,119 +4,335 @@
     "product_name": "Sữa rửa mặt tạo bọt",
     "brand": "CeraVe",
     "category": "cleanser",
-    "skin_types": ["oily", "combination", "normal"],
-    "concerns": ["acne", "oily", "clogged_pores"],
-    "price_range": "280k-350k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/cerave-foaming-cleanser"
+    "skin_types": [
+      "oily",
+      "combination",
+      "normal"
+    ],
+    "concerns": [
+      "acne",
+      "oily",
+      "clogged_pores",
+      "large_pores"
+    ],
+    "price_range": "466k",
+    "affiliate_link": "https://s.shopee.vn/70HPIj8Km4"
   },
   {
     "id": "cerave-hydrating-cleanser",
     "product_name": "Sữa rửa mặt dưỡng ẩm",
     "brand": "CeraVe",
     "category": "cleanser",
-    "skin_types": ["dry", "normal", "sensitive"],
-    "concerns": ["dry", "dehydrated", "weak_barrier", "sensitive"],
-    "price_range": "280k-350k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/cerave-hydrating-cleanser"
+    "skin_types": [
+      "dry",
+      "normal",
+      "sensitive"
+    ],
+    "concerns": [
+      "dry",
+      "dehydrated",
+      "weak_barrier",
+      "sensitive"
+    ],
+    "price_range": "395k",
+    "affiliate_link": "https://s.shopee.vn/2qRqPmwzpY"
   },
   {
-    "id": "lrp-anthelios-spf50",
-    "product_name": "Kem chống nắng Anthelios SPF50+",
-    "brand": "La Roche-Posay",
+    "id": "anua-heartleaf-toner",
+    "product_name": "Toner diếp cá làm dịu da",
+    "brand": "Anua",
+    "category": "toner",
+    "skin_types": [
+      "oily",
+      "combination",
+      "sensitive",
+      "normal"
+    ],
+    "concerns": [
+      "acne",
+      "redness",
+      "sensitive",
+      "weak_barrier",
+      "irritated"
+    ],
+    "price_range": "410k-524k",
+    "affiliate_link": "https://s.shopee.vn/6AiINzImYf"
+  },
+  {
+    "id": "biore-uv-aqua-rich",
+    "product_name": "Tinh chất chống nắng Biore UV Aqua Rich SPF50+",
+    "brand": "Biore",
     "category": "spf",
-    "skin_types": ["all"],
-    "concerns": ["hyperpigmentation", "pih", "sensitive", "recent_sun_exposure"],
-    "price_range": "450k-650k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/lrp-anthelios-spf50"
+    "skin_types": [
+      "oily",
+      "combination",
+      "normal"
+    ],
+    "concerns": [
+      "oily",
+      "recent_sun_exposure",
+      "hyperpigmentation",
+      "dull"
+    ],
+    "price_range": "171k",
+    "affiliate_link": "https://s.shopee.vn/1BJcMMK4au"
   },
   {
-    "id": "anessa-perfect-uv",
-    "product_name": "Kem chống nắng Perfect UV Milk SPF50+",
-    "brand": "Anessa",
+    "id": "boj-relief-sun",
+    "product_name": "Kem chống nắng Relief Sun SPF50+",
+    "brand": "Beauty of Joseon",
     "category": "spf",
-    "skin_types": ["oily", "combination"],
-    "concerns": ["oily", "recent_sun_exposure", "hyperpigmentation"],
-    "price_range": "550k-750k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/anessa-perfect-uv"
-  },
-  {
-    "id": "to-niacinamide",
-    "product_name": "Serum Niacinamide 10% + Zinc 1%",
-    "brand": "The Ordinary",
-    "category": "serum",
-    "skin_types": ["oily", "combination", "normal"],
-    "concerns": ["acne", "breakout", "clogged_pores", "large_pores", "oily"],
-    "price_range": "180k-250k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/to-niacinamide"
-  },
-  {
-    "id": "to-hyaluronic-acid",
-    "product_name": "Serum Hyaluronic Acid 2% + B5",
-    "brand": "The Ordinary",
-    "category": "serum",
-    "skin_types": ["dry", "normal", "combination", "dehydrated"],
-    "concerns": ["dry", "dehydrated", "weak_barrier"],
-    "price_range": "180k-250k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/to-hyaluronic-acid"
-  },
-  {
-    "id": "cosrx-snail-96",
-    "product_name": "Tinh chất ốc sên Advanced Snail 96 Mucin",
-    "brand": "COSRX",
-    "category": "serum",
-    "skin_types": ["dry", "normal", "sensitive", "combination"],
-    "concerns": ["dry", "dehydrated", "weak_barrier", "redness", "sensitive"],
-    "price_range": "320k-420k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/cosrx-snail-96"
-  },
-  {
-    "id": "cosrx-bha-liquid",
-    "product_name": "Toner BHA Blackhead Power Liquid",
-    "brand": "COSRX",
-    "category": "treatment",
-    "skin_types": ["oily", "combination"],
-    "concerns": ["clogged_pores", "large_pores", "breakout", "acne"],
-    "price_range": "280k-380k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/cosrx-bha-liquid"
-  },
-  {
-    "id": "cerave-moisturizing-cream",
-    "product_name": "Kem dưỡng ẩm đa chức năng",
-    "brand": "CeraVe",
-    "category": "moisturizer",
-    "skin_types": ["dry", "normal", "sensitive"],
-    "concerns": ["dry", "dehydrated", "weak_barrier", "sensitive"],
-    "price_range": "350k-450k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/cerave-moisturizing-cream"
+    "skin_types": [
+      "normal",
+      "combination",
+      "dry",
+      "sensitive"
+    ],
+    "concerns": [
+      "hyperpigmentation",
+      "sensitive",
+      "recent_sun_exposure",
+      "dull"
+    ],
+    "price_range": "351k-381k",
+    "affiliate_link": "https://s.shopee.vn/7pqWIkqv8j"
   },
   {
     "id": "klairs-supple-toner",
     "product_name": "Toner Supple Preparation Unscented",
     "brand": "Klairs",
     "category": "toner",
-    "skin_types": ["dry", "normal", "sensitive", "combination"],
-    "concerns": ["dry", "dehydrated", "sensitive", "redness"],
-    "price_range": "320k-420k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/klairs-supple-toner"
+    "skin_types": [
+      "dry",
+      "normal",
+      "sensitive",
+      "combination"
+    ],
+    "concerns": [
+      "dry",
+      "dehydrated",
+      "sensitive",
+      "redness",
+      "weak_barrier"
+    ],
+    "price_range": "99k-315k",
+    "affiliate_link": "https://s.shopee.vn/20sjM9NQkT"
   },
   {
-    "id": "melano-cc-vitamin-c",
-    "product_name": "Serum Melano CC Vitamin C",
+    "id": "some-by-mi-miracle-toner",
+    "product_name": "Toner AHA BHA PHA 30 Days Miracle",
+    "brand": "Some By Mi",
+    "category": "toner",
+    "skin_types": [
+      "oily",
+      "combination"
+    ],
+    "concerns": [
+      "acne",
+      "breakout",
+      "clogged_pores",
+      "oily",
+      "large_pores"
+    ],
+    "price_range": "314k-390k",
+    "affiliate_link": "https://s.shopee.vn/9KfK5f8jH1"
+  },
+  {
+    "id": "hada-labo-gokujyun",
+    "product_name": "Nước dưỡng Hyaluronic Acid Gokujyun",
+    "brand": "Hada Labo",
+    "category": "toner",
+    "skin_types": [
+      "dry",
+      "normal",
+      "combination",
+      "dehydrated"
+    ],
+    "concerns": [
+      "dry",
+      "dehydrated",
+      "weak_barrier"
+    ],
+    "price_range": "268k-524k",
+    "affiliate_link": "https://s.shopee.vn/9UykI17ujY"
+  },
+  {
+    "id": "to-niacinamide",
+    "product_name": "Serum Niacinamide 10% + Zinc 1%",
+    "brand": "The Ordinary",
+    "category": "serum",
+    "skin_types": [
+      "oily",
+      "combination",
+      "normal"
+    ],
+    "concerns": [
+      "acne",
+      "breakout",
+      "clogged_pores",
+      "large_pores",
+      "oily",
+      "dull"
+    ],
+    "price_range": "186k-395k",
+    "affiliate_link": "https://s.shopee.vn/5VSbWhy8zA"
+  },
+  {
+    "id": "to-hyaluronic-acid",
+    "product_name": "Serum Hyaluronic Acid 2% + B5",
+    "brand": "The Ordinary",
+    "category": "serum",
+    "skin_types": [
+      "dry",
+      "normal",
+      "combination",
+      "dehydrated"
+    ],
+    "concerns": [
+      "dry",
+      "dehydrated",
+      "weak_barrier"
+    ],
+    "price_range": "204k-439k",
+    "affiliate_link": "https://s.shopee.vn/809wVLfzSU"
+  },
+  {
+    "id": "cosrx-snail-96",
+    "product_name": "Tinh chất ốc sên Advanced Snail 96 Mucin",
+    "brand": "COSRX",
+    "category": "serum",
+    "skin_types": [
+      "dry",
+      "normal",
+      "sensitive",
+      "combination"
+    ],
+    "concerns": [
+      "dry",
+      "dehydrated",
+      "weak_barrier",
+      "redness",
+      "sensitive",
+      "irritated"
+    ],
+    "price_range": "422k",
+    "affiliate_link": "https://s.shopee.vn/110CAVZWKG"
+  },
+  {
+    "id": "melano-cc-premium",
+    "product_name": "Tinh chất Melano CC Vitamin C Premium",
     "brand": "Rohto Melano CC",
     "category": "serum",
-    "skin_types": ["normal", "combination", "oily"],
-    "concerns": ["hyperpigmentation", "pih", "post_acne_marks", "dull"],
-    "price_range": "250k-350k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/melano-cc-vitamin-c"
+    "skin_types": [
+      "normal",
+      "combination",
+      "oily"
+    ],
+    "concerns": [
+      "hyperpigmentation",
+      "pih",
+      "post_acne_marks",
+      "dull"
+    ],
+    "price_range": "269k-329k",
+    "affiliate_link": "https://s.shopee.vn/4Va4KzPJbs"
   },
   {
-    "id": "bioderma-sensibio-gel",
-    "product_name": "Sữa rửa mặt Sensibio Gel Moussant",
-    "brand": "Bioderma",
-    "category": "cleanser",
-    "skin_types": ["sensitive", "dry", "normal"],
-    "concerns": ["sensitive", "redness", "stinging", "weak_barrier"],
-    "price_range": "380k-480k",
-    "affiliate_link": "https://s.shopee.vn/affiliate/bioderma-sensibio-gel"
+    "id": "axis-y-dark-spot",
+    "product_name": "Serum giảm thâm Dark Spot Correcting Glow",
+    "brand": "Axis-Y",
+    "category": "serum",
+    "skin_types": [
+      "normal",
+      "combination",
+      "oily",
+      "sensitive"
+    ],
+    "concerns": [
+      "hyperpigmentation",
+      "pih",
+      "post_acne_marks",
+      "dull"
+    ],
+    "price_range": "170k-459k",
+    "affiliate_link": "https://s.shopee.vn/qglyJ74BF"
+  },
+  {
+    "id": "skin1004-centella-ampoule",
+    "product_name": "Tinh chất rau má Madagascar Centella Ampoule",
+    "brand": "SKIN1004",
+    "category": "serum",
+    "skin_types": [
+      "sensitive",
+      "dry",
+      "normal",
+      "combination"
+    ],
+    "concerns": [
+      "sensitive",
+      "redness",
+      "weak_barrier",
+      "irritated",
+      "stinging"
+    ],
+    "price_range": "505k",
+    "affiliate_link": "https://s.shopee.vn/1Ld2dpmuQ4"
+  },
+  {
+    "id": "neutrogena-hydro-boost",
+    "product_name": "Kem dưỡng ẩm Hydro Boost Water Gel",
+    "brand": "Neutrogena",
+    "category": "moisturizer",
+    "skin_types": [
+      "oily",
+      "combination",
+      "normal"
+    ],
+    "concerns": [
+      "dry",
+      "dehydrated",
+      "oily"
+    ],
+    "price_range": "131k",
+    "affiliate_link": "https://s.shopee.vn/6AiIKBTlMf"
+  },
+  {
+    "id": "lrp-cicaplast-b5",
+    "product_name": "Kem phục hồi Cicaplast Baume B5+",
+    "brand": "La Roche-Posay",
+    "category": "moisturizer",
+    "skin_types": [
+      "dry",
+      "normal",
+      "sensitive",
+      "combination"
+    ],
+    "concerns": [
+      "weak_barrier",
+      "irritated",
+      "redness",
+      "sensitive",
+      "stinging"
+    ],
+    "price_range": "384k",
+    "affiliate_link": "https://s.shopee.vn/7VDg438uB9"
+  },
+  {
+    "id": "cosrx-acne-patch",
+    "product_name": "Miếng dán mụn Acne Pimple Master Patch",
+    "brand": "COSRX",
+    "category": "treatment",
+    "skin_types": [
+      "oily",
+      "combination",
+      "normal"
+    ],
+    "concerns": [
+      "acne",
+      "breakout",
+      "clogged_pores"
+    ],
+    "price_range": "98k",
+    "affiliate_link": "https://s.shopee.vn/BR5BEJ1xB"
   }
 ]

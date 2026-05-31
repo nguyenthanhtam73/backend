@@ -24,7 +24,7 @@ func TestEvaluateAffiliateSuggestions_GoodFixture(t *testing.T) {
 			{
 				ProductName:   spf.ProductName,
 				Brand:         spf.Brand,
-				Reason:        "Hôm qua bạn ra nắng 2 tiếng mà chưa có kem chống nắng trong tủ — Anthelios giúp bảo vệ vùng má khỏi thâm thêm. Link affiliate có thể giúp DaDiary duy trì app (hoa hồng nhỏ).",
+				Reason:        "Hôm qua bạn ra nắng 2 tiếng mà chưa có kem chống nắng trong tủ — Biore UV Aqua Rich giúp bảo vệ vùng má khỏi thâm thêm. Link affiliate có thể giúp DaDiary duy trì app (hoa hồng nhỏ).",
 				AffiliateLink: spf.AffiliateLink,
 				Priority:      "high",
 			},
@@ -92,12 +92,12 @@ func TestEvaluateAffiliateSuggestions_WardrobeHit(t *testing.T) {
 func TestFinalizeProductSuggestions_ParsesWardrobe(t *testing.T) {
 	ctx := `USER_MEMORY:
 ## Wardrobe (products user already owns — DO NOT re-recommend these)
-- Kem chống nắng Anthelios SPF50+ | brand: La Roche-Posay | category: spf
+- Tinh chất chống nắng Biore UV Aqua Rich SPF50+ | brand: Biore | category: spf
 `
 	rows, _ := loadAffiliateCatalog()
-	spf := findCatalogByCategory(rows, "spf")
+	spf := findCatalogEntry(rows, "biore-uv-aqua-rich")
 	if spf == nil {
-		t.Fatal("no spf")
+		t.Fatal("no biore spf")
 	}
 	out := FinalizeProductSuggestions([]dto.ProductSuggestion{
 		{ProductName: spf.ProductName, Brand: spf.Brand, Reason: "test", AffiliateLink: spf.AffiliateLink},
@@ -110,6 +110,15 @@ func TestFinalizeProductSuggestions_ParsesWardrobe(t *testing.T) {
 func findCatalogByCategory(rows []affiliateCatalogEntry, cat string) *affiliateCatalogEntry {
 	for i := range rows {
 		if rows[i].Category == cat {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+
+func findCatalogEntry(rows []affiliateCatalogEntry, id string) *affiliateCatalogEntry {
+	for i := range rows {
+		if rows[i].ID == id {
 			return &rows[i]
 		}
 	}

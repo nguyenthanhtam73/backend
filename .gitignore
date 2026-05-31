@@ -8,6 +8,13 @@ bin/
 .env
 .env.local
 .env.*.local
+shopee-cookies.txt
+*.cookies.txt
+
+# Local tooling
+cmd/fetch-shopee-items/node_modules/
+cmd/sync-affiliate-catalog/node_modules/
+tmp_product.html
 
 # Uploads & local data
 data/
