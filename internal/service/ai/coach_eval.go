@@ -214,6 +214,12 @@ func outputHasRequiredVisionOpener(out *CoachStructuredOutput) bool {
 }
 
 func outputHasRequiredVisionOpenerText(situation string) bool {
+	if strings.Contains(situation, "mày thấy hôm nay") || strings.Contains(situation, "đm da mày") {
+		return true
+	}
+	if strings.Contains(situation, "trông hôm nay") {
+		return true
+	}
 	if strings.Contains(situation, "mình thấy hôm nay") {
 		return true
 	}
@@ -224,7 +230,7 @@ func outputHasRequiredVisionOpenerText(situation string) bool {
 		return true
 	}
 	for _, phrase := range []string{
-		"vùng ", "của bạn", "hôm nay da bạn", "mình thấy",
+		"vùng ", "của bạn", "hôm nay da bạn", "hôm nay da nó", "mình thấy", "mày thấy",
 	} {
 		if strings.Contains(situation, phrase) {
 			return true
@@ -236,8 +242,8 @@ func outputHasRequiredVisionOpenerText(situation string) bool {
 func outputHasNaturalTone(text string) bool {
 	hits := 0
 	for _, phrase := range []string{
-		"mình", "bạn ", "nhé", "nha", "thấy", "nghe", "hơi", "một chút", "chút",
-		"cũng", "đấy", "đó", " ạ", "nè", "hen", "biết", "cùng",
+		"mình", "mày", "bạn ", "nhé", "nha", "thấy", "nghe", "hơi", "một chút", "chút",
+		"cũng", "đấy", "đó", " ạ", "nè", "hen", "biết", "cùng", "vl", "con ơi", "thật",
 	} {
 		if strings.Contains(text, phrase) {
 			hits++
@@ -267,6 +273,7 @@ func outputHasWarmOpening(out *CoachStructuredOutput) bool {
 	for _, phrase := range []string{
 		"tốt lắm", "giỏi", "cố lên", "đáng khen", "kiên trì", "effort", "khó nhất",
 		"biết", "khen", "cảm ơn", "tuyệt", "ổn", "ok", "đều", "tick", "chụp", "ghi",
+		"con ơi", "thảm", "hết cứu", "troll",
 	} {
 		if strings.Contains(opening, phrase) {
 			return true
@@ -294,9 +301,9 @@ func outputHasWarmEncouragement(text string) bool {
 	for _, phrase := range []string{
 		"bạn đang làm khá tốt", "bạn đang làm tốt", "bạn đang làm rất tốt", "đang làm khá tốt",
 		"mình khuyên thật lòng", "thật lòng nhé", "khá tốt rồi", "tốt lắm", "đáng khen",
-		"cố lên", "cố lên nhé", "kiên trì", "mình biết phần này không dễ", "cảm ơn bạn", "đang cố gắng",
+		"cố lên", "cố lên nhé", "cố lên con", "kiên trì", "mình biết phần này không dễ", "cảm ơn bạn", "đang cố gắng",
 		"đang đi đúng hướng", "mình trân trọng", "mình tin bạn", "động viên", "ở đây cùng bạn",
-		"vừa cụ thể vừa", "không dễ chút nào",
+		"vừa cụ thể vừa", "không dễ chút nào", "con ơi", "hết cứu",
 	} {
 		if strings.Contains(text, phrase) {
 			return true
@@ -490,6 +497,36 @@ func LogCoachOutput(pipeline, personaID string, out *CoachStructuredOutput) {
 }
 
 // LogSuggestedRoutineOutput logs routine suggest AI output for debugging.
+// CoachBucaToneResult scores how "bựa bựa / bạn thân" the output feels (v21 QA).
+type CoachBucaToneResult struct {
+	Score       float64
+	HitMarkers  []string
+	MarkerCount int
+}
+
+// ScoreCoachBucaTone counts casual/sarcastic friend markers in coach output.
+func ScoreCoachBucaTone(out *CoachStructuredOutput) CoachBucaToneResult {
+	if out == nil {
+		return CoachBucaToneResult{}
+	}
+	text := FlattenCoachOutput(out)
+	markers := []string{
+		"vl", "đm", "con ơi", "cố lên", "thảm", "mày ", "mày,", "troll", "xéo",
+		"hết cứu", "thật", "đấy", "nha", "nhé", "trông ", "hơi ", "đỡ ",
+	}
+	var hits []string
+	for _, m := range markers {
+		if strings.Contains(text, m) {
+			hits = append(hits, m)
+		}
+	}
+	score := float64(len(hits)) / 4.0
+	if score > 1 {
+		score = 1
+	}
+	return CoachBucaToneResult{Score: score, HitMarkers: hits, MarkerCount: len(hits)}
+}
+
 func LogSuggestedRoutineOutput(personaID string, r SuggestedRoutine) {
 	slog.Debug("routine suggest output",
 		"persona", personaID,

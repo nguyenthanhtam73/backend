@@ -5,25 +5,29 @@ import (
 	"testing"
 )
 
-func TestCoachPrompt_v20_ZeroGenericRules(t *testing.T) {
+func TestCoachPrompt_v21_BucaToneRules(t *testing.T) {
 	for _, skill := range []string{"beginner", "intermediate"} {
 		t.Run(skill, func(t *testing.T) {
 			p := GetCoachPrompt(skill)
-			mustContain(t, p, "zoom rất kỹ")
+			mustContain(t, p, "bựa bựa")
+			mustContain(t, p, "xéo xắt")
 			mustContain(t, p, "da hỗn hợp")
 			mustContain(t, p, "da dễ nổi mụn")
-			mustContain(t, p, "≥4–6 chi tiết cụ thể")
-			mustContain(t, p, "Mình thấy hôm nay")
-			mustContain(t, p, "Trên ảnh mình thấy vùng")
+			mustContain(t, p, "≥4–5 chi tiết cụ thể")
+			mustContain(t, p, "Mày thấy hôm nay")
 			mustContain(t, p, "Có … nốt mụn")
 			mustContain(t, p, "sản phẩm nhẹ nhàng")
+			mustContain(t, p, "troll nhẹ nhàng")
+			if skill == "beginner" {
+				mustContain(t, p, "Bớt bựa")
+			}
 		})
 	}
 }
 
-func TestCoachPromptVersion_v20(t *testing.T) {
-	if CoachDailyPromptVersion != 22 {
-		t.Fatalf("expected CoachDailyPromptVersion == 22, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v21(t *testing.T) {
+	if CoachDailyPromptVersion != 21 {
+		t.Fatalf("expected CoachDailyPromptVersion == 21, got %d", CoachDailyPromptVersion)
 	}
 }
 
@@ -42,7 +46,7 @@ func TestMinVisionDetailCitations_v20(t *testing.T) {
 func TestScoreCoachNaturalness(t *testing.T) {
 	natural := &CoachStructuredOutput{
 		Strengths:         []string{"Bạn chụp cận vùng má rất rõ — bạn đang làm khá tốt rồi đó."},
-		SituationAnalysis: "Mình thấy hôm nay vùng má trái có lỗ chân lông to, 2 chấm thâm nhỏ, da hồng nhẹ và texture sần — so với lần trước bạn cũng ghi má hồng.",
+		SituationAnalysis: "Mày thấy hôm nay vùng má trái có lỗ chân lông to, 2 chấm thâm nhỏ, da hồng nhẹ và texture sần — so với lần trước bạn cũng ghi má hồng.",
 		Improvements: []struct {
 			Tip string `json:"tip"`
 			Why string `json:"why"`
@@ -52,6 +56,18 @@ func TestScoreCoachNaturalness(t *testing.T) {
 	score := ScoreCoachNaturalness(natural)
 	if !score.HasConversationalOpener || !outputHasRequiredVisionOpener(natural) {
 		t.Fatal("expected required vision opener")
+	}
+}
+
+func TestScoreCoachBucaTone(t *testing.T) {
+	buca := &CoachStructuredOutput{
+		Strengths:         []string{"Chụp ảnh rõ vl, cố lên con — đáng khen."},
+		SituationAnalysis: "Mày thấy hôm nay T-zone bóng dầu, cằm 4 nốt đỏ, lỗ chân lông to mũi — trông hơi thảm nhưng đỡ tệ.",
+		SummaryNotes:      "Mai chụp lại nhé con ơi, mình tin mày.",
+	}
+	res := ScoreCoachBucaTone(buca)
+	if res.MarkerCount < 3 {
+		t.Fatalf("expected ≥3 buca markers, got %d (%v)", res.MarkerCount, res.HitMarkers)
 	}
 }
 
@@ -81,6 +97,8 @@ func TestOutputHasRequiredVisionOpener(t *testing.T) {
 		text string
 		want bool
 	}{
+		{"Mày thấy hôm nay má trái hơi đỏ.", true},
+		{"Đm da mày hôm nay T-zone bóng dầu vl.", true},
 		{"Mình thấy hôm nay má trái hơi đỏ.", true},
 		{"Trên ảnh mình thấy vùng má gần tai sần nhẹ.", true},
 		{"Có 3 nốt mụn ở cằm.", true},
@@ -95,7 +113,7 @@ func TestOutputHasRequiredVisionOpener(t *testing.T) {
 
 func TestCoachTurnChecklist_Vision(t *testing.T) {
 	got := coachTurnChecklist("USER_MEMORY\n(no saved memory yet)", true)
-	mustContain(t, got, "≥4–6 photo details")
+	mustContain(t, got, "≥4–5 photo details")
 	mustContain(t, got, "da hỗn hợp")
 	mustContain(t, got, "retry up to 2")
 }
@@ -108,7 +126,7 @@ func TestUserPhotoCoachScenarios_Fixtures(t *testing.T) {
 	for _, s := range scenarios {
 		t.Run(s.ID, func(t *testing.T) {
 			msg := s.CoachUserMessage()
-			mustContain(t, msg, "≥4–6 photo details")
+			mustContain(t, msg, "≥4–5 photo details")
 			mustContain(t, msg, "da hỗn hợp")
 		})
 	}
@@ -119,12 +137,12 @@ func TestNeedsCoachOutputRetry(t *testing.T) {
 	ctx := "## Recent SkinChecks\n- 2026-05-27 oily"
 	good := &CoachStructuredOutput{
 		Strengths:         []string{"Bạn chụp ảnh rất rõ — đáng khen, bạn đang làm khá tốt rồi đó."},
-		SituationAnalysis: "Mình thấy hôm nay left cheek enlarged pores, 2 brown PIH spots on cheek, mild pink cheek tone và rough cheek texture — so với lần trước bạn cũng ghi má hồng.",
+		SituationAnalysis: "Mày thấy hôm nay left cheek enlarged pores, 2 brown PIH spots on cheek, mild pink cheek tone và rough cheek texture — so với lần trước bạn cũng ghi má hồng.",
 		Improvements: []struct {
 			Tip string `json:"tip"`
 			Why string `json:"why"`
 		}{{Tip: "Tối: rửa mặt dịu vùng má trái, thoa kem dưỡng ẩm quanh gò má."}},
-		SummaryNotes: "Mai chụp lại cùng góc nhé — mình tin bạn sẽ thấy da dịu hơn.",
+		SummaryNotes: "Mai chụp lại cùng góc nhé — cố lên con, mình tin bạn.",
 	}
 	if needsCoachOutputRetry(vision, ctx, good) {
 		t.Fatal("good output should pass coach validation")

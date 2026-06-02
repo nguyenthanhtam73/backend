@@ -33,14 +33,14 @@ func coachTurnChecklist(userContext string, hasVision bool) string {
 	var b strings.Builder
 	b.WriteString("\n\nCOACH CHECKLIST (required — verify before JSON):\n")
 	if hasVision {
-		b.WriteString("- ≥4–6 photo details (region+cue+degree/count) — MUST open \"Mình thấy hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; NO lists/report tone.\n")
+		b.WriteString("- ≥4–5 photo details (region+cue+degree/count) — MUST open \"Mày thấy hôm nay…\" OR \"Mình thấy hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; NO lists/report tone.\n")
 		b.WriteString("- BAN ALL vague: \"da hỗn hợp\", \"da dễ nổi mụn\", \"dễ nổi mụn\", \"da hơi khô\", \"sản phẩm nhẹ nhàng\", \"chăm sóc nhẹ\".\n")
 	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
 		b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" callback in situation_analysis.\n")
 	}
 	if hasVision || strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- EMOTION: warm sincere praise + gentle closing — never cold/clinical.\n")
+		b.WriteString("- EMOTION: warm sincere praise OR playful tease + gentle closing — never cold/clinical.\n")
 		b.WriteString("- TIPS: concrete step+region+role — NOT vague product advice.\n")
 		b.WriteString("- Self-check: ≥4 vision specifics · zero banned phrases · validation will retry up to 2× if vague.\n")
 	}
@@ -95,7 +95,7 @@ func coachOutputRetryPrompt(visionRaw, userContext string, attempt int) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("\n\nVALIDATION FAILED (attempt %d/%d): Regenerate the FULL JSON.\n", attempt, MaxCoachValidationRetries))
 	b.WriteString(fmt.Sprintf("- ≥%d photo-specific details with region+cue+degree (counts OK: \"2-3 nốt đỏ ở cằm\").\n", MinVisionDetailCitations))
-	b.WriteString("- MUST open situation_analysis with \"Mình thấy hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\".\n")
+	b.WriteString("- MUST open situation_analysis with \"Mày thấy hôm nay…\" OR \"Mình thấy hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\".\n")
 	if strings.Contains(userContext, "## Recent SkinChecks") {
 		b.WriteString("- MUST include \"So với lần trước…\" history callback.\n")
 	}

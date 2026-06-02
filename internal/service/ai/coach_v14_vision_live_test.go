@@ -12,6 +12,33 @@ import (
 
 const coachLiveCompareTestTimeout = 60 * time.Minute
 
+// coachCorePromptV20Archive — pre-v21 system prompt for A/B live comparison only.
+const coachCorePromptV20Archive = `Bạn là DaDiary AI Skincare Coach — người bạn thân thiết, quan sát cực kỹ ảnh da và nói thật lòng, cụ thể với user.
+
+Hôm nay mình zoom rất kỹ vào ảnh rồi. Mình sẽ nói rõ những gì mình thấy, không nói chung chung kiểu "da hỗn hợp" hay "dễ nổi mụn".
+
+## Giọng (BẮT BUỘC)
+- Gần gũi, chân thành, cụ thể — không từ mơ hồ, không lạnh/khách quan.
+- **Cấm hoàn toàn:** "da hỗn hợp", "da dễ nổi mụn", "dễ nổi mụn", "da hơi khô", "cần dưỡng ẩm", "sản phẩm nhẹ nhàng", "chăm sóc nhẹ", "không đều màu" (không gắn vùng).
+- **Cấm:** báo cáo ("Phân tích cho thấy…"), liệt kê "1.2.3." khô.
+
+## Ảnh (BẮT BUỘC)
+- **≥4–6 chi tiết cụ thể** — vùng da + dấu hiệu + mức (+ số lượng nếu thấy).
+- **Bắt buộc mở bằng:** "Mình thấy hôm nay…" / "Trên ảnh mình thấy vùng …" / "Có … nốt mụn ở …"
+
+## Lịch sử (BẮT BUỘC khi có ## Recent SkinChecks)
+- ≥1 câu: "So với lần trước…"
+
+## Cấu trúc → JSON per schema. USER_MEMORY + disclaimer.`
+
+func coachPromptV20Archive(skillLevel string) string {
+	core := coachCorePromptV20Archive
+	if strings.EqualFold(strings.TrimSpace(skillLevel), "beginner") {
+		return core + "\n\n## BEGINNER\n≥4 chi tiết ảnh cụ thể."
+	}
+	return core + "\n\n## INTERMEDIATE\n≥4–6 chi tiết · gợi ý cụ thể."
+}
+
 // coachCorePromptV19Archive — pre-v20 system prompt for A/B live comparison only.
 const coachCorePromptV19Archive = `Bạn là DaDiary AI Skincare Coach — người bạn thân thiết, quan sát rất kỹ ảnh da và nói thật lòng với user.
 
@@ -37,6 +64,7 @@ type coachCompareRow struct {
 	vision           int
 	naturalness      float64
 	emotional        float64
+	buca             float64
 	opener, enc      bool
 	report, generic  bool
 	hist             bool
@@ -64,18 +92,19 @@ func runCoachCompare(t *testing.T, ctx context.Context, cfg *config.Config, clie
 				sc.Persona.VisionJSON = sc.VisionJSON
 				pers := ScoreCoachPersonalization(sc.Persona, out, true)
 				nat := ScoreCoachNaturalness(out)
+				buca := ScoreCoachBucaTone(out)
 				flat := FlattenCoachOutput(out)
 				rows = append(rows, coachCompareRow{
 					id: sc.ID, prompt: variant.name,
 					vision: pers.VisionDetailCount, naturalness: nat.NaturalnessScore,
-					emotional: nat.EmotionalScore,
+					emotional: nat.EmotionalScore, buca: buca.Score,
 					opener: outputHasRequiredVisionOpener(out), enc: nat.HasWarmEncouragement,
 					report: pers.HasReportLikeTone,
 					generic: pers.HasGenericPhrases || outputHasBannedGenericLabels(flat) || outputHasVagueTipPhrases(out),
 					hist: pers.HasHistoryCallback,
 				})
-				t.Logf("%-22s | %-6s | %3d | %.2f | %.2f | %4v | %4v | %4v | %4v | %4v | %q",
-					sc.ID, variant.name, pers.VisionDetailCount, nat.NaturalnessScore, nat.EmotionalScore,
+				t.Logf("%-22s | %-6s | %3d | %.2f | %.2f | %.2f | %4v | %4v | %4v | %4v | %4v | %q",
+					sc.ID, variant.name, pers.VisionDetailCount, nat.NaturalnessScore, nat.EmotionalScore, buca.Score,
 					outputHasRequiredVisionOpener(out), nat.HasWarmEncouragement, pers.HasReportLikeTone,
 					pers.HasGenericPhrases || outputHasBannedGenericLabels(flat), pers.HasHistoryCallback,
 					truncateRunes(out.SituationAnalysis, 85))
@@ -100,7 +129,7 @@ func logCoachCompareAggregate(t *testing.T, rows []coachCompareRow, left, right 
 	type agg struct {
 		n                                        int
 		vis                                      int
-		nat, emo                                 float64
+		nat, emo, buca                           float64
 		opn, enc, rep, gen, hist                 int
 	}
 	byPrompt := map[string]*agg{left: {}, right: {}}
@@ -110,6 +139,7 @@ func logCoachCompareAggregate(t *testing.T, rows []coachCompareRow, left, right 
 		a.vis += r.vision
 		a.nat += r.naturalness
 		a.emo += r.emotional
+		a.buca += r.buca
 		if r.opener {
 			a.opn++
 		}
@@ -131,18 +161,19 @@ func logCoachCompareAggregate(t *testing.T, rows []coachCompareRow, left, right 
 		if a.n == 0 {
 			continue
 		}
-		t.Logf("[%s] Avg vision: %.1f | naturalness: %.2f | emotional: %.2f | opener: %d/%d | warm-enc: %d/%d | report: %d/%d | generic: %d/%d | history: %d/%d",
+		t.Logf("[%s] Avg vision: %.1f | naturalness: %.2f | emotional: %.2f | buca: %.2f | opener: %d/%d | warm-enc: %d/%d | report: %d/%d | generic: %d/%d | history: %d/%d",
 			label,
-			float64(a.vis)/float64(a.n), a.nat/float64(a.n), a.emo/float64(a.n),
+			float64(a.vis)/float64(a.n), a.nat/float64(a.n), a.emo/float64(a.n), a.buca/float64(a.n),
 			a.opn, a.n, a.enc, a.n, a.rep, a.n, a.gen, a.n, a.hist, a.n)
 	}
 	l, r := byPrompt[left], byPrompt[right]
 	if l.n > 0 && r.n > 0 {
-		t.Logf("Delta %s-%s: vision %+.1f | naturalness %+.2f | emotional %+.2f | generic %d→%d",
+		t.Logf("Delta %s-%s: vision %+.1f | naturalness %+.2f | emotional %+.2f | buca %+.2f | generic %d→%d",
 			right, left,
 			float64(r.vis)/float64(r.n)-float64(l.vis)/float64(l.n),
 			r.nat/float64(r.n)-l.nat/float64(l.n),
 			r.emo/float64(r.n)-l.emo/float64(l.n),
+			r.buca/float64(r.n)-l.buca/float64(l.n),
 			l.gen, r.gen)
 	}
 }
@@ -200,6 +231,74 @@ func TestCoachV20_UserPhotoLiveCompare(t *testing.T) {
 		}
 		if r.generic {
 			t.Errorf("%s: v20 hit banned generic/vague phrases", r.id)
+		}
+	}
+	t.Log(sep)
+}
+
+// TestCoachV21_BucaLiveCompare runs oily/acne + severe acne + user cheek scenarios (v20 vs v21).
+//
+// Run: go test ./internal/service/ai/... -run TestCoachV21_BucaLiveCompare -v -count=1 -timeout 60m
+func TestCoachV21_BucaLiveCompare(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping live v21 buca compare in short mode")
+	}
+	cfg := loadCoachTestConfig(t)
+	if strings.TrimSpace(cfg.Anthropic.APIKey) == "" && strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
+		t.Skip("set DADIARY_ANTHROPIC_API_KEY or DADIARY_OPENAI_API_KEY")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), coachLiveCompareTestTimeout-time.Minute)
+	defer cancel()
+	client := httpClientForCoachTests()
+
+	all := VisionCoachScenarios()
+	var scenarios []VisionCoachScenario
+	for _, sc := range all {
+		if sc.ID == "oily_acne" || sc.ID == "severe_acne" {
+			scenarios = append(scenarios, sc)
+		}
+	}
+	scenarios = append(scenarios, UserPhotoCoachScenarios()...)
+
+	sep := strings.Repeat("=", 130)
+	t.Log(sep)
+	t.Logf("Buca A/B — v20 archive vs v21 (current) | scenarios=%d | prompt v%d",
+		len(scenarios), CoachDailyPromptVersion)
+	t.Logf("v21 prompt chars (intermediate): %d", len(GetCoachPrompt("intermediate")))
+	t.Log(sep)
+
+	variants := []struct {
+		name   string
+		system func(string) string
+	}{
+		{"v20", coachPromptV20Archive},
+		{"v21", GetCoachPrompt},
+	}
+	rows := runCoachCompare(t, ctx, cfg, client, scenarios, variants)
+
+	t.Log("")
+	t.Log("### Aggregate — buca tone compare (v20 vs v21)")
+	logCoachCompareAggregate(t, rows, "v20", "v21")
+
+	for _, r := range rows {
+		if r.prompt != "v21" {
+			continue
+		}
+		if r.vision < MinVisionDetailCitations {
+			t.Errorf("%s: v21 vision details %d below target %d", r.id, r.vision, MinVisionDetailCitations)
+		}
+		if !r.hist {
+			t.Errorf("%s: v21 missing history callback", r.id)
+		}
+		if !r.opener {
+			t.Errorf("%s: v21 missing required vision opener", r.id)
+		}
+		if r.generic {
+			t.Errorf("%s: v21 hit banned generic/vague phrases", r.id)
+		}
+		if r.buca < 0.25 {
+			t.Errorf("%s: v21 buca score %.2f too low (want ≥0.25)", r.id, r.buca)
 		}
 	}
 	t.Log(sep)

@@ -48,13 +48,14 @@ func TestCoachPrompt_v11_MemoryBindingRules(t *testing.T) {
 	mustContain(t, p, "COACH_ACTION")
 	mustContain(t, p, "Routine adherence")
 	mustContain(t, p, "COACH_ACTION")
-	mustContain(t, p, "≥4–6 chi tiết cụ thể")
+	mustContain(t, p, "≥4–5 chi tiết cụ thể")
 	mustContain(t, p, "So với lần trước")
 }
 
 func TestCoachPrompt_BeginnerExamples(t *testing.T) {
 	p := GetCoachPrompt("beginner")
-	mustContain(t, p, "Mình thấy hôm nay")
+	mustContain(t, p, "Mày thấy hôm nay")
+	mustContain(t, p, "Bớt bựa")
 	mustContain(t, p, "da hỗn hợp")
 }
 

@@ -33,5 +33,8 @@ package ai
 // v19 (2026-05-31) — Hyper-specific vision coaching: 4–5 photo details with mandatory
 // openers ("Mình thấy hôm nay…"), history callback enforcement, concrete actionable tips.
 //
-// v22 (2026-05-31) — Affiliate QA: cap 2 suggestions, wardrobe skip, mandatory transparency line.
-const CoachDailyPromptVersion = 22
+// v20 (2026-05-31) — Zero-tolerance generic coaching: 4–6 photo specifics, banned vague labels.
+//
+// v21 (2026-06-02) — Bựa bựa best-friend tone: xéo xắt nhẹ, troll vui, vẫn ≥4 chi tiết ảnh,
+// history callback, khích lệ; beginner dịu bớt. Schema unchanged.
+const CoachDailyPromptVersion = 21
