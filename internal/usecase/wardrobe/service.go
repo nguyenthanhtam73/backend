@@ -41,10 +41,14 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req dto.CreateWa
 	if name == "" {
 		return zero, fmt.Errorf("%w: name is required", ErrInvalidInput)
 	}
+	brand := strings.TrimSpace(req.Brand)
+	if brand == "" {
+		return zero, fmt.Errorf("%w: brand is required", ErrInvalidInput)
+	}
 	p := &domain.SkincareProduct{
 		UserID:   userID,
 		Name:     name,
-		Brand:    strings.TrimSpace(req.Brand),
+		Brand:    brand,
 		Category: strings.TrimSpace(req.Category),
 		Notes:    strings.TrimSpace(req.Notes),
 	}
