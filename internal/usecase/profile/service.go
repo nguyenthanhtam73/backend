@@ -149,17 +149,22 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	if strings.TrimSpace(req.SkinType) == "" || strings.TrimSpace(req.Goal) == "" || strings.TrimSpace(req.SkillLevel) == "" {
 		return zero, fmt.Errorf("%w: skin_type, goal, and skill_level are required", ErrInvalidInput)
 	}
-	if strings.TrimSpace(req.Undertone) == "" || strings.TrimSpace(req.Budget) == "" {
-		return zero, fmt.Errorf("%w: undertone and budget are required", ErrInvalidInput)
+	if strings.TrimSpace(req.Undertone) == "" {
+		return zero, fmt.Errorf("%w: undertone is required", ErrInvalidInput)
 	}
-	if len(req.Contexts) == 0 {
-		return zero, fmt.Errorf("%w: at least one context is required", ErrInvalidInput)
+	budget := strings.TrimSpace(req.Budget)
+	if budget == "" {
+		budget = "mid"
+	}
+	contexts := req.Contexts
+	if contexts == nil {
+		contexts = []string{}
 	}
 
 	snap := map[string]any{
 		"undertone":       req.Undertone,
-		"contexts":        req.Contexts,
-		"budget":          req.Budget,
+		"contexts":        contexts,
+		"budget":          budget,
 		"goal":            req.Goal,
 		"skin_type":       strings.TrimSpace(req.SkinType),
 		"skill_level":     strings.TrimSpace(req.SkillLevel),

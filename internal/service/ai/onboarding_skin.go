@@ -37,8 +37,8 @@ func OnboardingSkinAnalyze(ctx context.Context, cfg *config.Config, httpClient *
 		return nil, fmt.Errorf("onboarding skin: openai api key required")
 	}
 	locale := onboardingOutputLocale(localeRaw)
-	if len(images) < 2 || len(images) > 3 {
-		return nil, fmt.Errorf("onboarding skin: need 2 to 3 images")
+	if len(images) < 1 || len(images) > 3 {
+		return nil, fmt.Errorf("onboarding skin: need 1 to 3 images")
 	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 5 * time.Minute}

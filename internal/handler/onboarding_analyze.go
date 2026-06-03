@@ -32,7 +32,7 @@ func NewOnboardingAnalyzeHandler(cfg *config.Config) *OnboardingAnalyzeHandler {
 	}
 }
 
-// AnalyzeSkin handles POST /api/v1/onboarding/analyze-skin (2–3 images, multipart field "images").
+// AnalyzeSkin handles POST /api/v1/onboarding/analyze-skin (1–3 images, multipart field "images").
 func (h *OnboardingAnalyzeHandler) AnalyzeSkin(c *fiber.Ctx) error {
 	if h == nil || h.cfg == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "configuration missing")
@@ -50,7 +50,7 @@ func (h *OnboardingAnalyzeHandler) AnalyzeSkin(c *fiber.Ctx) error {
 
 	files := form.File["images"]
 	if len(files) < 2 {
-		return response.Error(c, fiber.StatusBadRequest, "too_few_images", "upload at least 2 face photos")
+		return response.Error(c, fiber.StatusBadRequest, "too_few_images", "upload at least 1 face photo")
 	}
 	if len(files) > 3 {
 		return response.Error(c, fiber.StatusBadRequest, "too_many_images", "maximum 3 photos for onboarding analysis")
