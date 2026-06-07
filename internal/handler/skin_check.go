@@ -58,6 +58,10 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 	if len(files) == 0 {
 		return response.Error(c, fiber.StatusBadRequest, "missing_images", "field \"images\" must include at least one file")
 	}
+	const maxCheckInImages = 2
+	if len(files) > maxCheckInImages {
+		return response.Error(c, fiber.StatusBadRequest, "too_many_images", fmt.Sprintf("maximum %d photos per check-in", maxCheckInImages))
+	}
 
 	title := firstValue(form.Value["title"])
 	userNote := firstValue(form.Value["user_note"])
