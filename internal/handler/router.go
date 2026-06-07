@@ -58,6 +58,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 	// Per-route JWT only. Do NOT use api.Group("", jwt): in Fiber that registers USE on
 	// /api/v1 and runs auth before public routes like POST /auth/register.
 	jwt := middleware.RequireAccessJWT(tok)
+	jwtOptional := middleware.OptionalAccessJWT(tok)
 
 	var authSvc *authuc.Service
 	if db != nil && tok != nil {
@@ -89,7 +90,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 
 	if cfg != nil {
 		oh := NewOnboardingAnalyzeHandler(cfg)
-		api.Post("/onboarding/analyze-skin", jwt, onboardingAnalyzeLimit, oh.AnalyzeSkin)
+		api.Post("/onboarding/analyze-skin", jwtOptional, onboardingAnalyzeLimit, oh.AnalyzeSkin)
 	}
 
 	if cfg != nil && db != nil {

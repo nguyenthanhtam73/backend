@@ -13,7 +13,6 @@ import (
 	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 )
 
 // OnboardingAnalyzeHandler runs AI vision for onboarding skin typing (multipart images).
@@ -32,15 +31,12 @@ func NewOnboardingAnalyzeHandler(cfg *config.Config) *OnboardingAnalyzeHandler {
 	}
 }
 
-// AnalyzeSkin handles POST /api/v1/onboarding/analyze-skin (1–3 images, multipart field "images").
+// AnalyzeSkin handles POST /api/v1/onboarding/analyze-skin (2–3 images, multipart field "images").
 func (h *OnboardingAnalyzeHandler) AnalyzeSkin(c *fiber.Ctx) error {
 	if h == nil || h.cfg == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "configuration missing")
 	}
-	userID := middleware.UserIDFromLocals(c)
-	if userID == uuid.Nil {
-		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
-	}
+	_ = middleware.UserIDFromLocals(c) // optional: guests may analyze during onboarding trial
 
 	form, err := c.MultipartForm()
 	if err != nil {
@@ -50,7 +46,7 @@ func (h *OnboardingAnalyzeHandler) AnalyzeSkin(c *fiber.Ctx) error {
 
 	files := form.File["images"]
 	if len(files) < 2 {
-		return response.Error(c, fiber.StatusBadRequest, "too_few_images", "upload at least 1 face photo")
+		return response.Error(c, fiber.StatusBadRequest, "too_few_images", "upload at least 2 face photos")
 	}
 	if len(files) > 3 {
 		return response.Error(c, fiber.StatusBadRequest, "too_many_images", "maximum 3 photos for onboarding analysis")

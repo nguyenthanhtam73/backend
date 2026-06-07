@@ -36,6 +36,30 @@ func RequireAccessJWT(svc *token.Service) fiber.Handler {
 	}
 }
 
+// OptionalAccessJWT attaches the user UUID when a valid Bearer token is present;
+// anonymous requests continue without auth (for guest onboarding trial flows).
+func OptionalAccessJWT(svc *token.Service) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		if svc == nil {
+			return c.Next()
+		}
+		raw := strings.TrimSpace(c.Get("Authorization"))
+		if raw == "" || !strings.HasPrefix(strings.ToLower(raw), "bearer ") {
+			return c.Next()
+		}
+		tok := strings.TrimSpace(raw[7:])
+		if tok == "" {
+			return c.Next()
+		}
+		userID, err := svc.ParseAccessToken(tok)
+		if err != nil {
+			return c.Next()
+		}
+		c.Locals(LocalsUserID, userID)
+		return c.Next()
+	}
+}
+
 // UserIDFromLocals returns the UUID set by RequireAccessJWT, or uuid.Nil if absent/invalid.
 func UserIDFromLocals(c *fiber.Ctx) uuid.UUID {
 	v := c.Locals(LocalsUserID)
