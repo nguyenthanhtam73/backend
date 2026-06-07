@@ -264,6 +264,62 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	return out, nil
 }
 
+// PreviewOnboardingComplete generates a starter routine for guests without saving SkinProfile.
+func (s *Service) PreviewOnboardingComplete(ctx context.Context, req dto.OnboardingCompleteRequest) (dto.StarterRoutineResponse, error) {
+	var zero dto.StarterRoutineResponse
+	if s == nil {
+		return zero, fmt.Errorf("%w", ErrUnavailable)
+	}
+	if strings.TrimSpace(req.SkinType) == "" || strings.TrimSpace(req.Goal) == "" || strings.TrimSpace(req.SkillLevel) == "" {
+		return zero, fmt.Errorf("%w: skin_type, goal, and skill_level are required", ErrInvalidInput)
+	}
+	if strings.TrimSpace(req.Undertone) == "" {
+		return zero, fmt.Errorf("%w: undertone is required", ErrInvalidInput)
+	}
+	budget := strings.TrimSpace(req.Budget)
+	if budget == "" {
+		budget = "mid"
+	}
+	contexts := req.Contexts
+	if contexts == nil {
+		contexts = []string{}
+	}
+
+	snap := map[string]any{
+		"undertone":       req.Undertone,
+		"contexts":        contexts,
+		"budget":          budget,
+		"goal":            req.Goal,
+		"skin_type":       strings.TrimSpace(req.SkinType),
+		"skill_level":     strings.TrimSpace(req.SkillLevel),
+		"body_concerns":   req.BodyConcerns,
+		"current_routine": strings.TrimSpace(req.CurrentRoutine),
+		"completed_via":   "onboarding_guest_preview",
+		"locale":          onboardingLocale(req.Locale),
+	}
+	snapJSON, err := json.Marshal(snap)
+	if err != nil {
+		return zero, err
+	}
+
+	loc := onboardingLocale(req.Locale)
+	starter, err := ai.GenerateStarterRoutine(ctx, s.cfg, snapJSON, loc, "")
+	if err != nil {
+		starter = fallbackStarterRoutine(loc)
+	}
+	return dto.StarterRoutineResponse{
+		Morning:            starter.Morning,
+		Evening:            starter.Evening,
+		WeekNotes:          starter.WeekNotes,
+		SafetyNotes:        starter.SafetyNotes,
+		Encouragement:      starter.Encouragement,
+		SkinReadback:       starter.SkinReadback,
+		Rationale:          starter.Rationale,
+		ClosingReminder:    starter.ClosingReminder,
+		ProductSuggestions: starter.ProductSuggestions,
+	}, nil
+}
+
 // hasMeaningfulHistory returns true when BuildUserMemoryContext produced any
 // real section (profile, recent checks, feedback, or routine adherence).
 //

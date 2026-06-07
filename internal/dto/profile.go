@@ -58,6 +58,11 @@ type OnboardingCompleteResponse struct {
 	StarterRoutine StarterRoutineResponse `json:"starter_routine"`
 }
 
+// OnboardingPreviewResponse returns AI starter routine for guests without persisting a profile.
+type OnboardingPreviewResponse struct {
+	StarterRoutine StarterRoutineResponse `json:"starter_routine"`
+}
+
 // PutSkinProfileRequest allows partial manual edits (no AI).
 type PutSkinProfileRequest struct {
 	SkinType           *string         `json:"skin_type,omitempty"`

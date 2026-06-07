@@ -77,6 +77,22 @@ func (h *ProfileHandler) CompleteOnboarding(c *fiber.Ctx) error {
 	return response.JSON(c, fiber.StatusOK, res)
 }
 
+// PreviewOnboardingComplete handles POST /onboarding/preview-complete (guest trial, no DB write).
+func (h *ProfileHandler) PreviewOnboardingComplete(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "profile service unavailable")
+	}
+	var body dto.OnboardingCompleteRequest
+	if err := c.BodyParser(&body); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
+	}
+	starter, err := h.svc.PreviewOnboardingComplete(c.UserContext(), body)
+	if err != nil {
+		return mapProfileError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, dto.OnboardingPreviewResponse{StarterRoutine: starter})
+}
+
 func mapProfileError(c *fiber.Ctx, err error) error {
 	if errors.Is(err, profileuc.ErrInvalidInput) {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_input", err.Error())
