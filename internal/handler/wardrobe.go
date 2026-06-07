@@ -5,6 +5,7 @@ import (
 
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
+	usageuc "github.com/dadiary/backend/internal/usecase/usage"
 	wardrobeuc "github.com/dadiary/backend/internal/usecase/wardrobe"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
@@ -38,6 +39,9 @@ func (h *WardrobeHandler) CreateProduct(c *fiber.Ctx) error {
 	if err != nil {
 		if errors.Is(err, wardrobeuc.ErrInvalidInput) {
 			return response.Error(c, fiber.StatusBadRequest, "invalid_input", err.Error())
+		}
+		if errors.Is(err, usageuc.ErrPremiumRequired) {
+			return response.Error(c, fiber.StatusForbidden, "premium_required", "upgrade to Premium to manage your skincare cabinet")
 		}
 		return response.Error(c, fiber.StatusInternalServerError, "wardrobe_error", err.Error())
 	}

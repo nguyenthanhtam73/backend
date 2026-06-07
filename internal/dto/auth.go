@@ -34,6 +34,7 @@ type UserPublic struct {
 	AvatarURL   string `json:"avatar_url,omitempty"`
 	Provider    string `json:"provider"`
 	IsActive    bool   `json:"is_active"`
+	PlanTier    string `json:"plan_tier,omitempty"`
 	CreatedAt   string `json:"created_at"`
 }
 
@@ -50,6 +51,7 @@ func UserFromDomain(u *domain.User) UserPublic {
 		AvatarURL:   u.AvatarURL,
 		Provider:    string(u.Provider),
 		IsActive:    u.IsActive,
+		PlanTier:    string(u.PlanTier),
 		CreatedAt:   u.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 }

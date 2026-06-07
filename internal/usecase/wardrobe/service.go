@@ -12,6 +12,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
+	usageuc "github.com/dadiary/backend/internal/usecase/usage"
 	"github.com/google/uuid"
 )
 
@@ -24,11 +25,16 @@ var (
 type Service struct {
 	products *repository.GormSkincareProductRepository
 	cache    *ai.MemoryCache
+	usage    *usageuc.Service
 }
 
-// NewService wires dependencies. cache may be nil.
-func NewService(products *repository.GormSkincareProductRepository, cache *ai.MemoryCache) *Service {
-	return &Service{products: products, cache: cache}
+// NewService wires dependencies. cache and usage may be nil.
+func NewService(
+	products *repository.GormSkincareProductRepository,
+	cache *ai.MemoryCache,
+	usage *usageuc.Service,
+) *Service {
+	return &Service{products: products, cache: cache, usage: usage}
 }
 
 // Create adds a product owned by the user.
@@ -36,6 +42,11 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req dto.CreateWa
 	var zero dto.WardrobeProductResponse
 	if s == nil || s.products == nil {
 		return zero, fmt.Errorf("%w", ErrUnavailable)
+	}
+	if s.usage != nil {
+		if err := s.usage.AssertWardrobeWrite(ctx, userID); err != nil {
+			return zero, err
+		}
 	}
 	name := strings.TrimSpace(req.Name)
 	if name == "" {

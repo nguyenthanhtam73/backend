@@ -16,6 +16,7 @@ import (
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
+	usageuc "github.com/dadiary/backend/internal/usecase/usage"
 	usermemoryuc "github.com/dadiary/backend/internal/usecase/usermemory"
 	userdatauc "github.com/dadiary/backend/internal/usecase/userdata"
 	wardrobeuc "github.com/dadiary/backend/internal/usecase/wardrobe"
@@ -109,6 +110,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		// explicit bust from each write path keeps results fresh without
 		// pegging the DB on every AI call.
 		memCache := ai.NewMemoryCache()
+		userRepo := repository.NewUserRepository(db)
+		usageSvc := usageuc.NewService(userRepo, repository.NewUsageEventRepository(db))
+		usageH := NewMeUsageHandler(usageSvc)
+		api.Get("/me/usage", jwt, usageH.Get)
 		mod := moderation.New(cfg)
 		analyzer := analysis.New(cfg, repo, profRepo, fbRepo, routineRepo, wardRepo, memCache)
 		svc := skincheckuc.NewService(cfg, repo, mod, analyzer)
@@ -137,7 +142,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 			ph.CompleteOnboarding,
 		)
 
-		wardSvc := wardrobeuc.NewService(wardRepo, memCache)
+		wardSvc := wardrobeuc.NewService(wardRepo, memCache, usageSvc)
 		wh := NewWardrobeHandler(wardSvc)
 		api.Post("/wardrobe/products", jwt, wh.CreateProduct)
 		api.Get("/wardrobe", jwt, wh.List)
@@ -178,7 +183,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		// feedback repo lets the suggest prompt adapt to past votes; the
 		// routine repo is reused below for adherence stats in the memory
 		// builder; the memory cache is busted after every Upsert.
-		routineSvc := routineuc.NewService(cfg, routineRepo, profRepo, repo, fbRepo, wardRepo, memCache)
+		routineSvc := routineuc.NewService(cfg, routineRepo, profRepo, repo, fbRepo, wardRepo, memCache, usageSvc)
 		rh := NewRoutineHandler(routineSvc)
 		api.Get("/routines", jwt, rh.GetCurrent)
 		api.Post("/routines", jwt, rh.Put)

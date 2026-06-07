@@ -38,5 +38,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.AffiliateClick{},
 		&domain.ProgressLog{},
 		&domain.AIUserFeedback{},
+		&domain.UsageEvent{},
 	)
 }

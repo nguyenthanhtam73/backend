@@ -23,6 +23,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
+	usageuc "github.com/dadiary/backend/internal/usecase/usage"
 	"github.com/google/uuid"
 )
 
@@ -44,6 +45,7 @@ type Service struct {
 	// cache is the shared in-process memory cache; busted after every
 	// Upsert so adherence stats reflect the new tick immediately.
 	cache *ai.MemoryCache
+	usage *usageuc.Service
 }
 
 // NewService wires dependencies. skinCheck, feedback, and cache are optional —
@@ -56,6 +58,7 @@ func NewService(
 	feedback *repository.GormAIFeedbackRepository,
 	wardrobe *repository.GormSkincareProductRepository,
 	cache *ai.MemoryCache,
+	usage *usageuc.Service,
 ) *Service {
 	return &Service{
 		cfg:       cfg,
@@ -65,6 +68,7 @@ func NewService(
 		feedback:  feedback,
 		wardrobe:  wardrobe,
 		cache:     cache,
+		usage:     usage,
 	}
 }
 
@@ -130,6 +134,12 @@ func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRouti
 		return zero, fmt.Errorf("%w: morning and evening cannot both be empty", ErrInvalidInput)
 	}
 
+	if s.usage != nil && !usageuc.IsTickOnlySave(req.SaveKind) {
+		if err := s.usage.AssertRoutineManualEdit(ctx, userID); err != nil {
+			return zero, err
+		}
+	}
+
 	morningJSON, err := json.Marshal(morning)
 	if err != nil {
 		return zero, err
@@ -152,6 +162,11 @@ func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRouti
 	saved, err := s.routines.UpsertForDay(ctx, entry)
 	if err != nil {
 		return zero, err
+	}
+	if s.usage != nil && !usageuc.IsTickOnlySave(req.SaveKind) {
+		if err := s.usage.RecordRoutineManualEdit(ctx, userID); err != nil {
+			return zero, err
+		}
 	}
 	// Routine adherence is one of the memory block's inputs. Bust so the
 	// next AI call sees the freshly-ticked steps and the digest tier
@@ -208,6 +223,11 @@ func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.Suggest
 	}
 	if userID == uuid.Nil {
 		return zero, fmt.Errorf("%w: user id required", ErrInvalidInput)
+	}
+	if s.usage != nil {
+		if err := s.usage.AssertRoutineSuggest(ctx, userID); err != nil {
+			return zero, err
+		}
 	}
 
 	var profile *domain.SkinProfile
@@ -269,6 +289,11 @@ func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.Suggest
 	res, err := ai.GenerateSuggestedRoutine(ctx, s.cfg, in)
 	if err != nil {
 		return zero, err
+	}
+	if s.usage != nil {
+		if err := s.usage.RecordRoutineSuggest(ctx, userID); err != nil {
+			return zero, err
+		}
 	}
 
 	skillMode := req.SkillMode

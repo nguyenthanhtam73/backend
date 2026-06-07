@@ -13,6 +13,7 @@ import (
 
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
+	usageuc "github.com/dadiary/backend/internal/usecase/usage"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
@@ -130,6 +131,10 @@ func mapRoutineError(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_input", err.Error())
 	case errors.Is(err, routineuc.ErrUnavailable):
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", err.Error())
+	case errors.Is(err, usageuc.ErrPremiumRequired):
+		return response.Error(c, fiber.StatusForbidden, "premium_required", "upgrade to Premium to use this feature")
+	case errors.Is(err, usageuc.ErrQuotaExceeded):
+		return response.Error(c, fiber.StatusForbidden, "quota_exceeded", "monthly free limit reached — upgrade to Premium for unlimited access")
 	default:
 		return response.Error(c, fiber.StatusInternalServerError, "routine_error", err.Error())
 	}

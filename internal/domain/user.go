@@ -16,6 +16,14 @@ const (
 	AuthProviderApple  AuthProvider = "apple"
 )
 
+// PlanTier is the subscription bucket for feature gating (beta: free vs premium).
+type PlanTier string
+
+const (
+	PlanFree    PlanTier = "free"
+	PlanPremium PlanTier = "premium"
+)
+
 // User is an account that logs skin check-ins and stores skincare data.
 type User struct {
 	ID           uuid.UUID    `gorm:"type:uuid;primaryKey" json:"id"`
@@ -26,6 +34,7 @@ type User struct {
 	AvatarURL    string       `gorm:"size:512" json:"avatar_url,omitempty"`
 	Provider     AuthProvider `gorm:"size:32;default:local" json:"provider"`
 	IsActive     bool         `gorm:"default:true" json:"is_active"`
+	PlanTier     PlanTier     `gorm:"size:16;default:free" json:"plan_tier"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

@@ -55,6 +55,9 @@ type PutRoutineRequest struct {
 	Notes       string        `json:"notes,omitempty"`
 	Source      string        `json:"source,omitempty"`     // "manual" | "ai_suggested" | "carried_over"
 	SkillMode   string        `json:"skill_mode,omitempty"` // beginner | intermediate | advanced
+	// SaveKind lets the server distinguish completion ticks from structural edits.
+	// tick_only → free users may autosave ticks without consuming manual-edit quota.
+	SaveKind string `json:"save_kind,omitempty"` // tick_only | manual_edit
 }
 
 // SuggestRoutineRequest is sent by POST /routines/suggest. Body is optional —
