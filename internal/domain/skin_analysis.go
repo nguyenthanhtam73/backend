@@ -24,7 +24,8 @@ type SkinAnalysis struct {
 	SkinCheckID uuid.UUID `gorm:"type:uuid;uniqueIndex;not null" json:"skin_check_id"`
 
 	Status       AnalysisStatus `gorm:"size:24;default:pending;index" json:"status"`
-	ModelVersion string         `gorm:"size:64" json:"model_version,omitempty"`
+	// ModelVersion stores e.g. "pipeline=hybrid|vision=gpt-4o(ok)|coach=claude-sonnet-4-6(anthropic)" (~70 chars).
+	ModelVersion string `gorm:"size:256" json:"model_version,omitempty"`
 	// PromptVersion is the coach pipeline prompt/schema generation (see ai.CoachDailyPromptVersion).
 	PromptVersion int `gorm:"default:1;not null" json:"prompt_version,omitempty"`
 

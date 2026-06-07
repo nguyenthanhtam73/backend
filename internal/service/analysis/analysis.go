@@ -238,13 +238,24 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	up.AnalyzedAt = &modern
 	up.ErrorMessage = ""
 
-	if err := s.checks.SaveAnalysis(ctx, up); err != nil {
+	// Use a fresh context for the final persist — the job ctx may be nearly
+	// exhausted after vision + coach + validation retries.
+	saveCtx, saveCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer saveCancel()
+	if err := s.checks.SaveAnalysis(saveCtx, up); err != nil {
+		slog.Warn("skin-check: save completed analysis failed",
+			"check_id", skinCheckID,
+			"model_version_len", len(up.ModelVersion),
+			"err", err,
+		)
 		return s.failWithMessage(ctx, skinCheckID, "could not save completed analysis")
 	}
 	// Fresh analysis row → next AI call (Routine Suggest, Daily Feedback,
 	// or /me/memory) should see it. Busting now keeps the cache honest
 	// without waiting for the TTL.
-	s.cache.Bust(o.UserID)
+	if s.cache != nil {
+		s.cache.Bust(o.UserID)
+	}
 	return nil
 }
 
