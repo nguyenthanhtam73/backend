@@ -1,8 +1,15 @@
 package handler
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
+	"mime/multipart"
+	"os"
+	"path/filepath"
+	"strings"
 
+	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
@@ -11,14 +18,17 @@ import (
 	"github.com/google/uuid"
 )
 
+const maxOnboardingPhotos = 3
+
 // ProfileHandler serves skin profile and onboarding endpoints.
 type ProfileHandler struct {
 	svc *profileuc.Service
+	cfg *config.Config
 }
 
 // NewProfileHandler constructs ProfileHandler.
-func NewProfileHandler(svc *profileuc.Service) *ProfileHandler {
-	return &ProfileHandler{svc: svc}
+func NewProfileHandler(svc *profileuc.Service, cfg *config.Config) *ProfileHandler {
+	return &ProfileHandler{svc: svc, cfg: cfg}
 }
 
 // GetSkin handles GET /profile/skin.
@@ -58,6 +68,7 @@ func (h *ProfileHandler) PutSkin(c *fiber.Ctx) error {
 }
 
 // CompleteOnboarding handles POST /profile/onboarding/complete.
+// Accepts JSON or multipart (field `payload` JSON + optional `images` files).
 func (h *ProfileHandler) CompleteOnboarding(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "profile service unavailable")
@@ -66,15 +77,116 @@ func (h *ProfileHandler) CompleteOnboarding(c *fiber.Ctx) error {
 	if uid == uuid.Nil {
 		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
 	}
+
 	var body dto.OnboardingCompleteRequest
-	if err := c.BodyParser(&body); err != nil {
-		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
+	var photoRels []string
+
+	ct := string(c.Request().Header.ContentType())
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		form, err := c.MultipartForm()
+		if err != nil {
+			return response.Error(c, fiber.StatusBadRequest, "invalid_multipart", "expected multipart form data")
+		}
+		defer func() { _ = form.RemoveAll() }()
+
+		payload := form.Value["payload"]
+		if len(payload) == 0 || strings.TrimSpace(payload[0]) == "" {
+			return response.Error(c, fiber.StatusBadRequest, "invalid_payload", "multipart field payload is required")
+		}
+		if err := json.Unmarshal([]byte(payload[0]), &body); err != nil {
+			return response.Error(c, fiber.StatusBadRequest, "invalid_json", "payload must be valid JSON")
+		}
+		if !body.PhotosSkipped && len(form.File["images"]) > 0 {
+			rels, uerr := h.saveOnboardingPhotos(uid, form.File["images"])
+			if uerr != nil {
+				return mapOnboardingUploadError(c, uerr)
+			}
+			photoRels = rels
+		}
+	} else {
+		if err := c.BodyParser(&body); err != nil {
+			return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
+		}
 	}
-	res, err := h.svc.CompleteOnboarding(c.UserContext(), uid, body)
+
+	res, err := h.svc.CompleteOnboarding(c.UserContext(), uid, body, photoRels)
 	if err != nil {
 		return mapProfileError(c, err)
 	}
 	return response.JSON(c, fiber.StatusOK, res)
+}
+
+func (h *ProfileHandler) saveOnboardingPhotos(userID uuid.UUID, files []*multipart.FileHeader) ([]string, error) {
+	if h == nil || h.cfg == nil {
+		return nil, errUploadUnavailable
+	}
+	if len(files) == 0 {
+		return nil, nil
+	}
+	if len(files) > maxOnboardingPhotos {
+		return nil, fmt.Errorf("%w: maximum %d onboarding photos", errUploadInvalid, maxOnboardingPhotos)
+	}
+
+	maxBytes := int64(h.cfg.Upload.MaxMB) * 1024 * 1024
+	if maxBytes <= 0 {
+		maxBytes = 10 * 1024 * 1024
+	}
+
+	uploadRoot := filepath.Clean(h.cfg.Upload.Dir)
+	dir := filepath.Join(uploadRoot, userID.String(), "onboarding")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("%w: upload_dir", errUploadFailed)
+	}
+
+	rels := make([]string, 0, len(files))
+	for _, fh := range files {
+		if fh.Size <= 0 {
+			return nil, fmt.Errorf("%w: empty_image", errUploadInvalid)
+		}
+		if fh.Size > maxBytes {
+			return nil, fmt.Errorf("%w: file_too_large", errUploadTooLarge)
+		}
+		ext, ok := extFromFile(fh)
+		if !ok {
+			return nil, fmt.Errorf("%w: invalid_image", errUploadInvalid)
+		}
+
+		filename := uuid.New().String() + ext
+		rel := pathJoinSlash(pathJoinSlash(userID.String(), "onboarding"), filename)
+		abs := filepath.Join(uploadRoot, userID.String(), "onboarding", filename)
+
+		if err := saveUploaded(fh, abs); err != nil {
+			return nil, fmt.Errorf("%w: save_failed", errUploadFailed)
+		}
+		if err := verifyImageOnDisk(abs); err != nil {
+			_ = os.Remove(abs)
+			return nil, fmt.Errorf("%w: invalid_image", errUploadInvalid)
+		}
+		rels = append(rels, rel)
+	}
+	return rels, nil
+}
+
+var (
+	errUploadUnavailable = errors.New("upload_unavailable")
+	errUploadInvalid     = errors.New("upload_invalid")
+	errUploadTooLarge    = errors.New("upload_too_large")
+	errUploadFailed      = errors.New("upload_failed")
+)
+
+func mapOnboardingUploadError(c *fiber.Ctx, err error) error {
+	switch {
+	case errors.Is(err, errUploadUnavailable):
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "configuration missing")
+	case errors.Is(err, errUploadTooLarge):
+		return response.Error(c, fiber.StatusRequestEntityTooLarge, "file_too_large", err.Error())
+	case errors.Is(err, errUploadInvalid):
+		return response.Error(c, fiber.StatusBadRequest, "invalid_image", err.Error())
+	case errors.Is(err, errUploadFailed):
+		return response.Error(c, fiber.StatusInternalServerError, "save_failed", "could not persist uploaded image")
+	default:
+		return response.Error(c, fiber.StatusBadRequest, "upload_error", err.Error())
+	}
 }
 
 // PreviewOnboardingComplete handles POST /onboarding/preview-complete (guest trial, no DB write).

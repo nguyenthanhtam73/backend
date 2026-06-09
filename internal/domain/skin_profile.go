@@ -28,6 +28,8 @@ type SkinProfile struct {
 	Notes              string          `gorm:"type:text" json:"notes,omitempty"`
 	SkillLevel         SkillLevel      `gorm:"size:24;default:unspecified" json:"skill_level"`
 	OnboardingSnapshot json.RawMessage `gorm:"column:onboarding_snapshot;type:jsonb" json:"onboarding_snapshot,omitempty"`
+	// Relative upload paths (userID/onboarding/...) — exposed as `/uploads/...` in API.
+	PhotoURLs json.RawMessage `gorm:"column:photo_urls;type:jsonb" json:"photo_urls,omitempty"`
 	// Optional region hints for personalization and future weather/routine features (ISO, not Vietnam-only).
 	HomeCountryCode string `gorm:"size:2" json:"home_country_code,omitempty"` // ISO 3166-1 alpha-2
 	ClimateZone     string `gorm:"size:40" json:"climate_zone,omitempty"`     // e.g. tropical_humid, temperate, arid

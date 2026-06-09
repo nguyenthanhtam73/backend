@@ -2,6 +2,7 @@ package dto
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
@@ -20,6 +21,8 @@ type OnboardingCompleteRequest struct {
 	HomeCountryCode string   `json:"home_country_code,omitempty"`
 	// Locale is the app UI language when finishing onboarding ("vi" | "en"). Drives starter-routine copy language.
 	Locale string `json:"locale,omitempty"`
+	// PhotosSkipped is true when the user opted out of face photos during onboarding.
+	PhotosSkipped bool `json:"photos_skipped,omitempty"`
 }
 
 // SkinProfileResponse is the public API shape for GET /profile/skin.
@@ -33,6 +36,7 @@ type SkinProfileResponse struct {
 	HomeCountryCode    string          `json:"home_country_code,omitempty"`
 	ClimateZone        string          `json:"climate_zone,omitempty"`
 	OnboardingSnapshot json.RawMessage `json:"onboarding_snapshot,omitempty"`
+	PhotoURLs          []string        `json:"photo_urls,omitempty"`
 	Version            int             `json:"version"`
 	CreatedAt          string          `json:"created_at"`
 	UpdatedAt          string          `json:"updated_at"`
@@ -88,6 +92,10 @@ func SkinProfileFromDomain(p *domain.SkinProfile) SkinProfileResponse {
 	if len(p.Concerns) > 0 {
 		_ = json.Unmarshal(p.Concerns, &concerns)
 	}
+	photoURLs := BuildPublicUploadURLs(p.PhotoURLs)
+	if len(photoURLs) == 0 {
+		photoURLs = photoURLsFromSnapshot(p.OnboardingSnapshot)
+	}
 	return SkinProfileResponse{
 		ID:                 p.ID.String(),
 		UserID:             p.UserID.String(),
@@ -98,8 +106,56 @@ func SkinProfileFromDomain(p *domain.SkinProfile) SkinProfileResponse {
 		HomeCountryCode:    p.HomeCountryCode,
 		ClimateZone:        p.ClimateZone,
 		OnboardingSnapshot: append(json.RawMessage(nil), p.OnboardingSnapshot...),
+		PhotoURLs:          photoURLs,
 		Version:            p.Version,
 		CreatedAt:          p.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:          p.UpdatedAt.UTC().Format(time.RFC3339),
 	}
+}
+
+// BuildPublicUploadURLs converts stored relative paths to `/uploads/...` URLs.
+func BuildPublicUploadURLs(raw json.RawMessage) []string {
+	rels, _ := DecodeStringSlice(raw)
+	out := make([]string, 0, len(rels))
+	for _, rel := range rels {
+		clean := strings.TrimLeft(strings.ReplaceAll(rel, "\\", "/"), "/")
+		if clean == "" {
+			continue
+		}
+		out = append(out, "/uploads/"+clean)
+	}
+	return out
+}
+
+func photoURLsFromSnapshot(snap json.RawMessage) []string {
+	if len(snap) == 0 {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(snap, &m); err != nil {
+		return nil
+	}
+	raw, ok := m["photo_urls"]
+	if !ok || raw == nil {
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	rels, _ := DecodeStringSlice(b)
+	out := make([]string, 0, len(rels))
+	for _, rel := range rels {
+		rel = strings.TrimSpace(rel)
+		if rel == "" {
+			continue
+		}
+		if strings.HasPrefix(rel, "/uploads/") {
+			out = append(out, rel)
+			continue
+		}
+		clean := strings.TrimLeft(strings.ReplaceAll(rel, "\\", "/"), "/")
+		out = append(out, "/uploads/"+clean)
+	}
+	return out
 }

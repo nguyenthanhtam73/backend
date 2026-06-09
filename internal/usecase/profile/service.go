@@ -140,7 +140,8 @@ func (s *Service) PutSkin(ctx context.Context, userID uuid.UUID, req dto.PutSkin
 }
 
 // CompleteOnboarding validates onboarding answers, persists SkinProfile, calls AI for starter routine.
-func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req dto.OnboardingCompleteRequest) (dto.OnboardingCompleteResponse, error) {
+// photoRels are relative upload paths (e.g. userID/onboarding/file.jpg); empty when photos were skipped.
+func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req dto.OnboardingCompleteRequest, photoRels []string) (dto.OnboardingCompleteResponse, error) {
 	var zero dto.OnboardingCompleteResponse
 	if s == nil || s.prof == nil {
 		return zero, fmt.Errorf("%w", ErrUnavailable)
@@ -174,6 +175,7 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 		"current_routine": strings.TrimSpace(req.CurrentRoutine),
 		"completed_via":   "onboarding_v1",
 		"locale":          onboardingLocale(req.Locale),
+		"photos_skipped":  req.PhotosSkipped,
 	}
 	snapJSON, err := json.Marshal(snap)
 	if err != nil {
@@ -222,12 +224,22 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	concernTags = append(concernTags, req.BodyConcerns...)
 	concernsJSON, _ := json.Marshal(concernTags)
 
+	var photoJSON json.RawMessage
+	if len(photoRels) > 0 {
+		b, err := json.Marshal(photoRels)
+		if err != nil {
+			return zero, err
+		}
+		photoJSON = b
+	}
+
 	prof := &domain.SkinProfile{
 		UserID:             userID,
 		SkinType:           strings.TrimSpace(req.SkinType),
 		SkillLevel:         parseSkillLevel(req.SkillLevel),
 		Concerns:           concernsJSON,
 		OnboardingSnapshot: fullSnap,
+		PhotoURLs:          photoJSON,
 	}
 	if code := strings.TrimSpace(req.HomeCountryCode); code != "" {
 		c := strings.ToUpper(code)

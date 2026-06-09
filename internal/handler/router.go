@@ -132,7 +132,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		// starter routine prompt — keeping the new starter coherent with
 		// what the coach already knows about them.
 		profSvc := profileuc.NewService(cfg, profRepo, repo, fbRepo, routineRepo, wardRepo, memCache)
-		ph := NewProfileHandler(profSvc)
+		ph := NewProfileHandler(profSvc, cfg)
 		api.Get("/profile/skin", jwt, ph.GetSkin)
 		api.Put("/profile/skin", jwt, ph.PutSkin)
 		api.Post(
