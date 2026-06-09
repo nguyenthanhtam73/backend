@@ -60,6 +60,9 @@ type StarterRoutineResponse struct {
 type OnboardingCompleteResponse struct {
 	Profile        SkinProfileResponse    `json:"profile"`
 	StarterRoutine StarterRoutineResponse `json:"starter_routine"`
+	// StarterRoutinePending is true when the API returned a quick local scaffold
+	// and a background job is still generating the personalized AI routine.
+	StarterRoutinePending bool `json:"starter_routine_pending,omitempty"`
 }
 
 // OnboardingPreviewResponse returns AI starter routine for guests without persisting a profile.
