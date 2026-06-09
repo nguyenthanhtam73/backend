@@ -63,6 +63,11 @@ type OnboardingPreviewResponse struct {
 	StarterRoutine StarterRoutineResponse `json:"starter_routine"`
 }
 
+// DeleteOnboardingResponse is returned by DELETE /profile/onboarding.
+type DeleteOnboardingResponse struct {
+	DeletedAt string `json:"deleted_at"`
+}
+
 // PutSkinProfileRequest allows partial manual edits (no AI).
 type PutSkinProfileRequest struct {
 	SkinType           *string         `json:"skin_type,omitempty"`

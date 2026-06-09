@@ -141,6 +141,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 			onboardingCompleteLimit,
 			ph.CompleteOnboarding,
 		)
+		api.Delete("/profile/onboarding", jwt, ph.DeleteOnboarding)
 		api.Post(
 			"/onboarding/preview-complete",
 			jwtOptional,

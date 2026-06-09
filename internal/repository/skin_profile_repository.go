@@ -44,6 +44,18 @@ func (r *GormSkinProfileRepository) GetByUserID(ctx context.Context, userID uuid
 	return &p, nil
 }
 
+// DeleteByUserID soft-deletes the skin profile row for a user.
+func (r *GormSkinProfileRepository) DeleteByUserID(ctx context.Context, userID uuid.UUID) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("invalid user id")
+	}
+	return db.WithContext(ctx).Where("user_id = ?", userID).Delete(&domain.SkinProfile{}).Error
+}
+
 // UpsertForUser creates or updates the single SkinProfile for this user.
 func (r *GormSkinProfileRepository) UpsertForUser(ctx context.Context, p *domain.SkinProfile) error {
 	db, err := r.dbOrErr()

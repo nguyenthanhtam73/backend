@@ -93,9 +93,28 @@ func (h *ProfileHandler) PreviewOnboardingComplete(c *fiber.Ctx) error {
 	return response.JSON(c, fiber.StatusOK, dto.OnboardingPreviewResponse{StarterRoutine: starter})
 }
 
+// DeleteOnboarding handles DELETE /profile/onboarding.
+func (h *ProfileHandler) DeleteOnboarding(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "profile service unavailable")
+	}
+	uid := middleware.UserIDFromLocals(c)
+	if uid == uuid.Nil {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
+	}
+	res, err := h.svc.DeleteOnboarding(c.UserContext(), uid)
+	if err != nil {
+		return mapProfileError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
 func mapProfileError(c *fiber.Ctx, err error) error {
 	if errors.Is(err, profileuc.ErrInvalidInput) {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_input", err.Error())
+	}
+	if errors.Is(err, profileuc.ErrOnboardingNotFound) {
+		return response.Error(c, fiber.StatusNotFound, "onboarding_not_found", err.Error())
 	}
 	return response.Error(c, fiber.StatusInternalServerError, "profile_error", err.Error())
 }

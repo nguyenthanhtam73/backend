@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
@@ -17,8 +18,9 @@ import (
 )
 
 var (
-	ErrInvalidInput = errors.New("invalid profile payload")
-	ErrUnavailable  = errors.New("profile service unavailable")
+	ErrInvalidInput          = errors.New("invalid profile payload")
+	ErrUnavailable           = errors.New("profile service unavailable")
+	ErrOnboardingNotFound    = errors.New("onboarding profile not found")
 )
 
 // Service coordinates SkinProfile persistence and onboarding + starter routine.
@@ -262,6 +264,59 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 		},
 	}
 	return out, nil
+}
+
+// DeleteOnboarding removes the user's skin profile and carried-over starter routines.
+func (s *Service) DeleteOnboarding(ctx context.Context, userID uuid.UUID) (dto.DeleteOnboardingResponse, error) {
+	var zero dto.DeleteOnboardingResponse
+	if s == nil || s.prof == nil {
+		return zero, fmt.Errorf("%w", ErrUnavailable)
+	}
+	if userID == uuid.Nil {
+		return zero, fmt.Errorf("%w: user id required", ErrInvalidInput)
+	}
+	existing, err := s.prof.GetByUserID(ctx, userID)
+	if err != nil {
+		return zero, err
+	}
+	if existing == nil || !hasOnboardingData(existing) {
+		return zero, fmt.Errorf("%w", ErrOnboardingNotFound)
+	}
+	if s.routines != nil {
+		if err := s.routines.DeleteCarriedOverByUserID(ctx, userID); err != nil {
+			return zero, err
+		}
+	}
+	if err := s.prof.DeleteByUserID(ctx, userID); err != nil {
+		return zero, err
+	}
+	s.cache.Bust(userID)
+	return dto.DeleteOnboardingResponse{
+		DeletedAt: time.Now().UTC().Format(time.RFC3339),
+	}, nil
+}
+
+func hasOnboardingData(p *domain.SkinProfile) bool {
+	if p == nil {
+		return false
+	}
+	if strings.TrimSpace(p.SkinType) == "" && len(p.OnboardingSnapshot) == 0 {
+		return false
+	}
+	if len(p.OnboardingSnapshot) == 0 {
+		return strings.TrimSpace(p.SkinType) != ""
+	}
+	var snap map[string]any
+	if err := json.Unmarshal(p.OnboardingSnapshot, &snap); err != nil {
+		return len(p.OnboardingSnapshot) > 0
+	}
+	if via, _ := snap["completed_via"].(string); strings.TrimSpace(via) != "" {
+		return true
+	}
+	if sr, ok := snap["starter_routine"]; ok && sr != nil {
+		return true
+	}
+	return strings.TrimSpace(p.SkinType) != ""
 }
 
 // PreviewOnboardingComplete generates a starter routine for guests without saving SkinProfile.

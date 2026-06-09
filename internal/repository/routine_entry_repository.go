@@ -125,6 +125,20 @@ func (r *GormRoutineEntryRepository) UpsertForDay(ctx context.Context, entry *do
 	return existing, nil
 }
 
+// DeleteCarriedOverByUserID soft-deletes routine rows seeded from onboarding starter.
+func (r *GormRoutineEntryRepository) DeleteCarriedOverByUserID(ctx context.Context, userID uuid.UUID) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("invalid user id")
+	}
+	return db.WithContext(ctx).
+		Where("user_id = ? AND source = ?", userID, "carried_over").
+		Delete(&domain.RoutineEntry{}).Error
+}
+
 // ListForUserSince returns the user's routine entries with routine_date >= since
 // (UTC midnight). Most-recent first. Pass time.Time{} for "all history". `limit`
 // is a hard cap (defaults to 365 if zero/negative).
