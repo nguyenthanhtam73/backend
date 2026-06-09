@@ -418,9 +418,9 @@ func hasOnboardingData(p *domain.SkinProfile) bool {
 	return strings.TrimSpace(p.SkinType) != ""
 }
 
-// PreviewOnboardingComplete generates a starter routine for guests without saving SkinProfile.
-func (s *Service) PreviewOnboardingComplete(ctx context.Context, req dto.OnboardingCompleteRequest) (dto.StarterRoutineResponse, error) {
-	var zero dto.StarterRoutineResponse
+// PreviewOnboardingComplete enqueues a guest starter routine job and returns a quick scaffold immediately.
+func (s *Service) PreviewOnboardingComplete(ctx context.Context, req dto.OnboardingCompleteRequest) (dto.OnboardingPreviewResponse, error) {
+	var zero dto.OnboardingPreviewResponse
 	if s == nil {
 		return zero, fmt.Errorf("%w", ErrUnavailable)
 	}
@@ -457,20 +457,28 @@ func (s *Service) PreviewOnboardingComplete(ctx context.Context, req dto.Onboard
 	}
 
 	loc := onboardingLocale(req.Locale)
-	starter, err := ai.GenerateStarterRoutine(ctx, s.cfg, snapJSON, loc, "")
-	if err != nil {
-		starter = fallbackStarterRoutine(loc)
-	}
-	return dto.StarterRoutineResponse{
-		Morning:            starter.Morning,
-		Evening:            starter.Evening,
-		WeekNotes:          starter.WeekNotes,
-		SafetyNotes:        starter.SafetyNotes,
-		Encouragement:      starter.Encouragement,
-		SkinReadback:       starter.SkinReadback,
-		Rationale:          starter.Rationale,
-		ClosingReminder:    starter.ClosingReminder,
-		ProductSuggestions: starter.ProductSuggestions,
+	quick := quickStarterFromOnboarding(req, loc)
+	quickDTO := starterRoutineResponseFromAI(quick)
+	jobID := newPreviewJobID()
+	storePreviewJob(jobID, quickDTO)
+
+	go func(payload []byte, locale, id string, fallback dto.StarterRoutineResponse) {
+		ctx, cancel := context.WithTimeout(context.Background(), starterRoutineBGTimeout)
+		defer cancel()
+		starter, err := ai.GenerateStarterRoutine(ctx, s.cfg, payload, locale, "")
+		if err != nil {
+			slog.Warn("onboarding: guest preview starter routine failed", "preview_job_id", id, "err", err)
+			failPreviewJob(id, fallback)
+			return
+		}
+		finishPreviewJob(id, starterRoutineResponseFromAI(starter))
+		slog.Info("onboarding: guest preview starter routine ready", "preview_job_id", id)
+	}(snapJSON, loc, jobID, quickDTO)
+
+	return dto.OnboardingPreviewResponse{
+		StarterRoutine:        quickDTO,
+		StarterRoutinePending: true,
+		PreviewJobID:          jobID,
 	}, nil
 }
 

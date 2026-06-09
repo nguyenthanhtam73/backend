@@ -202,7 +202,23 @@ func (h *ProfileHandler) PreviewOnboardingComplete(c *fiber.Ctx) error {
 	if err != nil {
 		return mapProfileError(c, err)
 	}
-	return response.JSON(c, fiber.StatusOK, dto.OnboardingPreviewResponse{StarterRoutine: starter})
+	return response.JSON(c, fiber.StatusOK, starter)
+}
+
+// GetPreviewRoutine handles GET /onboarding/preview-routine/:id (guest poll).
+func (h *ProfileHandler) GetPreviewRoutine(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "profile service unavailable")
+	}
+	jobID := strings.TrimSpace(c.Params("id"))
+	res, ok, err := h.svc.GetPreviewRoutineJob(jobID)
+	if err != nil {
+		return mapProfileError(c, err)
+	}
+	if !ok {
+		return response.Error(c, fiber.StatusNotFound, "not_found", "preview job not found or expired")
+	}
+	return response.JSON(c, fiber.StatusOK, res)
 }
 
 // DeleteOnboarding handles DELETE /profile/onboarding.

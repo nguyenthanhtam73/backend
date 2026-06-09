@@ -67,7 +67,15 @@ type OnboardingCompleteResponse struct {
 
 // OnboardingPreviewResponse returns AI starter routine for guests without persisting a profile.
 type OnboardingPreviewResponse struct {
-	StarterRoutine StarterRoutineResponse `json:"starter_routine"`
+	StarterRoutine        StarterRoutineResponse `json:"starter_routine"`
+	StarterRoutinePending bool                   `json:"starter_routine_pending,omitempty"`
+	PreviewJobID          string                 `json:"preview_job_id,omitempty"`
+}
+
+// OnboardingPreviewPollResponse is returned while polling a guest preview job.
+type OnboardingPreviewPollResponse struct {
+	StarterRoutine        StarterRoutineResponse `json:"starter_routine"`
+	StarterRoutinePending bool                   `json:"starter_routine_pending,omitempty"`
 }
 
 // DeleteOnboardingResponse is returned by DELETE /profile/onboarding.

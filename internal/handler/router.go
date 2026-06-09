@@ -148,6 +148,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 			onboardingCompleteLimit,
 			ph.PreviewOnboardingComplete,
 		)
+		api.Get(
+			"/onboarding/preview-routine/:id",
+			ph.GetPreviewRoutine,
+		)
 
 		wardSvc := wardrobeuc.NewService(wardRepo, memCache, usageSvc)
 		wh := NewWardrobeHandler(wardSvc)
