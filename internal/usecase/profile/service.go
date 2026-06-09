@@ -185,31 +185,6 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 
 	loc := onboardingLocale(req.Locale)
 
-	// Re-onboarding case: if the user already has history (skin checks,
-	// votes, routines), build their long-term memory and inject it into
-	// the starter prompt so the new starter routine stays coherent with
-	// what the coach already knows. For brand-new users the memory string
-	// is empty and we fall through to first-time mode.
-	memory, memDebug := ai.BuildUserMemoryWithDebug(
-		ctx,
-		userID,
-		ai.UserMemoryDeps{
-			Profiles: s.prof,
-			Checks:   s.checks,
-			Feedback: s.feedback,
-			Routines: s.routines,
-			Wardrobe: s.wardrobe,
-			Cache:    s.cache,
-		},
-		ai.UserMemoryOptions{},
-	)
-	memoryForAI := memory
-	if !hasMeaningfulHistory(memory) {
-		memoryForAI = ""
-	} else {
-		ai.LogMemoryInjection("starter-routine", userID, uuid.Nil, memDebug)
-	}
-
 	// Respond instantly: persist a quick local scaffold now and let the LLM
 	// generate the personalized routine in the background. The client shows
 	// the scaffold immediately and polls GET /profile/skin until the AI
@@ -258,37 +233,65 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	// the cache so the very next AI call after onboarding sees the new
 	// profile instead of the pre-onboarding zero state.
 	s.cache.Bust(userID)
-	reloaded, err := s.prof.GetByUserID(ctx, userID)
-	if err != nil || reloaded == nil {
-		return zero, fmt.Errorf("%w: reload profile", ErrUnavailable)
-	}
 
 	// Profile is persisted — safe to kick off the background AI refresh now
-	// without racing the initial upsert.
-	s.enqueueStarterRoutineRefresh(userID, snapJSON, loc, memoryForAI)
+	// without racing the initial upsert. Memory is built inside the goroutine
+	// so the HTTP response is not blocked on multiple DB reads.
+	s.enqueueStarterRoutineRefresh(userID, snapJSON, loc)
 
 	out := dto.OnboardingCompleteResponse{
-		Profile:               dto.SkinProfileFromDomain(reloaded),
+		Profile:               dto.SkinProfileFromDomain(prof),
 		StarterRoutine:        starterRoutineResponseFromAI(starter),
 		StarterRoutinePending: true,
 	}
 	return out, nil
 }
 
-func (s *Service) enqueueStarterRoutineRefresh(userID uuid.UUID, snapJSON []byte, loc, memoryForAI string) {
+func (s *Service) memoryForStarterPrompt(ctx context.Context, userID uuid.UUID) string {
+	if s == nil {
+		return ""
+	}
+	memory, memDebug := ai.BuildUserMemoryWithDebug(
+		ctx,
+		userID,
+		ai.UserMemoryDeps{
+			Profiles: s.prof,
+			Checks:   s.checks,
+			Feedback: s.feedback,
+			Routines: s.routines,
+			Wardrobe: s.wardrobe,
+			Cache:    s.cache,
+		},
+		ai.UserMemoryOptions{},
+	)
+	if !hasMeaningfulHistory(memory) {
+		return ""
+	}
+	ai.LogMemoryInjection("starter-routine", userID, uuid.Nil, memDebug)
+	return memory
+}
+
+func (s *Service) enqueueStarterRoutineRefresh(userID uuid.UUID, snapJSON []byte, loc string) {
 	if s == nil || s.prof == nil || userID == uuid.Nil {
 		return
 	}
 	payload := append([]byte(nil), snapJSON...)
-	go func(uid uuid.UUID, snap []byte, locale, memory string) {
+	go func(uid uuid.UUID, snap []byte, locale string) {
 		ctx, cancel := context.WithTimeout(context.Background(), starterRoutineBGTimeout)
 		defer cancel()
-		starter, err := ai.GenerateStarterRoutine(ctx, s.cfg, snap, locale, memory)
+		memoryForAI := s.memoryForStarterPrompt(ctx, uid)
+		starter, err := ai.GenerateStarterRoutine(ctx, s.cfg, snap, locale, memoryForAI)
 		if err != nil {
 			slog.Warn("onboarding: background starter routine failed",
 				"user_id", uid,
 				"err", err,
 			)
+			if clrErr := s.clearStarterRoutinePending(ctx, uid); clrErr != nil {
+				slog.Warn("onboarding: clear starter pending failed",
+					"user_id", uid,
+					"err", clrErr,
+				)
+			}
 			return
 		}
 		if err := s.patchProfileStarterRoutine(ctx, uid, starter); err != nil {
@@ -300,7 +303,37 @@ func (s *Service) enqueueStarterRoutineRefresh(userID uuid.UUID, snapJSON []byte
 		}
 		s.cache.Bust(uid)
 		slog.Info("onboarding: background starter routine ready", "user_id", uid)
-	}(userID, payload, loc, memoryForAI)
+	}(userID, payload, loc)
+}
+
+func (s *Service) clearStarterRoutinePending(ctx context.Context, userID uuid.UUID) error {
+	if s == nil || s.prof == nil {
+		return fmt.Errorf("%w", ErrUnavailable)
+	}
+	p, err := s.prof.GetByUserID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return fmt.Errorf("%w: profile not found", ErrUnavailable)
+	}
+	var snap map[string]any
+	if len(p.OnboardingSnapshot) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(p.OnboardingSnapshot, &snap); err != nil {
+		return err
+	}
+	if snap["starter_routine_pending"] == nil {
+		return nil
+	}
+	delete(snap, "starter_routine_pending")
+	fullSnap, err := json.Marshal(snap)
+	if err != nil {
+		return err
+	}
+	p.OnboardingSnapshot = fullSnap
+	return s.prof.UpsertForUser(ctx, p)
 }
 
 func (s *Service) patchProfileStarterRoutine(ctx context.Context, userID uuid.UUID, starter ai.StarterRoutine) error {
