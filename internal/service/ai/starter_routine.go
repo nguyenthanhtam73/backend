@@ -49,7 +49,7 @@ func starterUserMessage(onboardingJSON []byte, locale, userMemory string) string
 	if mem := strings.TrimSpace(userMemory); mem != "" {
 		memoryBlock = `
 
-This user has re-entered onboarding — they are NOT brand new. Use the long-term memory below to keep continuity (skin type drift, prior preferences, votes). Treat the fresh onboarding answers above as authoritative for any conflict, but acknowledge the change gently in encouragement/rationale.
+This user has re-entered onboarding — they are NOT brand new. Use the long-term memory below for continuity. Fresh onboarding answers win on conflict; acknowledge gently in encouragement only (keep rationale and week_notes as "").
 
 ` + mem
 	}
@@ -58,19 +58,20 @@ This user has re-entered onboarding — they are NOT brand new. Use the long-ter
 ` + payload + memoryBlock + `
 
 ` + langLine + `
-The payload may contain English enum codes (e.g. goal, budget, undertone). Interpret them, but write **all** of encouragement, skin_readback, morning/evening steps, rationale, week_notes, safety_notes, and closing_reminder entirely in ` + lang + `.
+The payload may contain English enum codes (e.g. goal, budget, undertone, skill_level). Interpret them; write all user-facing strings in ` + lang + `.
 ` + affiliateStarterTail() + `
-Respond with ONE JSON object exactly (all keys required; use "" or [] where there is nothing to say):
+Trả về ONE JSON object duy nhất (không markdown), đúng cấu trúc sau:
 {
-  "encouragement": "string",
-  "skin_readback": "string",
-  "morning": ["string", "..."],
-  "evening": ["string", "..."],
-  "rationale": "string",
-  "week_notes": "string",
-  "safety_notes": "string",
-  "closing_reminder": "string",` + ProductSuggestionsJSONField + `
+  "encouragement": "Câu khích lệ ngắn, bựa vui",
+  "skin_readback": "Tóm tắt ngắn gọn loại da + concerns + mục tiêu",
+  "morning": ["Bước 1", "Bước 2", "Bước 3"],
+  "evening": ["Bước 1", "Bước 2", "Bước 3"],
+  "rationale": "",
+  "week_notes": "",
+  "safety_notes": "Câu ngắn về an toàn (nếu cần)",
+  "closing_reminder": "Câu nhắc nhở ngắn gọn",` + ProductSuggestionsJSONField + `
 }
+Quy tắc cứng: morning/evening tối đa 3 phần tử; rationale và week_notes luôn ""; product_suggestions tối đa 2 item từ AFFILIATE_CATALOG; mỗi reason = 1 câu ngắn về concern.
 Output only this JSON object — no markdown fences, no extra text.
 `
 }
@@ -91,6 +92,14 @@ func normalizeStarterRoutine(s *StarterRoutine) {
 	if s.Evening == nil {
 		s.Evening = []string{}
 	}
+	if len(s.Morning) > 3 {
+		s.Morning = s.Morning[:3]
+	}
+	if len(s.Evening) > 3 {
+		s.Evening = s.Evening[:3]
+	}
+	s.Rationale = ""
+	s.WeekNotes = ""
 	s.ProductSuggestions = SanitizeProductSuggestions(s.ProductSuggestions)
 }
 

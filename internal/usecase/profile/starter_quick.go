@@ -46,22 +46,21 @@ func quickStarterFromOnboarding(req dto.OnboardingCompleteRequest, locale string
 		),
 	}
 	if len(bullets) > 0 {
-		morning = bullets[:minInt(2, len(bullets))]
-		if len(bullets) > 2 {
-			end := minInt(4, len(bullets))
-			evening = bullets[2:end]
+		morning = bullets[:minInt(3, len(bullets))]
+		if len(bullets) > 3 {
+			evening = bullets[3:minInt(6, len(bullets))]
 		}
 	}
 
 	var encouragement, weekNotes, safetyNotes, closing string
 	if isEn {
 		encouragement = "You finished getting-to-know-your-skin — nice work taking that first step."
-		weekNotes = "Your personalized routine is being refined — this page will update automatically."
+		weekNotes = ""
 		safetyNotes = "General skincare guidance only — not a substitute for medical advice."
 		closing = "Track gently day by day — see a dermatologist when something worries you."
 	} else {
 		encouragement = "Bạn vừa hoàn thành phần làm quen với da — bước đầu rất đáng khen."
-		weekNotes = "Coach đang hoàn thiện routine cá nhân hóa — trang sẽ tự cập nhật trong giây lát."
+		weekNotes = ""
 		safetyNotes = "Chỉ là gợi ý chăm sóc da chung — không thay thế tư vấn y tế."
 		closing = "Theo dõi nhẹ nhàng từng ngày — hỏi bác sĩ da liễu khi bạn lo lắng."
 	}
@@ -72,7 +71,7 @@ func quickStarterFromOnboarding(req dto.OnboardingCompleteRequest, locale string
 		WeekNotes:       weekNotes,
 		SafetyNotes:     safetyNotes,
 		Encouragement:   encouragement,
-		Rationale:       strings.Join(bullets, "\n"),
+		Rationale:       "",
 		ClosingReminder: closing,
 	}
 }
