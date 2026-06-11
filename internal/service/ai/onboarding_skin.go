@@ -14,6 +14,7 @@ import (
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/platform/imgprep"
 )
 
 func onboardingOutputLocale(raw string) string {
@@ -41,6 +42,15 @@ func OnboardingSkinAnalyze(ctx context.Context, cfg *config.Config, httpClient *
 	if len(images) < 1 || len(images) > 3 {
 		return nil, fmt.Errorf("onboarding skin: need 1 to 3 images")
 	}
+	prepared := make([]ImageBytes, len(images))
+	for i, im := range images {
+		data, err := imgprep.LimitForVisionAPI(im.Data)
+		if err != nil {
+			return nil, fmt.Errorf("onboarding skin: prepare image %d: %w", i+1, err)
+		}
+		prepared[i] = ImageBytes{Data: data}
+	}
+	images = prepared
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 5 * time.Minute}
 	}
