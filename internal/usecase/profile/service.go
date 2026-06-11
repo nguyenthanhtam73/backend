@@ -178,6 +178,9 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 		"locale":          onboardingLocale(req.Locale),
 		"photos_skipped":  req.PhotosSkipped,
 	}
+	if req.SkinAnalysis != nil {
+		snap["skin_analysis"] = req.SkinAnalysis
+	}
 	snapJSON, err := json.Marshal(snap)
 	if err != nil {
 		return zero, err
@@ -450,6 +453,9 @@ func (s *Service) PreviewOnboardingComplete(ctx context.Context, req dto.Onboard
 		"current_routine": strings.TrimSpace(req.CurrentRoutine),
 		"completed_via":   "onboarding_guest_preview",
 		"locale":          onboardingLocale(req.Locale),
+	}
+	if req.SkinAnalysis != nil {
+		snap["skin_analysis"] = req.SkinAnalysis
 	}
 	snapJSON, err := json.Marshal(snap)
 	if err != nil {

@@ -59,6 +59,7 @@ This user has re-entered onboarding — they are NOT brand new. Use the long-ter
 
 ` + langLine + `
 The payload may contain English enum codes (e.g. goal, budget, undertone, skill_level). Interpret them; write all user-facing strings in ` + lang + `.
+When **skin_analysis** is present (vision + coach photo pass), ground morning/evening steps and skin_readback on coaching_notes, detailed_observations, and main_concerns — keep region-specific cues from the photos.
 ` + affiliateStarterTail() + `
 Trả về ONE JSON object duy nhất (không markdown), đúng cấu trúc sau:
 {

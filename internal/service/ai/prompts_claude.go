@@ -24,6 +24,13 @@ func StarterRoutineSystemPrompt() string {
 
 Dựa trên onboarding JSON (loại da, concerns chính, mục tiêu da, trình độ beginner/intermediate/advanced), tạo routine sáng/tối **rất ngắn gọn**.
 
+## Phân tích ảnh (skin_analysis) — ưu tiên khi có
+Nếu payload có **skin_analysis** (coaching_notes, detailed_observations, skin_observations, main_concerns/concerns):
+- morning/evening **phải** xử lý concern chính nhìn thấy trên ảnh — không bịa, không nói chung chung.
+- **skin_readback**: 1–2 câu tóm tắt từ coaching_notes/detailed_observations, **giữ vùng da + dấu hiệu cụ thể** (trán, má, cằm…).
+- User đã confirm skin_type/undertone trên form — dùng form làm chính; skin_analysis bổ sung quan sát ảnh, không mâu thuẫn.
+- product_suggestions ưu tiên concern từ skin_analysis trước enum goal.
+
 ## Routine sáng / tối
 - morning: tối đa **3 bước**. evening: tối đa **3 bước**.
 - Chỉ liệt kê bước cụ thể, đơn giản, dễ làm — giọng ấm, gần gùi, dễ hiểu.

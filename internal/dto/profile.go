@@ -23,6 +23,9 @@ type OnboardingCompleteRequest struct {
 	Locale string `json:"locale,omitempty"`
 	// PhotosSkipped is true when the user opted out of face photos during onboarding.
 	PhotosSkipped bool `json:"photos_skipped,omitempty"`
+	// SkinAnalysis is the vision + coach output from POST /onboarding/analyze-skin.
+	// When present, starter-routine generation should ground routine steps and skin_readback on photo observations.
+	SkinAnalysis *OnboardingSkinAnalyzeResponse `json:"skin_analysis,omitempty"`
 }
 
 // SkinProfileResponse is the public API shape for GET /profile/skin.
