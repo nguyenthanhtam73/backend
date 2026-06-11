@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -29,9 +30,9 @@ type ImageBytes struct {
 	Data []byte
 }
 
-// OnboardingSkinAnalyze runs GPT-4 class vision on 2–3 **facial** skin images and returns structured guesses.
-// Uses OpenAI Vision model only (DADIARY_OPENAI_VISION_MODEL or fallback to DADIARY_OPENAI_MODEL / gpt-4o).
-// localeRaw should be "vi" or "en" (app UI); it controls coaching_notes / disclaimers / tips language.
+// OnboardingSkinAnalyze runs hybrid onboarding skin analysis:
+// pass 1 — GPT-4o vision (structured guesses + visual_observations);
+// pass 2 — Claude/text coach (coaching_notes from vision JSON).
 func OnboardingSkinAnalyze(ctx context.Context, cfg *config.Config, httpClient *http.Client, images []ImageBytes, localeRaw string) (*dto.OnboardingSkinAnalyzeResponse, error) {
 	if cfg == nil || strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
 		return nil, fmt.Errorf("onboarding skin: openai api key required")
@@ -51,9 +52,33 @@ func OnboardingSkinAnalyze(ctx context.Context, cfg *config.Config, httpClient *
 		model = "gpt-4o"
 	}
 
-	langHead := "**Output locale: Vietnamese (vi).** Write coaching_notes, non_diagnostic, and photo_quality.tips only in natural Vietnamese."
+	parsed, err := onboardingVisionPass(ctx, cfg, httpClient, images, locale, model)
+	if err != nil {
+		return nil, err
+	}
+	parsed.NonDiagnostic = normalizeOnboardingDisclaimer(parsed.NonDiagnostic, locale)
+
+	coachNotes, coachMeta, coachErr := onboardingCoachPass(ctx, cfg, httpClient, parsed, locale)
+	if coachErr != nil {
+		slog.Warn("onboarding skin: coach pass failed, using vision fallback", "err", coachErr)
+		coachNotes = fallbackOnboardingCoachingNotes(parsed, locale)
+		coachMeta = "coach=error"
+	}
+	parsed.CoachingNotes = strings.TrimSpace(coachNotes)
+	parsed.ModelUsed = fmt.Sprintf("vision=%s|coach=%s", model, coachMeta)
+	return parsed, nil
+}
+
+func onboardingVisionPass(
+	ctx context.Context,
+	cfg *config.Config,
+	httpClient *http.Client,
+	images []ImageBytes,
+	locale, model string,
+) (*dto.OnboardingSkinAnalyzeResponse, error) {
+	langHead := "**Output locale: Vietnamese (vi).** Write detailed_observations and main_concerns only in natural Vietnamese."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Write coaching_notes, non_diagnostic, and photo_quality.tips only in natural English."
+		langHead = "**Output locale: English (en).** Write detailed_observations and main_concerns only in natural English."
 	}
 	userText := langHead + "\n\n" + OnboardingSkinJSONSchemaBlock + "\n\nPhotos: **2–3 close, well-lit photos of facial skin** (natural light, little or no makeup). Include a **front** view plus a **slight side/profile** if possible—this flow is optimized for face-only onboarding."
 	parts := []map[string]any{
@@ -85,7 +110,7 @@ func OnboardingSkinAnalyze(ctx context.Context, cfg *config.Config, httpClient *
 
 	body := map[string]any{
 		"model":           model,
-		"temperature":     0.25,
+		"temperature":     0.2,
 		"response_format": map[string]any{"type": "json_object"},
 		"messages": []map[string]any{
 			{
@@ -135,11 +160,100 @@ func OnboardingSkinAnalyze(ctx context.Context, cfg *config.Config, httpClient *
 	if err != nil {
 		return nil, err
 	}
-	var parsed dto.OnboardingSkinAnalyzeResponse
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("parse onboarding json: %w", err)
+	var visionRaw onboardingVisionRaw
+	if err := json.Unmarshal(raw, &visionRaw); err != nil {
+		return nil, fmt.Errorf("parse onboarding vision json: %w", err)
 	}
-	parsed.NonDiagnostic = normalizeOnboardingDisclaimer(parsed.NonDiagnostic, locale)
-	parsed.ModelUsed = model
+	parsed := mapOnboardingVisionRaw(visionRaw, locale)
+	parsed.CoachingNotes = ""
 	return &parsed, nil
+}
+
+func onboardingCoachPass(
+	ctx context.Context,
+	cfg *config.Config,
+	httpClient *http.Client,
+	vision *dto.OnboardingSkinAnalyzeResponse,
+	locale string,
+) (notes string, meta string, err error) {
+	if vision == nil {
+		return "", "", fmt.Errorf("onboarding coach: nil vision")
+	}
+	if !cfg.HasAnthropicKey() && !cfg.HasOpenAIKey() {
+		return "", "", fmt.Errorf("onboarding coach: no text model configured")
+	}
+	visionJSON, err := json.Marshal(vision)
+	if err != nil {
+		return "", "", err
+	}
+	userMsg := BuildOnboardingCoachUserMessage(visionJSON, locale)
+	result, err := TextCoachCompletion(ctx, cfg, httpClient, "onboarding-skin", OnboardingCoachSystemPrompt(), userMsg)
+	if err != nil {
+		return "", "", err
+	}
+	raw, err := ExtractJSONObject(result.Text)
+	if err != nil {
+		return "", "", err
+	}
+	var out struct {
+		CoachingNotes string `json:"coaching_notes"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", "", fmt.Errorf("parse onboarding coach json: %w", err)
+	}
+	if strings.TrimSpace(out.CoachingNotes) == "" {
+		return "", "", fmt.Errorf("onboarding coach: empty coaching_notes")
+	}
+	meta = fmt.Sprintf("%s(%s", result.Model, result.Provider)
+	if result.Fallback {
+		meta += ",fallback"
+	}
+	meta += ")"
+	return out.CoachingNotes, meta, nil
+}
+
+func fallbackOnboardingCoachingNotes(vision *dto.OnboardingSkinAnalyzeResponse, locale string) string {
+	if vision == nil {
+		return ""
+	}
+	obs := strings.TrimSpace(vision.DetailedObservations)
+	if obs == "" && len(vision.VisualObservations) > 0 {
+		obs = strings.Join(vision.VisualObservations, ". ")
+	}
+	primaryConcern := ""
+	if len(vision.MainConcerns) > 0 {
+		primaryConcern = vision.MainConcerns[0]
+	} else if len(vision.Concerns) > 0 {
+		primaryConcern = vision.Concerns[0]
+	}
+	if strings.EqualFold(locale, "en") {
+		p1 := obs
+		if p1 == "" {
+			p1 = "The photos were hard to read in detail — lighting or angle may be limiting."
+		} else if !strings.HasPrefix(strings.ToLower(p1), "on the photo") {
+			p1 = "On the photos I can see: " + p1
+		}
+		p2 := fmt.Sprintf("Overall: skin type looks like %s (T-zone/cheeks from vision), undertone %s — main concern is %s.",
+			vision.SkinTypeGuess, vision.UndertoneGuess, primaryConcern)
+		p3 := "Soft read from photos only — tweak anything that doesn't match how your skin feels."
+		p4 := "Start simple: gentle cleanse, moisturizer, and morning sunscreen; focus on your main concern first."
+		if primaryConcern != "" {
+			p4 = fmt.Sprintf("Start simple: gentle cleanse + moisturizer + morning SPF; prioritize %s first.", primaryConcern)
+		}
+		return strings.Join([]string{p1, p2, p3, p4}, "\n\n")
+	}
+	p1 := obs
+	if p1 == "" {
+		p1 = "Ảnh hơi khó nhìn chi tiết — có thể do ánh sáng hoặc góc chụp."
+	} else if !strings.HasPrefix(strings.ToLower(p1), "trên ảnh") {
+		p1 = "Trên ảnh mình thấy: " + p1
+	}
+	p2 := fmt.Sprintf("Tóm lại da guess %s, undertone %s — concern chính là %s.",
+		vision.SkinTypeGuess, vision.UndertoneGuess, primaryConcern)
+	p3 := "Đây chỉ là đọc nhẹ từ ảnh thôi — chỉnh lại nếu không khớp cảm nhận của bạn nhé."
+	p4 := "Bắt đầu đơn giản: rửa dịu + dưỡng ẩm + SPF sáng; ưu tiên xử lý concern chính trước."
+	if primaryConcern != "" {
+		p4 = fmt.Sprintf("Bắt đầu đơn giản: rửa dịu + dưỡng ẩm + SPF sáng; ưu tiên xử lý %s trước.", primaryConcern)
+	}
+	return strings.Join([]string{p1, p2, p3, p4}, "\n\n")
 }
