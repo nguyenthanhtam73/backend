@@ -76,6 +76,17 @@ Viết **coaching_notes** dựa hoàn toàn vào VISION_SUMMARY_JSON. Phải mô
 - Dùng "mình thấy", "trên ảnh", "vl nhẹ" được, nhưng đừng lố hay xàm.
 - Không chẩn đoán bệnh, chỉ nói "trông như", "có vẻ".
 
+## Ngôn ngữ dễ hiểu (bắt buộc — coaching_notes)
+- Viết cho user bình thường, không dùng thuật ngữ nội bộ hay tiếng Anh lẫn vào tiếng Việt.
+- CẤM trong coaching_notes: combo, guess, undertone, concern, barrier, T-zone, SPF, dehydrated, enum code...
+- Dịch sang tiếng Việt đời thường, ví dụ:
+  - combo / combination → **da hỗn hợp** (không viết "da guess combo")
+  - warm / cool → **tone ấm / tone lạnh**
+  - acne → **mụn**; hyperpigmentation → **thâm / sạm**
+  - concern chính → **vấn đề da chính** hoặc nói thẳng "mụn", "da khô"...
+- Đoạn 2 ví dụ đúng: "Tóm lại da bạn có vẻ hỗn hợp — trán hơi dầu, má ổn hơn; tone ấm; vấn đề chính là mụn viêm."
+- Đoạn 2 ví dụ sai: "Tóm lại da guess combo, undertone warm — concern chính là mụn viêm."
+
 ## Cấm nói chung chung (bắt buộc)
 Mỗi nhận xét về da **phải có vùng + dấu hiệu + mức độ/số lượng**.
 
@@ -91,15 +102,15 @@ Mỗi nhận xét về da **phải có vùng + dấu hiệu + mức độ/số l
 - KHÔNG khuyên, KHÔNG tổng kết loại da ở đoạn này.
 
 **Đoạn 2 — Nhận xét tổng quát (1–2 câu)**
-- Tóm tắt tình trạng da hiện tại.
-- Nêu rõ loại da (kết hợp skin_type_guess + t_zone/cheeks), undertone và concern chính.
+- Tóm tắt tình trạng da hiện tại bằng lời đời thường.
+- Nêu loại da (da khô / dầu / hỗn hợp…), tone da (ấm / lạnh / trung tính) và vấn đề da chính — **không** lặp mã JSON hay tiếng Anh chuyên môn.
 
 **Đoạn 3 — Nhận xét ngắn, gần gũi (1–2 câu)**
 - Viết kiểu bạn thân, troll nhẹ nhưng không lố.
-- Gắn với concern chính, không lặp lại chi tiết đoạn 1.
+- Gắn với vấn đề da chính, không lặp lại chi tiết đoạn 1.
 
 **Đoạn 4 — Gợi ý hướng xử lý (2–3 câu)**
-- Ưu tiên concern chính.
+- Ưu tiên vấn đề da chính.
 - Gợi ý ngắn gọn, actionable (vai trò sản phẩm + vùng cụ thể).
 - Chỉ gợi ý hướng, **không liệt kê routine đầy đủ**.
 
@@ -125,17 +136,20 @@ const OnboardingCoachJSONSchemaBlock = `Return ONE JSON object only (no markdown
 // BuildOnboardingCoachUserMessage builds the user message for the text coach pass.
 func BuildOnboardingCoachUserMessage(visionJSON []byte, locale string) string {
 	lang := "**Output locale: Vietnamese (vi).** Write coaching_notes only in natural Vietnamese."
+	plainLang := "**Plain language:** No English jargon or internal codes in coaching_notes (no combo, guess, undertone, concern, barrier, T-zone). Say da hỗn hợp, tone ấm, mụn, vấn đề da chính…"
 	if strings.EqualFold(strings.TrimSpace(locale), "en") {
 		lang = "**Output locale: English (en).** Write coaching_notes only in natural English."
+		plainLang = "**Plain language:** Use everyday words (combination skin, warm undertone, breakouts) — no raw JSON enum codes."
 	}
 	return fmt.Sprintf(`%s
+%s
 
 VISION_SUMMARY_JSON (vision pass over onboarding face photos — not a diagnosis):
 
 Use key fields:
 - **detailed_observations** + **skin_observations** → Đoạn 1: mô tả cụ thể trên ảnh (vùng + dấu hiệu + mức độ)
-- **main_concerns** / **concerns** → concern chính cho Đoạn 2–4
-- **skin_type_guess**, **undertone_guess**, **suggested_goal**, **barrier_signal** → Đoạn 2
+- **main_concerns** / **concerns** → vấn đề da chính cho Đoạn 2–4 (dịch sang lời đời thường)
+- **skin_type_guess**, **undertone_guess**, **suggested_goal**, **barrier_signal** → Đoạn 2 (dịch sang lời đời thường, không lộ tên field)
 - **visual_observations** → bổ sung nếu cần, không lặp detailed_observations
 
 %s
@@ -144,6 +158,7 @@ Write coaching_notes (4 đoạn). Đoạn 1 mô tả ảnh trước khi nhận x
 
 %s`,
 		lang,
+		plainLang,
 		string(visionJSON),
 		OnboardingCoachJSONSchemaBlock,
 	)

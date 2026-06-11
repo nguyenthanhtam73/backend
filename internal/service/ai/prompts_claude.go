@@ -27,7 +27,7 @@ Dựa trên onboarding JSON (loại da, concerns chính, mục tiêu da, trình 
 ## Phân tích ảnh (skin_analysis) — ưu tiên khi có
 Nếu payload có **skin_analysis** (coaching_notes, detailed_observations, skin_observations, main_concerns/concerns):
 - morning/evening **phải** xử lý concern chính nhìn thấy trên ảnh — không bịa, không nói chung chung.
-- **skin_readback**: 1–2 câu tóm tắt từ coaching_notes/detailed_observations, **giữ vùng da + dấu hiệu cụ thể** (trán, má, cằm…).
+- **skin_readback**: 1–2 câu tóm tắt từ coaching_notes/detailed_observations, **giữ vùng da + dấu hiệu cụ thể** (trán, má, cằm…). Viết lời đời thường — không dùng combo, undertone, concern, guess.
 - User đã confirm skin_type/undertone trên form — dùng form làm chính; skin_analysis bổ sung quan sát ảnh, không mâu thuẫn.
 - product_suggestions ưu tiên concern từ skin_analysis trước enum goal.
 

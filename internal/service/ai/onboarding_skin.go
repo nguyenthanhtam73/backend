@@ -233,13 +233,13 @@ func fallbackOnboardingCoachingNotes(vision *dto.OnboardingSkinAnalyzeResponse, 
 		} else if !strings.HasPrefix(strings.ToLower(p1), "on the photo") {
 			p1 = "On the photos I can see: " + p1
 		}
-		p2 := fmt.Sprintf("Overall: skin type looks like %s (T-zone/cheeks from vision), undertone %s — main concern is %s.",
-			vision.SkinTypeGuess, vision.UndertoneGuess, primaryConcern)
+		skin := friendlySkinType(vision.SkinTypeGuess, locale)
+		tone := friendlyUndertone(vision.UndertoneGuess, locale)
+		concern := friendlyConcern(primaryConcern, locale)
+		p2 := fmt.Sprintf("Overall your skin looks like %s with a %s — the main thing to focus on is %s.",
+			skin, tone, concern)
 		p3 := "Soft read from photos only — tweak anything that doesn't match how your skin feels."
-		p4 := "Start simple: gentle cleanse, moisturizer, and morning sunscreen; focus on your main concern first."
-		if primaryConcern != "" {
-			p4 = fmt.Sprintf("Start simple: gentle cleanse + moisturizer + morning SPF; prioritize %s first.", primaryConcern)
-		}
+		p4 := fmt.Sprintf("Start simple: gentle cleanser + moisturizer + morning sunscreen; focus on %s first.", concern)
 		return strings.Join([]string{p1, p2, p3, p4}, "\n\n")
 	}
 	p1 := obs
@@ -248,12 +248,11 @@ func fallbackOnboardingCoachingNotes(vision *dto.OnboardingSkinAnalyzeResponse, 
 	} else if !strings.HasPrefix(strings.ToLower(p1), "trên ảnh") {
 		p1 = "Trên ảnh mình thấy: " + p1
 	}
-	p2 := fmt.Sprintf("Tóm lại da guess %s, undertone %s — concern chính là %s.",
-		vision.SkinTypeGuess, vision.UndertoneGuess, primaryConcern)
+	skin := friendlySkinType(vision.SkinTypeGuess, locale)
+	tone := friendlyUndertone(vision.UndertoneGuess, locale)
+	concern := friendlyConcern(primaryConcern, locale)
+	p2 := fmt.Sprintf("Tóm lại da bạn có vẻ %s, %s — vấn đề chính là %s.", skin, tone, concern)
 	p3 := "Đây chỉ là đọc nhẹ từ ảnh thôi — chỉnh lại nếu không khớp cảm nhận của bạn nhé."
-	p4 := "Bắt đầu đơn giản: rửa dịu + dưỡng ẩm + SPF sáng; ưu tiên xử lý concern chính trước."
-	if primaryConcern != "" {
-		p4 = fmt.Sprintf("Bắt đầu đơn giản: rửa dịu + dưỡng ẩm + SPF sáng; ưu tiên xử lý %s trước.", primaryConcern)
-	}
+	p4 := fmt.Sprintf("Bắt đầu đơn giản: rửa dịu + dưỡng ẩm + kem chống nắng buổi sáng; ưu tiên xử lý %s trước.", concern)
 	return strings.Join([]string{p1, p2, p3, p4}, "\n\n")
 }
