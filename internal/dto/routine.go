@@ -40,6 +40,9 @@ type RoutineResponse struct {
 	Notes       string        `json:"notes,omitempty"`
 	Source      string        `json:"source,omitempty"`
 	SkillMode   string        `json:"skill_mode,omitempty"`
+	// CarriedFromDate is the original routine_date when today's row does not
+	// exist yet and we fall back to the latest saved entry (saved=false).
+	CarriedFromDate string `json:"carried_from_date,omitempty"`
 	// Saved is true once today's row exists in the DB (i.e. user persisted at
 	// least once today). Front-end uses this to switch the header copy
 	// between "Routine của bạn (đã lưu)" and "Routine gợi ý cho hôm nay".

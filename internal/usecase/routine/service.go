@@ -106,6 +106,7 @@ func (s *Service) GetCurrent(ctx context.Context, userID uuid.UUID) (dto.Routine
 	}
 	out := dto.RoutineFromDomain(latest, false)
 	out.RoutineDate = today.UTC().Format("2006-01-02")
+	out.CarriedFromDate = latest.RoutineDate.UTC().Format("2006-01-02")
 	out.UserID = userID.String()
 	return out, nil
 }
@@ -349,7 +350,7 @@ func (s *Service) seedFromStarter(ctx context.Context, userID uuid.UUID) (dto.Ro
 		RoutineDate: todayUTC().Format("2006-01-02"),
 		Morning:     morning,
 		Evening:     evening,
-		Source:      "carried_over",
+		Source:      "onboarding_starter",
 		Saved:       false,
 	}, true
 }
