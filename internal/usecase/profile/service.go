@@ -195,14 +195,6 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	starter := quickStarterFromOnboarding(req, loc)
 	snap["starter_routine"] = starter
 	snap["starter_routine_pending"] = true
-	fullSnap, err := json.Marshal(snap)
-	if err != nil {
-		return zero, err
-	}
-
-	concernTags := []string{req.Goal, req.SkinType}
-	concernTags = append(concernTags, req.BodyConcerns...)
-	concernsJSON, _ := json.Marshal(concernTags)
 
 	var photoJSON json.RawMessage
 	if len(photoRels) > 0 {
@@ -211,7 +203,17 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 			return zero, err
 		}
 		photoJSON = b
+		snap["photo_urls"] = dto.BuildPublicUploadURLs(photoJSON)
 	}
+
+	fullSnap, err := json.Marshal(snap)
+	if err != nil {
+		return zero, err
+	}
+
+	concernTags := []string{req.Goal, req.SkinType}
+	concernTags = append(concernTags, req.BodyConcerns...)
+	concernsJSON, _ := json.Marshal(concernTags)
 
 	prof := &domain.SkinProfile{
 		UserID:             userID,
