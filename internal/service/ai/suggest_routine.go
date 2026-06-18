@@ -43,6 +43,7 @@ type SuggestedRoutine struct {
 	Evening            []dto.RoutineStep       `json:"evening"`
 	Encouragement      string                  `json:"encouragement"`
 	Rationale          string                  `json:"rationale"`
+	FocusReason        string                  `json:"focus_reason"`
 	WeekNotes          string                  `json:"week_notes"`
 	SafetyNotes        string                  `json:"safety_notes"`
 	ClosingReminder    string                  `json:"closing_reminder"`
@@ -106,6 +107,9 @@ func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
 	if err := json.Unmarshal(raw, &rich); err == nil && (len(rich.Morning) > 0 || len(rich.Evening) > 0) {
 		normalizeSteps(rich.Morning)
 		normalizeSteps(rich.Evening)
+		if strings.TrimSpace(rich.Rationale) == "" {
+			rich.Rationale = strings.TrimSpace(rich.FocusReason)
+		}
 		rich.ProductSuggestions = SanitizeProductSuggestions(rich.ProductSuggestions)
 		return rich, nil
 	}
@@ -115,6 +119,7 @@ func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
 		Evening            json.RawMessage         `json:"evening"`
 		Encouragement      string                  `json:"encouragement"`
 		Rationale          string                  `json:"rationale"`
+		FocusReason        string                  `json:"focus_reason"`
 		WeekNotes          string                  `json:"week_notes"`
 		SafetyNotes        string                  `json:"safety_notes"`
 		ClosingReminder    string                  `json:"closing_reminder"`
@@ -123,11 +128,15 @@ func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
 	if err := json.Unmarshal(raw, &loose); err != nil {
 		return zero, fmt.Errorf("ai suggest: parse json: %w", err)
 	}
+	rationale := loose.Rationale
+	if strings.TrimSpace(rationale) == "" {
+		rationale = strings.TrimSpace(loose.FocusReason)
+	}
 	return SuggestedRoutine{
 		Morning:            coerceSteps(loose.Morning),
 		Evening:            coerceSteps(loose.Evening),
 		Encouragement:      loose.Encouragement,
-		Rationale:          loose.Rationale,
+		Rationale:          rationale,
 		WeekNotes:          loose.WeekNotes,
 		SafetyNotes:        loose.SafetyNotes,
 		ClosingReminder:    loose.ClosingReminder,
@@ -260,26 +269,25 @@ func normalizeRoutineSkillLevel(raw string, p *domain.SkinProfile) string {
 
 func buildSuggestRoutineUserMessage(in SuggestRoutineInput, locale, skill string) string {
 	var b strings.Builder
-	// Header instructions — language & shape, always first.
 	if locale == "vi" {
-		b.WriteString("Ngôn ngữ đầu ra: **Tiếng Việt thân thiện, dễ hiểu** (mọi chuỗi hiển thị cho người dùng). Dùng từ đời thường như một người bạn nói chuyện. Tránh thuật ngữ chuyên môn cứng (barrier → 'lớp bảo vệ da'; SPF → 'kem chống nắng'; dehydrated → 'da khô bên trong'; exfoliant → 'tẩy da chết'; patch test → 'thử trước trên vùng da nhỏ'). JSON key giữ tiếng Anh.\n\n")
+		b.WriteString("Ngôn ngữ đầu ra: Tiếng Việt thân thiện, dễ hiểu. JSON key giữ tiếng Anh.\n\n")
 	} else {
-		b.WriteString("Output language: **friendly, beginner-leaning English** (all user-facing strings). Use everyday words; explain a technical ingredient briefly on first mention. JSON keys stay English.\n\n")
+		b.WriteString("Output language: friendly English. JSON keys stay English.\n\n")
 	}
-	b.WriteString("Coaching depth requested: " + skill + "\n\n")
+	b.WriteString("Skill level: " + skill + "\n\n")
 
-	b.WriteString("SKIN_PROFILE_CONTEXT:\n")
+	b.WriteString("SKIN_PROFILE:\n")
 	b.WriteString(BuildSkinProfileContext(in.Profile))
 
 	if in.LastCheck != nil {
-		b.WriteString("\nMOST_RECENT_CHECK_IN:\n")
+		b.WriteString("\nLATEST_CHECK_IN:\n")
 		b.WriteString(BuildCheckInContext(in.LastCheck))
 	} else {
-		b.WriteString("\nMOST_RECENT_CHECK_IN: (no recent check-in on file — rely on profile only.)\n")
+		b.WriteString("\nLATEST_CHECK_IN: (none — use profile only)\n")
 	}
 
 	if note := strings.TrimSpace(in.FocusNote); note != "" {
-		b.WriteString("\nTODAY_FOCUS_FROM_USER: ")
+		b.WriteString("\nFOCUS_NOTE: ")
 		b.WriteString(note)
 		b.WriteString("\n")
 	}
@@ -289,87 +297,37 @@ func buildSuggestRoutineUserMessage(in SuggestRoutineInput, locale, skill string
 		b.WriteString(mem)
 	}
 
-	b.WriteString("\nProduce ONE JSON object with this exact shape (do not output markdown, do not add commentary):\n")
-	b.WriteString(`{
-  "morning": [
-    {"title": "string (one short, actionable line)", "category": "cleanser|toner|serum|moisturizer|spf|treatment|mask|eye|other", "notes": "string optional"}
-  ],
-  "evening": [
-    {"title": "string", "category": "cleanser|toner|serum|moisturizer|treatment|mask|eye|other", "notes": "string optional"}
-  ],
-  "encouragement": "string — 1–2 supportive sentences, no diagnosis",
-  "rationale": "string — short why-this-order in plain language",
-  "week_notes": "string — what to expect / track this week",
-  "safety_notes": "string — SPF, patch test, red-flag reminders",
-  "closing_reminder": "string — gentle one-liner",` + ProductSuggestionsJSONField + `
-}`)
-	b.WriteString("\n\nConstraints:\n")
-	b.WriteString("- 3–5 steps each for AM and PM; beginners stay near 3, advanced may use 5.\n")
-	b.WriteString("- AM must include SPF (or an equivalent leave-on photoprotection step).\n")
-	b.WriteString("- Routine step titles stay generic roles; branded picks go in product_suggestions only.\n")
-	b.WriteString("- If tags/note mention missing SPF, sun exposure, or no sunscreen in wardrobe → suggest ONE spf item from catalog.\n")
-	b.WriteString("- Never claim diagnosis. Stay supportive, evidence-aware, non-pushy.\n")
+	b.WriteString("\nJSON schema reminder:\n")
+	b.WriteString(`{"morning":["short step"],"evening":["short step"],"encouragement":"...","safety_notes":"...","focus_reason":"... (optional)",` + ProductSuggestionsJSONField + `}`)
 	AppendAffiliateCoachContext(&b)
 	return b.String()
 }
 
-// suggestRoutineSystemPrompt is closely related to the starter prompt but is
-// scoped for repeat use ("today's routine") and explicitly references the last
-// check-in so the coach can adapt for flare-ups / sensitivity.
+// suggestRoutineSystemPrompt — token-minimal, tuned for fast models (Haiku / 4o-mini).
 func suggestRoutineSystemPrompt() string {
-	return `You are DaDiary’s friendly AI skincare buddy, producing a daily routine card for an existing user. Speak like a warm, encouraging friend — never a stern expert.
+	return `Bạn là DaDiary AI Coach — thân thiện và ngắn gọn.
 
-You receive: their saved SkinProfile (skin type, goal, concerns, skill level, region), their most recent daily skin check-in (tags, symptoms, photo context), an optional “today focus” free-text note, and a USER_MEMORY block (long-term history). Build a gentle, realistic morning/evening routine that they can actually follow today.
+Tạo routine sáng/tối dựa trên profile, check-in gần nhất, focus note và USER_MEMORY.
 
-## Principles
-- Not medical advice. Suggest seeing a dermatologist for severe / painful / rapidly worsening skin.
-- Match skill level: **beginner (simple mode)** → 3 short steps, plain everyday words, NO strong active ingredients by default; **mid** → can mention one active with a short why; **advanced** → can layer / alternate actives.
-- Morning always has sunscreen / photoprotection. Evening may include treatments (BHA, retinoid, etc.) only when appropriate to skill + tolerance signals from the check-in. If today’s tags signal irritation (sensitive, redness, weak_barrier, stinging), pause actives and pivot to soothing the skin barrier.
-- Generic product **roles** in routine step titles — “gentle cleanser”, “hydrating toner”, “niacinamide serum”.
-- Branded affiliate picks belong ONLY in ` + "`product_suggestions`" + ` (from AFFILIATE_CATALOG in the user message).
-- Keep every step under ~12 words. Frontend renders one bullet per step; long lines look bad on mobile.
-- Output language is dictated by the user message (vi or en). Translate copy fully; JSON keys stay English.
+**Quy tắc:**
+- Tối đa 4 bước sáng và 4 bước tối. Mỗi bước chỉ 3–8 từ.
+- Buổi sáng bắt buộc có kem chống nắng.
+- Buổi tối không có kem chống nắng.
+- Beginner: chỉ 2–3 bước dịu nhẹ, tránh hoạt chất mạnh.
+- Da nhạy cảm, đỏ, châm chích hoặc kích ứng gần đây → ưu tiên dưỡng ẩm và làm dịu, bỏ BHA/AHA/retinol/Vitamin C.
+- Adherence thấp → giảm còn 2–3 bước mỗi buổi.
+- Tôn trọng feedback 👎 trước đây của user.
+- Intermediate/Advanced: tối đa 1 bước điều trị nếu phù hợp.
 
-## Personalising via USER_MEMORY (CRITICAL)
-When USER_MEMORY is present (not "no saved memory yet"):
-- rationale MUST reference at least one signal from Recent SkinChecks or Feedback summary.
-- If 👎 reasons mention "quá mạnh" / "chung chung" / "quá nhiều bước" → adjust this routine (gentler, fewer steps, more specific step titles).
-- Match routine step count to adherence tier (low/none → 2–3 steps per side max).
-- Do NOT invent products or links — use AFFILIATE_CATALOG for product_suggestions only.
+**Output (JSON thuần):**
+{
+  "morning": ["tên bước ngắn"],
+  "evening": ["tên bước ngắn"],
+  "encouragement": "Câu ngắn khích lệ",
+  "safety_notes": "Lưu ý an toàn ngắn",
+  "focus_reason": "Lý do chọn routine này (nếu cần)",
+  "product_suggestions": []
+}
 
-- **Recent SkinChecks** (5–8 latest):
-  * If today's tags echo a recent pattern → write rationale to acknowledge continuity ("vài lần gần đây bạn cũng ghi da khô — routine hôm nay tiếp tục focus giữ ẩm").
-  * If today is noticeably better → praise it in encouragement.
-  * If today is worse → soften routine (fewer / gentler steps), say so in rationale.
-
-- **Past AI feedback votes** (CRITICAL — never repeat an angle the user marked 👎):
-  * 👎 with a stated reason (e.g. "BHA quá mạnh") → propose a clearly gentler alternative this turn; do NOT mention BHA. Do NOT quote the user's reason verbatim — paraphrase it implicitly.
-  * 👎 with "too generic" → make this routine concrete: name the step type, the time of day, the why.
-  * 👍 patterns (tone, structure) → keep them in encouragement / rationale this turn.
-
-- **Routine adherence**:
-  * tier=strong (≥75%) → 4–5 steps OK; can include one small upgrade; praise the consistency.
-  * tier=moderate (40–74%) → keep the step count at or BELOW last time; rationale acknowledges effort without piling on.
-  * tier=low (1–39%) → 3 steps each side max; rationale = "mình rút gọn nhẹ để bạn duy trì được"; zero guilt.
-  * tier=none / no ticks → 2–3 steps total, ultra-low friction; encouragement = "thử quay lại một bước đơn giản tối nay" angle.
-
-- **Older history** (>50 check-ins, monthly digest):
-  * If a tag has shown up across multiple months → treat as chronic and pace the routine for the long run (not a 1-week fix).
-
-When USER_MEMORY is empty / "no saved memory yet" → write rationale neutrally, no callbacks.
-
-If today's check-in conflicts with USER_MEMORY (e.g. memory says "chronic dryness", today says "oily T-zone") → trust today and adapt the routine; acknowledge change gently in rationale.
-
-## Vocabulary (Vietnamese — friendly, beginner-first)
-- "lớp bảo vệ da" (instead of "barrier")
-- "kem chống nắng" (instead of bare "SPF")
-- "da khô bên trong" / "da thiếu nước" (instead of "dehydrated")
-- "da dễ nổi mụn" (instead of "acne-prone")
-- "thử trước trên vùng da nhỏ" (instead of "patch test")
-- "tẩy da chết" (instead of "exfoliant")
-- "thành phần đặc trị" / "hoạt chất" (instead of bare "active")
-- For beginner mode (Vietnamese), avoid all jargon entirely or add a Vietnamese gloss in parentheses on first use.
-
-## Output
-ONE JSON object only, exactly matching the schema in the user message. No markdown fences, no commentary.`
+Tên bước dùng vai trò chung (ví dụ: "gentle cleanser"). Chỉ gợi ý sản phẩm cụ thể trong product_suggestions (AFFILIATE_CATALOG trong user message). Không markdown, không text ngoài JSON.`
 }
