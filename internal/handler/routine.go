@@ -99,10 +99,8 @@ func (h *RoutineHandler) History(c *fiber.Ctx) error {
 
 // Suggest handles POST /api/v1/routines/suggest.
 //
-// Calls the AI to generate a fresh AM/PM routine for the user. We deliberately
-// keep this read-only (no DB write) so the user can preview, tweak, and then
-// explicitly save with POST /routines. Lots of users will reject the first
-// suggestion — persisting on every call would pollute history.
+// Enqueues an async AI job and returns { job_id, status: "processing" }.
+// Poll GET /routines/suggest/status?job_id=... for the result.
 func (h *RoutineHandler) Suggest(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "routine service unavailable")
@@ -112,17 +110,61 @@ func (h *RoutineHandler) Suggest(c *fiber.Ctx) error {
 		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
 	}
 	var body dto.SuggestRoutineRequest
-	// Body is optional — empty POST is a valid "use defaults from profile" call.
 	if c.Get("Content-Type") != "" && len(c.Body()) > 0 {
 		if err := c.BodyParser(&body); err != nil {
 			return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
 		}
 	}
-	res, err := h.svc.Suggest(c.UserContext(), uid, body)
+	res, err := h.svc.StartSuggestJob(c.UserContext(), uid, body)
 	if err != nil {
 		return mapRoutineError(c, err)
 	}
 	return response.JSON(c, fiber.StatusOK, res)
+}
+
+// SuggestStatus handles GET /api/v1/routines/suggest/status?job_id=...
+func (h *RoutineHandler) SuggestStatus(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "routine service unavailable")
+	}
+	uid := middleware.UserIDFromLocals(c)
+	if uid == uuid.Nil {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
+	}
+	jobID := strings.TrimSpace(c.Query("job_id"))
+	if jobID == "" {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_input", "job_id is required")
+	}
+	res, ok, err := h.svc.GetSuggestJobStatus(uid, jobID)
+	if err != nil {
+		return mapRoutineError(c, err)
+	}
+	if !ok {
+		return response.Error(c, fiber.StatusNotFound, "not_found", "suggest job not found or expired")
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
+// CancelSuggest handles DELETE /api/v1/routines/suggest?job_id=...
+func (h *RoutineHandler) CancelSuggest(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "routine service unavailable")
+	}
+	uid := middleware.UserIDFromLocals(c)
+	if uid == uuid.Nil {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
+	}
+	jobID := strings.TrimSpace(c.Query("job_id"))
+	if jobID == "" {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_input", "job_id is required")
+	}
+	if !h.svc.CancelSuggestJob(uid, jobID) {
+		return response.Error(c, fiber.StatusNotFound, "not_found", "suggest job not found or expired")
+	}
+	return response.JSON(c, fiber.StatusOK, fiber.Map{
+		"job_id": jobID,
+		"status": "cancelled",
+	})
 }
 
 func mapRoutineError(c *fiber.Ctx, err error) error {

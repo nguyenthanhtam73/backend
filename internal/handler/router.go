@@ -200,5 +200,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		api.Post("/routines", jwt, rh.Put)
 		api.Get("/routines/history", jwt, rh.History)
 		api.Post("/routines/suggest", jwt, routineSuggestLimit, rh.Suggest)
+		api.Get("/routines/suggest/status", jwt, rh.SuggestStatus)
+		api.Delete("/routines/suggest", jwt, rh.CancelSuggest)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -230,10 +231,10 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, rangeDays int) 
 	return out, nil
 }
 
-// Suggest calls the AI service to build a fresh routine. Profile is required
-// (the AI needs at least baseline skin info); a nil last check is OK.
-func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.SuggestRoutineRequest) (dto.SuggestRoutineResponse, error) {
-	var zero dto.SuggestRoutineResponse
+// StartSuggestJob validates quota, enqueues an async AI routine suggestion, and
+// returns immediately with a job id for polling.
+func (s *Service) StartSuggestJob(ctx context.Context, userID uuid.UUID, req dto.SuggestRoutineRequest) (dto.SuggestJobCreatedResponse, error) {
+	var zero dto.SuggestJobCreatedResponse
 	if s == nil || s.routines == nil {
 		return zero, fmt.Errorf("%w", ErrUnavailable)
 	}
@@ -244,6 +245,110 @@ func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.Suggest
 		if err := s.usage.AssertRoutineSuggest(ctx, userID); err != nil {
 			return zero, err
 		}
+	}
+
+	jobID := newSuggestJobID()
+	storeSuggestJob(jobID, userID, req)
+	slog.Info("routine suggest: enqueue generate", "job_id", jobID, "user_id", userID)
+	go s.runSuggestJob(jobID, userID, req)
+
+	return dto.SuggestJobCreatedResponse{
+		JobID:  jobID,
+		Status: "processing",
+	}, nil
+}
+
+// GetSuggestJobStatus returns the current state of an async suggest job.
+func (s *Service) GetSuggestJobStatus(userID uuid.UUID, jobID string) (dto.SuggestJobStatusResponse, bool, error) {
+	var zero dto.SuggestJobStatusResponse
+	if userID == uuid.Nil {
+		return zero, false, nil
+	}
+	job, ok := loadSuggestJob(jobID)
+	if !ok || job.userID != userID {
+		slog.Info("routine suggest: status miss", "job_id", jobID, "user_id", userID)
+		return zero, false, nil
+	}
+	out := dto.SuggestJobStatusResponse{
+		JobID:  jobID,
+		Status: job.status,
+	}
+	if job.status == "failed" {
+		out.Error = job.errMsg
+	}
+	if job.status == "completed" {
+		res := job.result
+		out.Suggestion = &res
+	}
+	return out, true, nil
+}
+
+// CancelSuggestJob marks a processing job as cancelled (best-effort).
+func (s *Service) CancelSuggestJob(userID uuid.UUID, jobID string) bool {
+	job, ok := loadSuggestJob(jobID)
+	if !ok || job.userID != userID {
+		slog.Info("routine suggest: cancel miss", "job_id", jobID, "user_id", userID)
+		return false
+	}
+	ok = cancelSuggestJob(jobID)
+	if ok {
+		slog.Info("routine suggest: cancel ok", "job_id", jobID, "user_id", userID)
+	}
+	return ok
+}
+
+func (s *Service) runSuggestJob(jobID string, userID uuid.UUID, req dto.SuggestRoutineRequest) {
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Minute)
+	defer cancel()
+
+	slog.Info("routine suggest: generate start", "job_id", jobID, "user_id", userID)
+	res, err := s.generateSuggestion(ctx, userID, req)
+	if err != nil {
+		reason := classifySuggestGenerateErr(err)
+		slog.Warn("routine suggest: generate failed",
+			"job_id", jobID,
+			"user_id", userID,
+			"reason", reason,
+			"err", err,
+		)
+		failSuggestJob(jobID, err.Error())
+		return
+	}
+	finishSuggestJob(jobID, res)
+}
+
+// classifySuggestGenerateErr maps AI/provider failures to stable log reasons.
+func classifySuggestGenerateErr(err error) string {
+	if err == nil {
+		return "none"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	if errors.Is(err, usageuc.ErrQuotaExceeded) {
+		return "quota_exceeded"
+	}
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "quota") || strings.Contains(lower, "rate limit") || strings.Contains(lower, "429") {
+		return "quota_or_rate_limit"
+	}
+	if strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline") {
+		return "timeout"
+	}
+	if strings.Contains(lower, "unavailable") || strings.Contains(lower, "503") {
+		return "provider_unavailable"
+	}
+	return "ai_provider_error"
+}
+
+// generateSuggestion calls the AI service to build a fresh routine.
+func (s *Service) generateSuggestion(ctx context.Context, userID uuid.UUID, req dto.SuggestRoutineRequest) (dto.SuggestRoutineResponse, error) {
+	var zero dto.SuggestRoutineResponse
+	if s == nil || s.routines == nil {
+		return zero, fmt.Errorf("%w", ErrUnavailable)
+	}
+	if userID == uuid.Nil {
+		return zero, fmt.Errorf("%w: user id required", ErrInvalidInput)
 	}
 
 	var profile *domain.SkinProfile
@@ -257,9 +362,6 @@ func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.Suggest
 	var lastCheck *domain.SkinCheck
 	var lastCheckID uuid.UUID
 	if s.skinCheck != nil {
-		// Pull the most recent check; ListRecentForCoach is designed for the
-		// coach loop and returns minimal columns, which is fine here — the AI
-		// only needs tags/symptoms/note for context.
 		recent, err := s.skinCheck.ListRecentForCoach(ctx, userID, uuid.Nil, 1)
 		if err == nil && len(recent) > 0 {
 			lastCheck = &recent[0]
@@ -267,14 +369,6 @@ func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.Suggest
 		}
 	}
 
-	// USER_MEMORY — full SkinProfile + 5-8 recent check-ins with prior AI
-	// summary lines + thumbs-up/down votes + routine adherence rate. We
-	// exclude the "last check" id so the model doesn't see it twice (it's
-	// already injected explicitly above as MOST_RECENT_CHECK_IN).
-	//
-	// Cache is intentionally NOT passed when ExcludeCheckID is set —
-	// caching by exclude variant would either be wrong or require keyed
-	// entries (see BuildUserMemoryContext docs).
 	memDeps := ai.UserMemoryDeps{
 		Profiles: s.profiles,
 		Checks:   s.skinCheck,
@@ -327,12 +421,20 @@ func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.Suggest
 		ClosingReminder:    res.ClosingReminder,
 		ProductSuggestions: res.ProductSuggestions,
 		SkillMode:          skillMode,
-		Locale:          strings.ToLower(strings.TrimSpace(req.Locale)),
-		Source:          "ai_suggested",
-		// Suggestion isn't persisted server-side, but the UI still needs a
-		// stable id for any thumbs-up/down votes attached to *this* draft.
-		FeedbackTargetID: uuid.New().String(),
+		Locale:             strings.ToLower(strings.TrimSpace(req.Locale)),
+		Source:             "ai_suggested",
+		FeedbackTargetID:   uuid.New().String(),
 	}, nil
+}
+
+// Suggest is kept for internal/tests; HTTP uses StartSuggestJob instead.
+func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.SuggestRoutineRequest) (dto.SuggestRoutineResponse, error) {
+	if s.usage != nil {
+		if err := s.usage.AssertRoutineSuggest(ctx, userID); err != nil {
+			return dto.SuggestRoutineResponse{}, err
+		}
+	}
+	return s.generateSuggestion(ctx, userID, req)
 }
 
 // seedFromStarter promotes the onboarding starter routine (stored in the

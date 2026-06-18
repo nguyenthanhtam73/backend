@@ -80,16 +80,16 @@ type SuggestRoutineRequest struct {
 // It does NOT persist anything — the user can preview the suggestion, tweak,
 // and then save via POST /routines.
 type SuggestRoutineResponse struct {
-	Morning         []RoutineStep `json:"morning"`
-	Evening         []RoutineStep `json:"evening"`
-	Encouragement   string        `json:"encouragement,omitempty"`
-	Rationale       string        `json:"rationale,omitempty"`
-	WeekNotes       string        `json:"week_notes,omitempty"`
-	SafetyNotes     string        `json:"safety_notes,omitempty"`
-	ClosingReminder string        `json:"closing_reminder,omitempty"`
-	ProductSuggestions []ProductSuggestion `json:"product_suggestions,omitempty"`
-	SkillMode       string        `json:"skill_mode,omitempty"`
-	Locale          string        `json:"locale,omitempty"`
+	Morning            []RoutineStep         `json:"morning"`
+	Evening            []RoutineStep         `json:"evening"`
+	Encouragement      string                `json:"encouragement,omitempty"`
+	Rationale          string                `json:"rationale,omitempty"`
+	WeekNotes          string                `json:"week_notes,omitempty"`
+	SafetyNotes        string                `json:"safety_notes,omitempty"`
+	ClosingReminder    string                `json:"closing_reminder,omitempty"`
+	ProductSuggestions []ProductSuggestion   `json:"product_suggestions,omitempty"`
+	SkillMode          string                `json:"skill_mode,omitempty"`
+	Locale             string                `json:"locale,omitempty"`
 	// Source is always "ai_suggested" — present so the UI can label the card.
 	Source string `json:"source"`
 	// FeedbackTargetID — fresh per-call UUID the frontend uses when posting
@@ -98,6 +98,20 @@ type SuggestRoutineResponse struct {
 	// not persisted server-side; this id only exists so feedback rows can
 	// be uniquely traced.
 	FeedbackTargetID string `json:"feedback_target_id,omitempty"`
+}
+
+// SuggestJobCreatedResponse is returned immediately by POST /routines/suggest.
+type SuggestJobCreatedResponse struct {
+	JobID  string `json:"job_id"`
+	Status string `json:"status"` // processing
+}
+
+// SuggestJobStatusResponse is returned by GET /routines/suggest/status.
+type SuggestJobStatusResponse struct {
+	JobID      string                  `json:"job_id"`
+	Status     string                  `json:"status"` // processing | completed | failed | cancelled
+	Error      string                  `json:"error,omitempty"`
+	Suggestion *SuggestRoutineResponse `json:"suggestion,omitempty"`
 }
 
 // RoutineHistoryResponse is the payload for GET /routines/history.
