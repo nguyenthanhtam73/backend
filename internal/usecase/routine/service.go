@@ -135,6 +135,21 @@ func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRouti
 		return zero, fmt.Errorf("%w: morning and evening cannot both be empty", ErrInvalidInput)
 	}
 
+	// Completed steps are immutable once saved — merge with the existing row so
+	// clients cannot rename, delete, reorder, or untick confirmed steps.
+	existing, err := s.routines.GetByUserAndDate(ctx, userID, day)
+	if err != nil {
+		return zero, err
+	}
+	if existing != nil {
+		prior := dto.RoutineFromDomain(existing, true)
+		morning = mergeStepsPreservingCompleted(prior.Morning, morning)
+		evening = mergeStepsPreservingCompleted(prior.Evening, evening)
+		if len(morning) == 0 && len(evening) == 0 {
+			return zero, fmt.Errorf("%w: morning and evening cannot both be empty", ErrInvalidInput)
+		}
+	}
+
 	if s.usage != nil && !usageuc.IsTickOnlySave(req.SaveKind) {
 		if err := s.usage.AssertRoutineManualEdit(ctx, userID); err != nil {
 			return zero, err
@@ -374,6 +389,42 @@ func convertStarterList(v any) []dto.RoutineStep {
 			ID:    uuid.New().String(),
 			Title: s,
 		})
+	}
+	return out
+}
+
+// mergeStepsPreservingCompleted keeps every step that was already ticked complete
+// in the DB snapshot. Clients may add new steps or edit/reorder incomplete ones,
+// but cannot modify, delete, or untick confirmed steps.
+func mergeStepsPreservingCompleted(existing, incoming []dto.RoutineStep) []dto.RoutineStep {
+	locked := make(map[string]dto.RoutineStep)
+	for _, s := range existing {
+		if s.Completed {
+			locked[s.ID] = s
+		}
+	}
+	if len(locked) == 0 {
+		return incoming
+	}
+
+	out := make([]dto.RoutineStep, 0, len(incoming)+len(locked))
+	seenLocked := make(map[string]bool)
+
+	for _, s := range incoming {
+		if ls, ok := locked[s.ID]; ok {
+			out = append(out, ls)
+			seenLocked[s.ID] = true
+			continue
+		}
+		out = append(out, s)
+	}
+
+	// Re-append locked steps the client tried to delete.
+	for _, s := range existing {
+		if !s.Completed || seenLocked[s.ID] {
+			continue
+		}
+		out = append(out, s)
 	}
 	return out
 }
