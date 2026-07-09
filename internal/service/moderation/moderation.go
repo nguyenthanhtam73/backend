@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/platform/imgprep"
 )
 
 // Service calls OpenAI moderation endpoints.
@@ -82,14 +83,11 @@ func imageModerationPart(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read image for moderation: %w", err)
 	}
-	head := data
-	if len(head) > 512 {
-		head = head[:512]
+	data, err = imgprep.LimitForVisionAPI(data)
+	if err != nil {
+		return nil, fmt.Errorf("prepare image for moderation: %w", err)
 	}
-	mime := http.DetectContentType(head)
-	if !strings.HasPrefix(mime, "image/") {
-		return nil, fmt.Errorf("file is not an image: %s", mime)
-	}
+	mime := "image/jpeg"
 	b64 := base64.StdEncoding.EncodeToString(data)
 	url := fmt.Sprintf("data:%s;base64,%s", mime, b64)
 	return map[string]any{

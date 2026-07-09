@@ -12,10 +12,12 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/google/uuid"
@@ -152,35 +154,48 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		}
 	}
 
-	// USER_MEMORY — long-term context (profile + last few check-ins with prior
-	// AI feedback + thumbs votes + routine adherence). Built lazily by the
-	// shared helper so future surfaces (weekly review, reminders) reuse the
-	// same wording. Excludes the current SkinCheck so the model doesn't see
-	// "today" twice.
-	//
-	// We deliberately omit `Cache` here: ExcludeCheckID is set, which
-	// disables caching anyway (each excluded-row variant has different
-	// output and shouldn't share a cache entry).
-	//
-	// We log the debug summary at Info level so prompt-loop diagnostics are
-	// trivially greppable (`grep "user_memory injected"` in stderr). The
-	// builder itself also slog.Debug's the same thing — Info here is a
-	// per-call breadcrumb tied to a specific SkinCheck.
-	memory, memDebug := ai.BuildUserMemoryWithDebug(
-		ctx,
-		o.UserID,
-		ai.UserMemoryDeps{
-			Profiles: s.profiles,
-			Checks:   s.checks,
-			Feedback: s.feedback,
-			Routines: s.routines,
-			Wardrobe: s.wardrobe,
-		},
-		ai.UserMemoryOptions{ExcludeCheckID: o.ID},
+	// USER_MEMORY and vision pass are independent — run them in parallel so
+	// wall time is max(memory DB, vision API) instead of their sum.
+	urls, urlErr := dto.DecodeStringSlice(o.ImageURLs)
+	if urlErr != nil || len(urls) == 0 {
+		return fmt.Errorf("analysis: no image paths")
+	}
+
+	var (
+		memory   string
+		memDebug ai.MemoryDebug
+		visionRaw string
+		visionStatus string
 	)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		memory, memDebug = ai.BuildUserMemoryWithDebug(
+			ctx,
+			o.UserID,
+			ai.UserMemoryDeps{
+				Profiles: s.profiles,
+				Checks:   s.checks,
+				Feedback: s.feedback,
+				Routines: s.routines,
+				Wardrobe: s.wardrobe,
+			},
+			ai.UserMemoryOptions{ExcludeCheckID: o.ID},
+		)
+	}()
+	go func() {
+		defer wg.Done()
+		visionRaw, visionStatus = ai.RunVisionObservationPassForCheck(
+			ctx, s.cfg, s.httpClient, uploadRoot, urls,
+		)
+	}()
+	wg.Wait()
 	ai.LogMemoryInjection("skin-check", o.UserID, o.ID, memDebug)
 
-	parsed, ver, err := ai.RunSkinCheckCoach(ctx, s.cfg, s.httpClient, uploadRoot, o, prof, memory)
+	parsed, ver, err := ai.RunSkinCheckCoachAfterVision(
+		ctx, s.cfg, s.httpClient, o, prof, memory, visionRaw, visionStatus,
+	)
 	if err != nil {
 		return s.failWithMessage(ctx, skinCheckID, err.Error())
 	}

@@ -39,24 +39,73 @@ func RunSkinCheckCoach(
 		httpClient = &http.Client{Timeout: defaultTextCoachHTTPTimeout}
 	}
 
+	visionRaw, visionStatus := runVisionObservationPass(ctx, cfg, httpClient, uploadRoot, urls)
+	return runSkinCheckCoachAfterVision(ctx, cfg, httpClient, check, profile, userMemory, visionRaw, visionStatus)
+}
+
+// RunSkinCheckCoachAfterVision runs the text-coach pass when vision output was
+// already computed (e.g. in parallel with BuildUserMemoryContext).
+func RunSkinCheckCoachAfterVision(
+	ctx context.Context,
+	cfg *config.Config,
+	httpClient *http.Client,
+	check *domain.SkinCheck,
+	profile *domain.SkinProfile,
+	userMemory, visionRaw, visionStatus string,
+) (out *CoachStructuredOutput, pipelineModelVersion string, err error) {
+	if cfg == nil || check == nil {
+		return nil, "", fmt.Errorf("ai: invalid input")
+	}
+	if !cfg.HasOpenAIKey() && !cfg.HasAnthropicKey() {
+		return nil, "", fmt.Errorf("ai: configure DADIARY_OPENAI_API_KEY (vision) and/or DADIARY_ANTHROPIC_API_KEY (coach)")
+	}
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: defaultTextCoachHTTPTimeout}
+	}
+
+	return runSkinCheckCoachAfterVision(ctx, cfg, httpClient, check, profile, userMemory, visionRaw, visionStatus)
+}
+
+// RunVisionObservationPassForCheck runs the vision-only pass for a saved check-in.
+func RunVisionObservationPassForCheck(
+	ctx context.Context,
+	cfg *config.Config,
+	httpClient *http.Client,
+	uploadRoot string,
+	urls []string,
+) (visionRaw, visionStatus string) {
+	return runVisionObservationPass(ctx, cfg, httpClient, uploadRoot, urls)
+}
+
+func runVisionObservationPass(
+	ctx context.Context,
+	cfg *config.Config,
+	httpClient *http.Client,
+	uploadRoot string,
+	urls []string,
+) (visionRaw, visionStatus string) {
+	visionStatus = "skipped"
+	if !cfg.HasOpenAIKey() {
+		return "", "no_openai_key"
+	}
+	raw, vErr := VisionObservationPass(ctx, cfg, httpClient, uploadRoot, urls)
+	if vErr != nil {
+		slog.Warn("skin-check: vision pass failed", "err", vErr)
+		return "", "unavailable"
+	}
+	return raw, "ok"
+}
+
+func runSkinCheckCoachAfterVision(
+	ctx context.Context,
+	cfg *config.Config,
+	httpClient *http.Client,
+	check *domain.SkinCheck,
+	profile *domain.SkinProfile,
+	userMemory, visionRaw, visionStatus string,
+) (out *CoachStructuredOutput, pipelineModelVersion string, err error) {
 	skill := ResolveCoachSkillLevel(check, profile)
 	system := GetCoachPrompt(skill)
-
-	visionRaw := ""
-	visionStatus := "skipped"
-	if cfg.HasOpenAIKey() {
-		var vErr error
-		visionRaw, vErr = VisionObservationPass(ctx, cfg, httpClient, uploadRoot, urls)
-		if vErr != nil {
-			visionRaw = ""
-			visionStatus = "unavailable"
-			slog.Warn("skin-check: vision pass failed", "err", vErr)
-		} else {
-			visionStatus = "ok"
-		}
-	} else {
-		visionStatus = "no_openai_key"
-	}
 
 	fullCtx := BuildDailyCheckInCoachContext(check, profile)
 	if s := strings.TrimSpace(userMemory); s != "" {

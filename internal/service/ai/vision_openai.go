@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/platform/imgprep"
 )
 
 // VisionObservationPass uses OpenAI vision to extract conservative JSON observations (pass 1 of 2).
@@ -37,14 +38,11 @@ func VisionObservationPass(ctx context.Context, cfg *config.Config, httpClient *
 		if err != nil {
 			return "", fmt.Errorf("read image %s: %w", rel, err)
 		}
-		head := data
-		if len(head) > 512 {
-			head = head[:512]
+		data, err = imgprep.LimitForVisionAPI(data)
+		if err != nil {
+			return "", fmt.Errorf("prepare image %s: %w", rel, err)
 		}
-		mime := http.DetectContentType(head)
-		if !strings.HasPrefix(mime, "image/") {
-			return "", fmt.Errorf("not an image file: %s", rel)
-		}
+		mime := "image/jpeg"
 		b64 := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
 		parts = append(parts, map[string]any{
 			"type": "image_url",
@@ -134,14 +132,11 @@ func GPTSinglePassSkinCoach(ctx context.Context, cfg *config.Config, httpClient 
 		if len(data) == 0 {
 			return "", fmt.Errorf("image %s is empty (0 bytes)", rel)
 		}
-		head := data
-		if len(head) > 512 {
-			head = head[:512]
+		data, err = imgprep.LimitForVisionAPI(data)
+		if err != nil {
+			return "", fmt.Errorf("prepare image %s: %w", rel, err)
 		}
-		mime := http.DetectContentType(head)
-		if !strings.HasPrefix(mime, "image/") {
-			return "", fmt.Errorf("file %s is not a valid image (mime=%s)", rel, mime)
-		}
+		mime := "image/jpeg"
 		b64 := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
 		parts = append(parts, map[string]any{
 			"type":      "image_url",
