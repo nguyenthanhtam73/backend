@@ -8,19 +8,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/platform/imgprep"
+	"github.com/dadiary/backend/internal/storage"
 )
 
 // VisionObservationPass uses OpenAI vision to extract conservative JSON observations (pass 1 of 2).
-func VisionObservationPass(ctx context.Context, cfg *config.Config, httpClient *http.Client, uploadRoot string, relativeImagePaths []string) (string, error) {
+func VisionObservationPass(ctx context.Context, cfg *config.Config, httpClient *http.Client, store storage.Storage, relativeImagePaths []string) (string, error) {
 	if cfg == nil || strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
 		return "", fmt.Errorf("openai vision: missing api key")
+	}
+	if store == nil {
+		return "", fmt.Errorf("openai vision: storage unavailable")
 	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 4 * time.Minute}
@@ -31,10 +33,8 @@ func VisionObservationPass(ctx context.Context, cfg *config.Config, httpClient *
 	parts := []map[string]any{
 		{"type": "text", "text": userText},
 	}
-	relBase := filepath.Clean(uploadRoot)
 	for _, rel := range relativeImagePaths {
-		abs := filepath.Join(relBase, filepath.FromSlash(rel))
-		data, err := os.ReadFile(abs)
+		data, err := store.Read(ctx, rel)
 		if err != nil {
 			return "", fmt.Errorf("read image %s: %w", rel, err)
 		}
@@ -103,9 +103,12 @@ func VisionObservationPass(ctx context.Context, cfg *config.Config, httpClient *
 
 // GPTSinglePassSkinCoach is the legacy multimodal path when Anthropic is not configured.
 // skillLevel selects Beginner vs Normal coach persona via GetCoachPrompt.
-func GPTSinglePassSkinCoach(ctx context.Context, cfg *config.Config, httpClient *http.Client, uploadRoot string, relativeImagePaths []string, userContextAndSchema string, skillLevel string) (string, error) {
+func GPTSinglePassSkinCoach(ctx context.Context, cfg *config.Config, httpClient *http.Client, store storage.Storage, relativeImagePaths []string, userContextAndSchema string, skillLevel string) (string, error) {
 	if cfg == nil || strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
 		return "", fmt.Errorf("openai: missing api key")
+	}
+	if store == nil {
+		return "", fmt.Errorf("openai: storage unavailable")
 	}
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 6 * time.Minute}
@@ -120,10 +123,8 @@ func GPTSinglePassSkinCoach(ctx context.Context, cfg *config.Config, httpClient 
 	parts := []map[string]any{
 		{"type": "text", "text": userContextAndSchema},
 	}
-	relBase := filepath.Clean(uploadRoot)
 	for _, rel := range relativeImagePaths {
-		abs := filepath.Join(relBase, filepath.FromSlash(rel))
-		data, err := os.ReadFile(abs)
+		data, err := store.Read(ctx, rel)
 		if err != nil {
 			return "", fmt.Errorf("read image %s: %w", rel, err)
 		}

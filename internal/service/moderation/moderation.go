@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -34,11 +32,13 @@ func New(cfg *config.Config) *Service {
 	}
 }
 
-// CheckSkinContent runs omni moderation on free-form text and each local image file.
+// CheckSkinContent runs omni moderation on free-form text and each image's raw bytes.
 //
 // OpenAI omni-moderation accepts at most one image per request, so we send text
 // alone (when present) and then one request per photo instead of batching images.
-func (s *Service) CheckSkinContent(ctx context.Context, text string, imagePaths []string) error {
+// Images are passed as in-memory bytes (already read during upload) so moderation
+// does not depend on where the file is ultimately stored (disk vs R2).
+func (s *Service) CheckSkinContent(ctx context.Context, text string, images [][]byte) error {
 	if s == nil || s.cfg == nil {
 		return fmt.Errorf("moderation: not configured")
 	}
@@ -50,7 +50,7 @@ func (s *Service) CheckSkinContent(ctx context.Context, text string, imagePaths 
 	}
 
 	combined := strings.TrimSpace(text)
-	if combined == "" && len(imagePaths) == 0 {
+	if combined == "" && len(images) == 0 {
 		return fmt.Errorf("nothing to moderate")
 	}
 
@@ -62,8 +62,8 @@ func (s *Service) CheckSkinContent(ctx context.Context, text string, imagePaths 
 		}
 	}
 
-	for _, p := range imagePaths {
-		part, err := imageModerationPart(p)
+	for _, data := range images {
+		part, err := imageModerationPart(data)
 		if err != nil {
 			return err
 		}
@@ -74,16 +74,8 @@ func (s *Service) CheckSkinContent(ctx context.Context, text string, imagePaths 
 	return nil
 }
 
-func imageModerationPart(path string) (map[string]any, error) {
-	abs, err := filepath.Abs(path)
-	if err != nil {
-		return nil, fmt.Errorf("moderation image path: %w", err)
-	}
-	data, err := os.ReadFile(abs)
-	if err != nil {
-		return nil, fmt.Errorf("read image for moderation: %w", err)
-	}
-	data, err = imgprep.LimitForVisionAPI(data)
+func imageModerationPart(data []byte) (map[string]any, error) {
+	data, err := imgprep.LimitForVisionAPI(data)
 	if err != nil {
 		return nil, fmt.Errorf("prepare image for moderation: %w", err)
 	}

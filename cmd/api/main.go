@@ -3,15 +3,17 @@ package main
 import (
 	"context"
 	"fmt"
+	"mime"
 	"os"
 	"os/signal"
-	"path/filepath"
+	"path"
 	"syscall"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/handler"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/token"
 	"github.com/gofiber/fiber/v2"
 )
@@ -48,15 +50,14 @@ func main() {
 
 	middleware.RegisterDefault(app)
 
-	if abs, err := filepath.Abs(cfg.Upload.Dir); err == nil {
-		if mkErr := os.MkdirAll(abs, 0o755); mkErr != nil {
-			fmt.Fprintf(os.Stderr, "upload dir: %v\n", mkErr)
-		} else {
-			app.Static("/uploads", abs)
-		}
+	store, err := storage.New(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "storage: %v\n", err)
+		os.Exit(1)
 	}
+	registerUploadServing(app, store)
 
-	handler.Router(app, cfg, db, tok)
+	handler.Router(app, cfg, db, tok, store)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -71,4 +72,32 @@ func main() {
 
 	<-ctx.Done()
 	_ = app.Shutdown()
+}
+
+// registerUploadServing exposes stored photos under the stable "/uploads/*" path.
+//
+//   - local driver: serve straight from disk (fast, unchanged dev behavior).
+//   - r2 driver:    proxy object bytes from R2 so the public URL shape and the
+//     stored DB paths never change (no presigned-URL TTLs leaking to the client).
+func registerUploadServing(app *fiber.App, store storage.Storage) {
+	if store.Driver() == "local" {
+		app.Static("/uploads", store.LocalDir())
+		return
+	}
+	app.Get("/uploads/*", func(c *fiber.Ctx) error {
+		key := c.Params("*")
+		if key == "" {
+			return fiber.ErrNotFound
+		}
+		data, err := store.Read(c.UserContext(), key)
+		if err != nil {
+			return fiber.ErrNotFound
+		}
+		if ct := mime.TypeByExtension(path.Ext(key)); ct != "" {
+			c.Set("Content-Type", ct)
+		}
+		// Photos are immutable once written (keys are UUIDs), so allow caching.
+		c.Set("Cache-Control", "private, max-age=3600")
+		return c.Send(data)
+	})
 }

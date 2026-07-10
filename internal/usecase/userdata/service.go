@@ -5,11 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
+	"github.com/dadiary/backend/internal/storage"
 	"github.com/google/uuid"
 )
 
@@ -20,18 +22,18 @@ var (
 
 // Service wipes diary data while keeping the auth account.
 type Service struct {
-	repo      *repository.UserDataRepository
-	uploadDir string
-	cache     *ai.MemoryCache
+	repo  *repository.UserDataRepository
+	store storage.Storage
+	cache *ai.MemoryCache
 }
 
 // NewService wires dependencies. cache may be nil.
 func NewService(
 	repo *repository.UserDataRepository,
-	uploadDir string,
+	store storage.Storage,
 	cache *ai.MemoryCache,
 ) *Service {
-	return &Service{repo: repo, uploadDir: uploadDir, cache: cache}
+	return &Service{repo: repo, store: store, cache: cache}
 }
 
 // DeleteAll removes personal skincare data for userID.
@@ -43,8 +45,16 @@ func (s *Service) DeleteAll(ctx context.Context, userID uuid.UUID) (dto.DeleteUs
 	if userID == uuid.Nil {
 		return zero, ErrInvalidUser
 	}
-	if err := s.repo.DeleteAllPersonalData(ctx, userID, s.uploadDir); err != nil {
+	if err := s.repo.DeleteAllPersonalData(ctx, userID); err != nil {
 		return zero, fmt.Errorf("delete user data: %w", err)
+	}
+	// Best-effort: remove the user's stored photos (disk or R2). A storage error
+	// must not block the DB wipe from being reported as successful, since the
+	// personal rows are already gone — just log for follow-up.
+	if s.store != nil {
+		if err := s.store.DeletePrefix(ctx, userID.String()+"/"); err != nil {
+			slog.Warn("user-data: delete stored photos failed", "user_id", userID, "err", err)
+		}
 	}
 	if s.cache != nil {
 		s.cache.Bust(userID)

@@ -20,6 +20,7 @@ type Config struct {
 	Database   DatabaseConfig   `mapstructure:"database"`
 	JWT        JWTConfig        `mapstructure:"jwt"`
 	Upload     UploadConfig     `mapstructure:"upload"`
+	Storage    StorageConfig    `mapstructure:"storage"`
 	OpenAI     OpenAIConfig     `mapstructure:"openai"`
 	Anthropic  AnthropicConfig  `mapstructure:"anthropic"`
 	Moderation ModerationConfig `mapstructure:"moderation"`
@@ -34,8 +35,29 @@ type TurnstileConfig struct {
 
 // UploadConfig controls local file storage for skin check-in photos.
 type UploadConfig struct {
-	Dir   string `mapstructure:"dir"`    // absolute or relative path for saved uploads
+	Dir   string `mapstructure:"dir"`    // absolute or relative path for saved uploads (local driver)
 	MaxMB int    `mapstructure:"max_mb"` // max size per file
+}
+
+// StorageConfig selects where uploaded photos are persisted.
+//
+// Driver is "local" (default; files under Upload.Dir) or "r2" (Cloudflare R2).
+// Regardless of driver, public image URLs stay "/uploads/<key>"; the API proxies
+// R2 bytes so the frontend and stored DB paths never change.
+type StorageConfig struct {
+	Driver string   `mapstructure:"driver"` // local | r2
+	R2     R2Config  `mapstructure:"r2"`
+}
+
+// R2Config holds Cloudflare R2 (S3-compatible) credentials and target bucket.
+type R2Config struct {
+	AccountID       string `mapstructure:"account_id"`
+	AccessKeyID     string `mapstructure:"access_key_id"`
+	SecretAccessKey string `mapstructure:"secret_access_key"`
+	Bucket          string `mapstructure:"bucket"`
+	// Endpoint optionally overrides the derived account endpoint
+	// (https://<account_id>.r2.cloudflarestorage.com).
+	Endpoint string `mapstructure:"endpoint"`
 }
 
 // OpenAIConfig holds API access for moderation, **vision** (skin photos), and optional legacy/fallback text calls.
@@ -112,6 +134,12 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("turnstile.secret_key", "DADIARY_TURNSTILE_SECRET_KEY")
 	_ = v.BindEnv("upload.dir", "DADIARY_UPLOAD_DIR")
 	_ = v.BindEnv("upload.max_mb", "DADIARY_UPLOAD_MAX_MB")
+	_ = v.BindEnv("storage.driver", "DADIARY_STORAGE_DRIVER")
+	_ = v.BindEnv("storage.r2.account_id", "DADIARY_R2_ACCOUNT_ID")
+	_ = v.BindEnv("storage.r2.access_key_id", "DADIARY_R2_ACCESS_KEY_ID")
+	_ = v.BindEnv("storage.r2.secret_access_key", "DADIARY_R2_SECRET_ACCESS_KEY")
+	_ = v.BindEnv("storage.r2.bucket", "DADIARY_R2_BUCKET")
+	_ = v.BindEnv("storage.r2.endpoint", "DADIARY_R2_ENDPOINT")
 
 	if err := v.ReadInConfig(); err != nil {
 		// Allow env-only mode if no yaml on disk
@@ -153,6 +181,9 @@ func Load(relativeEnvPath string) (*Config, error) {
 	}
 	if cfg.Upload.MaxMB == 0 {
 		cfg.Upload.MaxMB = 10
+	}
+	if strings.TrimSpace(cfg.Storage.Driver) == "" {
+		cfg.Storage.Driver = "local"
 	}
 	if strings.TrimSpace(cfg.OpenAI.Model) == "" {
 		cfg.OpenAI.Model = "gpt-4o"

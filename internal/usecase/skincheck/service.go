@@ -17,6 +17,7 @@ import (
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/analysis"
 	"github.com/dadiary/backend/internal/service/moderation"
+	"github.com/dadiary/backend/internal/storage"
 	"github.com/google/uuid"
 )
 
@@ -26,7 +27,16 @@ var (
 	ErrDatabase           = errors.New("database error")
 )
 
-// CreateInput is built by the HTTP layer after files are saved on disk.
+// UploadImage is one decoded, validated photo handed from the HTTP layer. Bytes
+// are kept in memory so moderation can run on them and the storage backend
+// (local disk or R2) can persist them after content passes checks.
+type UploadImage struct {
+	Rel         string // relative storage key, e.g. "<userID>/<uuid>.jpg"
+	Data        []byte
+	ContentType string
+}
+
+// CreateInput is built by the HTTP layer after files are decoded and validated.
 type CreateInput struct {
 	Title           string
 	UserNote        string
@@ -35,8 +45,7 @@ type CreateInput struct {
 	ClimateContext  json.RawMessage // optional JSON object from client (weather snapshot, etc.)
 	EnvironmentNote string
 	Visibility      domain.CheckVisibility
-	AbsImagePaths   []string
-	RelImagePaths   []string
+	Images          []UploadImage
 }
 
 // Service orchestrates skin checks and AI analysis jobs.
@@ -45,6 +54,7 @@ type Service struct {
 	checks   *repository.GormSkinCheckRepository
 	mod      *moderation.Service
 	analyzer *analysis.Service
+	store    storage.Storage
 }
 
 // NewService wires dependencies.
@@ -53,12 +63,14 @@ func NewService(
 	checks *repository.GormSkinCheckRepository,
 	mod *moderation.Service,
 	analyzer *analysis.Service,
+	store storage.Storage,
 ) *Service {
 	return &Service{
 		cfg:      cfg,
 		checks:   checks,
 		mod:      mod,
 		analyzer: analyzer,
+		store:    store,
 	}
 }
 
@@ -71,11 +83,11 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 	if userID == uuid.Nil {
 		return zero, fmt.Errorf("%w: user id required", ErrInvalidInput)
 	}
-	if len(in.RelImagePaths) == 0 || len(in.AbsImagePaths) == 0 {
+	if len(in.Images) == 0 {
 		return zero, fmt.Errorf("%w: at least one image required", ErrInvalidInput)
 	}
-	if len(in.RelImagePaths) != len(in.AbsImagePaths) {
-		return zero, fmt.Errorf("%w: image path mismatch", ErrInvalidInput)
+	if s.store == nil {
+		return zero, fmt.Errorf("%w: storage unavailable", ErrDatabase)
 	}
 
 	vis := in.Visibility
@@ -94,7 +106,11 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		if len(in.Symptoms) > 0 {
 			text += "\n" + strings.Join(in.Symptoms, " ")
 		}
-		if err := s.mod.CheckSkinContent(ctx, text, in.AbsImagePaths); err != nil {
+		imgBytes := make([][]byte, 0, len(in.Images))
+		for _, img := range in.Images {
+			imgBytes = append(imgBytes, img.Data)
+		}
+		if err := s.mod.CheckSkinContent(ctx, text, imgBytes); err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "moderation") ||
 				strings.Contains(strings.ToLower(err.Error()), "flagged") {
 				return zero, fmt.Errorf("%w: %v", ErrModerationRejected, err)
@@ -103,7 +119,17 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		}
 	}
 
-	imgJSON, err := json.Marshal(in.RelImagePaths)
+	// Persist bytes only after moderation passes, so rejected content never lands
+	// in storage. The relative key is what we store in the DB.
+	relPaths := make([]string, 0, len(in.Images))
+	for _, img := range in.Images {
+		if err := s.store.Save(ctx, img.Rel, img.Data, img.ContentType); err != nil {
+			return zero, fmt.Errorf("%w: save image: %v", ErrDatabase, err)
+		}
+		relPaths = append(relPaths, img.Rel)
+	}
+
+	imgJSON, err := json.Marshal(relPaths)
 	if err != nil {
 		return zero, err
 	}
@@ -150,11 +176,10 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		return zero, fmt.Errorf("%w: %v", ErrDatabase, err)
 	}
 
-	publicURLs := make([]string, 0, len(in.RelImagePaths))
-	for _, rel := range in.RelImagePaths {
-		slash := strings.ReplaceAll(rel, "\\", "/")
-		clean := strings.TrimLeft(path.Join("uploads", slash), "/")
-		publicURLs = append(publicURLs, "/"+clean)
+	publicURLs := make([]string, 0, len(relPaths))
+	for _, rel := range relPaths {
+		clean := storage.CleanKey(rel)
+		publicURLs = append(publicURLs, "/"+path.Join("uploads", clean))
 	}
 
 	if s.analyzer != nil {

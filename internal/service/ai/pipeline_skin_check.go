@@ -10,6 +10,7 @@ import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/storage"
 )
 
 // RunSkinCheckCoach runs hybrid coaching: GPT-4o vision (observations) → Claude Sonnet
@@ -20,7 +21,7 @@ func RunSkinCheckCoach(
 	ctx context.Context,
 	cfg *config.Config,
 	httpClient *http.Client,
-	uploadRoot string,
+	store storage.Storage,
 	check *domain.SkinCheck,
 	profile *domain.SkinProfile,
 	userMemory string,
@@ -39,7 +40,7 @@ func RunSkinCheckCoach(
 		httpClient = &http.Client{Timeout: defaultTextCoachHTTPTimeout}
 	}
 
-	visionRaw, visionStatus := runVisionObservationPass(ctx, cfg, httpClient, uploadRoot, urls)
+	visionRaw, visionStatus := runVisionObservationPass(ctx, cfg, httpClient, store, urls)
 	return runSkinCheckCoachAfterVision(ctx, cfg, httpClient, check, profile, userMemory, visionRaw, visionStatus)
 }
 
@@ -71,24 +72,24 @@ func RunVisionObservationPassForCheck(
 	ctx context.Context,
 	cfg *config.Config,
 	httpClient *http.Client,
-	uploadRoot string,
+	store storage.Storage,
 	urls []string,
 ) (visionRaw, visionStatus string) {
-	return runVisionObservationPass(ctx, cfg, httpClient, uploadRoot, urls)
+	return runVisionObservationPass(ctx, cfg, httpClient, store, urls)
 }
 
 func runVisionObservationPass(
 	ctx context.Context,
 	cfg *config.Config,
 	httpClient *http.Client,
-	uploadRoot string,
+	store storage.Storage,
 	urls []string,
 ) (visionRaw, visionStatus string) {
 	visionStatus = "skipped"
 	if !cfg.HasOpenAIKey() {
 		return "", "no_openai_key"
 	}
-	raw, vErr := VisionObservationPass(ctx, cfg, httpClient, uploadRoot, urls)
+	raw, vErr := VisionObservationPass(ctx, cfg, httpClient, store, urls)
 	if vErr != nil {
 		slog.Warn("skin-check: vision pass failed", "err", vErr)
 		return "", "unavailable"

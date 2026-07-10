@@ -4,11 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"mime/multipart"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/dadiary/backend/internal/config"
@@ -88,14 +85,7 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 		maxBytes = 10 * 1024 * 1024
 	}
 
-	uploadRoot := filepath.Clean(h.cfg.Upload.Dir)
-	if err := os.MkdirAll(filepath.Join(uploadRoot, userID.String()), 0o755); err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, "upload_dir", "could not prepare upload directory")
-	}
-
-	absPaths := make([]string, 0, len(files))
-	relPaths := make([]string, 0, len(files))
-
+	images := make([]skincheckuc.UploadImage, 0, len(files))
 	for _, fh := range files {
 		// Reject empty uploads explicitly. This commonly happens when users paste a
 		// "Copy as cURL" snippet from Chrome DevTools — Chrome strips binary file
@@ -111,24 +101,23 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 		if !ok {
 			return response.Error(c, fiber.StatusBadRequest, "invalid_image", "only jpeg, png, webp, gif are allowed")
 		}
-
-		id := uuid.New().String()
-		filename := id + ext
-		rel := pathJoinSlash(userID.String(), filename)
-		abs := filepath.Join(uploadRoot, userID.String(), filename)
-
-		if err := saveUploaded(fh, abs); err != nil {
-			return response.Error(c, fiber.StatusInternalServerError, "save_failed", "could not persist uploaded image")
+		data, rerr := readAllFromMultipartHeader(fh)
+		if rerr != nil {
+			return response.Error(c, fiber.StatusInternalServerError, "read_failed", "could not read uploaded image")
 		}
-		// Verify magic bytes after save. Filename extension can be lied about, but
+		// Verify magic bytes. Filename extension can be lied about, but
 		// `http.DetectContentType` reads the actual header — catches non-image bodies
 		// (e.g. a renamed .txt or a corrupt JPG) before the AI pipeline burns budget on it.
-		if err := verifyImageOnDisk(abs); err != nil {
-			_ = os.Remove(abs)
+		if err := verifyImageBytes(data); err != nil {
 			return response.Error(c, fiber.StatusBadRequest, "invalid_image", "uploaded file is not a recognizable image")
 		}
-		relPaths = append(relPaths, rel)
-		absPaths = append(absPaths, abs)
+
+		rel := pathJoinSlash(userID.String(), uuid.New().String()+ext)
+		images = append(images, skincheckuc.UploadImage{
+			Rel:         rel,
+			Data:        data,
+			ContentType: contentTypeForExt(ext),
+		})
 	}
 
 	if vis == domain.CheckVisibility("") {
@@ -143,8 +132,7 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 		ClimateContext:  climateJSON,
 		EnvironmentNote: envNote,
 		Visibility:      vis,
-		AbsImagePaths:   absPaths,
-		RelImagePaths:   relPaths,
+		Images:          images,
 	}
 
 	res, err := h.svc.Create(c.UserContext(), userID, in)
@@ -248,45 +236,40 @@ func extFromFile(fh *multipart.FileHeader) (string, bool) {
 	}
 }
 
-// verifyImageOnDisk reads up to the first 512 bytes of a freshly saved file and
-// checks that its sniffed MIME type starts with "image/". Returns an error if
-// the file is empty, unreadable, or clearly not an image — so we can delete it
-// before invoking the AI pipeline.
-func verifyImageOnDisk(abs string) error {
-	f, err := os.Open(abs)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	head := make([]byte, 512)
-	n, _ := f.Read(head)
-	if n == 0 {
+// verifyImageBytes checks that the sniffed MIME type of the raw upload starts
+// with "image/". Filename extensions can lie, but http.DetectContentType reads
+// the actual header — catching non-image bodies (a renamed .txt, a corrupt JPG)
+// before they reach storage or the AI pipeline.
+func verifyImageBytes(data []byte) error {
+	if len(data) == 0 {
 		return fmt.Errorf("file is empty")
 	}
-	mime := http.DetectContentType(head[:n])
+	head := data
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	mime := http.DetectContentType(head)
 	if !strings.HasPrefix(mime, "image/") {
 		return fmt.Errorf("not an image (mime=%s)", mime)
 	}
 	return nil
 }
 
-func saveUploaded(fh *multipart.FileHeader, abs string) error {
-	src, err := fh.Open()
-	if err != nil {
-		return err
+// contentTypeForExt maps a validated file extension to a stored content type so
+// proxied R2 objects serve with a correct MIME header.
+func contentTypeForExt(ext string) string {
+	switch strings.ToLower(ext) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".png":
+		return "image/png"
+	case ".webp":
+		return "image/webp"
+	case ".gif":
+		return "image/gif"
+	default:
+		return "application/octet-stream"
 	}
-	defer src.Close()
-
-	dst, err := os.Create(abs)
-	if err != nil {
-		return err
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, src); err != nil {
-		return err
-	}
-	return nil
 }
 
 // buildPublicImageURLs converts the JSON-stored relative paths back into the

@@ -20,6 +20,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
+	"github.com/dadiary/backend/internal/storage"
 	"github.com/google/uuid"
 )
 
@@ -54,6 +55,7 @@ type Service struct {
 	routines   *repository.GormRoutineEntryRepository
 	wardrobe   *repository.GormSkincareProductRepository
 	cache      *ai.MemoryCache
+	store      storage.Storage
 }
 
 // New constructs the analysis worker. profiles, feedback, routines, and
@@ -67,6 +69,7 @@ func New(
 	routines *repository.GormRoutineEntryRepository,
 	wardrobe *repository.GormSkincareProductRepository,
 	cache *ai.MemoryCache,
+	store storage.Storage,
 ) *Service {
 	return &Service{
 		cfg:      cfg,
@@ -76,6 +79,7 @@ func New(
 		routines: routines,
 		wardrobe: wardrobe,
 		cache:    cache,
+		store:    store,
 		httpClient: &http.Client{
 			Timeout: analysisHTTPTimeout,
 		},
@@ -145,7 +149,6 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		return err
 	}
 
-	uploadRoot := s.cfg.Upload.Dir
 	var prof *domain.SkinProfile
 	if s.profiles != nil {
 		p, perr := s.profiles.GetByUserID(ctx, o.UserID)
@@ -187,7 +190,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	go func() {
 		defer wg.Done()
 		visionRaw, visionStatus = ai.RunVisionObservationPassForCheck(
-			ctx, s.cfg, s.httpClient, uploadRoot, urls,
+			ctx, s.cfg, s.httpClient, s.store, urls,
 		)
 	}()
 	wg.Wait()

@@ -9,6 +9,7 @@ import (
 	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/dadiary/backend/internal/service/analysis"
 	"github.com/dadiary/backend/internal/service/moderation"
+	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/token"
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
@@ -52,7 +53,7 @@ const (
 )
 
 // Router wires API v1 routes: health (public), auth (mixed), skin-checks (protected).
-func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service) {
+func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service, store storage.Storage) {
 	api := app.Group("/api/v1")
 	NewHealthHandler(cfg).Register(api)
 
@@ -115,8 +116,8 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		usageH := NewMeUsageHandler(usageSvc)
 		api.Get("/me/usage", jwt, usageH.Get)
 		mod := moderation.New(cfg)
-		analyzer := analysis.New(cfg, repo, profRepo, fbRepo, routineRepo, wardRepo, memCache)
-		svc := skincheckuc.NewService(cfg, repo, mod, analyzer)
+		analyzer := analysis.New(cfg, repo, profRepo, fbRepo, routineRepo, wardRepo, memCache, store)
+		svc := skincheckuc.NewService(cfg, repo, mod, analyzer, store)
 		h := NewSkinCheckHandler(svc, repo, cfg)
 		api.Post("/skin-checks", jwt, skinCheckLimit, h.Create)
 		api.Get("/skin-checks/:id", jwt, h.Get)
@@ -132,7 +133,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		// starter routine prompt — keeping the new starter coherent with
 		// what the coach already knows about them.
 		profSvc := profileuc.NewService(cfg, profRepo, repo, fbRepo, routineRepo, wardRepo, memCache)
-		ph := NewProfileHandler(profSvc, cfg)
+		ph := NewProfileHandler(profSvc, cfg, store)
 		api.Get("/profile/skin", jwt, ph.GetSkin)
 		api.Put("/profile/skin", jwt, ph.PutSkin)
 		api.Post(
@@ -179,11 +180,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service)
 		api.Get("/me/memory", jwt, mh.Get)
 
 		userDataRepo := repository.NewUserDataRepository(db)
-		uploadDir := ""
-		if cfg != nil {
-			uploadDir = cfg.Upload.Dir
-		}
-		userDataSvc := userdatauc.NewService(userDataRepo, uploadDir, memCache)
+		userDataSvc := userdatauc.NewService(userDataRepo, store, memCache)
 		mdh := NewMeDataHandler(userDataSvc)
 		api.Delete("/me/data", jwt, mdh.Delete)
 

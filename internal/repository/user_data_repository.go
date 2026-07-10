@@ -3,9 +3,6 @@ package repository
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/google/uuid"
@@ -30,12 +27,11 @@ func (r *UserDataRepository) dbOrErr() (*gorm.DB, error) {
 }
 
 // DeleteAllPersonalData soft-deletes every user-owned row (GORM DeletedAt).
-// The account row is kept; only diary/profile/shelf data is removed.
-// When uploadDir is non-empty, the user's upload subdirectory is removed.
+// The account row is kept; only diary/profile/shelf data is removed. Stored
+// photo files are removed separately by the use case via the storage backend.
 func (r *UserDataRepository) DeleteAllPersonalData(
 	ctx context.Context,
 	userID uuid.UUID,
-	uploadDir string,
 ) error {
 	db, err := r.dbOrErr()
 	if err != nil {
@@ -45,7 +41,7 @@ func (r *UserDataRepository) DeleteAllPersonalData(
 		return fmt.Errorf("user id required")
 	}
 
-	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		subq := tx.Model(&domain.SkinCheck{}).
 			Select("id").
 			Where("user_id = ?", userID)
@@ -77,15 +73,4 @@ func (r *UserDataRepository) DeleteAllPersonalData(
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-
-	dir := strings.TrimSpace(uploadDir)
-	if dir == "" {
-		return nil
-	}
-	userDir := filepath.Join(filepath.Clean(dir), userID.String())
-	_ = os.RemoveAll(userDir)
-	return nil
 }

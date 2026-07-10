@@ -1,17 +1,17 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"mime/multipart"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
+	"github.com/dadiary/backend/internal/storage"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
@@ -22,13 +22,14 @@ const maxOnboardingPhotos = 3
 
 // ProfileHandler serves skin profile and onboarding endpoints.
 type ProfileHandler struct {
-	svc *profileuc.Service
-	cfg *config.Config
+	svc   *profileuc.Service
+	cfg   *config.Config
+	store storage.Storage
 }
 
 // NewProfileHandler constructs ProfileHandler.
-func NewProfileHandler(svc *profileuc.Service, cfg *config.Config) *ProfileHandler {
-	return &ProfileHandler{svc: svc, cfg: cfg}
+func NewProfileHandler(svc *profileuc.Service, cfg *config.Config, store storage.Storage) *ProfileHandler {
+	return &ProfileHandler{svc: svc, cfg: cfg, store: store}
 }
 
 // GetSkin handles GET /profile/skin.
@@ -97,7 +98,7 @@ func (h *ProfileHandler) CompleteOnboarding(c *fiber.Ctx) error {
 			return response.Error(c, fiber.StatusBadRequest, "invalid_json", "payload must be valid JSON")
 		}
 		if !body.PhotosSkipped && len(form.File["images"]) > 0 {
-			rels, uerr := h.saveOnboardingPhotos(uid, form.File["images"])
+			rels, uerr := h.saveOnboardingPhotos(c.UserContext(), uid, form.File["images"])
 			if uerr != nil {
 				return mapOnboardingUploadError(c, uerr)
 			}
@@ -116,8 +117,8 @@ func (h *ProfileHandler) CompleteOnboarding(c *fiber.Ctx) error {
 	return response.JSON(c, fiber.StatusOK, res)
 }
 
-func (h *ProfileHandler) saveOnboardingPhotos(userID uuid.UUID, files []*multipart.FileHeader) ([]string, error) {
-	if h == nil || h.cfg == nil {
+func (h *ProfileHandler) saveOnboardingPhotos(ctx context.Context, userID uuid.UUID, files []*multipart.FileHeader) ([]string, error) {
+	if h == nil || h.cfg == nil || h.store == nil {
 		return nil, errUploadUnavailable
 	}
 	if len(files) == 0 {
@@ -132,12 +133,6 @@ func (h *ProfileHandler) saveOnboardingPhotos(userID uuid.UUID, files []*multipa
 		maxBytes = 10 * 1024 * 1024
 	}
 
-	uploadRoot := filepath.Clean(h.cfg.Upload.Dir)
-	dir := filepath.Join(uploadRoot, userID.String(), "onboarding")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("%w: upload_dir", errUploadFailed)
-	}
-
 	rels := make([]string, 0, len(files))
 	for _, fh := range files {
 		if fh.Size <= 0 {
@@ -150,17 +145,18 @@ func (h *ProfileHandler) saveOnboardingPhotos(userID uuid.UUID, files []*multipa
 		if !ok {
 			return nil, fmt.Errorf("%w: invalid_image", errUploadInvalid)
 		}
+		data, rerr := readAllFromMultipartHeader(fh)
+		if rerr != nil {
+			return nil, fmt.Errorf("%w: read_failed", errUploadFailed)
+		}
+		if err := verifyImageBytes(data); err != nil {
+			return nil, fmt.Errorf("%w: invalid_image", errUploadInvalid)
+		}
 
 		filename := uuid.New().String() + ext
 		rel := pathJoinSlash(pathJoinSlash(userID.String(), "onboarding"), filename)
-		abs := filepath.Join(uploadRoot, userID.String(), "onboarding", filename)
-
-		if err := saveUploaded(fh, abs); err != nil {
+		if err := h.store.Save(ctx, rel, data, contentTypeForExt(ext)); err != nil {
 			return nil, fmt.Errorf("%w: save_failed", errUploadFailed)
-		}
-		if err := verifyImageOnDisk(abs); err != nil {
-			_ = os.Remove(abs)
-			return nil, fmt.Errorf("%w: invalid_image", errUploadInvalid)
 		}
 		rels = append(rels, rel)
 	}
