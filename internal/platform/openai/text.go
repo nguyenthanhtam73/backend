@@ -2,16 +2,15 @@
 package openai
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/platform/httpx"
 )
 
 var chatCompletionsURL = "https://api.openai.com/v1/chat/completions"
@@ -49,21 +48,16 @@ func ChatCompletionJSON(ctx context.Context, cfg *config.Config, httpClient *htt
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, chatCompletionsURL, bytes.NewReader(payload))
+	headers := map[string]string{
+		"Authorization": "Bearer " + cfg.OpenAI.APIKey,
+		"Content-Type":  "application/json",
+	}
+	// Retry transient failures (network, 429, 5xx) with backoff + jitter.
+	b, err := httpx.WithRetry(ctx, cfg.AI.Retry, "openai-chat", func(ctx context.Context) ([]byte, error) {
+		return httpx.PostJSON(ctx, httpClient, "openai chat", chatCompletionsURL, headers, payload)
+	})
 	if err != nil {
 		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+cfg.OpenAI.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("openai chat http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var parsed struct {
 		Choices []struct {

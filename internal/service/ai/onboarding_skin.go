@@ -1,12 +1,10 @@
 package ai
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -14,6 +12,7 @@ import (
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/platform/httpx"
 	"github.com/dadiary/backend/internal/platform/imgprep"
 )
 
@@ -137,21 +136,16 @@ func onboardingVisionPass(
 	if err != nil {
 		return nil, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(payload))
+	headers := map[string]string{
+		"Authorization": "Bearer " + cfg.OpenAI.APIKey,
+		"Content-Type":  "application/json",
+	}
+	// Images are prepared before this call; retry only the network round-trip.
+	b, err := CallAIWithRetry(ctx, cfg, "openai-onboarding-vision", func(ctx context.Context) ([]byte, error) {
+		return httpx.PostJSON(ctx, httpClient, "openai onboarding vision", "https://api.openai.com/v1/chat/completions", headers, payload)
+	})
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+cfg.OpenAI.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("openai onboarding vision http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var apiOut struct {
 		Choices []struct {

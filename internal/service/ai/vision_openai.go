@@ -1,17 +1,16 @@
 package ai
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/platform/httpx"
 	"github.com/dadiary/backend/internal/platform/imgprep"
 	"github.com/dadiary/backend/internal/storage"
 )
@@ -70,20 +69,16 @@ func VisionObservationPass(ctx context.Context, cfg *config.Config, httpClient *
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(payload))
+	headers := map[string]string{
+		"Authorization": "Bearer " + cfg.OpenAI.APIKey,
+		"Content-Type":  "application/json",
+	}
+	// Images are already read + resized above; retry only the HTTP round-trip.
+	b, err := CallAIWithRetry(ctx, cfg, "openai-vision", func(ctx context.Context) ([]byte, error) {
+		return httpx.PostJSON(ctx, httpClient, "openai vision", "https://api.openai.com/v1/chat/completions", headers, payload)
+	})
 	if err != nil {
 		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+cfg.OpenAI.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("openai vision http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var out struct {
 		Choices []struct {
@@ -154,20 +149,15 @@ func GPTSinglePassSkinCoach(ctx context.Context, cfg *config.Config, httpClient 
 		},
 	}
 	payload, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader(payload))
+	headers := map[string]string{
+		"Authorization": "Bearer " + cfg.OpenAI.APIKey,
+		"Content-Type":  "application/json",
+	}
+	b, err := CallAIWithRetry(ctx, cfg, "openai-coach", func(ctx context.Context) ([]byte, error) {
+		return httpx.PostJSON(ctx, httpClient, "openai coach", "https://api.openai.com/v1/chat/completions", headers, payload)
+	})
 	if err != nil {
 		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+cfg.OpenAI.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("openai coach http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var parsed struct {
 		Choices []struct {

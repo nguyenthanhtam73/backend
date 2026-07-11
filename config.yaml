@@ -24,6 +24,17 @@ openai:
   api_key: ""
   model: "gpt-4o"
 
+# AI reliability — retry transient provider failures (network errors, HTTP 429
+# rate limits, HTTP 5xx) with exponential backoff + jitter. Auth (401/403),
+# bad-request (400), quota-exhausted and moderation errors are never retried.
+# Override any field via DADIARY_AI_RETRY_* env vars (e.g. DADIARY_AI_RETRY_MAX_RETRIES).
+ai:
+  retry:
+    max_retries: 3          # retries AFTER the first attempt (3 => up to 4 tries)
+    initial_delay: 500ms    # base delay before the first retry
+    max_delay: 5s           # cap on the exponential backoff
+    backoff_multiplier: 2   # delay grows by this factor each retry
+
 # Set `skip: true` ONLY in local development without an OpenAI key. In
 # production keep moderation enabled — uploaded skin photos pass through
 # OpenAI moderations to filter unsafe content before LLM analysis.

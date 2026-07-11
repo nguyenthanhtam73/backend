@@ -2,17 +2,16 @@
 package moderation
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/platform/httpx"
 	"github.com/dadiary/backend/internal/platform/imgprep"
 )
 
@@ -104,21 +103,17 @@ func (s *Service) moderateInput(ctx context.Context, parts []map[string]any) err
 		return err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.openai.com/v1/moderations", bytes.NewReader(payload))
+	headers := map[string]string{
+		"Authorization": "Bearer " + s.cfg.OpenAI.APIKey,
+		"Content-Type":  "application/json",
+	}
+	// Retry transient failures (network, 429, 5xx). The flagged-content decision
+	// below runs only after a successful 2xx, so it is never retried.
+	respBody, err := httpx.WithRetry(ctx, s.cfg.AI.Retry, "openai-moderations", func(ctx context.Context) ([]byte, error) {
+		return httpx.PostJSON(ctx, s.httpClient, "openai moderations", "https://api.openai.com/v1/moderations", headers, payload)
+	})
 	if err != nil {
 		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+s.cfg.OpenAI.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("openai moderations request: %w", err)
-	}
-	defer resp.Body.Close()
-	respBody, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("openai moderations http %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
 	}
 
 	var parsed struct {

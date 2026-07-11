@@ -3,6 +3,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
+
+	"github.com/dadiary/backend/pkg/retry"
 )
 
 // Config is the root application configuration.
@@ -25,6 +28,14 @@ type Config struct {
 	Anthropic  AnthropicConfig  `mapstructure:"anthropic"`
 	Moderation ModerationConfig `mapstructure:"moderation"`
 	Turnstile  TurnstileConfig  `mapstructure:"turnstile"`
+	AI         AIConfig         `mapstructure:"ai"`
+}
+
+// AIConfig groups cross-cutting settings for outbound AI provider calls.
+type AIConfig struct {
+	// Retry controls exponential-backoff retries for transient AI failures
+	// (network errors, HTTP 429 rate limits, HTTP 5xx). See pkg/retry.
+	Retry retry.Config `mapstructure:"retry"`
 }
 
 // TurnstileConfig is Cloudflare Turnstile — used to reduce spam on POST /auth/register.
@@ -131,6 +142,10 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("anthropic.api_key", "DADIARY_ANTHROPIC_API_KEY")
 	_ = v.BindEnv("anthropic.model", "DADIARY_ANTHROPIC_MODEL")
 	_ = v.BindEnv("moderation.skip", "DADIARY_MODERATION_SKIP")
+	_ = v.BindEnv("ai.retry.max_retries", "DADIARY_AI_RETRY_MAX_RETRIES")
+	_ = v.BindEnv("ai.retry.initial_delay", "DADIARY_AI_RETRY_INITIAL_DELAY")
+	_ = v.BindEnv("ai.retry.max_delay", "DADIARY_AI_RETRY_MAX_DELAY")
+	_ = v.BindEnv("ai.retry.backoff_multiplier", "DADIARY_AI_RETRY_BACKOFF_MULTIPLIER")
 	_ = v.BindEnv("turnstile.secret_key", "DADIARY_TURNSTILE_SECRET_KEY")
 	_ = v.BindEnv("upload.dir", "DADIARY_UPLOAD_DIR")
 	_ = v.BindEnv("upload.max_mb", "DADIARY_UPLOAD_MAX_MB")
@@ -192,8 +207,59 @@ func Load(relativeEnvPath string) (*Config, error) {
 		// Default: Claude Sonnet 4.6 (current API). Override via DADIARY_ANTHROPIC_MODEL.
 		cfg.Anthropic.Model = "claude-sonnet-4-6"
 	}
+	// AI retry defaults (see pkg/retry). Zero-values mean "unset" → apply the
+	// recommended policy so retries are on by default without extra config.
+	if cfg.AI.Retry.MaxRetries <= 0 {
+		cfg.AI.Retry.MaxRetries = 3
+	}
+	if cfg.AI.Retry.InitialDelay <= 0 {
+		cfg.AI.Retry.InitialDelay = 500 * time.Millisecond
+	}
+	if cfg.AI.Retry.MaxDelay <= 0 {
+		cfg.AI.Retry.MaxDelay = 5 * time.Second
+	}
+	if cfg.AI.Retry.BackoffMultiplier <= 1 {
+		cfg.AI.Retry.BackoffMultiplier = 2
+	}
+
+	// Validate the *final* merged retry settings (YAML + env + defaults). This
+	// fails startup fast on incoherent combinations that defaults can't fix —
+	// most notably an explicit max_delay that is smaller than initial_delay.
+	if err := validateRetryConfig(cfg.AI.Retry); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
 
 	return &cfg, nil
+}
+
+// validateRetryConfig verifies the ai.retry block is internally consistent.
+//
+// Rules:
+//   - max_retries        > 0            (at least one attempt budget)
+//   - initial_delay      > 0            (a real base backoff)
+//   - max_delay          >= initial_delay (the cap can't be below the floor)
+//   - backoff_multiplier >= 1           (delay must not shrink between retries)
+//
+// All violations are collected and returned together via errors.Join so an
+// operator sees every problem at once instead of fixing them one restart at a
+// time. It works identically whether values came from config.yaml or the
+// DADIARY_AI_RETRY_* environment variables, since both feed the same struct.
+func validateRetryConfig(cfg retry.Config) error {
+	var errs []error
+	if cfg.MaxRetries <= 0 {
+		errs = append(errs, fmt.Errorf("ai.retry.max_retries must be greater than 0 (got %d)", cfg.MaxRetries))
+	}
+	if cfg.InitialDelay <= 0 {
+		errs = append(errs, fmt.Errorf("ai.retry.initial_delay must be greater than 0 (got %s)", cfg.InitialDelay))
+	}
+	if cfg.MaxDelay < cfg.InitialDelay {
+		errs = append(errs, fmt.Errorf("ai.retry.max_delay must be greater than or equal to initial_delay (max_delay=%s, initial_delay=%s)", cfg.MaxDelay, cfg.InitialDelay))
+	}
+	if cfg.BackoffMultiplier < 1 {
+		errs = append(errs, fmt.Errorf("ai.retry.backoff_multiplier must be greater than or equal to 1 (got %g)", cfg.BackoffMultiplier))
+	}
+	// errors.Join returns nil when errs is empty.
+	return errors.Join(errs...)
 }
 
 // AnthropicModel returns the configured Claude model with package default applied.

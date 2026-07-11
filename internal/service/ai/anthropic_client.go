@@ -1,16 +1,15 @@
 package ai
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/platform/httpx"
 )
 
 // anthropicMessagesURL is the Anthropic Messages API endpoint (overridable in tests).
@@ -46,22 +45,18 @@ func AnthropicMessages(ctx context.Context, cfg *config.Config, httpClient *http
 	if err != nil {
 		return "", err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, anthropicMessagesURL, bytes.NewReader(payload))
+	headers := map[string]string{
+		"x-api-key":         cfg.Anthropic.APIKey,
+		"anthropic-version": "2023-06-01",
+		"Content-Type":      "application/json",
+	}
+	// Retry transient failures (network, 429, 5xx) with backoff; the round-trip
+	// is the only thing retried, so the payload is built exactly once above.
+	b, err := CallAIWithRetry(ctx, cfg, "anthropic-messages", func(ctx context.Context) ([]byte, error) {
+		return httpx.PostJSON(ctx, httpClient, "anthropic messages", anthropicMessagesURL, headers, payload)
+	})
 	if err != nil {
 		return "", err
-	}
-	req.Header.Set("x-api-key", cfg.Anthropic.APIKey)
-	req.Header.Set("anthropic-version", "2023-06-01")
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("anthropic messages http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	var parsed struct {
 		Content []struct {
