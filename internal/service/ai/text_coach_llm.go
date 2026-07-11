@@ -54,7 +54,14 @@ func TextCoachCompletion(
 
 	var claudeErr error
 	if claudeKey != "" {
-		text, err := AnthropicMessages(ctx, cfg, httpClient, system, user)
+		// Guard Claude with its own circuit breaker: after a sustained Claude
+		// outage the breaker trips Open and this call returns instantly
+		// (ErrCircuitOpen) instead of hammering a struggling provider — we then
+		// fall through to the OpenAI fallback below. A fresh key with a healthy
+		// provider is unaffected (breaker stays Closed).
+		text, err := CallAIWithCircuitBreaker(ctx, "claude", func(ctx context.Context) (string, error) {
+			return AnthropicMessages(ctx, cfg, httpClient, system, user)
+		})
 		if err == nil && strings.TrimSpace(text) != "" {
 			res := TextCoachResult{
 				Text:     text,
@@ -81,7 +88,9 @@ func TextCoachCompletion(
 		if openAIKey == "" {
 			return TextCoachResult{}, fmt.Errorf("text coach (%s): claude failed and openai key missing: %w", pipeline, claudeErr)
 		}
-		text, oErr := openai.ChatCompletionJSON(ctx, cfg, httpClient, system, user)
+		text, oErr := CallAIWithCircuitBreaker(ctx, "openai", func(ctx context.Context) (string, error) {
+			return openai.ChatCompletionJSON(ctx, cfg, httpClient, system, user)
+		})
 		if oErr != nil {
 			return TextCoachResult{}, fmt.Errorf("text coach (%s): claude: %v; openai fallback: %w", pipeline, claudeErr, oErr)
 		}
@@ -99,7 +108,9 @@ func TextCoachCompletion(
 		return TextCoachResult{}, fmt.Errorf("text coach (%s): set DADIARY_ANTHROPIC_API_KEY or DADIARY_OPENAI_API_KEY", pipeline)
 	}
 
-	text, err := openai.ChatCompletionJSON(ctx, cfg, httpClient, system, user)
+	text, err := CallAIWithCircuitBreaker(ctx, "openai", func(ctx context.Context) (string, error) {
+		return openai.ChatCompletionJSON(ctx, cfg, httpClient, system, user)
+	})
 	if err != nil {
 		return TextCoachResult{}, fmt.Errorf("text coach (%s): openai: %w", pipeline, err)
 	}
