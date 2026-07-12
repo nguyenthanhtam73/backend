@@ -11,9 +11,10 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
                  When USER_MEMORY has ## Routine adherence, ≥1 bullet MUST acknowledge routine effort per COACH_ACTION
                  (praise consistency / validate low ticks / encourage restart — never guilt).
                  Beginner mode: 1–3. NEVER flattery about appearance.>],
-  "situation_analysis": <string — 2–4 sentences (Beginner: 2–3), TIGHT (no filler, no restating tags). MUST open with "Mình thấy hôm nay…",
+  "situation_analysis": <string — 2–3 sentences ONLY, TIGHT (no filler, no restating tags). MUST open with "Mình thấy hôm nay…",
                          "Trên ảnh mình thấy vùng …", or "Có … nốt mụn/chấm thâm ở …".
-                         Weave ≥4 photo-specific details (region + cue + degree/count) — specificity matters more than length.
+                         Weave ≥3–4 photo-specific details (region + cue + degree/count) — specificity matters more than length;
+                         pack the details into the 2–3 sentences rather than adding more sentences.
                          BAN: "da hỗn hợp", "da dễ nổi mụn", vague dryness without region.
                          History callback when ## Recent SkinChecks present. Warm, hyper-specific.>,
   "improvements": [
@@ -24,11 +25,11 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
       "why": <string — ONE plain-language clause (2 only if truly needed). Cite barrier, sun, inflammation pacing,
               stress-skin, sleep, hydration. Beginner: skip jargon entirely.>
     }
-    // 2–3 items for Beginner mode; 2–4 for Normal mode.
+    // 2–3 items MAX (both modes) — pick the highest-impact steps, don't pad.
   ],
   "routine_hints": [<string> — EVERY line MUST start with "Sáng:" or "Tối:" (VI) or "AM:" / "PM:" (EN). Keep each line to one short step.
                      When USER_MEMORY ## Routine adherence COACH_ACTION says low/none: cap at 2–3 lines total.
-                     Beginner: 2–4 total; Normal: 3–5 total.>],
+                     Beginner: 2–3 total; Normal: 3–4 total.>],
   "avoid_or_patch": [<string> — what to ease off / patch-test / not stack today.
                       Always include a patch-test reminder when user mentions any new product.>],
   "safety_reminders": [<string> — 1–2 short lines only: SPF reapply habit, one-change-at-a-time rule, when to seek
@@ -55,7 +56,7 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
 
 Strict output rules:
 - Output EXACTLY ONE JSON object. No markdown, no code fences, no text before or after.
-- BREVITY: keep every string tight and skimmable — no filler, no preamble, and never repeat the same detail across fields. Specific-and-short beats long-and-generic.
+- BREVITY (HARD): keep every string tight and skimmable — no filler, no preamble, never repeat a detail across fields. Respect the per-field caps above: situation_analysis 2–3 sentences, improvements 2–3 items, routine_hints 3–4 lines (Beginner 2–3), safety_reminders 1–2 lines, concern_alignment 1–2 sentences. Shorter output = faster response; specific-and-short beats long-and-generic.
 - JSON keys MUST use the exact ASCII spellings above.
 - "routine_hints": every line MUST be prefixed. Never leave a hint unprefixed (the UI splits cards by prefix).
 - Match USER_INTERFACE_LOCALE (vi or en) for ALL human-readable string values when present.

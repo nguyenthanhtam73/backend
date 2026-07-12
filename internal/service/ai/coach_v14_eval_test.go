@@ -13,7 +13,7 @@ func TestCoachPrompt_v21_BucaToneRules(t *testing.T) {
 			mustContain(t, p, "xéo xắt")
 			mustContain(t, p, "da hỗn hợp")
 			mustContain(t, p, "da dễ nổi mụn")
-			mustContain(t, p, "≥4–5 chi tiết cụ thể")
+			mustContain(t, p, "≥3–4 chi tiết cụ thể")
 			mustContain(t, p, "Mày thấy hôm nay")
 			mustContain(t, p, "Có … nốt mụn")
 			mustContain(t, p, "sản phẩm nhẹ nhàng")
@@ -25,10 +25,19 @@ func TestCoachPrompt_v21_BucaToneRules(t *testing.T) {
 	}
 }
 
-func TestCoachPromptVersion_v21(t *testing.T) {
-	if CoachDailyPromptVersion != 21 {
-		t.Fatalf("expected CoachDailyPromptVersion == 21, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v22(t *testing.T) {
+	if CoachDailyPromptVersion != 22 {
+		t.Fatalf("expected CoachDailyPromptVersion == 22, got %d", CoachDailyPromptVersion)
 	}
+}
+
+// TestCoachPrompt_v22_BrevityRules pins the tightened output limits so a future
+// prompt tweak can't silently undo the latency-driven brevity constraints.
+func TestCoachPrompt_v22_BrevityRules(t *testing.T) {
+	p := GetCoachPrompt("intermediate")
+	mustContain(t, p, "BREVITY")
+	mustContain(t, p, "improvements 2–3")
+	mustContain(t, p, "routine_hints 3–4")
 }
 
 func TestMaxCoachValidationRetries_v20(t *testing.T) {

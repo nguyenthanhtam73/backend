@@ -48,7 +48,7 @@ func TestCoachPrompt_v11_MemoryBindingRules(t *testing.T) {
 	mustContain(t, p, "COACH_ACTION")
 	mustContain(t, p, "Routine adherence")
 	mustContain(t, p, "COACH_ACTION")
-	mustContain(t, p, "≥4–5 chi tiết cụ thể")
+	mustContain(t, p, "≥3–4 chi tiết cụ thể")
 	mustContain(t, p, "So với lần trước")
 }
 

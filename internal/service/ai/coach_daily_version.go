@@ -37,4 +37,10 @@ package ai
 //
 // v21 (2026-06-02) — Bựa bựa best-friend tone: xéo xắt nhẹ, troll vui, vẫn ≥4 chi tiết ảnh,
 // history callback, khích lệ; beginner dịu bớt. Schema unchanged.
-const CoachDailyPromptVersion = 21
+//
+// v22 (2026-07-12) — Latency push: shorter coach output to cut generation time
+// (pairs with the Claude Haiku 4.5 default). situation_analysis 2–3 sentences,
+// improvements 2–3 items, routine_hints 3–4 lines, reinforced BREVITY rule; vision
+// floor relaxed to ≥3–4 photo details (specificity over length). JSON schema shape
+// unchanged — only per-field length guidance tightened.
+const CoachDailyPromptVersion = 22

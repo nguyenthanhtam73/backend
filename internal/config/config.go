@@ -57,7 +57,7 @@ type UploadConfig struct {
 // R2 bytes so the frontend and stored DB paths never change.
 type StorageConfig struct {
 	Driver string   `mapstructure:"driver"` // local | r2
-	R2     R2Config  `mapstructure:"r2"`
+	R2     R2Config `mapstructure:"r2"`
 }
 
 // R2Config holds Cloudflare R2 (S3-compatible) credentials and target bucket.
@@ -88,13 +88,16 @@ type AnthropicConfig struct {
 	// Model — recommended Sonnet IDs (override via DADIARY_ANTHROPIC_MODEL):
 	//   claude-sonnet-4-6 (default), claude-sonnet-4-20250514, claude-3-5-sonnet-20241022 (may 404 on some keys)
 	Model string `mapstructure:"model"`
-	// FastModel is an OPTIONAL faster/cheaper model for the text-coach pass
-	// (override via DADIARY_ANTHROPIC_FAST_MODEL, e.g. "claude-3-5-haiku-latest").
-	// When set it REPLACES Model for coaching calls — a deliberate speed/cost lever:
-	// Haiku streams ~2x faster and is much cheaper, at the cost of some nuance in the
-	// warm, hyper-specific Vietnamese tone. Leave empty to keep the higher-quality
-	// Sonnet default. Flip it on/off per environment without any code change so the
-	// same build can be A/B'd against the live coach eval before committing to it.
+	// FastModel is the faster/cheaper model for the text-coach pass, set via
+	// DADIARY_ANTHROPIC_FAST_MODEL. As of the latency push it is the OPERATIONAL
+	// DEFAULT for coaching: the deployed .env ships "claude-haiku-4-5" (Claude
+	// Haiku 4.5 — the accessible fast Haiku; classic claude-3-5-haiku-* 404s on our
+	// current key). When set it REPLACES Model for coaching calls ONLY (vision stays
+	// on OpenAI) — a deliberate speed/cost lever: Haiku is ~2x faster + much cheaper
+	// than Sonnet, at the cost of some nuance in the warm, hyper-specific VN tone.
+	// To revert the coach to Sonnet quality, delete/unset the env var: the resolver
+	// (AnthropicCoachModel) then falls back to the Sonnet Model. Flip it on/off per
+	// environment without any code change so the same build can be A/B'd live.
 	FastModel string `mapstructure:"fast_model"`
 }
 
@@ -149,6 +152,11 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("openai.vision_model", "DADIARY_OPENAI_VISION_MODEL")
 	_ = v.BindEnv("anthropic.api_key", "DADIARY_ANTHROPIC_API_KEY")
 	_ = v.BindEnv("anthropic.model", "DADIARY_ANTHROPIC_MODEL")
+	// Explicitly bind the coach fast-model toggle so it is picked up reliably even
+	// when it is absent from the config file (AutomaticEnv alone is unreliable for
+	// nested keys with no default). This env var is the operational default for the
+	// coach model (Haiku) — see AnthropicCoachModel / AnthropicConfig.FastModel.
+	_ = v.BindEnv("anthropic.fast_model", "DADIARY_ANTHROPIC_FAST_MODEL")
 	_ = v.BindEnv("moderation.skip", "DADIARY_MODERATION_SKIP")
 	_ = v.BindEnv("ai.retry.max_retries", "DADIARY_AI_RETRY_MAX_RETRIES")
 	_ = v.BindEnv("ai.retry.initial_delay", "DADIARY_AI_RETRY_INITIAL_DELAY")
@@ -282,10 +290,12 @@ func (c *Config) AnthropicModel() string {
 }
 
 // AnthropicCoachModel returns the model to use for the Claude text-coach pass.
-// It prefers Anthropic.FastModel when configured (opt-in speed/cost lever) and
-// otherwise falls back to the standard AnthropicModel (Sonnet). Every coach call
-// and its logging should resolve the model through this so logs report the model
-// that actually ran.
+// It prefers Anthropic.FastModel — which is the operational default today
+// (DADIARY_ANTHROPIC_FAST_MODEL=claude-3-5-haiku-latest, our latency lever) — and
+// falls back to the standard AnthropicModel (Sonnet) only when FastModel is unset,
+// which is how an operator reverts the coach to Sonnet quality. Every coach call
+// and its logging resolves the model through this so logs report the model that
+// actually ran (Haiku vs Sonnet vs override).
 func (c *Config) AnthropicCoachModel() string {
 	if c != nil {
 		if m := strings.TrimSpace(c.Anthropic.FastModel); m != "" {

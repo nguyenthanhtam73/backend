@@ -21,11 +21,12 @@ const defaultTextCoachHTTPTimeout = 4 * time.Minute
 //   - Claude first (richest tone) — generous enough for a full JSON generation.
 //   - OpenAI fallback gets its own fresh budget so a slow Claude doesn't starve it.
 //
-// Claude is capped at 60s (was 75s): with brevity constraints a healthy coach
-// generation finishes in ~20–35s, so 60s still covers a slow-but-working call
-// while trimming the worst case we wait before failing over to the faster OpenAI
-// path. This is the main knob to trade "wait longer for Claude" vs "fail over
-// sooner" — lower it further to prioritise latency over tone consistency.
+// Claude is capped at 60s (was 75s): with brevity constraints + the Haiku default
+// a healthy coach generation now finishes in ~10–25s (Sonnet was ~20–35s), so 60s
+// still comfortably covers a slow-but-working call while trimming the worst case we
+// wait before failing over to the faster OpenAI path. This is the main knob to
+// trade "wait longer for Claude" vs "fail over sooner" — lower it further to
+// prioritise latency over tone consistency.
 const (
 	claudeCoachTimeout = 60 * time.Second
 	openaiCoachTimeout = 45 * time.Second
@@ -47,9 +48,12 @@ type TextCoachResult struct {
 	Fallback bool // true when OpenAI was used after Claude failed
 }
 
-// TextCoachCompletion runs hybrid text coaching: Claude Sonnet first, GPT-4o on
-// missing Anthropic key or Claude error. Vision pipelines should call this for
-// the coach JSON pass — never for photo analysis.
+// TextCoachCompletion runs hybrid text coaching: Claude first (Haiku by default
+// via DADIARY_ANTHROPIC_FAST_MODEL, Sonnet when that toggle is unset), GPT-4o on
+// missing Anthropic key or Claude error. The provider/model actually used is
+// resolved through cfg.AnthropicCoachModel() so the failover works identically
+// regardless of which Claude model is active. Vision pipelines should call this
+// for the coach JSON pass — never for photo analysis.
 func TextCoachCompletion(
 	ctx context.Context,
 	cfg *config.Config,
@@ -77,9 +81,11 @@ func TextCoachCompletion(
 		// fall through to the OpenAI fallback below. A fresh key with a healthy
 		// provider is unaffected (breaker stays Closed).
 		claudeCtx, cancelClaude := context.WithTimeout(ctx, claudeCoachTimeout)
+		claudeStart := time.Now()
 		text, err := CallAIWithCircuitBreaker(claudeCtx, "claude", func(ctx context.Context) (string, error) {
 			return AnthropicMessages(ctx, cfg, httpClient, system, user)
 		})
+		claudeElapsed := time.Since(claudeStart)
 		cancelClaude()
 		if err == nil && strings.TrimSpace(text) != "" {
 			res := TextCoachResult{
@@ -87,7 +93,7 @@ func TextCoachCompletion(
 				Provider: TextCoachProviderClaude,
 				Model:    cfg.AnthropicCoachModel(),
 			}
-			logTextCoachSelection(pipeline, res, nil)
+			logTextCoachSelection(pipeline, res, nil, claudeElapsed)
 			return res, nil
 		}
 		claudeErr = err
@@ -108,9 +114,11 @@ func TextCoachCompletion(
 			return TextCoachResult{}, fmt.Errorf("text coach (%s): claude failed and openai key missing: %w", pipeline, claudeErr)
 		}
 		oaiCtx, cancelOAI := context.WithTimeout(ctx, openaiCoachTimeout)
+		oaiStart := time.Now()
 		text, oErr := CallAIWithCircuitBreaker(oaiCtx, "openai", func(ctx context.Context) (string, error) {
 			return openai.ChatCompletionJSON(ctx, cfg, httpClient, system, user)
 		})
+		oaiElapsed := time.Since(oaiStart)
 		cancelOAI()
 		if oErr != nil {
 			return TextCoachResult{}, fmt.Errorf("text coach (%s): claude: %v; openai fallback: %w", pipeline, claudeErr, oErr)
@@ -121,7 +129,7 @@ func TextCoachCompletion(
 			Model:    cfg.OpenAITextModel(),
 			Fallback: true,
 		}
-		logTextCoachSelection(pipeline, res, claudeErr)
+		logTextCoachSelection(pipeline, res, claudeErr, oaiElapsed)
 		return res, nil
 	}
 
@@ -130,9 +138,11 @@ func TextCoachCompletion(
 	}
 
 	oaiCtx, cancelOAI := context.WithTimeout(ctx, openaiCoachTimeout)
+	oaiStart := time.Now()
 	text, err := CallAIWithCircuitBreaker(oaiCtx, "openai", func(ctx context.Context) (string, error) {
 		return openai.ChatCompletionJSON(ctx, cfg, httpClient, system, user)
 	})
+	oaiElapsed := time.Since(oaiStart)
 	cancelOAI()
 	if err != nil {
 		return TextCoachResult{}, fmt.Errorf("text coach (%s): openai: %w", pipeline, err)
@@ -142,7 +152,7 @@ func TextCoachCompletion(
 		Provider: TextCoachProviderOpenAI,
 		Model:    cfg.OpenAITextModel(),
 	}
-	logTextCoachSelection(pipeline, res, nil)
+	logTextCoachSelection(pipeline, res, nil, oaiElapsed)
 	return res, nil
 }
 
