@@ -42,7 +42,11 @@ func coachTurnChecklist(userContext string, hasVision bool) string {
 	if hasVision || strings.Contains(userContext, "## Recent SkinChecks") {
 		b.WriteString("- EMOTION: warm sincere praise OR playful tease + gentle closing — never cold/clinical.\n")
 		b.WriteString("- TIPS: concrete step+region+role — NOT vague product advice.\n")
-		b.WriteString("- Self-check: ≥4 vision specifics · zero banned phrases · validation will retry up to 2× if vague.\n")
+		if MaxCoachValidationRetries > 0 {
+			b.WriteString(fmt.Sprintf("- Self-check: ≥4 vision specifics · zero banned phrases · validation will retry up to %d× if vague.\n", MaxCoachValidationRetries))
+		} else {
+			b.WriteString("- Self-check BEFORE output (no second chance): ≥4 vision specifics · zero banned phrases · concrete tips.\n")
+		}
 	}
 	if strings.Contains(userContext, "## Routine adherence") {
 		b.WriteString("- strengths OR summary_notes: MUST mention routine adherence per COACH_ACTION (praise / simplify / encourage — no guilt).\n")

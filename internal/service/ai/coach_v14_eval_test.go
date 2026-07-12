@@ -32,8 +32,8 @@ func TestCoachPromptVersion_v21(t *testing.T) {
 }
 
 func TestMaxCoachValidationRetries_v20(t *testing.T) {
-	if MaxCoachValidationRetries != 2 {
-		t.Fatalf("expected MaxCoachValidationRetries == 2, got %d", MaxCoachValidationRetries)
+	if MaxCoachValidationRetries != 0 {
+		t.Fatalf("expected MaxCoachValidationRetries == 0, got %d", MaxCoachValidationRetries)
 	}
 }
 
@@ -115,7 +115,9 @@ func TestCoachTurnChecklist_Vision(t *testing.T) {
 	got := coachTurnChecklist("USER_MEMORY\n(no saved memory yet)", true)
 	mustContain(t, got, "≥4–5 photo details")
 	mustContain(t, got, "da hỗn hợp")
-	mustContain(t, got, "retry up to 2")
+	// With MaxCoachValidationRetries == 0 the coach's first output is final, so the
+	// checklist tells the model there is no second chance instead of promising retries.
+	mustContain(t, got, "no second chance")
 }
 
 func TestUserPhotoCoachScenarios_Fixtures(t *testing.T) {
@@ -159,7 +161,9 @@ func TestNeedsCoachOutputRetry(t *testing.T) {
 
 func TestCoachOutputRetryPrompt(t *testing.T) {
 	got := coachOutputRetryPrompt(`{"visible_observations":["x"]}`, "## Recent SkinChecks\nfoo", 1)
-	mustContain(t, got, "attempt 1/2")
+	// The "/N" total tracks MaxCoachValidationRetries (now 0), so assert only the
+	// stable attempt prefix rather than a hard-coded total.
+	mustContain(t, got, "attempt 1/")
 	mustContain(t, got, "da hỗn hợp")
 	mustContain(t, got, "So với lần trước")
 }

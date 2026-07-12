@@ -110,7 +110,15 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		for _, img := range in.Images {
 			imgBytes = append(imgBytes, img.Data)
 		}
-		if err := s.mod.CheckSkinContent(ctx, text, imgBytes); err != nil {
+		modStart := time.Now()
+		modErr := s.mod.CheckSkinContent(ctx, text, imgBytes)
+		slog.Info("skin-check: moderation done",
+			"user_id", userID,
+			"images", len(imgBytes),
+			"duration_ms", time.Since(modStart).Milliseconds(),
+			"rejected", modErr != nil,
+		)
+		if err := modErr; err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "moderation") ||
 				strings.Contains(strings.ToLower(err.Error()), "flagged") {
 				return zero, fmt.Errorf("%w: %v", ErrModerationRejected, err)

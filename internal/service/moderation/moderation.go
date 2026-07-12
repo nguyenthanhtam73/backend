@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
@@ -37,6 +38,12 @@ func New(cfg *config.Config) *Service {
 // alone (when present) and then one request per photo instead of batching images.
 // Images are passed as in-memory bytes (already read during upload) so moderation
 // does not depend on where the file is ultimately stored (disk vs R2).
+//
+// The individual moderation calls (text + one per photo) are independent, so they
+// run concurrently: this call blocks the POST /skin-checks response before the
+// client can even show progress, so wall time is the slowest single request
+// instead of the sum of all of them. The first flagged/errored input cancels the
+// rest via ctx so we don't keep paying for calls whose result we'll discard.
 func (s *Service) CheckSkinContent(ctx context.Context, text string, images [][]byte) error {
 	if s == nil || s.cfg == nil {
 		return fmt.Errorf("moderation: not configured")
@@ -53,24 +60,49 @@ func (s *Service) CheckSkinContent(ctx context.Context, text string, images [][]
 		return fmt.Errorf("nothing to moderate")
 	}
 
+	// Build one moderation part per independent input (text + each photo). Image
+	// prep (decode/resize) is CPU-bound and cheap relative to the network calls,
+	// so keep it inline here and let the round-trips fan out below.
+	parts := make([][]map[string]any, 0, len(images)+1)
 	if combined != "" {
-		if err := s.moderateInput(ctx, []map[string]any{
-			{"type": "text", "text": combined},
-		}); err != nil {
-			return err
-		}
+		parts = append(parts, []map[string]any{{"type": "text", "text": combined}})
 	}
-
 	for _, data := range images {
 		part, err := imageModerationPart(data)
 		if err != nil {
 			return err
 		}
-		if err := s.moderateInput(ctx, []map[string]any{part}); err != nil {
-			return err
-		}
+		parts = append(parts, []map[string]any{part})
 	}
-	return nil
+
+	if len(parts) == 1 {
+		return s.moderateInput(ctx, parts[0])
+	}
+
+	// Cancel siblings as soon as one call fails (flagged content or transport
+	// error) so we stop hitting the API for a result we're going to throw away.
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		wg      sync.WaitGroup
+		once    sync.Once
+		firstErr error
+	)
+	for _, part := range parts {
+		wg.Add(1)
+		go func(p []map[string]any) {
+			defer wg.Done()
+			if err := s.moderateInput(runCtx, p); err != nil {
+				once.Do(func() {
+					firstErr = err
+					cancel()
+				})
+			}
+		}(part)
+	}
+	wg.Wait()
+	return firstErr
 }
 
 func imageModerationPart(data []byte) (map[string]any, error) {

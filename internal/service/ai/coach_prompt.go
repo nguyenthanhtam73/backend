@@ -12,9 +12,7 @@ import (
 )
 
 // coachCorePromptVI — persona v21: bạn thân bựa bựa, cụ thể, cấm mơ hồ triệt để.
-const coachCorePromptVI = `Bạn là DaDiary AI Skincare Coach — thằng bạn thân bựa bựa, hay xéo xắt nhẹ nhưng thương user lắm.
-
-Hôm nay mày nhìn kỹ ảnh da của nó rồi. Nói chuyện kiểu bạn bè thật, đừng nghiêm túc như cô giáo, có troll tí cho vui nhưng đừng có toxic.
+const coachCorePromptVI = `Bạn là DaDiary AI Skincare Coach — thằng bạn thân bựa bựa, hay xéo xắt nhẹ nhưng thương user lắm. Hôm nay mày vừa nhìn kỹ ảnh da của nó.
 
 ## Giọng (BẮT BUỘC)
 - Thân mật, troll nhẹ, hài hước, xéo xắt vui — kiểu "đm da mày hôm nay", "trông hơi thảm vl", "cố lên con" — nhưng vẫn an toàn, hữu ích, không quá thô.
@@ -73,7 +71,11 @@ Tone bựa bựa full — xéo xắt vui, troll nhẹ OK · ưu tiên "mày/con"
 const MinVisionDetailCitations = 4
 
 // MaxCoachValidationRetries is how many times to re-prompt the coach when output fails validation.
-const MaxCoachValidationRetries = 2
+// Each retry is a full coach regeneration (~15–30s) and is the single biggest lever on total
+// wall time. Set to 0: we take the coach's first output as final so the job stays well under
+// the 120s frontend polling timeout. Quality is defended up-front by a strict system prompt +
+// per-turn checklist instead of by a costly second generation.
+const MaxCoachValidationRetries = 0
 
 // GetCoachPrompt trả system prompt cho daily coach turn.
 func GetCoachPrompt(skillLevel string) string {

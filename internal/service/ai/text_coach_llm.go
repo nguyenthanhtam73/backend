@@ -14,6 +14,17 @@ import (
 
 const defaultTextCoachHTTPTimeout = 4 * time.Minute
 
+// Per-provider soft deadlines for the coach text pass. These bound how long we
+// wait on a slow (not errored) provider before giving up and failing over, so
+// one sluggish model can't burn the whole analysis budget. They derive from the
+// caller's ctx, so the parent job/HTTP timeouts still apply as hard ceilings.
+//   - Claude first (richest tone) — generous enough for a full JSON generation.
+//   - OpenAI fallback gets its own fresh budget so a slow Claude doesn't starve it.
+const (
+	claudeCoachTimeout = 75 * time.Second
+	openaiCoachTimeout = 45 * time.Second
+)
+
 // TextCoachProvider identifies which LLM produced a text-coaching completion.
 type TextCoachProvider string
 
@@ -59,9 +70,11 @@ func TextCoachCompletion(
 		// (ErrCircuitOpen) instead of hammering a struggling provider — we then
 		// fall through to the OpenAI fallback below. A fresh key with a healthy
 		// provider is unaffected (breaker stays Closed).
-		text, err := CallAIWithCircuitBreaker(ctx, "claude", func(ctx context.Context) (string, error) {
+		claudeCtx, cancelClaude := context.WithTimeout(ctx, claudeCoachTimeout)
+		text, err := CallAIWithCircuitBreaker(claudeCtx, "claude", func(ctx context.Context) (string, error) {
 			return AnthropicMessages(ctx, cfg, httpClient, system, user)
 		})
+		cancelClaude()
 		if err == nil && strings.TrimSpace(text) != "" {
 			res := TextCoachResult{
 				Text:     text,
@@ -88,9 +101,11 @@ func TextCoachCompletion(
 		if openAIKey == "" {
 			return TextCoachResult{}, fmt.Errorf("text coach (%s): claude failed and openai key missing: %w", pipeline, claudeErr)
 		}
-		text, oErr := CallAIWithCircuitBreaker(ctx, "openai", func(ctx context.Context) (string, error) {
+		oaiCtx, cancelOAI := context.WithTimeout(ctx, openaiCoachTimeout)
+		text, oErr := CallAIWithCircuitBreaker(oaiCtx, "openai", func(ctx context.Context) (string, error) {
 			return openai.ChatCompletionJSON(ctx, cfg, httpClient, system, user)
 		})
+		cancelOAI()
 		if oErr != nil {
 			return TextCoachResult{}, fmt.Errorf("text coach (%s): claude: %v; openai fallback: %w", pipeline, claudeErr, oErr)
 		}
@@ -108,9 +123,11 @@ func TextCoachCompletion(
 		return TextCoachResult{}, fmt.Errorf("text coach (%s): set DADIARY_ANTHROPIC_API_KEY or DADIARY_OPENAI_API_KEY", pipeline)
 	}
 
-	text, err := CallAIWithCircuitBreaker(ctx, "openai", func(ctx context.Context) (string, error) {
+	oaiCtx, cancelOAI := context.WithTimeout(ctx, openaiCoachTimeout)
+	text, err := CallAIWithCircuitBreaker(oaiCtx, "openai", func(ctx context.Context) (string, error) {
 		return openai.ChatCompletionJSON(ctx, cfg, httpClient, system, user)
 	})
+	cancelOAI()
 	if err != nil {
 		return TextCoachResult{}, fmt.Errorf("text coach (%s): openai: %w", pipeline, err)
 	}

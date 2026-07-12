@@ -30,7 +30,7 @@ const (
 	// analysisHTTPTimeout caps each outbound LLM HTTP call so one slow provider cannot block for many minutes.
 	analysisHTTPTimeout = 2 * time.Minute
 	// staleAnalysisAge marks pending/processing rows as failed when polled after the job should have finished.
-	staleAnalysisAge = analysisJobTimeout + 30*time.Second
+	staleAnalysisAge   = analysisJobTimeout + 30*time.Second
 	staleFailedMessage = "Analysis timed out. Please try submitting again."
 )
 
@@ -126,6 +126,7 @@ func ExpireStaleAnalysis(ctx context.Context, checks *repository.GormSkinCheckRe
 
 // Process loads images, runs the AI coach pipeline, and saves structured fields to SkinAnalysis.
 func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
+	jobStart := time.Now()
 	if s == nil || s.checks == nil || s.cfg == nil {
 		return fmt.Errorf("analysis: not configured")
 	}
@@ -165,15 +166,22 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	}
 
 	var (
-		memory   string
-		memDebug ai.MemoryDebug
-		visionRaw string
+		memory       string
+		memDebug     ai.MemoryDebug
+		visionRaw    string
 		visionStatus string
+		memMs        int64
+		visionMs     int64
 	)
+	// vision + memory are independent, so run them concurrently: wall time is
+	// max(vision, memory) instead of their sum. Each leg is timed separately so
+	// the logs below show which one dominates.
+	parallelStart := time.Now()
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
+		start := time.Now()
 		memory, memDebug = ai.BuildUserMemoryWithDebug(
 			ctx,
 			o.UserID,
@@ -186,18 +194,33 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 			},
 			ai.UserMemoryOptions{ExcludeCheckID: o.ID},
 		)
+		memMs = time.Since(start).Milliseconds()
 	}()
 	go func() {
 		defer wg.Done()
+		start := time.Now()
 		visionRaw, visionStatus = ai.RunVisionObservationPassForCheck(
 			ctx, s.cfg, s.httpClient, s.store, urls,
 		)
+		visionMs = time.Since(start).Milliseconds()
 	}()
 	wg.Wait()
+	parallelMs := time.Since(parallelStart).Milliseconds()
 	ai.LogMemoryInjection("skin-check", o.UserID, o.ID, memDebug)
 
+	coachStart := time.Now()
 	parsed, ver, err := ai.RunSkinCheckCoachAfterVision(
 		ctx, s.cfg, s.httpClient, o, prof, memory, visionRaw, visionStatus,
+	)
+	coachMs := time.Since(coachStart).Milliseconds()
+	slog.Info("skin-check: pipeline timings",
+		"check_id", skinCheckID,
+		"vision_ms", visionMs,
+		"memory_ms", memMs,
+		"vision_memory_parallel_ms", parallelMs,
+		"coach_ms", coachMs,
+		"vision_status", visionStatus,
+		"total_ms", time.Since(jobStart).Milliseconds(),
 	)
 	if err != nil {
 		return s.failWithMessage(ctx, skinCheckID, err.Error())
