@@ -88,6 +88,14 @@ type AnthropicConfig struct {
 	// Model — recommended Sonnet IDs (override via DADIARY_ANTHROPIC_MODEL):
 	//   claude-sonnet-4-6 (default), claude-sonnet-4-20250514, claude-3-5-sonnet-20241022 (may 404 on some keys)
 	Model string `mapstructure:"model"`
+	// FastModel is an OPTIONAL faster/cheaper model for the text-coach pass
+	// (override via DADIARY_ANTHROPIC_FAST_MODEL, e.g. "claude-3-5-haiku-latest").
+	// When set it REPLACES Model for coaching calls — a deliberate speed/cost lever:
+	// Haiku streams ~2x faster and is much cheaper, at the cost of some nuance in the
+	// warm, hyper-specific Vietnamese tone. Leave empty to keep the higher-quality
+	// Sonnet default. Flip it on/off per environment without any code change so the
+	// same build can be A/B'd against the live coach eval before committing to it.
+	FastModel string `mapstructure:"fast_model"`
 }
 
 // ModerationConfig toggles safety checks before persisting check-ins.
@@ -271,6 +279,20 @@ func (c *Config) AnthropicModel() string {
 		return m
 	}
 	return "claude-sonnet-4-6"
+}
+
+// AnthropicCoachModel returns the model to use for the Claude text-coach pass.
+// It prefers Anthropic.FastModel when configured (opt-in speed/cost lever) and
+// otherwise falls back to the standard AnthropicModel (Sonnet). Every coach call
+// and its logging should resolve the model through this so logs report the model
+// that actually ran.
+func (c *Config) AnthropicCoachModel() string {
+	if c != nil {
+		if m := strings.TrimSpace(c.Anthropic.FastModel); m != "" {
+			return m
+		}
+	}
+	return c.AnthropicModel()
 }
 
 // OpenAITextModel is the GPT model for text-coaching fallback (default gpt-4o).

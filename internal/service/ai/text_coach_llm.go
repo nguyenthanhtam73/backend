@@ -20,8 +20,14 @@ const defaultTextCoachHTTPTimeout = 4 * time.Minute
 // caller's ctx, so the parent job/HTTP timeouts still apply as hard ceilings.
 //   - Claude first (richest tone) — generous enough for a full JSON generation.
 //   - OpenAI fallback gets its own fresh budget so a slow Claude doesn't starve it.
+//
+// Claude is capped at 60s (was 75s): with brevity constraints a healthy coach
+// generation finishes in ~20–35s, so 60s still covers a slow-but-working call
+// while trimming the worst case we wait before failing over to the faster OpenAI
+// path. This is the main knob to trade "wait longer for Claude" vs "fail over
+// sooner" — lower it further to prioritise latency over tone consistency.
 const (
-	claudeCoachTimeout = 75 * time.Second
+	claudeCoachTimeout = 60 * time.Second
 	openaiCoachTimeout = 45 * time.Second
 )
 
@@ -79,7 +85,7 @@ func TextCoachCompletion(
 			res := TextCoachResult{
 				Text:     text,
 				Provider: TextCoachProviderClaude,
-				Model:    cfg.AnthropicModel(),
+				Model:    cfg.AnthropicCoachModel(),
 			}
 			logTextCoachSelection(pipeline, res, nil)
 			return res, nil
@@ -88,14 +94,14 @@ func TextCoachCompletion(
 		if claudeErr != nil {
 			slog.Warn("text coach: claude unavailable, will try openai fallback",
 				"pipeline", pipeline,
-				"model", cfg.AnthropicModel(),
+				"model", cfg.AnthropicCoachModel(),
 				"err", claudeErr,
 			)
 		} else {
 			claudeErr = fmt.Errorf("empty response")
 			slog.Warn("text coach: claude returned empty, will try openai fallback",
 				"pipeline", pipeline,
-				"model", cfg.AnthropicModel(),
+				"model", cfg.AnthropicCoachModel(),
 			)
 		}
 		if openAIKey == "" {

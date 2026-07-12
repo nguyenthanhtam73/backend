@@ -11,9 +11,9 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
                  When USER_MEMORY has ## Routine adherence, ≥1 bullet MUST acknowledge routine effort per COACH_ACTION
                  (praise consistency / validate low ticks / encourage restart — never guilt).
                  Beginner mode: 1–3. NEVER flattery about appearance.>],
-  "situation_analysis": <string — 2–6 sentences (Beginner: 2–4). MUST open with "Mình thấy hôm nay…",
+  "situation_analysis": <string — 2–4 sentences (Beginner: 2–3), TIGHT (no filler, no restating tags). MUST open with "Mình thấy hôm nay…",
                          "Trên ảnh mình thấy vùng …", or "Có … nốt mụn/chấm thâm ở …".
-                         Weave ≥4–6 photo-specific details (region + cue + degree/count).
+                         Weave ≥4 photo-specific details (region + cue + degree/count) — specificity matters more than length.
                          BAN: "da hỗn hợp", "da dễ nổi mụn", vague dryness without region.
                          History callback when ## Recent SkinChecks present. Warm, hyper-specific.>,
   "improvements": [
@@ -21,17 +21,17 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
       "tip": <string — ONE concrete actionable step: name the step + body region + product ROLE or action
               ("Tối: rửa mặt dịu vùng má đỏ", "Sáng: kem chống nắng SPF50 vùng thâm").
               BAN vague tips like "sản phẩm nhẹ nhàng" or "chăm sóc nhẹ". Never push >1 new active per check-in.>,
-      "why": <string — 1–2 plain-language clauses. Cite barrier, sun, inflammation pacing,
+      "why": <string — ONE plain-language clause (2 only if truly needed). Cite barrier, sun, inflammation pacing,
               stress-skin, sleep, hydration. Beginner: skip jargon entirely.>
     }
-    // 2–3 items for Beginner mode; 2–5 for Normal mode.
+    // 2–3 items for Beginner mode; 2–4 for Normal mode.
   ],
-  "routine_hints": [<string> — EVERY line MUST start with "Sáng:" or "Tối:" (VI) or "AM:" / "PM:" (EN).
+  "routine_hints": [<string> — EVERY line MUST start with "Sáng:" or "Tối:" (VI) or "AM:" / "PM:" (EN). Keep each line to one short step.
                      When USER_MEMORY ## Routine adherence COACH_ACTION says low/none: cap at 2–3 lines total.
-                     Beginner: 2–4 total; Normal: 3–6 total.>],
+                     Beginner: 2–4 total; Normal: 3–5 total.>],
   "avoid_or_patch": [<string> — what to ease off / patch-test / not stack today.
                       Always include a patch-test reminder when user mentions any new product.>],
-  "safety_reminders": [<string> — SPF reapply habit, one-change-at-a-time rule, when to seek
+  "safety_reminders": [<string> — 1–2 short lines only: SPF reapply habit, one-change-at-a-time rule, when to seek
                         in-person care. If user mentions red-flag symptoms (fever, swelling,
                         oozing, severe burning, painful rapidly-worsening rash, eye/lip involvement,
                         or duration > 6 weeks) include a clear "đến gặp bác sĩ da liễu" line.>],
@@ -41,7 +41,7 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
     "barrier":   <0–1>
     // Soft gauges from TODAY context only — not clinical. Use mid-range unless context is strong.
   },
-  "concern_alignment": <string — ONE short paragraph: how the user's TODAY tags line up
+  "concern_alignment": <string — 1–2 short sentences: how the user's TODAY tags line up
                         (or gently diverge) from soft vision cues. When vision is available,
                         include at least 1 additional photo-specific detail not repeated verbatim
                         from situation_analysis. Always acknowledge uncertainty ("ảnh chỉ là một góc thôi").
@@ -49,29 +49,33 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
   "medical_disclaimer": <string — Must clearly say this is informational coaching only,
                          not medical diagnosis or treatment, and not a substitute for a clinician.
                          Match the user's language (VI if notes/tags Vietnamese; EN otherwise).>,
-  "summary_notes": <string — ONE warm, friend-like closing + ONE concrete focus for tomorrow's check-in.
+  "summary_notes": <string — ≤2 sentences: ONE warm, friend-like closing + ONE concrete focus for tomorrow's check-in.
                     Encourage gently ("Mai chụp cùng góc nhé — mình muốn xem…"). No report tone, emoji floods, or platitudes.>,` + ProductSuggestionsJSONField + `
 }
 
 Strict output rules:
 - Output EXACTLY ONE JSON object. No markdown, no code fences, no text before or after.
+- BREVITY: keep every string tight and skimmable — no filler, no preamble, and never repeat the same detail across fields. Specific-and-short beats long-and-generic.
 - JSON keys MUST use the exact ASCII spellings above.
 - "routine_hints": every line MUST be prefixed. Never leave a hint unprefixed (the UI splits cards by prefix).
 - Match USER_INTERFACE_LOCALE (vi or en) for ALL human-readable string values when present.
 - If a context block (vision / profile / diary) is missing, simply omit references to it — do not invent details.`
 
 // VisionObservationSchemaBlock constrains GPT vision to conservative, non-diagnostic JSON.
-const VisionObservationSchemaBlock = `Return ONE JSON object only (no markdown). Schema:
+// Fields are intentionally terse: vision runs in parallel with memory but feeds the coach,
+// so shorter observations cut vision generation time AND shrink the coach's input prompt
+// (faster time-to-first-token) without losing the region + cue detail the coach relies on.
+const VisionObservationSchemaBlock = `Return ONE JSON object only (no markdown). Keep every field short — one phrase/sentence each. Schema:
 {
   "photo_assessment": {
-    "lighting": <string>,
-    "angle_clarity": <string>,
-    "limitations": <string — what a single photo cannot prove>
+    "lighting": <string — a few words>,
+    "angle_clarity": <string — a few words>,
+    "limitations": <string — what a single photo cannot prove, one short clause>
   },
-  "visible_observations": [<string — short conservative bullets; describe, do not diagnose>],
-  "texture_and_oil_cues": <string>,
-  "redness_or_discoloration_cues": <string>,
-  "uncertainty_note": <string — remind limits of photo-only reading>
+  "visible_observations": [<string — ≤5 short conservative bullets; region + cue; describe, do not diagnose>],
+  "texture_and_oil_cues": <string — one short sentence>,
+  "redness_or_discoloration_cues": <string — one short sentence>,
+  "uncertainty_note": <string — one short clause reminding limits of photo-only reading>
 }`
 
 // DefaultMedicalDisclaimerVI used when the model omits an explicit disclaimer.

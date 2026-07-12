@@ -36,8 +36,12 @@ func ChatCompletionJSON(ctx context.Context, cfg *config.Config, httpClient *htt
 		model = cfg.OpenAITextModel()
 	}
 	body := map[string]any{
-		"model":           model,
-		"temperature":     0.4,
+		"model":       model,
+		"temperature": 0.4,
+		// Safety ceiling on the fallback coach JSON (mirrors the Claude cap). The
+		// coach output is ~1.2–1.8k tokens, so 4096 avoids truncation while bounding
+		// a runaway generation on the (rarely hit) OpenAI fallback path.
+		"max_tokens":      4096,
 		"response_format": map[string]any{"type": "json_object"},
 		"messages": []map[string]any{
 			{"role": "system", "content": system},

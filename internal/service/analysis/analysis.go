@@ -34,6 +34,26 @@ const (
 	staleFailedMessage = "Analysis timed out. Please try submitting again."
 )
 
+// pipelineStats is a process-local rolling aggregate of skin-check wall times.
+// It exists so the logs alone reveal the latency trend (avg + sample count)
+// without wiring an external metrics backend. It resets on restart and is only
+// meant for coarse trend-watching, not precise SLO measurement.
+var pipelineStats struct {
+	mu    sync.Mutex
+	count int64
+	sumMs int64
+}
+
+// recordPipelineDuration folds one job's total wall time into the rolling
+// aggregate and returns the running sample count and average (ms).
+func recordPipelineDuration(totalMs int64) (count, avgMs int64) {
+	pipelineStats.mu.Lock()
+	defer pipelineStats.mu.Unlock()
+	pipelineStats.count++
+	pipelineStats.sumMs += totalMs
+	return pipelineStats.count, pipelineStats.sumMs / pipelineStats.count
+}
+
 // Service runs the skin-check AI pipeline (optionally enriched with SkinProfile for personalization).
 //
 // `feedback` and `routines` are optional — when present, the pipeline injects
@@ -213,6 +233,10 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		ctx, s.cfg, s.httpClient, o, prof, memory, visionRaw, visionStatus,
 	)
 	coachMs := time.Since(coachStart).Milliseconds()
+	totalMs := time.Since(jobStart).Milliseconds()
+	// Fold this job into the process-local rolling average so the trend is visible
+	// in logs (e.g. to confirm the <80s target holds across many check-ins).
+	sampleCount, avgTotalMs := recordPipelineDuration(totalMs)
 	slog.Info("skin-check: pipeline timings",
 		"check_id", skinCheckID,
 		"vision_ms", visionMs,
@@ -220,7 +244,9 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		"vision_memory_parallel_ms", parallelMs,
 		"coach_ms", coachMs,
 		"vision_status", visionStatus,
-		"total_ms", time.Since(jobStart).Milliseconds(),
+		"total_ms", totalMs,
+		"avg_total_ms", avgTotalMs,
+		"sample_count", sampleCount,
 	)
 	if err != nil {
 		return s.failWithMessage(ctx, skinCheckID, err.Error())

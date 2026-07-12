@@ -23,13 +23,17 @@ func AnthropicMessages(ctx context.Context, cfg *config.Config, httpClient *http
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 6 * time.Minute}
 	}
-	model := strings.TrimSpace(cfg.Anthropic.Model)
-	if model == "" {
-		model = cfg.AnthropicModel()
-	}
+	// AnthropicMessages is only used for the text-coach pass, so resolve through
+	// AnthropicCoachModel (honours the optional DADIARY_ANTHROPIC_FAST_MODEL toggle).
+	model := cfg.AnthropicCoachModel()
 	body := map[string]any{
-		"model":       model,
-		"max_tokens":  8192,
+		"model": model,
+		// max_tokens is a safety ceiling on generation time, not the target length.
+		// A full coach JSON is ~1.2–1.8k tokens, so 4096 leaves comfortable headroom
+		// (no truncation) while still capping a pathological runaway generation at
+		// roughly half the previous 8192 budget. Actual latency is reduced by the
+		// brevity constraints in the prompt/schema, not by this cap.
+		"max_tokens":  4096,
 		"temperature": 0.25,
 		"system":      system,
 		"messages": []map[string]any{
