@@ -43,4 +43,10 @@ package ai
 // improvements 2–3 items, routine_hints 3–4 lines, reinforced BREVITY rule; vision
 // floor relaxed to ≥3–4 photo details (specificity over length). JSON schema shape
 // unchanged — only per-field length guidance tightened.
-const CoachDailyPromptVersion = 22
+//
+// v23 (2026-07-12) — Plain-language rule: added "## Quy tắc ngôn ngữ" banning English
+// skincare jargon (jawline, texture, barrier, acne, pore, redness, inflammation…) and
+// mandating everyday Vietnamese translations, so beginners aren't confused. BREVITY now
+// also requires "short but understandable". Tone (bựa bựa) + ≥3–4 photo-detail floor +
+// JSON schema all unchanged.
+const CoachDailyPromptVersion = 23

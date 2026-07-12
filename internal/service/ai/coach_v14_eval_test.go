@@ -25,9 +25,9 @@ func TestCoachPrompt_v21_BucaToneRules(t *testing.T) {
 	}
 }
 
-func TestCoachPromptVersion_v22(t *testing.T) {
-	if CoachDailyPromptVersion != 22 {
-		t.Fatalf("expected CoachDailyPromptVersion == 22, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v23(t *testing.T) {
+	if CoachDailyPromptVersion != 23 {
+		t.Fatalf("expected CoachDailyPromptVersion == 23, got %d", CoachDailyPromptVersion)
 	}
 }
 
@@ -38,6 +38,19 @@ func TestCoachPrompt_v22_BrevityRules(t *testing.T) {
 	mustContain(t, p, "BREVITY")
 	mustContain(t, p, "improvements 2–3")
 	mustContain(t, p, "routine_hints 3–4")
+}
+
+// TestCoachPrompt_v23_PlainLanguageRules pins the v23 plain-language section so the
+// English-jargon ban + Vietnamese translations can't be silently dropped later.
+func TestCoachPrompt_v23_PlainLanguageRules(t *testing.T) {
+	for _, skill := range []string{"beginner", "intermediate"} {
+		p := GetCoachPrompt(skill)
+		mustContain(t, p, "Quy tắc ngôn ngữ")
+		mustContain(t, p, "jawline")
+		mustContain(t, p, "vùng hàm")
+		mustContain(t, p, "lớp bảo vệ da")
+		mustContain(t, p, "bề mặt da")
+	}
 }
 
 func TestMaxCoachValidationRetries_v20(t *testing.T) {
