@@ -8,8 +8,9 @@
 //     many callers retry a rate-limited/overloaded upstream at the same time.
 //   - Respect context cancellation: a cancelled/expired context stops retries
 //     immediately (no more sleeping, no more attempts).
-//   - Observable: every retry and every final failure is logged via slog and
-//     counted via expvar (a zero-dependency, stdlib metrics surface).
+//   - Observable: every retry, success-after-retry, and exhaustion is logged
+//     via slog (structured) and counted via expvar (a zero-dependency, stdlib
+//     metrics surface). See metrics.go for the counter definitions.
 //   - Extensible: the classifier is a plain func, so richer policies (or a
 //     future circuit breaker wrapping `DoValue`) can be layered on top.
 package retry
@@ -17,7 +18,6 @@ package retry
 import (
 	"context"
 	"errors"
-	"expvar"
 	"log/slog"
 	"math"
 	"math/rand"
@@ -67,16 +67,6 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// Lightweight observability. expvar is part of the stdlib and (when the app
-// mounts /debug/vars, or a future Prometheus exporter scrapes expvar) these
-// counters give a cheap view into retry health without extra dependencies.
-var (
-	metricAttempts  = expvar.NewInt("dadiary_retry_attempts_total")
-	metricRetries   = expvar.NewInt("dadiary_retry_retries_total")
-	metricExhausted = expvar.NewInt("dadiary_retry_exhausted_total")
-	metricSuccess   = expvar.NewInt("dadiary_retry_success_total")
-)
-
 // Do runs fn with retries. See DoValue for details; Do is the no-return-value
 // convenience wrapper.
 func Do(ctx context.Context, cfg Config, op string, isRetryable func(error) bool, fn func(context.Context) error) error {
@@ -89,7 +79,8 @@ func Do(ctx context.Context, cfg Config, op string, isRetryable func(error) bool
 // DoValue runs fn until it succeeds, the error is deemed non-retryable, the
 // retry budget is exhausted, or ctx is cancelled — whichever comes first.
 //
-//   - op is a short label used in logs/metrics (e.g. "openai-chat").
+//   - op is a short label used in logs/metrics (e.g. "openai-chat"). It is
+//     optional; an empty op is recorded under "unknown" in the per-op metric.
 //   - isRetryable decides whether a given error warrants another attempt. A nil
 //     classifier means "never retry" (fn runs exactly once).
 //   - fn receives ctx so it can honour cancellation/deadlines per attempt.
@@ -106,16 +97,25 @@ func DoValue[T any](
 	}
 
 	var zero T
+	// attempt is 0-based; attempt > 0 means we have already retried at least once.
 	for attempt := 0; ; attempt++ {
 		// Stop before doing more work if the caller already cancelled.
 		if err := ctx.Err(); err != nil {
 			return zero, err
 		}
 
-		metricAttempts.Add(1)
 		val, err := fn(ctx)
 		if err == nil {
-			metricSuccess.Add(1)
+			// Only flag "recovered" successes — a clean first attempt is the
+			// normal case and shouldn't inflate the success-after-retry metric.
+			if attempt > 0 {
+				recordSuccessAfterRetry()
+				slog.Info("retry: succeeded after retrying",
+					"op", op,
+					"retries", attempt,
+					"attempts", attempt+1,
+				)
+			}
 			return val, nil
 		}
 
@@ -126,23 +126,24 @@ func DoValue[T any](
 
 		// Out of budget: surface the last error as the definitive failure.
 		if attempt >= cfg.MaxRetries {
-			metricExhausted.Add(1)
-			slog.Error("retry: giving up after max attempts",
+			recordExhausted(err)
+			slog.Warn("retry: exhausted budget",
 				"op", op,
 				"attempts", attempt+1,
-				"err", err,
+				"max_attempts", cfg.MaxRetries+1,
+				"last_error", err.Error(),
 			)
 			return zero, err
 		}
 
 		delay := backoffDelay(cfg, attempt)
-		metricRetries.Add(1)
+		recordRetry(op, err)
 		slog.Warn("retry: transient failure, backing off",
 			"op", op,
 			"attempt", attempt+1,
 			"max_attempts", cfg.MaxRetries+1,
 			"delay", delay.String(),
-			"err", err,
+			"error", err.Error(),
 		)
 
 		// Sleep for `delay`, but wake up immediately if ctx is cancelled so a
