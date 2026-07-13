@@ -14,6 +14,7 @@ import (
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
+	betasignupuc "github.com/dadiary/backend/internal/usecase/betasignup"
 	feedbackuc "github.com/dadiary/backend/internal/usecase/feedback"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
@@ -211,5 +212,11 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		admin := middleware.RequireAdmin(cfg, userRepo)
 		api.Get("/admin/feedbacks", jwt, admin, appFeedbackH.AdminList)
 		api.Patch("/admin/feedbacks/:id", jwt, admin, appFeedbackH.AdminUpdateStatus)
+
+		// Public Beta waitlist — landing page email capture (no auth required).
+		betaSignupRepo := repository.NewBetaSignupRepository(db)
+		betaSignupSvc := betasignupuc.NewService(betaSignupRepo)
+		betaSignupH := NewBetaSignupHandler(betaSignupSvc)
+		api.Post("/beta-signups", betaSignupH.Create)
 	}
 }
