@@ -19,11 +19,12 @@ import (
 type AuthHandler struct {
 	auth            *authuc.Service
 	turnstileSecret string // non-empty: require verified Turnstile token on register
+	cfg             *config.Config
 }
 
 // NewAuthHandler constructs an AuthHandler.
 func NewAuthHandler(auth *authuc.Service, cfg *config.Config) *AuthHandler {
-	h := &AuthHandler{auth: auth}
+	h := &AuthHandler{auth: auth, cfg: cfg}
 	if cfg != nil {
 		h.turnstileSecret = strings.TrimSpace(cfg.Turnstile.SecretKey)
 	}
@@ -100,11 +101,12 @@ func (h *AuthHandler) Me(c *fiber.Ctx) error {
 	if uid == uuid.Nil {
 		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "user context missing")
 	}
-	user, err := h.auth.Me(c.UserContext(), uid)
+	pub, err := h.auth.Me(c.UserContext(), uid)
 	if err != nil {
 		return mapAuthError(c, err)
 	}
-	return response.JSON(c, fiber.StatusOK, user)
+	pub.IsAdmin = h.cfg != nil && h.cfg.IsAdminEmail(pub.Email)
+	return response.JSON(c, fiber.StatusOK, pub)
 }
 
 func mapAuthError(c *fiber.Ctx, err error) error {

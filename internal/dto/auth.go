@@ -35,11 +35,17 @@ type UserPublic struct {
 	Provider    string `json:"provider"`
 	IsActive    bool   `json:"is_active"`
 	PlanTier    string `json:"plan_tier,omitempty"`
+	IsAdmin     bool   `json:"is_admin,omitempty"`
 	CreatedAt   string `json:"created_at"`
 }
 
 // UserFromDomain maps a domain user to a public DTO (no secrets).
 func UserFromDomain(u *domain.User) UserPublic {
+	return UserFromDomainWithAdmin(u, false)
+}
+
+// UserFromDomainWithAdmin maps a domain user and sets the admin flag for /me.
+func UserFromDomainWithAdmin(u *domain.User, isAdmin bool) UserPublic {
 	if u == nil {
 		return UserPublic{}
 	}
@@ -52,6 +58,7 @@ func UserFromDomain(u *domain.User) UserPublic {
 		Provider:    string(u.Provider),
 		IsActive:    u.IsActive,
 		PlanTier:    string(u.PlanTier),
+		IsAdmin:     isAdmin,
 		CreatedAt:   u.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 }

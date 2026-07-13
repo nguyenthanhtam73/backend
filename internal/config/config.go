@@ -29,6 +29,9 @@ type Config struct {
 	Moderation ModerationConfig `mapstructure:"moderation"`
 	Turnstile  TurnstileConfig  `mapstructure:"turnstile"`
 	AI         AIConfig         `mapstructure:"ai"`
+	// AdminEmails lists accounts allowed to call /admin/* endpoints.
+	// Comma-separated via DADIARY_ADMIN_EMAILS.
+	AdminEmails []string `mapstructure:"admin_emails"`
 }
 
 // AIConfig groups cross-cutting settings for outbound AI provider calls.
@@ -171,6 +174,7 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("storage.r2.secret_access_key", "DADIARY_R2_SECRET_ACCESS_KEY")
 	_ = v.BindEnv("storage.r2.bucket", "DADIARY_R2_BUCKET")
 	_ = v.BindEnv("storage.r2.endpoint", "DADIARY_R2_ENDPOINT")
+	_ = v.BindEnv("admin_emails", "DADIARY_ADMIN_EMAILS")
 
 	if err := v.ReadInConfig(); err != nil {
 		// Allow env-only mode if no yaml on disk
@@ -236,6 +240,18 @@ func Load(relativeEnvPath string) (*Config, error) {
 	}
 	if cfg.AI.Retry.BackoffMultiplier <= 1 {
 		cfg.AI.Retry.BackoffMultiplier = 2
+	}
+
+	// Admin emails: support comma-separated env for simple Beta admin gating.
+	if raw := strings.TrimSpace(os.Getenv("DADIARY_ADMIN_EMAILS")); raw != "" && len(cfg.AdminEmails) == 0 {
+		for _, part := range strings.Split(raw, ",") {
+			if e := strings.TrimSpace(strings.ToLower(part)); e != "" {
+				cfg.AdminEmails = append(cfg.AdminEmails, e)
+			}
+		}
+	}
+	for i, e := range cfg.AdminEmails {
+		cfg.AdminEmails[i] = strings.TrimSpace(strings.ToLower(e))
 	}
 
 	// Validate the *final* merged retry settings (YAML + env + defaults). This
@@ -335,4 +351,18 @@ func (c *Config) HasAnthropicKey() bool {
 // HasOpenAIKey reports whether OpenAI vision / text fallback is available.
 func (c *Config) HasOpenAIKey() bool {
 	return c != nil && strings.TrimSpace(c.OpenAI.APIKey) != ""
+}
+
+// IsAdminEmail reports whether email is in the configured admin allow-list.
+func (c *Config) IsAdminEmail(email string) bool {
+	if c == nil || len(c.AdminEmails) == 0 {
+		return false
+	}
+	norm := strings.TrimSpace(strings.ToLower(email))
+	for _, e := range c.AdminEmails {
+		if e == norm {
+			return true
+		}
+	}
+	return false
 }

@@ -14,6 +14,7 @@ import (
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
+	feedbackuc "github.com/dadiary/backend/internal/usecase/feedback"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
@@ -199,5 +200,16 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Post("/routines/suggest", jwt, routineSuggestLimit, rh.Suggest)
 		api.Get("/routines/suggest/status", jwt, rh.SuggestStatus)
 		api.Delete("/routines/suggest", jwt, rh.CancelSuggest)
+
+		// User product feedback (bugs, feature ideas) — distinct from AI thumbs.
+		appFeedbackRepo := repository.NewFeedbackRepository(db)
+		appFeedbackSvc := feedbackuc.NewService(appFeedbackRepo)
+		appFeedbackH := NewFeedbackHandler(appFeedbackSvc)
+		api.Post("/feedbacks", jwt, appFeedbackH.Create)
+
+		// Admin triage console — gated by DADIARY_ADMIN_EMAILS allow-list.
+		admin := middleware.RequireAdmin(cfg, userRepo)
+		api.Get("/admin/feedbacks", jwt, admin, appFeedbackH.AdminList)
+		api.Patch("/admin/feedbacks/:id", jwt, admin, appFeedbackH.AdminUpdateStatus)
 	}
 }

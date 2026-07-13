@@ -65,6 +65,9 @@ func (r *UserDataRepository) DeleteAllPersonalData(
 		if err := tx.Where("user_id = ?", userID).Delete(&domain.AIUserFeedback{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("user_id = ?", userID).Delete(&domain.Feedback{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("user_id = ?", userID).Delete(&domain.AffiliateClick{}).Error; err != nil {
 			return err
 		}
