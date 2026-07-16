@@ -42,5 +42,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.BetaSignup{},
 		&domain.UsageEvent{},
 		&domain.Streak{},
+		&domain.PushSubscription{},
+		&domain.PushJobLock{},
+		&domain.PushSendReceipt{},
 	)
 }

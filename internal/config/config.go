@@ -29,9 +29,33 @@ type Config struct {
 	Moderation ModerationConfig `mapstructure:"moderation"`
 	Turnstile  TurnstileConfig  `mapstructure:"turnstile"`
 	AI         AIConfig         `mapstructure:"ai"`
+	// VAPID holds Web Push application-server keys (Phase 2 send).
+	VAPID VAPIDConfig `mapstructure:"vapid"`
+	// DailyReminder schedules the check-in nudge job (Asia/Ho_Chi_Minh via streaktime).
+	DailyReminder DailyReminderConfig `mapstructure:"daily_reminder"`
 	// AdminEmails lists accounts allowed to call /admin/* endpoints.
 	// Comma-separated via DADIARY_ADMIN_EMAILS.
 	AdminEmails []string `mapstructure:"admin_emails"`
+}
+
+// DailyReminderConfig controls when the Daily Check-in Reminder job fires.
+// Hour/Minute are interpreted in Asia/Ho_Chi_Minh (streaktime.Location), matching
+// SkinCheck / streak "today". Host TZ is not required for correctness.
+type DailyReminderConfig struct {
+	// Enabled turns the background job on/off. Default true when unset.
+	Enabled bool `mapstructure:"enabled"` // DADIARY_DAILY_REMINDER_ENABLED
+	Hour    int  `mapstructure:"hour"`    // DADIARY_DAILY_REMINDER_HOUR (0–23, default 20)
+	Minute  int  `mapstructure:"minute"`  // DADIARY_DAILY_REMINDER_MINUTE (0–59, default 0)
+}
+
+// VAPIDConfig is the Web Push VAPID key pair used to send notifications.
+// Public key must match NEXT_PUBLIC_VAPID_PUBLIC_KEY on the frontend.
+type VAPIDConfig struct {
+	PublicKey  string `mapstructure:"public_key"`  // DADIARY_VAPID_PUBLIC_KEY
+	PrivateKey string `mapstructure:"private_key"` // DADIARY_VAPID_PRIVATE_KEY
+	// Subject is the VAPID JWT "sub" claim (mailto: or https: contact).
+	// Defaults to mailto:noreply@dadiary.app when empty.
+	Subject string `mapstructure:"subject"` // DADIARY_VAPID_SUBJECT
 }
 
 // AIConfig groups cross-cutting settings for outbound AI provider calls.
@@ -175,6 +199,12 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("storage.r2.bucket", "DADIARY_R2_BUCKET")
 	_ = v.BindEnv("storage.r2.endpoint", "DADIARY_R2_ENDPOINT")
 	_ = v.BindEnv("admin_emails", "DADIARY_ADMIN_EMAILS")
+	_ = v.BindEnv("vapid.public_key", "DADIARY_VAPID_PUBLIC_KEY")
+	_ = v.BindEnv("vapid.private_key", "DADIARY_VAPID_PRIVATE_KEY")
+	_ = v.BindEnv("vapid.subject", "DADIARY_VAPID_SUBJECT")
+	_ = v.BindEnv("daily_reminder.enabled", "DADIARY_DAILY_REMINDER_ENABLED")
+	_ = v.BindEnv("daily_reminder.hour", "DADIARY_DAILY_REMINDER_HOUR")
+	_ = v.BindEnv("daily_reminder.minute", "DADIARY_DAILY_REMINDER_MINUTE")
 
 	if err := v.ReadInConfig(); err != nil {
 		// Allow env-only mode if no yaml on disk
@@ -252,6 +282,31 @@ func Load(relativeEnvPath string) (*Config, error) {
 	}
 	for i, e := range cfg.AdminEmails {
 		cfg.AdminEmails[i] = strings.TrimSpace(strings.ToLower(e))
+	}
+
+	cfg.VAPID.PublicKey = strings.TrimSpace(cfg.VAPID.PublicKey)
+	cfg.VAPID.PrivateKey = strings.TrimSpace(cfg.VAPID.PrivateKey)
+	cfg.VAPID.Subject = strings.TrimSpace(cfg.VAPID.Subject)
+	if cfg.VAPID.Subject == "" {
+		cfg.VAPID.Subject = "mailto:noreply@dadiary.app"
+	}
+
+	// Daily reminder defaults: 20:00 local, enabled unless explicitly turned off.
+	// Viper leaves bool zero-value false when the key is absent — treat "unset"
+	// as enabled via the env string (same pattern as other optional toggles).
+	if raw := strings.TrimSpace(os.Getenv("DADIARY_DAILY_REMINDER_ENABLED")); raw == "" {
+		cfg.DailyReminder.Enabled = true
+	} else {
+		cfg.DailyReminder.Enabled = parseEnvBool(raw, true)
+	}
+	if cfg.DailyReminder.Hour == 0 && strings.TrimSpace(os.Getenv("DADIARY_DAILY_REMINDER_HOUR")) == "" {
+		cfg.DailyReminder.Hour = 20
+	}
+	if cfg.DailyReminder.Hour < 0 || cfg.DailyReminder.Hour > 23 {
+		cfg.DailyReminder.Hour = 20
+	}
+	if cfg.DailyReminder.Minute < 0 || cfg.DailyReminder.Minute > 59 {
+		cfg.DailyReminder.Minute = 0
 	}
 
 	// Validate the *final* merged retry settings (YAML + env + defaults). This
@@ -365,4 +420,22 @@ func (c *Config) IsAdminEmail(email string) bool {
 		}
 	}
 	return false
+}
+
+// HasVAPIDKeys reports whether Web Push sending can be attempted.
+func (c *Config) HasVAPIDKeys() bool {
+	return c != nil &&
+		strings.TrimSpace(c.VAPID.PublicKey) != "" &&
+		strings.TrimSpace(c.VAPID.PrivateKey) != ""
+}
+
+func parseEnvBool(raw string, fallback bool) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }

@@ -9,20 +9,22 @@ import (
 	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/dadiary/backend/internal/service/analysis"
 	"github.com/dadiary/backend/internal/service/moderation"
+	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/token"
-	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
+	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	betasignupuc "github.com/dadiary/backend/internal/usecase/betasignup"
 	feedbackuc "github.com/dadiary/backend/internal/usecase/feedback"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
+	pushuc "github.com/dadiary/backend/internal/usecase/push"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	streakuc "github.com/dadiary/backend/internal/usecase/streak"
 	usageuc "github.com/dadiary/backend/internal/usecase/usage"
-	usermemoryuc "github.com/dadiary/backend/internal/usecase/usermemory"
 	userdatauc "github.com/dadiary/backend/internal/usecase/userdata"
+	usermemoryuc "github.com/dadiary/backend/internal/usecase/usermemory"
 	wardrobeuc "github.com/dadiary/backend/internal/usecase/wardrobe"
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -211,6 +213,18 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Post("/routines/suggest", jwt, routineSuggestLimit, rh.Suggest)
 		api.Get("/routines/suggest/status", jwt, rh.SuggestStatus)
 		api.Delete("/routines/suggest", jwt, rh.CancelSuggest)
+
+		// Web Push: subscribe lifecycle (Phase 1) + send infrastructure (Phase 2).
+		pushRepo := repository.NewPushSubscriptionRepository(db)
+		pushSender := pushsvc.NewPushSender(cfg, pushRepo)
+		// Skin-check + streak repos power reminder filters (checked-in today / at risk).
+		pushReceipts := repository.NewPushSendReceiptRepository(db)
+		pushSvc := pushuc.NewService(pushRepo, pushSender, repo, streakRepo, pushReceipts)
+		pushH := NewPushSubscriptionHandler(pushSvc)
+		api.Post("/me/push/subscribe", jwt, pushH.Subscribe)
+		api.Delete("/me/push/unsubscribe", jwt, pushH.Unsubscribe)
+		api.Get("/me/push/subscription", jwt, pushH.GetActive)
+		api.Post("/me/push/test", jwt, pushH.SendTest)
 
 		// User product feedback (bugs, feature ideas) — distinct from AI thumbs.
 		appFeedbackRepo := repository.NewFeedbackRepository(db)

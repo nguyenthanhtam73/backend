@@ -32,3 +32,13 @@ func TestDateOf_NotRawUTCTruncation(t *testing.T) {
 		t.Fatalf("DateOf=%v want %v", got, want)
 	}
 }
+
+func TestNow_AndTodayString_UseVietnamLocation(t *testing.T) {
+	now := Now()
+	if now.Location().String() != Location.String() {
+		t.Fatalf("Now() location=%s want %s", now.Location(), Location)
+	}
+	if TodayString() != Today().Format("2006-01-02") {
+		t.Fatalf("TodayString=%q != Today().Format", TodayString())
+	}
+}

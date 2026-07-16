@@ -18,8 +18,9 @@ const (
 
 // SkinCheck is a daily diary entry: face photo(s) + self-reported conditions + notes.
 type SkinCheck struct {
-	ID     uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
+	ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	// Composite index (user_id, check_date) speeds HasCheckedInToday / daily reminder.
+	UserID uuid.UUID `gorm:"type:uuid;not null;index;index:idx_skin_checks_user_check_date,priority:1" json:"user_id"`
 
 	Title           string          `gorm:"size:200" json:"title,omitempty"`
 	UserNote        string          `gorm:"type:text" json:"user_note,omitempty"`
@@ -29,7 +30,7 @@ type SkinCheck struct {
 	ClimateContext  json.RawMessage `gorm:"type:jsonb" json:"climate_context,omitempty"` // ClimateSnapshot
 	EnvironmentNote string          `gorm:"size:128" json:"environment_note,omitempty"`  // sleep, stress, manual weather note
 	Visibility      CheckVisibility `gorm:"size:16;default:private" json:"visibility"`
-	CheckDate       time.Time       `gorm:"type:date;not null;index" json:"check_date"`
+	CheckDate       time.Time       `gorm:"type:date;not null;index;index:idx_skin_checks_user_check_date,priority:2" json:"check_date"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

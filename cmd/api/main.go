@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"mime"
 	"os"
 	"os/signal"
@@ -13,9 +14,13 @@ import (
 	"github.com/dadiary/backend/internal/handler"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/scheduler"
+	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/token"
+	pushuc "github.com/dadiary/backend/internal/usecase/push"
 	"github.com/gofiber/fiber/v2"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -62,6 +67,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Daily Check-in Reminder — background ticker; cancelled with the same ctx
+	// that stops the HTTP server on SIGINT/SIGTERM.
+	startDailyReminderJob(ctx, cfg, db)
+
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.HTTP.Port)
 		if serveErr := app.Listen(addr); serveErr != nil {
@@ -72,6 +81,31 @@ func main() {
 
 	<-ctx.Done()
 	_ = app.Shutdown()
+}
+
+// startDailyReminderJob wires push deps and starts the scheduler when enabled.
+func startDailyReminderJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
+	if cfg == nil || !cfg.DailyReminder.Enabled {
+		slog.Info("daily_reminder_job: disabled via config")
+		return
+	}
+	if db == nil {
+		slog.Warn("daily_reminder_job: skipped — database not available")
+		return
+	}
+	if !cfg.HasVAPIDKeys() {
+		slog.Warn("daily_reminder_job: skipped — VAPID keys not configured")
+		return
+	}
+
+	pushRepo := repository.NewPushSubscriptionRepository(db)
+	pushSender := pushsvc.NewPushSender(cfg, pushRepo)
+	skinCheckRepo := repository.NewSkinCheckRepository(db)
+	streakRepo := repository.NewStreakRepository(db)
+	pushReceipts := repository.NewPushSendReceiptRepository(db)
+	pushSvc := pushuc.NewService(pushRepo, pushSender, skinCheckRepo, streakRepo, pushReceipts)
+	jobLocks := repository.NewPushJobLockRepository(db)
+	scheduler.NewDailyReminderJob(pushSvc, cfg, jobLocks).Start(ctx)
 }
 
 // registerUploadServing exposes stored photos under the stable "/uploads/*" path.

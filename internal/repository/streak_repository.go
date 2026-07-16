@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -26,6 +27,45 @@ func (r *GormStreakRepository) dbOrErr() (*gorm.DB, error) {
 		return nil, fmt.Errorf("database not configured")
 	}
 	return r.db, nil
+}
+
+// ListUsersAtRisk returns user IDs whose streak is "at risk" for today's
+// Vietnam civil calendar — aligned with dto.EvaluateStreakView IsAtRisk:
+//
+//  1. days_since == 1 (last_check_in = yesterday), not protected through today
+//  2. days_since == 2 + ProtectedUntil == yesterday (freeze bridged the miss)
+//  3. days_since == 2 + FreezesAvailable > 0 (pending auto-freeze on check-in)
+//
+// Soft-expired gap-2 rows (no freeze left / no bridge) are excluded — they are
+// not IsAtRisk in EvaluateStreakView. Daily Reminder skips this same set so
+// at-risk users only get streak_at_risk.
+func (r *GormStreakRepository) ListUsersAtRisk(ctx context.Context) ([]uuid.UUID, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	today := streaktime.Today()
+	yesterday := today.AddDate(0, 0, -1)
+	dayBeforeYesterday := today.AddDate(0, 0, -2)
+
+	conn := DBFromContext(ctx, db)
+	var ids []uuid.UUID
+	err = conn.
+		Model(&domain.Streak{}).
+		Where("current_streak > ?", 0).
+		Where(
+			`(last_check_in_date = ? AND (protected_until IS NULL OR protected_until < ?))
+			 OR (last_check_in_date = ? AND protected_until = ?)
+			 OR (last_check_in_date = ? AND freezes_available > 0)`,
+			yesterday, today,
+			dayBeforeYesterday, yesterday,
+			dayBeforeYesterday,
+		).
+		Pluck("user_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // GetByUserID returns the streak row, or (nil, nil) when missing.

@@ -11,6 +11,7 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -184,6 +185,35 @@ func (r *GormSkinCheckRepository) CountForUser(ctx context.Context, userID uuid.
 		return 0, err
 	}
 	return count, nil
+}
+
+// HasCheckedInToday reports whether the user already has a SkinCheck whose
+// check_date equals today's civil day in Asia/Ho_Chi_Minh (see streaktime).
+// Uses the composite index on (user_id, check_date).
+func (r *GormSkinCheckRepository) HasCheckedInToday(
+	ctx context.Context,
+	userID uuid.UUID,
+) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if userID == uuid.Nil {
+		return false, fmt.Errorf("user id required")
+	}
+
+	today := streaktime.Today() // date-only, UTC midnight of VN civil day
+	conn := DBFromContext(ctx, db)
+	var count int64
+	err = conn.
+		Model(&domain.SkinCheck{}).
+		Where("user_id = ? AND check_date = ?", userID, today).
+		Limit(1).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // ListDistinctCheckDates returns unique SkinCheck calendar days (UTC date) for
