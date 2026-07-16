@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
 )
 
@@ -98,14 +99,15 @@ type TagCount struct {
 // stored relative image path (e.g. "/uploads"). Pass an empty string if the
 // caller wants raw relatives back.
 func NewProgressTimelineResponse(rows []domain.SkinCheck, rangeDays int, uploadPublicPrefix string) ProgressTimelineResponse {
+	today := streaktime.Today()
 	out := ProgressTimelineResponse{
 		RangeDays: rangeDays,
-		To:        time.Now().UTC().Format("2006-01-02"),
+		To:        today.Format("2006-01-02"),
 		Entries:   make([]ProgressEntry, 0, len(rows)),
 		Total:     len(rows),
 	}
 	if rangeDays > 0 {
-		out.From = time.Now().UTC().AddDate(0, 0, -rangeDays).Format("2006-01-02")
+		out.From = today.AddDate(0, 0, -rangeDays).Format("2006-01-02")
 	}
 	for i := range rows {
 		out.Entries = append(out.Entries, newProgressEntry(&rows[i], uploadPublicPrefix))
@@ -335,14 +337,14 @@ func round2(v float64) float64 {
 	return math.Round(v*100) / 100
 }
 
-// computeStreak counts consecutive days ending today that have at least one
-// check-in. Today must be present for the streak to start counting; a missed
-// day breaks it.
+// computeStreak counts consecutive SkinCheck days ending today (Vietnam
+// calendar). This is a check-in-only diary metric for the progress summary —
+// it ignores streak freezes and may diverge from GET /me/streak current_streak.
 func computeStreak(checkDates map[string]struct{}) int {
 	if len(checkDates) == 0 {
 		return 0
 	}
-	today := time.Now().UTC()
+	today := streaktime.Today()
 	streak := 0
 	for i := 0; i < 365; i++ {
 		key := today.AddDate(0, 0, -i).Format("2006-01-02")

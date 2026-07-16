@@ -18,6 +18,8 @@ import (
 	"github.com/dadiary/backend/internal/service/analysis"
 	"github.com/dadiary/backend/internal/service/moderation"
 	"github.com/dadiary/backend/internal/storage"
+	"github.com/dadiary/backend/internal/streaktime"
+	streakuc "github.com/dadiary/backend/internal/usecase/streak"
 	"github.com/google/uuid"
 )
 
@@ -55,15 +57,28 @@ type Service struct {
 	mod      *moderation.Service
 	analyzer *analysis.Service
 	store    storage.Storage
+	streaks  StreakRecorder
+	tx       repository.TxRunner
 }
 
-// NewService wires dependencies.
+// StreakRecorder updates the user's check-in streak after a SkinCheck is saved.
+// Prefer calling inside the same DB transaction as CreateWithAnalysis (via TxRunner).
+//
+// Auto-freeze may be applied inside RecordCheckIn when the user missed exactly
+// one day — the returned result tells the client so it can show a distinct toast.
+type StreakRecorder interface {
+	RecordCheckIn(ctx context.Context, userID uuid.UUID, checkDate time.Time) (streakuc.CheckInResult, error)
+}
+
+// NewService wires dependencies. streaks and tx may be nil (streak then skipped).
 func NewService(
 	cfg *config.Config,
 	checks *repository.GormSkinCheckRepository,
 	mod *moderation.Service,
 	analyzer *analysis.Service,
 	store storage.Storage,
+	streaks StreakRecorder,
+	tx repository.TxRunner,
 ) *Service {
 	return &Service{
 		cfg:      cfg,
@@ -71,6 +86,8 @@ func NewService(
 		mod:      mod,
 		analyzer: analyzer,
 		store:    store,
+		streaks:  streaks,
+		tx:       tx,
 	}
 }
 
@@ -160,8 +177,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		climateJSON = append(json.RawMessage(nil), in.ClimateContext...)
 	}
 
-	now := time.Now().UTC()
-	checkD := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	checkD := streaktime.DateOf(time.Now())
 
 	check := &domain.SkinCheck{
 		UserID:          userID,
@@ -180,8 +196,42 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		Status: domain.AnalysisStatusPending,
 	}
 
-	if err := s.checks.CreateWithAnalysis(ctx, check, analysisRow); err != nil {
-		return zero, fmt.Errorf("%w: %v", ErrDatabase, err)
+	// Persist SkinCheck + pending Analysis + Streak in ONE transaction when a
+	// TxRunner is wired. That way a streak write failure rolls back the diary
+	// row too — no "check exists, streak skipped" drift. Images are already on
+	// disk (pre-tx); orphan files on rollback are acceptable vs inconsistent streak.
+	var streakMeta *dto.SkinCheckStreakMeta
+	persist := func(txCtx context.Context) error {
+		if err := s.checks.CreateWithAnalysis(txCtx, check, analysisRow); err != nil {
+			return err
+		}
+		if s.streaks != nil {
+			result, err := s.streaks.RecordCheckIn(txCtx, userID, check.CheckDate)
+			if err != nil {
+				return fmt.Errorf("streak: %w", err)
+			}
+			streakMeta = &dto.SkinCheckStreakMeta{
+				AutoFreezeApplied:   result.AutoFreezeApplied,
+				CatchUpContinued:    result.CatchUpContinued,
+				UnusedFreezeCleared: result.UnusedFreezeCleared,
+				CurrentStreak:       result.Streak.CurrentStreak,
+				FreezesAvailable:    result.Streak.FreezesAvailable,
+				ProtectedUntil:      result.Streak.ProtectedUntil,
+			}
+		}
+		return nil
+	}
+
+	var persistErr error
+	if s.tx != nil {
+		persistErr = s.tx.WithinTransaction(ctx, persist)
+	} else {
+		// Fallback when TxRunner is not configured (tests / partial wiring):
+		// keep prior sequential behaviour without a shared transaction.
+		persistErr = persist(ctx)
+	}
+	if persistErr != nil {
+		return zero, fmt.Errorf("%w: %v", ErrDatabase, persistErr)
 	}
 
 	publicURLs := make([]string, 0, len(relPaths))
@@ -203,5 +253,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		return zero, fmt.Errorf("%w: reload skin check after analysis", ErrDatabase)
 	}
 
-	return dto.NewCreateSkinCheckResponse(reloaded, reloaded.Analysis, publicURLs), nil
+	res := dto.NewCreateSkinCheckResponse(reloaded, reloaded.Analysis, publicURLs)
+	res.Streak = streakMeta
+	return res, nil
 }

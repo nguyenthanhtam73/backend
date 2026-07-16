@@ -19,6 +19,7 @@ import (
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
+	streakuc "github.com/dadiary/backend/internal/usecase/streak"
 	usageuc "github.com/dadiary/backend/internal/usecase/usage"
 	usermemoryuc "github.com/dadiary/backend/internal/usecase/usermemory"
 	userdatauc "github.com/dadiary/backend/internal/usecase/userdata"
@@ -117,9 +118,18 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		usageSvc := usageuc.NewService(userRepo, repository.NewUsageEventRepository(db))
 		usageH := NewMeUsageHandler(usageSvc)
 		api.Get("/me/usage", jwt, usageH.Get)
+
+		streakRepo := repository.NewStreakRepository(db)
+		streakSvc := streakuc.NewService(streakRepo, repo)
+		streakH := NewStreakHandler(streakSvc)
+		api.Get("/me/streak", jwt, streakH.Get)
+		api.Post("/me/streak/freeze", jwt, streakH.UseFreeze)
+		// Reconcile is intentionally NOT on /me/* — see AdminReconcile below.
+
 		mod := moderation.New(cfg)
 		analyzer := analysis.New(cfg, repo, profRepo, fbRepo, routineRepo, wardRepo, memCache, store)
-		svc := skincheckuc.NewService(cfg, repo, mod, analyzer, store)
+		txRunner := repository.NewTxRunner(db)
+		svc := skincheckuc.NewService(cfg, repo, mod, analyzer, store, streakSvc, txRunner)
 		h := NewSkinCheckHandler(svc, repo, cfg)
 		api.Post("/skin-checks", jwt, skinCheckLimit, h.Create)
 		api.Get("/skin-checks/:id", jwt, h.Get)
@@ -212,6 +222,9 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		admin := middleware.RequireAdmin(cfg, userRepo)
 		api.Get("/admin/feedbacks", jwt, admin, appFeedbackH.AdminList)
 		api.Patch("/admin/feedbacks/:id", jwt, admin, appFeedbackH.AdminUpdateStatus)
+		// Streak reconcile: repair drifted counters from SkinCheck history.
+		// Admin-only — must never be a self-serve refill for freezes.
+		api.Post("/admin/users/:userId/streak/reconcile", jwt, admin, streakH.AdminReconcile)
 
 		// Public Beta waitlist — landing page email capture (no auth required).
 		betaSignupRepo := repository.NewBetaSignupRepository(db)

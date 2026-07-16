@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
@@ -48,12 +49,16 @@ func (r *GormSkinCheckRepository) dbOrErr() (*gorm.DB, error) {
 }
 
 // CreateWithAnalysis persists skin check and pending analysis atomically.
+//
+// When ctx already carries a transaction (see repository.WithTx), work joins
+// that transaction so callers can commit SkinCheck + Streak together. Otherwise
+// a dedicated transaction is opened for just this write.
 func (r *GormSkinCheckRepository) CreateWithAnalysis(ctx context.Context, check *domain.SkinCheck, analysis *domain.SkinAnalysis) error {
 	db, err := r.dbOrErr()
 	if err != nil {
 		return err
 	}
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	run := func(tx *gorm.DB) error {
 		if err := tx.Create(check).Error; err != nil {
 			return err
 		}
@@ -62,7 +67,11 @@ func (r *GormSkinCheckRepository) CreateWithAnalysis(ctx context.Context, check 
 			return err
 		}
 		return nil
-	})
+	}
+	if existing := TxFromContext(ctx); existing != nil {
+		return run(existing)
+	}
+	return db.WithContext(ctx).Transaction(run)
 }
 
 // GetByIDForOwner returns a check with analysis if owned by ownerID.
@@ -166,14 +175,66 @@ func (r *GormSkinCheckRepository) CountForUser(ctx context.Context, userID uuid.
 	if err != nil {
 		return 0, err
 	}
+	conn := DBFromContext(ctx, db)
 	var count int64
-	if err := db.WithContext(ctx).
+	if err := conn.
 		Model(&domain.SkinCheck{}).
 		Where("user_id = ?", userID).
 		Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil
+}
+
+// ListDistinctCheckDates returns unique SkinCheck calendar days (UTC date) for
+// a user, ascending. Used by streak reconcile to replay history.
+func (r *GormSkinCheckRepository) ListDistinctCheckDates(
+	ctx context.Context,
+	userID uuid.UUID,
+) ([]time.Time, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	conn := DBFromContext(ctx, db)
+	var dates []time.Time
+	if err := conn.
+		Model(&domain.SkinCheck{}).
+		Where("user_id = ?", userID).
+		Distinct("check_date").
+		Order("check_date ASC").
+		Pluck("check_date", &dates).Error; err != nil {
+		return nil, err
+	}
+	return dates, nil
+}
+
+// FirstCheckDate returns MIN(check_date) for the user, or (nil, nil) when they
+// have never checked in. Used as the "app start" boundary for streak mini-history.
+func (r *GormSkinCheckRepository) FirstCheckDate(
+	ctx context.Context,
+	userID uuid.UUID,
+) (*time.Time, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	conn := DBFromContext(ctx, db)
+	var first sql.NullTime
+	err = conn.
+		Model(&domain.SkinCheck{}).
+		Select("MIN(check_date)").
+		Where("user_id = ?", userID).
+		Scan(&first).Error
+	if err != nil {
+		return nil, err
+	}
+	if !first.Valid {
+		return nil, nil
+	}
+	t := first.Time.UTC()
+	day := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.UTC)
+	return &day, nil
 }
 
 // MonthlyDigestRow is a single bucket in the older-history digest: how many

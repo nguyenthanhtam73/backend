@@ -10,9 +10,26 @@ import (
 // CreateSkinCheckResponse is returned after POST /api/v1/skin-checks succeeds.
 // When AI runs synchronously, analysis.coach contains structured coach feedback (or error_message on pipeline failure).
 type CreateSkinCheckResponse struct {
-	Check     SkinCheckSummary    `json:"check"`
-	Analysis  SkinAnalysisSummary `json:"analysis"`
-	ImageURLs []string            `json:"image_urls"`
+	Check     SkinCheckSummary     `json:"check"`
+	Analysis  SkinAnalysisSummary  `json:"analysis"`
+	ImageURLs []string             `json:"image_urls"`
+	// Streak is set on create when the check-in updated the user's streak
+	// (omitted on GET poll responses). Used so the client can toast auto-freeze.
+	Streak *SkinCheckStreakMeta `json:"streak,omitempty"`
+}
+
+// SkinCheckStreakMeta summarizes streak side-effects of a successful check-in create.
+//
+// AutoFreezeApplied is true when the system spent one freeze to cover a single
+// missed day (auto-freeze). Manual freezes are never applied here — those go
+// through POST /me/streak/freeze.
+type SkinCheckStreakMeta struct {
+	AutoFreezeApplied   bool    `json:"auto_freeze_applied"`
+	CatchUpContinued    bool    `json:"catch_up_continued,omitempty"`
+	UnusedFreezeCleared bool    `json:"unused_freeze_cleared,omitempty"`
+	CurrentStreak       int     `json:"current_streak"`
+	FreezesAvailable    int     `json:"freezes_available"`
+	ProtectedUntil      *string `json:"protected_until,omitempty"`
 }
 
 // SkinCheckSummary is a compact payload for API responses.

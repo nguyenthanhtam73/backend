@@ -10,6 +10,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -97,25 +98,26 @@ func (h *ProgressHandler) Summary(c *fiber.Ctx) error {
 //
 // Unknown values fall back to 30 days (the safest "what did this week look like" default).
 func parseProgressRange(raw string) (int, time.Time) {
+	today := streaktime.Today()
 	r := strings.ToLower(strings.TrimSpace(raw))
 	switch r {
 	case "all", "0":
 		return 0, time.Time{}
 	case "90", "3m":
-		return 90, time.Now().UTC().AddDate(0, 0, -90)
+		return 90, today.AddDate(0, 0, -90)
 	case "180", "6m":
-		return 180, time.Now().UTC().AddDate(0, 0, -180)
+		return 180, today.AddDate(0, 0, -180)
 	case "365", "1y", "12m":
-		return 365, time.Now().UTC().AddDate(0, 0, -365)
+		return 365, today.AddDate(0, 0, -365)
 	case "", "30", "1m":
-		return 30, time.Now().UTC().AddDate(0, 0, -30)
+		return 30, today.AddDate(0, 0, -30)
 	}
 	// Numeric custom range (any positive integer of days, capped at 730).
 	if n, err := strconv.Atoi(r); err == nil && n > 0 {
 		if n > 730 {
 			n = 730
 		}
-		return n, time.Now().UTC().AddDate(0, 0, -n)
+		return n, today.AddDate(0, 0, -n)
 	}
-	return 30, time.Now().UTC().AddDate(0, 0, -30)
+	return 30, today.AddDate(0, 0, -30)
 }
