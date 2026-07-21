@@ -14,9 +14,13 @@ import (
 	"github.com/dadiary/backend/internal/token"
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
+	adminuseruc "github.com/dadiary/backend/internal/usecase/adminuser"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	betasignupuc "github.com/dadiary/backend/internal/usecase/betasignup"
+	dashboarduc "github.com/dadiary/backend/internal/usecase/dashboard"
 	feedbackuc "github.com/dadiary/backend/internal/usecase/feedback"
+	paymentuc "github.com/dadiary/backend/internal/usecase/payment"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	pushuc "github.com/dadiary/backend/internal/usecase/push"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
@@ -67,9 +71,11 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 	jwt := middleware.RequireAccessJWT(tok)
 	jwtOptional := middleware.OptionalAccessJWT(tok)
 
-	var authSvc *authuc.Service
+	// Auth — Domain → AuthRepository → AuthUsecase → Handler
+	var authSvc *authuc.Usecase
 	if db != nil && tok != nil {
-		authSvc = authuc.NewService(repository.NewUserRepository(db), tok)
+		authRepo := repository.NewAuthRepository(db)
+		authSvc = authuc.NewUsecase(authRepo, tok)
 	}
 	authH := NewAuthHandler(authSvc, cfg)
 	authH.RegisterRoutes(api, jwt)
@@ -117,28 +123,36 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// pegging the DB on every AI call.
 		memCache := ai.NewMemoryCache()
 		userRepo := repository.NewUserRepository(db)
-		usageSvc := usageuc.NewService(userRepo, repository.NewUsageEventRepository(db))
+		userUsageRepo := repository.NewUserUsageRepository(db)
+		premiumSvc := premiumuc.NewService(userRepo, userUsageRepo)
+		usageSvc := usageuc.NewWithGates(premiumSvc)
 		usageH := NewMeUsageHandler(usageSvc)
 		api.Get("/me/usage", jwt, usageH.Get)
 
 		streakRepo := repository.NewStreakRepository(db)
 		streakSvc := streakuc.NewService(streakRepo, repo)
-		streakH := NewStreakHandler(streakSvc)
+		streakH := NewStreakHandler(streakSvc, premiumSvc)
 		api.Get("/me/streak", jwt, streakH.Get)
+		api.Get("/me/streak/milestones", jwt, streakH.Milestones)
 		api.Post("/me/streak/freeze", jwt, streakH.UseFreeze)
 		// Reconcile is intentionally NOT on /me/* — see AdminReconcile below.
+
+		// Dashboard aggregate (home summary) — keeps /me/streak + /me/usage URLs intact.
+		dashSvc := dashboarduc.NewUsecase(streakSvc, usageSvc, repo, premiumSvc)
+		dashH := NewDashboardHandler(dashSvc)
+		api.Get("/me/dashboard", jwt, dashH.GetSummary)
 
 		mod := moderation.New(cfg)
 		analyzer := analysis.New(cfg, repo, profRepo, fbRepo, routineRepo, wardRepo, memCache, store)
 		txRunner := repository.NewTxRunner(db)
 		svc := skincheckuc.NewService(cfg, repo, mod, analyzer, store, streakSvc, txRunner)
-		h := NewSkinCheckHandler(svc, repo, cfg)
+		h := NewSkinCheckHandler(svc, repo, cfg, premiumSvc)
 		api.Post("/skin-checks", jwt, skinCheckLimit, h.Create)
 		api.Get("/skin-checks/:id", jwt, h.Get)
 
 		// Progress Timeline + Summary — both read aggregations over skin_checks +
 		// skin_analyses. No LLM call, so they stay snappy even on cold cache.
-		progressH := NewProgressHandler(repo)
+		progressH := NewProgressHandler(repo, premiumSvc)
 		api.Get("/progress", jwt, progressH.Timeline)
 		api.Get("/progress/summary", jwt, progressH.Summary)
 
@@ -147,7 +161,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// starter routine prompt — keeping the new starter coherent with
 		// what the coach already knows about them.
 		profSvc := profileuc.NewService(cfg, profRepo, repo, fbRepo, routineRepo, wardRepo, memCache)
-		ph := NewProfileHandler(profSvc, cfg, store)
+		ph := NewProfileHandler(profSvc, cfg, store, premiumSvc)
 		api.Get("/profile/skin", jwt, ph.GetSkin)
 		api.Put("/profile/skin", jwt, ph.PutSkin)
 		api.Post(
@@ -194,8 +208,9 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Get("/me/memory", jwt, mh.Get)
 
 		userDataRepo := repository.NewUserDataRepository(db)
-		userDataSvc := userdatauc.NewService(userDataRepo, store, memCache)
+		userDataSvc := userdatauc.NewService(userDataRepo, store, memCache, premiumSvc)
 		mdh := NewMeDataHandler(userDataSvc)
+		api.Get("/me/export", jwt, mdh.Export)
 		api.Delete("/me/data", jwt, mdh.Delete)
 
 		// Routine Management — daily AM/PM skincare routines, AI suggestion,
@@ -206,7 +221,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// routine repo is reused below for adherence stats in the memory
 		// builder; the memory cache is busted after every Upsert.
 		routineSvc := routineuc.NewService(cfg, routineRepo, profRepo, repo, fbRepo, wardRepo, memCache, usageSvc)
-		rh := NewRoutineHandler(routineSvc)
+		rh := NewRoutineHandler(routineSvc, premiumSvc)
 		api.Get("/routines", jwt, rh.GetCurrent)
 		api.Post("/routines", jwt, rh.Put)
 		api.Get("/routines/history", jwt, rh.History)
@@ -232,7 +247,8 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		appFeedbackH := NewFeedbackHandler(appFeedbackSvc)
 		api.Post("/feedbacks", jwt, appFeedbackH.Create)
 
-		// Admin triage console — gated by DADIARY_ADMIN_EMAILS allow-list.
+		// Admin triage console — gated by DADIARY_ADMIN_EMAILS allow-list
+		// (exposed to clients as user.is_admin on GET /me).
 		admin := middleware.RequireAdmin(cfg, userRepo)
 		api.Get("/admin/feedbacks", jwt, admin, appFeedbackH.AdminList)
 		api.Patch("/admin/feedbacks/:id", jwt, admin, appFeedbackH.AdminUpdateStatus)
@@ -240,10 +256,29 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// Admin-only — must never be a self-serve refill for freezes.
 		api.Post("/admin/users/:userId/streak/reconcile", jwt, admin, streakH.AdminReconcile)
 
+		// Internal plan grant/revoke for Premium testing.
+		planLogRepo := repository.NewPlanChangeLogRepository(db)
+		adminUserSvc := adminuseruc.NewService(db, userRepo, planLogRepo, cfg)
+		adminUsersH := NewAdminUsersHandler(adminUserSvc)
+		api.Get("/admin/users", jwt, admin, adminUsersH.List)
+		api.Get("/admin/users/:id", jwt, admin, adminUsersH.Get)
+		api.Put("/admin/users/:id/plan", jwt, admin, adminUsersH.UpdatePlan)
+
 		// Public Beta waitlist — landing page email capture (no auth required).
 		betaSignupRepo := repository.NewBetaSignupRepository(db)
 		betaSignupSvc := betasignupuc.NewService(betaSignupRepo)
 		betaSignupH := NewBetaSignupHandler(betaSignupSvc)
 		api.Post("/beta-signups", betaSignupH.Create)
+
+		// SePay Payment Gateway — checkout (JWT) + IPN webhook (public).
+		// Configure IPN URL in SePay dashboard → POST /api/v1/payment/sepay/webhook
+		payOrders := repository.NewPaymentOrderRepository(db)
+		paySvc := paymentuc.NewService(db, cfg, payOrders, userRepo, planLogRepo)
+		payH := NewPaymentSePayHandler(paySvc)
+		api.Post("/payment/sepay/checkout", jwt, payH.CreateCheckout)
+		api.Post("/payment/sepay/webhook", payH.Webhook)
+
+		// Playwright smoke helpers — only when DADIARY_E2E_SECRET is set.
+		NewE2EHandler(cfg, db, userRepo).Register(api)
 	}
 }

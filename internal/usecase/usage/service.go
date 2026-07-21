@@ -1,4 +1,7 @@
-// Package usage enforces free-plan quotas and premium gates for beta.
+// Package usage records monthly metered actions and exposes GET /me/usage.
+//
+// Plan × feature decisions live in usecase/premium. This package asserts via
+// PremiumService and persists Free counters through user_usages (IncrementUsage).
 package usage
 
 import (
@@ -11,67 +14,60 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	"github.com/google/uuid"
 )
 
+// Legacy free-tier constants — kept for callers/tests; source of truth is premium catalog.
 const (
 	FreeRoutineSuggestPerMonth    = 3
 	FreeRoutineManualEditPerMonth = 5
 )
 
 var (
-	ErrUnavailable      = errors.New("usage service unavailable")
-	ErrPremiumRequired  = errors.New("premium required for this action")
-	ErrQuotaExceeded    = errors.New("monthly quota exceeded")
+	ErrUnavailable     = errors.New("usage service unavailable")
+	ErrPremiumRequired = errors.New("premium required for this action")
+	ErrQuotaExceeded   = errors.New("monthly quota exceeded")
 )
 
-// Service checks plan tier and records monthly usage events.
+// Service checks plan gates (via premium) and records monthly usage.
 type Service struct {
-	users  repository.UserRepository
-	events repository.UsageEventRepository
+	gates *premiumuc.Service
 }
 
-// NewService wires dependencies. Either repo may be nil (guards fail closed on writes).
-func NewService(users repository.UserRepository, events repository.UsageEventRepository) *Service {
-	return &Service{users: users, events: events}
+// NewService wires a private PremiumService + user_usages repo.
+func NewService(users repository.UserRepository, usages repository.UserUsageRepository) *Service {
+	return &Service{
+		gates: premiumuc.NewService(users, usages),
+	}
+}
+
+// NewWithGates injects a shared PremiumService (preferred when multiple usecases share it).
+func NewWithGates(gates *premiumuc.Service) *Service {
+	return &Service{gates: gates}
+}
+
+// Gates exposes the underlying PremiumService for handlers that need richer checks.
+func (s *Service) Gates() *premiumuc.Service {
+	if s == nil {
+		return nil
+	}
+	return s.gates
 }
 
 func (s *Service) planTier(ctx context.Context, userID uuid.UUID) (domain.PlanTier, error) {
-	if s == nil || s.users == nil {
+	if s == nil || s.gates == nil {
 		return domain.PlanFree, fmt.Errorf("%w", ErrUnavailable)
 	}
-	u, err := s.users.GetByID(ctx, userID)
-	if err != nil || u == nil {
-		return domain.PlanFree, err
-	}
-	if u.PlanTier == domain.PlanPremium {
-		return domain.PlanPremium, nil
-	}
-	return domain.PlanFree, nil
+	return s.gates.PlanTier(ctx, userID)
 }
 
+// IsPremium is true for Premium and Premium+ (paid plans).
 func (s *Service) IsPremium(ctx context.Context, userID uuid.UUID) (bool, error) {
-	tier, err := s.planTier(ctx, userID)
-	if err != nil {
-		return false, err
+	if s == nil || s.gates == nil {
+		return false, fmt.Errorf("%w", ErrUnavailable)
 	}
-	return tier == domain.PlanPremium, nil
-}
-
-func monthStartUTC(now time.Time) time.Time {
-	now = now.UTC()
-	return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-}
-
-func (s *Service) countFeature(ctx context.Context, userID uuid.UUID, feature domain.UsageFeature) (int, error) {
-	if s == nil || s.events == nil {
-		return 0, fmt.Errorf("%w", ErrUnavailable)
-	}
-	n, err := s.events.CountSince(ctx, userID, feature, monthStartUTC(time.Now()))
-	if err != nil {
-		return 0, err
-	}
-	return int(n), nil
+	return s.gates.IsPaidPlan(ctx, userID)
 }
 
 func buildCounter(used, limit int, unlimited bool) dto.UsageCounter {
@@ -85,103 +81,139 @@ func buildCounter(used, limit int, unlimited bool) dto.UsageCounter {
 	return dto.UsageCounter{Used: used, Limit: limit, Remaining: remaining}
 }
 
+func quotaToCounter(q premiumuc.Quota) dto.UsageCounter {
+	if q.Unlimited || q.Limit == premiumuc.UnlimitedMonthly {
+		return buildCounter(q.Used, 0, true)
+	}
+	return buildCounter(q.Used, q.Limit, false)
+}
+
+func quotaToFeatureDTO(q premiumuc.Quota) dto.FeatureAccessDTO {
+	out := dto.FeatureAccessDTO{
+		Allowed:       q.Allowed,
+		Unlimited:     q.Unlimited,
+		Used:          q.Used,
+		Kind:          string(q.Kind),
+		HistoryMonths: q.HistoryMonths,
+	}
+	if q.Unlimited || q.Limit == premiumuc.UnlimitedMonthly {
+		out.Limit = 0
+		out.Remaining = 0
+	} else {
+		out.Limit = q.Limit
+		out.Remaining = q.Remaining
+	}
+	return out
+}
+
 // GetQuota returns the user's current plan and monthly counters (UTC month).
 func (s *Service) GetQuota(ctx context.Context, userID uuid.UUID) (dto.UsageQuotaResponse, error) {
 	var out dto.UsageQuotaResponse
 	if userID == uuid.Nil {
 		return out, fmt.Errorf("%w: user id required", ErrUnavailable)
 	}
+	if s == nil || s.gates == nil {
+		return out, fmt.Errorf("%w", ErrUnavailable)
+	}
+
 	tier, err := s.planTier(ctx, userID)
 	if err != nil {
 		return out, err
 	}
-	premium := tier == domain.PlanPremium
+	paid := tier.IsPaidPlan()
 	now := time.Now().UTC()
 	out.PlanTier = string(tier)
-	if out.PlanTier == "" {
-		out.PlanTier = string(domain.PlanFree)
-	}
-	out.IsPremium = premium
+	out.IsPremium = paid
+	out.IsPremiumPlus = tier == domain.PlanPremiumPlus
 	out.Period = now.Format("2006-01")
-	out.Wardrobe = dto.WardrobeUsage{CanWrite: premium}
 
-	suggestUsed, _ := s.countFeature(ctx, userID, domain.UsageRoutineSuggest)
-	editUsed, _ := s.countFeature(ctx, userID, domain.UsageRoutineManualEdit)
-	if premium {
-		out.RoutineSuggest = buildCounter(suggestUsed, 0, true)
-		out.RoutineManualEdit = buildCounter(editUsed, 0, true)
-	} else {
-		out.RoutineSuggest = buildCounter(suggestUsed, FreeRoutineSuggestPerMonth, false)
-		out.RoutineManualEdit = buildCounter(editUsed, FreeRoutineManualEditPerMonth, false)
+	suggestQ, err := s.gates.GetRemainingQuota(ctx, userID, domain.FeatureAIRoutineSuggestion)
+	if err != nil {
+		return out, err
+	}
+	editQ, err := s.gates.GetRemainingQuota(ctx, userID, domain.FeatureEditRoutine)
+	if err != nil {
+		return out, err
+	}
+	wardrobeQ, err := s.gates.GetRemainingQuota(ctx, userID, domain.FeatureWardrobeFull)
+	if err != nil {
+		return out, err
+	}
+	histQ, err := s.gates.GetRemainingQuota(ctx, userID, domain.FeatureProgressFullHistory)
+	if err != nil {
+		return out, err
+	}
+
+	out.Wardrobe = dto.WardrobeUsage{CanWrite: wardrobeQ.Allowed}
+	out.RoutineSuggest = quotaToCounter(suggestQ)
+	out.RoutineManualEdit = quotaToCounter(editQ)
+	out.ProgressHistoryMonths = histQ.HistoryMonths
+
+	out.Features = make(map[string]dto.FeatureAccessDTO, len(domain.AllFeatures))
+	for _, f := range domain.AllFeatures {
+		q, qErr := s.gates.GetRemainingQuota(ctx, userID, f)
+		if qErr != nil {
+			continue
+		}
+		out.Features[string(f)] = quotaToFeatureDTO(q)
 	}
 	return out, nil
 }
 
 // AssertWardrobeWrite blocks free users from adding/editing wardrobe items.
 func (s *Service) AssertWardrobeWrite(ctx context.Context, userID uuid.UUID) error {
-	premium, err := s.IsPremium(ctx, userID)
-	if err != nil {
-		return err
+	if s == nil || s.gates == nil {
+		return fmt.Errorf("%w", ErrUnavailable)
 	}
-	if !premium {
-		return ErrPremiumRequired
-	}
-	return nil
+	return s.mapAssert(s.gates.AssertFeature(ctx, userID, domain.FeatureWardrobeFull))
 }
 
-func (s *Service) assertUnderLimit(ctx context.Context, userID uuid.UUID, feature domain.UsageFeature, limit int) error {
-	premium, err := s.IsPremium(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if premium {
+func (s *Service) mapAssert(err error) error {
+	if err == nil {
 		return nil
 	}
-	used, err := s.countFeature(ctx, userID, feature)
-	if err != nil {
+	switch {
+	case errors.Is(err, premiumuc.ErrQuotaExceeded):
+		return ErrQuotaExceeded
+	case errors.Is(err, premiumuc.ErrFeatureDenied):
+		return ErrPremiumRequired
+	case errors.Is(err, premiumuc.ErrUnavailable):
+		return ErrUnavailable
+	default:
 		return err
 	}
-	if used >= limit {
-		return ErrQuotaExceeded
-	}
-	return nil
 }
 
 // AssertRoutineSuggest checks the monthly AI suggest quota for free users.
 func (s *Service) AssertRoutineSuggest(ctx context.Context, userID uuid.UUID) error {
-	return s.assertUnderLimit(ctx, userID, domain.UsageRoutineSuggest, FreeRoutineSuggestPerMonth)
+	if s == nil || s.gates == nil {
+		return fmt.Errorf("%w", ErrUnavailable)
+	}
+	return s.mapAssert(s.gates.AssertFeature(ctx, userID, domain.FeatureAIRoutineSuggestion))
 }
 
 // RecordRoutineSuggest increments the suggest counter after a successful AI call.
 func (s *Service) RecordRoutineSuggest(ctx context.Context, userID uuid.UUID) error {
-	return s.record(ctx, userID, domain.UsageRoutineSuggest)
+	if s == nil || s.gates == nil {
+		return fmt.Errorf("%w", ErrUnavailable)
+	}
+	return s.mapAssert(s.gates.IncrementUsage(ctx, userID, domain.FeatureAIRoutineSuggestion))
 }
 
 // AssertRoutineManualEdit checks the monthly manual-edit quota for free users.
 func (s *Service) AssertRoutineManualEdit(ctx context.Context, userID uuid.UUID) error {
-	return s.assertUnderLimit(ctx, userID, domain.UsageRoutineManualEdit, FreeRoutineManualEditPerMonth)
+	if s == nil || s.gates == nil {
+		return fmt.Errorf("%w", ErrUnavailable)
+	}
+	return s.mapAssert(s.gates.AssertFeature(ctx, userID, domain.FeatureEditRoutine))
 }
 
 // RecordRoutineManualEdit increments the manual-edit counter after a structural save.
 func (s *Service) RecordRoutineManualEdit(ctx context.Context, userID uuid.UUID) error {
-	return s.record(ctx, userID, domain.UsageRoutineManualEdit)
-}
-
-func (s *Service) record(ctx context.Context, userID uuid.UUID, feature domain.UsageFeature) error {
-	premium, err := s.IsPremium(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if premium {
-		return nil
-	}
-	if s == nil || s.events == nil {
+	if s == nil || s.gates == nil {
 		return fmt.Errorf("%w", ErrUnavailable)
 	}
-	return s.events.Create(ctx, &domain.UsageEvent{
-		UserID:  userID,
-		Feature: feature,
-	})
+	return s.mapAssert(s.gates.IncrementUsage(ctx, userID, domain.FeatureEditRoutine))
 }
 
 // IsTickOnlySave returns true when the client only persisted completion ticks.

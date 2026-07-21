@@ -12,6 +12,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/storage"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
@@ -22,14 +23,20 @@ const maxOnboardingPhotos = 3
 
 // ProfileHandler serves skin profile and onboarding endpoints.
 type ProfileHandler struct {
-	svc   *profileuc.Service
-	cfg   *config.Config
-	store storage.Storage
+	svc     *profileuc.Service
+	cfg     *config.Config
+	store   storage.Storage
+	premium *premiumuc.Service
 }
 
-// NewProfileHandler constructs ProfileHandler.
-func NewProfileHandler(svc *profileuc.Service, cfg *config.Config, store storage.Storage) *ProfileHandler {
-	return &ProfileHandler{svc: svc, cfg: cfg, store: store}
+// NewProfileHandler constructs ProfileHandler. premium may be nil (no_ads strip skipped).
+func NewProfileHandler(
+	svc *profileuc.Service,
+	cfg *config.Config,
+	store storage.Storage,
+	premium *premiumuc.Service,
+) *ProfileHandler {
+	return &ProfileHandler{svc: svc, cfg: cfg, store: store, premium: premium}
 }
 
 // GetSkin handles GET /profile/skin.
@@ -114,6 +121,7 @@ func (h *ProfileHandler) CompleteOnboarding(c *fiber.Ctx) error {
 	if err != nil {
 		return mapProfileError(c, err)
 	}
+	stripAdsIfEntitled(c.UserContext(), h.premium, uid, &res.StarterRoutine.ProductSuggestions)
 	return response.JSON(c, fiber.StatusOK, res)
 }
 

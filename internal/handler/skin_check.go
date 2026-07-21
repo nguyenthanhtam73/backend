@@ -14,6 +14,7 @@ import (
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/analysis"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
@@ -22,17 +23,24 @@ import (
 
 // SkinCheckHandler handles authenticated skin check-in routes.
 type SkinCheckHandler struct {
-	svc   *skincheckuc.Service
-	repo  *repository.GormSkinCheckRepository
-	cfg   *config.Config
+	svc     *skincheckuc.Service
+	repo    *repository.GormSkinCheckRepository
+	cfg     *config.Config
+	premium *premiumuc.Service
 }
 
 // NewSkinCheckHandler constructs a SkinCheckHandler.
 //
 // The repository is used by GET /skin-checks/:id so the client can re-open
 // a previous day's coach feedback (the same payload shape POST returns).
-func NewSkinCheckHandler(svc *skincheckuc.Service, repo *repository.GormSkinCheckRepository, cfg *config.Config) *SkinCheckHandler {
-	return &SkinCheckHandler{svc: svc, repo: repo, cfg: cfg}
+// premium may be nil (multi-photo + no_ads gates skipped / fail-open).
+func NewSkinCheckHandler(
+	svc *skincheckuc.Service,
+	repo *repository.GormSkinCheckRepository,
+	cfg *config.Config,
+	premium *premiumuc.Service,
+) *SkinCheckHandler {
+	return &SkinCheckHandler{svc: svc, repo: repo, cfg: cfg, premium: premium}
 }
 
 // Create handles POST /skin-checks (multipart skin photos + metadata).
@@ -58,6 +66,15 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 	const maxCheckInImages = 2
 	if len(files) > maxCheckInImages {
 		return response.Error(c, fiber.StatusBadRequest, "too_many_images", fmt.Sprintf("maximum %d photos per check-in", maxCheckInImages))
+	}
+	// Multi-angle check-in (>1 photo) requires Premium+ advanced_skin_analysis.
+	if len(files) > 1 {
+		if h.premium == nil {
+			return mapPremiumGateError(c, domain.FeatureAdvancedSkinAnalysis, premiumuc.ErrUnavailable)
+		}
+		if err := h.premium.AssertFeature(c.UserContext(), userID, domain.FeatureAdvancedSkinAnalysis); err != nil {
+			return mapPremiumGateError(c, domain.FeatureAdvancedSkinAnalysis, err)
+		}
 	}
 
 	title := firstValue(form.Value["title"])
@@ -139,6 +156,7 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return mapSkinCheckError(c, err)
 	}
+	stripSkinCheckAds(c.UserContext(), h.premium, userID, &res)
 	return response.JSON(c, fiber.StatusCreated, res)
 }
 
@@ -171,7 +189,9 @@ func (h *SkinCheckHandler) Get(c *fiber.Ctx) error {
 	}
 
 	publicURLs := buildPublicImageURLs(check.ImageURLs)
-	return response.JSON(c, fiber.StatusOK, mapSkinCheckResponse(check, publicURLs))
+	res := mapSkinCheckResponse(check, publicURLs)
+	stripSkinCheckAds(c.UserContext(), h.premium, userID, &res)
+	return response.JSON(c, fiber.StatusOK, res)
 }
 
 func firstValue(v []string) string {

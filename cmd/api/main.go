@@ -18,6 +18,7 @@ import (
 	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/token"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	pushuc "github.com/dadiary/backend/internal/usecase/push"
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
@@ -67,9 +68,10 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Daily Check-in Reminder — background ticker; cancelled with the same ctx
-	// that stops the HTTP server on SIGINT/SIGTERM.
+	// Background jobs — cancelled with the same ctx that stops HTTP on SIGINT/SIGTERM.
 	startDailyReminderJob(ctx, cfg, db)
+	startMonthlyUsageResetJob(ctx, db)
+	startPlanExpiryJob(ctx, db)
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.HTTP.Port)
@@ -106,6 +108,34 @@ func startDailyReminderJob(ctx context.Context, cfg *config.Config, db *gorm.DB)
 	pushSvc := pushuc.NewService(pushRepo, pushSender, skinCheckRepo, streakRepo, pushReceipts)
 	jobLocks := repository.NewPushJobLockRepository(db)
 	scheduler.NewDailyReminderJob(pushSvc, cfg, jobLocks).Start(ctx)
+}
+
+// startMonthlyUsageResetJob cleans completed user_usages rows on the 1st UTC.
+func startMonthlyUsageResetJob(ctx context.Context, db *gorm.DB) {
+	if db == nil {
+		slog.Warn("monthly_usage_reset_job: skipped — database not available")
+		return
+	}
+	userRepo := repository.NewUserRepository(db)
+	usageRepo := repository.NewUserUsageRepository(db)
+	premiumSvc := premiumuc.NewService(userRepo, usageRepo)
+	jobLocks := repository.NewPushJobLockRepository(db)
+	scheduler.NewMonthlyUsageResetJob(premiumSvc, jobLocks).Start(ctx)
+}
+
+// startPlanExpiryJob downgrades users whose plan_expires_at has passed (daily UTC).
+func startPlanExpiryJob(ctx context.Context, db *gorm.DB) {
+	if db == nil {
+		slog.Warn("plan_expiry_job: skipped — database not available")
+		return
+	}
+	userRepo := repository.NewUserRepository(db)
+	usageRepo := repository.NewUserUsageRepository(db)
+	logs := repository.NewPlanChangeLogRepository(db)
+	premiumSvc := premiumuc.NewService(userRepo, usageRepo)
+	premiumSvc.AttachPlanExpiryDeps(db, userRepo, logs)
+	jobLocks := repository.NewPushJobLockRepository(db)
+	scheduler.NewPlanExpiryJob(premiumSvc, jobLocks).Start(ctx)
 }
 
 // registerUploadServing exposes stored photos under the stable "/uploads/*" path.

@@ -8,6 +8,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/security/turnstile"
@@ -15,15 +16,15 @@ import (
 	"github.com/dadiary/backend/pkg/response"
 )
 
-// AuthHandler wires HTTP routes for registration, login, and /me.
+// AuthHandler is the HTTP adapter for AuthUsecase (register / login / logout / me).
 type AuthHandler struct {
-	auth            *authuc.Service
+	auth            *authuc.Usecase
 	turnstileSecret string // non-empty: require verified Turnstile token on register
 	cfg             *config.Config
 }
 
 // NewAuthHandler constructs an AuthHandler.
-func NewAuthHandler(auth *authuc.Service, cfg *config.Config) *AuthHandler {
+func NewAuthHandler(auth *authuc.Usecase, cfg *config.Config) *AuthHandler {
 	h := &AuthHandler{auth: auth, cfg: cfg}
 	if cfg != nil {
 		h.turnstileSecret = strings.TrimSpace(cfg.Turnstile.SecretKey)
@@ -31,11 +32,11 @@ func NewAuthHandler(auth *authuc.Service, cfg *config.Config) *AuthHandler {
 	return h
 }
 
-// RegisterRoutes attaches public /auth/* and JWT-gated GET /me.
-// jwt must be RequireAccessJWT (or nil to skip /me — not used in production main).
+// RegisterRoutes attaches public /auth/* and JWT-gated GET /me (+ logout).
 func (h *AuthHandler) RegisterRoutes(public fiber.Router, jwt fiber.Handler) {
 	if jwt != nil {
 		public.Get("/me", jwt, h.Me)
+		public.Post("/auth/logout", jwt, h.Logout)
 	}
 	g := public.Group("/auth")
 	g.Post("/register", h.Register)
@@ -67,10 +68,10 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
-	return response.JSON(c, fiber.StatusCreated, fiber.Map{
+	return response.JSONWithMessage(c, fiber.StatusCreated, fiber.Map{
 		"tokens": res.Tokens,
 		"user":   res.User,
-	})
+	}, "registered")
 }
 
 // Login handles POST /auth/login.
@@ -86,10 +87,27 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
-	return response.JSON(c, fiber.StatusOK, fiber.Map{
+	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
 		"tokens": res.Tokens,
 		"user":   res.User,
-	})
+	}, "logged_in")
+}
+
+// Logout handles POST /auth/logout (JWT required). Stateless — client clears tokens.
+func (h *AuthHandler) Logout(c *fiber.Ctx) error {
+	if h == nil || h.auth == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "authentication is not available")
+	}
+	uid := middleware.UserIDFromLocals(c)
+	if uid == uuid.Nil {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "user context missing")
+	}
+	if err := h.auth.Logout(c.UserContext(), uid); err != nil {
+		return mapAuthError(c, err)
+	}
+	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
+		"logged_out": true,
+	}, "logged_out")
 }
 
 // Me handles GET /me (protected).
@@ -101,15 +119,19 @@ func (h *AuthHandler) Me(c *fiber.Ctx) error {
 	if uid == uuid.Nil {
 		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "user context missing")
 	}
-	pub, err := h.auth.Me(c.UserContext(), uid)
+	pub, err := h.auth.GetMe(c.UserContext(), uid)
 	if err != nil {
 		return mapAuthError(c, err)
 	}
 	pub.IsAdmin = h.cfg != nil && h.cfg.IsAdminEmail(pub.Email)
-	return response.JSON(c, fiber.StatusOK, pub)
+	return response.JSONWithMessage(c, fiber.StatusOK, pub, "ok")
 }
 
 func mapAuthError(c *fiber.Ctx, err error) error {
+	if ae, ok := domain.AsAppError(err); ok {
+		return response.Error(c, ae.HTTPStatus, ae.Code, ae.Message)
+	}
+	// Legacy sentinel fallback (tests / unexpected wraps).
 	switch {
 	case errors.Is(err, authuc.ErrEmailTaken):
 		return response.Error(c, fiber.StatusConflict, "email_taken", err.Error())
@@ -125,12 +147,9 @@ func mapAuthError(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusInternalServerError, "misconfigured", "authentication misconfigured")
 	case errors.Is(err, authuc.ErrDatabase):
 		return response.Error(c, fiber.StatusServiceUnavailable, "database_unavailable", "database is not available")
+	case errors.Is(err, authuc.ErrInvalidInput):
+		return response.Error(c, fiber.StatusBadRequest, "invalid_input", err.Error())
 	default:
-		// Invalid input and wrapped errors
-		if errors.Is(err, authuc.ErrInvalidInput) {
-			return response.Error(c, fiber.StatusBadRequest, "invalid_input", err.Error())
-		}
-		// Generic safety net
 		return response.Error(c, fiber.StatusInternalServerError, "internal_error", "something went wrong")
 	}
 }

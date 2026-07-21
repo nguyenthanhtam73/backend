@@ -36,6 +36,48 @@ type Config struct {
 	// AdminEmails lists accounts allowed to call /admin/* endpoints.
 	// Comma-separated via DADIARY_ADMIN_EMAILS.
 	AdminEmails []string `mapstructure:"admin_emails"`
+	// SePay is the Payment Gateway (sandbox / production) for Premium checkout.
+	SePay SePayConfig `mapstructure:"sepay"`
+	// E2ESecret enables POST /api/v1/internal/e2e/* helpers for Playwright smoke.
+	// Empty = routes not registered (never enable on production with a weak secret).
+	E2ESecret string `mapstructure:"e2e_secret"` // DADIARY_E2E_SECRET
+}
+
+// SePayConfig holds merchant credentials + callback URLs for SePay PG.
+// Prefer env vars; sandbox test defaults are applied when MerchantID/SecretKey
+// are empty so local Beta can exercise checkout without extra setup.
+type SePayConfig struct {
+	MerchantID string `mapstructure:"merchant_id"` // DADIARY_SEPAY_MERCHANT_ID
+	SecretKey  string `mapstructure:"secret_key"`  // DADIARY_SEPAY_SECRET_KEY
+	// Env: sandbox | production. Default sandbox.
+	Env string `mapstructure:"env"` // DADIARY_SEPAY_ENV
+	// PublicWebURL is the Next.js origin (e.g. https://dadiary.vn).
+	// Used to build locale-aware success/error/cancel URLs at checkout time.
+	PublicWebURL string `mapstructure:"public_web_url"` // DADIARY_PUBLIC_WEB_URL
+	// Callback URLs after the customer leaves SePay (must be publicly reachable).
+	// When empty, derived from PublicWebURL + /payment/{success|error|cancel}.
+	SuccessURL string `mapstructure:"success_url"` // DADIARY_SEPAY_SUCCESS_URL
+	ErrorURL   string `mapstructure:"error_url"`   // DADIARY_SEPAY_ERROR_URL
+	CancelURL  string `mapstructure:"cancel_url"`  // DADIARY_SEPAY_CANCEL_URL
+}
+
+// Sandbox test credentials (SePay PG Test Mode). Override via env in any shared/prod deploy.
+const (
+	sepaySandboxMerchantDefault = "SP-TEST-NT956599"
+	sepaySandboxSecretDefault   = "spsk_test_UHoXRUQEfLBChDYghS6AE8B6V9HQpErZ"
+)
+
+// Configured reports whether we have enough credentials to sign checkouts / verify IPN.
+func (s SePayConfig) Configured() bool {
+	return strings.TrimSpace(s.MerchantID) != "" && strings.TrimSpace(s.SecretKey) != ""
+}
+
+// NormalizedEnv returns sandbox or production.
+func (s SePayConfig) NormalizedEnv() string {
+	if strings.EqualFold(strings.TrimSpace(s.Env), "production") {
+		return "production"
+	}
+	return "sandbox"
 }
 
 // DailyReminderConfig controls when the Daily Check-in Reminder job fires.
@@ -205,6 +247,13 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("daily_reminder.enabled", "DADIARY_DAILY_REMINDER_ENABLED")
 	_ = v.BindEnv("daily_reminder.hour", "DADIARY_DAILY_REMINDER_HOUR")
 	_ = v.BindEnv("daily_reminder.minute", "DADIARY_DAILY_REMINDER_MINUTE")
+	_ = v.BindEnv("sepay.merchant_id", "DADIARY_SEPAY_MERCHANT_ID")
+	_ = v.BindEnv("sepay.secret_key", "DADIARY_SEPAY_SECRET_KEY")
+	_ = v.BindEnv("sepay.env", "DADIARY_SEPAY_ENV")
+	_ = v.BindEnv("sepay.public_web_url", "DADIARY_PUBLIC_WEB_URL")
+	_ = v.BindEnv("sepay.success_url", "DADIARY_SEPAY_SUCCESS_URL")
+	_ = v.BindEnv("sepay.error_url", "DADIARY_SEPAY_ERROR_URL")
+	_ = v.BindEnv("sepay.cancel_url", "DADIARY_SEPAY_CANCEL_URL")
 
 	if err := v.ReadInConfig(); err != nil {
 		// Allow env-only mode if no yaml on disk
@@ -309,6 +358,41 @@ func Load(relativeEnvPath string) (*Config, error) {
 		cfg.DailyReminder.Minute = 0
 	}
 
+	// SePay: trim + sandbox defaults for local Beta (never rely on these in production).
+	cfg.SePay.MerchantID = strings.TrimSpace(cfg.SePay.MerchantID)
+	cfg.SePay.SecretKey = strings.TrimSpace(cfg.SePay.SecretKey)
+	cfg.SePay.Env = strings.TrimSpace(cfg.SePay.Env)
+	cfg.SePay.PublicWebURL = strings.TrimRight(strings.TrimSpace(cfg.SePay.PublicWebURL), "/")
+	cfg.SePay.SuccessURL = strings.TrimSpace(cfg.SePay.SuccessURL)
+	cfg.SePay.ErrorURL = strings.TrimSpace(cfg.SePay.ErrorURL)
+	cfg.SePay.CancelURL = strings.TrimSpace(cfg.SePay.CancelURL)
+	if cfg.SePay.Env == "" {
+		cfg.SePay.Env = "sandbox"
+	}
+	if cfg.SePay.MerchantID == "" && cfg.SePay.NormalizedEnv() == "sandbox" {
+		cfg.SePay.MerchantID = sepaySandboxMerchantDefault
+	}
+	if cfg.SePay.SecretKey == "" && cfg.SePay.NormalizedEnv() == "sandbox" {
+		cfg.SePay.SecretKey = sepaySandboxSecretDefault
+	}
+	// Fill default (VI / unprefixed) callbacks from PublicWebURL when unset.
+	if web := cfg.SePay.PublicWebURL; web != "" {
+		if cfg.SePay.SuccessURL == "" {
+			cfg.SePay.SuccessURL = web + "/payment/success"
+		}
+		if cfg.SePay.ErrorURL == "" {
+			cfg.SePay.ErrorURL = web + "/payment/error"
+		}
+		if cfg.SePay.CancelURL == "" {
+			cfg.SePay.CancelURL = web + "/payment/cancel"
+		}
+	}
+
+	cfg.E2ESecret = strings.TrimSpace(cfg.E2ESecret)
+	if raw := strings.TrimSpace(os.Getenv("DADIARY_E2E_SECRET")); raw != "" {
+		cfg.E2ESecret = raw
+	}
+
 	// Validate the *final* merged retry settings (YAML + env + defaults). This
 	// fails startup fast on incoherent combinations that defaults can't fix —
 	// most notably an explicit max_delay that is smaller than initial_delay.
@@ -317,6 +401,11 @@ func Load(relativeEnvPath string) (*Config, error) {
 	}
 
 	return &cfg, nil
+}
+
+// E2EHelpersEnabled reports whether Playwright smoke helpers may be registered.
+func (c *Config) E2EHelpersEnabled() bool {
+	return c != nil && strings.TrimSpace(c.E2ESecret) != ""
 }
 
 // validateRetryConfig verifies the ai.retry block is internally consistent.

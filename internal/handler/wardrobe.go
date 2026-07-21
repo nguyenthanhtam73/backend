@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 
+	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
 	usageuc "github.com/dadiary/backend/internal/usecase/usage"
@@ -41,7 +42,7 @@ func (h *WardrobeHandler) CreateProduct(c *fiber.Ctx) error {
 			return response.Error(c, fiber.StatusBadRequest, "invalid_input", err.Error())
 		}
 		if errors.Is(err, usageuc.ErrPremiumRequired) {
-			return response.Error(c, fiber.StatusForbidden, "premium_required", "upgrade to Premium to manage your skincare cabinet")
+			return mapPremiumGateError(c, domain.FeatureWardrobeFull, err)
 		}
 		return response.Error(c, fiber.StatusInternalServerError, "wardrobe_error", err.Error())
 	}

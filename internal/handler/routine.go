@@ -11,10 +11,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
-	usageuc "github.com/dadiary/backend/internal/usecase/usage"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
+	usageuc "github.com/dadiary/backend/internal/usecase/usage"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -22,12 +24,13 @@ import (
 
 // RoutineHandler serves /routines routes.
 type RoutineHandler struct {
-	svc *routineuc.Service
+	svc     *routineuc.Service
+	premium *premiumuc.Service
 }
 
-// NewRoutineHandler constructs the handler.
-func NewRoutineHandler(svc *routineuc.Service) *RoutineHandler {
-	return &RoutineHandler{svc: svc}
+// NewRoutineHandler constructs the handler. premium may be nil (no_ads strip skipped).
+func NewRoutineHandler(svc *routineuc.Service, premium *premiumuc.Service) *RoutineHandler {
+	return &RoutineHandler{svc: svc, premium: premium}
 }
 
 // GetCurrent handles GET /api/v1/routines.
@@ -71,7 +74,7 @@ func (h *RoutineHandler) Put(c *fiber.Ctx) error {
 	}
 	res, err := h.svc.Upsert(c.UserContext(), uid, body)
 	if err != nil {
-		return mapRoutineError(c, err)
+		return mapRoutineError(c, domain.FeatureEditRoutine, err)
 	}
 	return response.JSON(c, fiber.StatusOK, res)
 }
@@ -117,7 +120,7 @@ func (h *RoutineHandler) Suggest(c *fiber.Ctx) error {
 	}
 	res, err := h.svc.StartSuggestJob(c.UserContext(), uid, body)
 	if err != nil {
-		return mapRoutineError(c, err)
+		return mapRoutineError(c, domain.FeatureAIRoutineSuggestion, err)
 	}
 	return response.JSON(c, fiber.StatusOK, res)
 }
@@ -137,11 +140,12 @@ func (h *RoutineHandler) SuggestStatus(c *fiber.Ctx) error {
 	}
 	res, ok, err := h.svc.GetSuggestJobStatus(uid, jobID)
 	if err != nil {
-		return mapRoutineError(c, err)
+		return mapRoutineError(c, domain.FeatureAIRoutineSuggestion, err)
 	}
 	if !ok {
 		return response.Error(c, fiber.StatusNotFound, "not_found", "suggest job not found or expired")
 	}
+	stripSuggestAds(c.UserContext(), h.premium, uid, &res)
 	return response.JSON(c, fiber.StatusOK, res)
 }
 
@@ -167,16 +171,17 @@ func (h *RoutineHandler) CancelSuggest(c *fiber.Ctx) error {
 	})
 }
 
-func mapRoutineError(c *fiber.Ctx, err error) error {
+func mapRoutineError(c *fiber.Ctx, feature domain.Feature, err error) error {
 	switch {
 	case errors.Is(err, routineuc.ErrInvalidInput):
 		return response.Error(c, fiber.StatusBadRequest, "invalid_input", err.Error())
 	case errors.Is(err, routineuc.ErrUnavailable):
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", err.Error())
-	case errors.Is(err, usageuc.ErrPremiumRequired):
-		return response.Error(c, fiber.StatusForbidden, "premium_required", "upgrade to Premium to use this feature")
-	case errors.Is(err, usageuc.ErrQuotaExceeded):
-		return response.Error(c, fiber.StatusForbidden, "quota_exceeded", "monthly free limit reached — upgrade to Premium for unlimited access")
+	case errors.Is(err, usageuc.ErrPremiumRequired),
+		errors.Is(err, usageuc.ErrQuotaExceeded),
+		errors.Is(err, premiumuc.ErrFeatureDenied),
+		errors.Is(err, premiumuc.ErrQuotaExceeded):
+		return mapPremiumGateError(c, feature, err)
 	default:
 		return response.Error(c, fiber.StatusInternalServerError, "routine_error", err.Error())
 	}

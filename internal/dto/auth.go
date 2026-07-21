@@ -1,6 +1,10 @@
 package dto
 
-import "github.com/dadiary/backend/internal/domain"
+import (
+	"time"
+
+	"github.com/dadiary/backend/internal/domain"
+)
 
 // RegisterRequest is the JSON body for POST /api/v1/auth/register.
 type RegisterRequest struct {
@@ -34,9 +38,12 @@ type UserPublic struct {
 	AvatarURL   string `json:"avatar_url,omitempty"`
 	Provider    string `json:"provider"`
 	IsActive    bool   `json:"is_active"`
-	PlanTier    string `json:"plan_tier,omitempty"`
-	IsAdmin     bool   `json:"is_admin,omitempty"`
-	CreatedAt   string `json:"created_at"`
+	// PlanTier is the *effective* tier (expired paid → free).
+	PlanTier string `json:"plan_tier,omitempty"`
+	// PlanExpiresAt is RFC3339 when a paid plan ends; omitted for Free / lifetime.
+	PlanExpiresAt string `json:"plan_expires_at,omitempty"`
+	IsAdmin       bool   `json:"is_admin,omitempty"`
+	CreatedAt     string `json:"created_at"`
 }
 
 // UserFromDomain maps a domain user to a public DTO (no secrets).
@@ -49,7 +56,7 @@ func UserFromDomainWithAdmin(u *domain.User, isAdmin bool) UserPublic {
 	if u == nil {
 		return UserPublic{}
 	}
-	return UserPublic{
+	out := UserPublic{
 		ID:          u.ID.String(),
 		Email:       u.Email,
 		Username:    u.Username,
@@ -57,8 +64,12 @@ func UserFromDomainWithAdmin(u *domain.User, isAdmin bool) UserPublic {
 		AvatarURL:   u.AvatarURL,
 		Provider:    string(u.Provider),
 		IsActive:    u.IsActive,
-		PlanTier:    string(u.PlanTier),
+		PlanTier:    string(domain.EffectivePlanTier(u, time.Now().UTC())),
 		IsAdmin:     isAdmin,
 		CreatedAt:   u.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
+	if u.PlanExpiresAt != nil {
+		out.PlanExpiresAt = u.PlanExpiresAt.UTC().Format(time.RFC3339)
+	}
+	return out
 }

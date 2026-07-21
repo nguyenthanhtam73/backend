@@ -11,6 +11,7 @@ import (
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/streaktime"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -23,12 +24,14 @@ import (
 // no LLM call here — all motivational numbers are computed deterministically from
 // stored gauges, which keeps the page fast and free to render.
 type ProgressHandler struct {
-	repo *repository.GormSkinCheckRepository
+	repo  *repository.GormSkinCheckRepository
+	gates *premiumuc.Service
 }
 
 // NewProgressHandler constructs the handler.
-func NewProgressHandler(repo *repository.GormSkinCheckRepository) *ProgressHandler {
-	return &ProgressHandler{repo: repo}
+// gates may be nil (no plan clamp — treated as Free 3-month window when present checks fail open to parse only).
+func NewProgressHandler(repo *repository.GormSkinCheckRepository, gates *premiumuc.Service) *ProgressHandler {
+	return &ProgressHandler{repo: repo, gates: gates}
 }
 
 // Timeline handles GET /api/v1/progress?range=30|90|180|all.
@@ -48,7 +51,7 @@ func (h *ProgressHandler) Timeline(c *fiber.Ctx) error {
 		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
 	}
 
-	rangeDays, since := parseProgressRange(c.Query("range"))
+	rangeDays, since := h.clampProgressRange(c, userID, c.Query("range"))
 	limit := 0
 	if lq := strings.TrimSpace(c.Query("limit")); lq != "" {
 		if n, err := strconv.Atoi(lq); err == nil && n > 0 {
@@ -76,7 +79,7 @@ func (h *ProgressHandler) Summary(c *fiber.Ctx) error {
 	if userID == uuid.Nil {
 		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
 	}
-	rangeDays, since := parseProgressRange(c.Query("range"))
+	rangeDays, since := h.clampProgressRange(c, userID, c.Query("range"))
 	rows, err := h.repo.ListForOwner(c.UserContext(), userID, since, 0)
 	if err != nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "database_error", err.Error())
@@ -88,6 +91,20 @@ func (h *ProgressHandler) Summary(c *fiber.Ctx) error {
 		"to":         full.To,
 		"summary":    full.Summary,
 	})
+}
+
+// clampProgressRange applies plan history windows (Free 3mo / Premium 12mo / Plus all).
+func (h *ProgressHandler) clampProgressRange(c *fiber.Ctx, userID uuid.UUID, raw string) (int, time.Time) {
+	rangeDays, since := parseProgressRange(raw)
+	if h == nil || h.gates == nil {
+		return rangeDays, since
+	}
+	months, err := h.gates.ProgressHistoryMonths(c.UserContext(), userID)
+	if err != nil {
+		// Fail closed to Free window when plan lookup fails.
+		months = 3
+	}
+	return premiumuc.ClampProgressRange(months, rangeDays, streaktime.Today())
 }
 
 // parseProgressRange normalizes the `range` query parameter.

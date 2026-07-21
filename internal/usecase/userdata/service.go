@@ -1,4 +1,4 @@
-// Package userdata handles destructive privacy actions (delete all personal data).
+// Package userdata handles privacy actions (export dump + delete all personal data).
 package userdata
 
 import (
@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/dadiary/backend/internal/storage"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	"github.com/google/uuid"
 )
 
@@ -22,18 +24,51 @@ var (
 
 // Service wipes diary data while keeping the auth account.
 type Service struct {
-	repo  *repository.UserDataRepository
-	store storage.Storage
-	cache *ai.MemoryCache
+	repo    *repository.UserDataRepository
+	store   storage.Storage
+	cache   *ai.MemoryCache
+	premium *premiumuc.Service
 }
 
-// NewService wires dependencies. cache may be nil.
+// NewService wires dependencies. cache / premium may be nil.
 func NewService(
 	repo *repository.UserDataRepository,
 	store storage.Storage,
 	cache *ai.MemoryCache,
+	premium *premiumuc.Service,
 ) *Service {
-	return &Service{repo: repo, store: store, cache: cache}
+	return &Service{repo: repo, store: store, cache: cache, premium: premium}
+}
+
+// Export returns a portable diary dump. Requires FeatureExportData (Premium+).
+func (s *Service) Export(ctx context.Context, userID uuid.UUID) (dto.ExportUserDataResponse, error) {
+	var zero dto.ExportUserDataResponse
+	if s == nil || s.repo == nil {
+		return zero, ErrUnavailable
+	}
+	if userID == uuid.Nil {
+		return zero, ErrInvalidUser
+	}
+	if s.premium == nil {
+		return zero, ErrUnavailable
+	}
+	if err := s.premium.AssertFeature(ctx, userID, domain.FeatureExportData); err != nil {
+		return zero, err
+	}
+	out, err := s.repo.ExportBundle(ctx, userID)
+	if err != nil {
+		return zero, fmt.Errorf("export user data: %w", err)
+	}
+	tier, _ := s.premium.PlanTier(ctx, userID)
+	out.PlanTier = string(tier)
+	out.ExportedAt = time.Now().UTC().Format(time.RFC3339)
+	slog.Info("user-data: export ok",
+		"user_id", userID.String(),
+		"checks", len(out.SkinChecks),
+		"routines", len(out.Routines),
+		"wardrobe", len(out.Wardrobe),
+	)
+	return out, nil
 }
 
 // DeleteAll removes personal skincare data for userID.

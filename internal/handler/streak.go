@@ -5,8 +5,10 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	streakuc "github.com/dadiary/backend/internal/usecase/streak"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
@@ -15,12 +17,13 @@ import (
 
 // StreakHandler serves the authenticated user's streak summary and admin repair.
 type StreakHandler struct {
-	svc *streakuc.Service
+	svc     *streakuc.Service
+	premium *premiumuc.Service
 }
 
-// NewStreakHandler constructs handler.
-func NewStreakHandler(svc *streakuc.Service) *StreakHandler {
-	return &StreakHandler{svc: svc}
+// NewStreakHandler constructs handler. premium may be nil (milestones fall back to Free).
+func NewStreakHandler(svc *streakuc.Service, premium *premiumuc.Service) *StreakHandler {
+	return &StreakHandler{svc: svc, premium: premium}
 }
 
 // Get handles GET /api/v1/me/streak.
@@ -40,6 +43,66 @@ func (h *StreakHandler) Get(c *fiber.Ctx) error {
 		return response.Error(c, fiber.StatusInternalServerError, "streak_error", err.Error())
 	}
 	return response.JSON(c, fiber.StatusOK, res)
+}
+
+// Milestones handles GET /api/v1/me/streak/milestones.
+//
+// Free users always receive the basic catalog (3 + 7) without error.
+// Pass ?full=1 to request the Premium catalog — AssertFeature(milestone_full)
+// returns 403 + reason when the plan does not include it.
+func (h *StreakHandler) Milestones(c *fiber.Ctx) error {
+	uid := middleware.UserIDFromLocals(c)
+	if uid == uuid.Nil {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
+	}
+
+	wantFull := strings.EqualFold(strings.TrimSpace(c.Query("full")), "1") ||
+		strings.EqualFold(strings.TrimSpace(c.Query("full")), "true")
+
+	tier := domain.PlanFree
+	fullAccess := false
+	if h.premium != nil {
+		t, err := h.premium.PlanTier(c.UserContext(), uid)
+		if err == nil {
+			tier = t
+		}
+		ok, _, err := h.premium.CanUseFeature(c.UserContext(), uid, domain.FeatureMilestoneFull)
+		if err == nil {
+			fullAccess = ok
+		}
+		if wantFull {
+			if err := h.premium.AssertFeature(c.UserContext(), uid, domain.FeatureMilestoneFull); err != nil {
+				return mapPremiumGateError(c, domain.FeatureMilestoneFull, err)
+			}
+			fullAccess = true
+		}
+	} else if wantFull {
+		return mapPremiumGateError(c, domain.FeatureMilestoneFull, premiumuc.ErrUnavailable)
+	}
+
+	var defs []domain.MilestoneDef
+	if fullAccess {
+		defs = domain.MilestoneCatalogForPlan(domain.PlanPremium)
+	} else {
+		defs = domain.MilestoneCatalogForPlan(domain.PlanFree)
+	}
+
+	days := make([]int, len(defs))
+	items := make([]dto.MilestoneItemDTO, len(defs))
+	for i, d := range defs {
+		days[i] = d.Days
+		items[i] = dto.MilestoneItemDTO{
+			Days:    d.Days,
+			Tier:    d.Tier,
+			CopyKey: d.CopyKey,
+		}
+	}
+	return response.JSON(c, fiber.StatusOK, dto.MilestoneCatalogResponse{
+		PlanTier:      string(domain.NormalizePlanTier(tier)),
+		FullAccess:    fullAccess,
+		MilestoneDays: days,
+		Items:         items,
+	})
 }
 
 // UseFreeze handles POST /api/v1/me/streak/freeze.
