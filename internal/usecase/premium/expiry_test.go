@@ -26,34 +26,52 @@ func (s expiryStubUsers) GetByID(context.Context, uuid.UUID) (*domain.User, erro
 	return s.user, nil
 }
 
-func TestPlanTier_RespectsExpiry(t *testing.T) {
+func TestPlanTier_RespectsGrace(t *testing.T) {
 	now := time.Now().UTC()
-	past := now.Add(-time.Hour)
+	inGrace := now.Add(-time.Hour)
+	pastGrace := now.Add(-(domain.DefaultGraceDays + 1) * 24 * time.Hour)
 	future := now.Add(48 * time.Hour)
 	uid := uuid.New()
 
-	expired := &domain.User{
+	expiredPastGrace := &domain.User{
 		ID:            uid,
 		Email:         "e@test.com",
 		Username:      "exp",
 		PlanTier:      domain.PlanPremiumPlus,
-		PlanExpiresAt: &past,
+		PlanExpiresAt: &pastGrace,
 		IsActive:      true,
 	}
-	svc := NewService(expiryStubUsers{user: expired}, nil)
+	svc := NewService(expiryStubUsers{user: expiredPastGrace}, nil)
 	tier, err := svc.PlanTier(context.Background(), uid)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if tier != domain.PlanFree {
-		t.Fatalf("expired → free, got %s", tier)
+		t.Fatalf("past grace → free, got %s", tier)
 	}
 	ok, reason, err := svc.CanUseFeature(context.Background(), uid, domain.FeatureAdvancedSkinAnalysis)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ok || reason != ReasonFeatureDenied {
-		t.Fatalf("advanced skin should be denied after expiry, ok=%v reason=%q", ok, reason)
+		t.Fatalf("advanced skin should be denied after grace, ok=%v reason=%q", ok, reason)
+	}
+
+	stillInGrace := &domain.User{
+		ID:            uid,
+		Email:         "g@test.com",
+		Username:      "grace",
+		PlanTier:      domain.PlanPremiumPlus,
+		PlanExpiresAt: &inGrace,
+		IsActive:      true,
+	}
+	svc = NewService(expiryStubUsers{user: stillInGrace}, nil)
+	tier, err = svc.PlanTier(context.Background(), uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tier != domain.PlanPremiumPlus {
+		t.Fatalf("inside grace should stay plus: %s", tier)
 	}
 
 	active := &domain.User{
@@ -78,7 +96,7 @@ func TestPlanTier_RespectsExpiry(t *testing.T) {
 	}
 }
 
-func TestDowngradeExpiredPlans(t *testing.T) {
+func TestDowngradeExpiredPlans_WaitsForGrace(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:plan_expiry_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -92,16 +110,24 @@ func TestDowngradeExpiredPlans(t *testing.T) {
 	users := repository.NewUserRepository(db)
 	logs := repository.NewPlanChangeLogRepository(db)
 	svc := NewService(users, nil)
-	svc.AttachPlanExpiryDeps(db, users, logs)
+	svc.AttachPlanExpiryDeps(db, users, logs, domain.DefaultGraceDays)
 
-	past := time.Now().UTC().Add(-2 * time.Hour)
+	pastGrace := time.Now().UTC().Add(-(domain.DefaultGraceDays + 1) * 24 * time.Hour)
+	inGrace := time.Now().UTC().Add(-2 * time.Hour)
 	future := time.Now().UTC().Add(48 * time.Hour)
 
 	expired := &domain.User{
 		Email:         "expired@test.com",
 		Username:      "expired_u",
 		PlanTier:      domain.PlanPremium,
-		PlanExpiresAt: &past,
+		PlanExpiresAt: &pastGrace,
+		IsActive:      true,
+	}
+	graceUser := &domain.User{
+		Email:         "grace@test.com",
+		Username:      "grace_u",
+		PlanTier:      domain.PlanPremium,
+		PlanExpiresAt: &inGrace,
 		IsActive:      true,
 	}
 	active := &domain.User{
@@ -117,7 +143,7 @@ func TestDowngradeExpiredPlans(t *testing.T) {
 		PlanTier: domain.PlanPremium,
 		IsActive: true,
 	}
-	for _, u := range []*domain.User{expired, active, lifetime} {
+	for _, u := range []*domain.User{expired, graceUser, active, lifetime} {
 		if err := users.Create(context.Background(), u); err != nil {
 			t.Fatal(err)
 		}
@@ -128,7 +154,7 @@ func TestDowngradeExpiredPlans(t *testing.T) {
 		t.Fatal(err)
 	}
 	if n != 1 {
-		t.Fatalf("downgraded=%d want 1", n)
+		t.Fatalf("downgraded=%d want 1 (only past grace)", n)
 	}
 
 	got, err := users.GetByID(context.Background(), expired.ID)
@@ -137,6 +163,11 @@ func TestDowngradeExpiredPlans(t *testing.T) {
 	}
 	if got.PlanTier != domain.PlanFree || got.PlanExpiresAt != nil {
 		t.Fatalf("expired user not cleared: tier=%s expires=%v", got.PlanTier, got.PlanExpiresAt)
+	}
+
+	gotGrace, _ := users.GetByID(context.Background(), graceUser.ID)
+	if gotGrace.PlanTier != domain.PlanPremium {
+		t.Fatalf("in-grace user should stay premium: %s", gotGrace.PlanTier)
 	}
 
 	gotActive, _ := users.GetByID(context.Background(), active.ID)

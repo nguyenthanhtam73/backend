@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
@@ -157,4 +158,106 @@ func (r *PaymentOrderRepository) UpdateStatusTx(
 	return tx.Model(&domain.PaymentOrder{}).
 		Where("invoice_number = ? AND status = ?", invoice, domain.PaymentPending).
 		Updates(updates).Error
+}
+
+// PaymentDayStats aggregates payment_orders created on [dayStart, dayEnd).
+type PaymentDayStats struct {
+	TotalCreated int64
+	PaidCount    int64
+	FailedCount  int64 // failed + cancelled + expired
+	RevenueVND   int64 // sum of amount_vnd for paid rows
+}
+
+// PaymentOrderListFilter controls admin recent-payments listing.
+type PaymentOrderListFilter struct {
+	Status string // empty = all; otherwise domain.PaymentOrderStatus value
+	Limit  int
+	Offset int
+}
+
+// ListRecent returns newest payment orders (optional status filter).
+func (r *PaymentOrderRepository) ListRecent(
+	ctx context.Context,
+	filter PaymentOrderListFilter,
+) ([]domain.PaymentOrder, int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, 0, err
+	}
+	limit := filter.Limit
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	offset := filter.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	q := db.WithContext(ctx).Model(&domain.PaymentOrder{})
+	if s := strings.TrimSpace(filter.Status); s != "" {
+		q = q.Where("status = ?", s)
+	}
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var rows []domain.PaymentOrder
+	err = q.Order("created_at DESC").Limit(limit).Offset(offset).Find(&rows).Error
+	return rows, total, err
+}
+
+// AggregateCreatedBetween returns checkout stats for orders created in [from, to).
+func (r *PaymentOrderRepository) AggregateCreatedBetween(
+	ctx context.Context,
+	from, to time.Time,
+) (PaymentDayStats, error) {
+	var zero PaymentDayStats
+	db, err := r.dbOrErr()
+	if err != nil {
+		return zero, err
+	}
+	from, to = from.UTC(), to.UTC()
+
+	var total int64
+	if err := db.WithContext(ctx).Model(&domain.PaymentOrder{}).
+		Where("created_at >= ? AND created_at < ?", from, to).
+		Count(&total).Error; err != nil {
+		return zero, err
+	}
+
+	var paid int64
+	if err := db.WithContext(ctx).Model(&domain.PaymentOrder{}).
+		Where("created_at >= ? AND created_at < ? AND status = ?", from, to, domain.PaymentPaid).
+		Count(&paid).Error; err != nil {
+		return zero, err
+	}
+
+	var failed int64
+	if err := db.WithContext(ctx).Model(&domain.PaymentOrder{}).
+		Where("created_at >= ? AND created_at < ? AND status IN ?",
+			from, to,
+			[]domain.PaymentOrderStatus{domain.PaymentFailed, domain.PaymentCancelled, domain.PaymentExpired},
+		).Count(&failed).Error; err != nil {
+		return zero, err
+	}
+
+	var revenue int64
+	if err := db.WithContext(ctx).Model(&domain.PaymentOrder{}).
+		Select("COALESCE(SUM(amount_vnd), 0)").
+		Where("created_at >= ? AND created_at < ? AND status = ?", from, to, domain.PaymentPaid).
+		Scan(&revenue).Error; err != nil {
+		return zero, err
+	}
+
+	return PaymentDayStats{
+		TotalCreated: total,
+		PaidCount:    paid,
+		FailedCount:  failed,
+		RevenueVND:   revenue,
+	}, nil
 }

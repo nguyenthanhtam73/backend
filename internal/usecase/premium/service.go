@@ -60,22 +60,25 @@ type Service struct {
 	users  repository.UserRepository
 	usages repository.UserUsageRepository
 
-	// Optional: daily plan-expiry cron (downgrade paid → free).
+	// Optional: daily plan-expiry cron (downgrade paid → free after grace).
 	db        *gorm.DB
 	planUsers *repository.GormUserRepository
 	logs      *repository.PlanChangeLogRepository
+	graceDays int
 }
 
 // NewService wires dependencies. Either repo may be nil (guards fail closed).
 func NewService(users repository.UserRepository, usages repository.UserUsageRepository) *Service {
-	return &Service{users: users, usages: usages}
+	return &Service{users: users, usages: usages, graceDays: domain.DefaultGraceDays}
 }
 
 // AttachPlanExpiryDeps enables DowngradeExpiredPlans (daily cron). Safe to call once at boot.
+// graceDays <= 0 keeps DefaultGraceDays (clamped to [3, 7]).
 func (s *Service) AttachPlanExpiryDeps(
 	db *gorm.DB,
 	users *repository.GormUserRepository,
 	logs *repository.PlanChangeLogRepository,
+	graceDays int,
 ) {
 	if s == nil {
 		return
@@ -83,6 +86,18 @@ func (s *Service) AttachPlanExpiryDeps(
 	s.db = db
 	s.planUsers = users
 	s.logs = logs
+	if graceDays > 0 {
+		s.graceDays = domain.ClampGraceDays(graceDays)
+	} else {
+		s.graceDays = domain.DefaultGraceDays
+	}
+}
+
+func (s *Service) grace() int {
+	if s == nil || s.graceDays <= 0 {
+		return domain.DefaultGraceDays
+	}
+	return domain.ClampGraceDays(s.graceDays)
 }
 
 // PlanTier loads the user's effective plan (respects plan_expires_at).
@@ -100,8 +115,9 @@ func (s *Service) PlanTier(ctx context.Context, userID uuid.UUID) (domain.PlanTi
 	if u == nil {
 		return domain.PlanFree, nil
 	}
-	// CanUseFeature / quotas all go through here — expired paid → Free immediately.
-	return domain.EffectivePlanTier(u, time.Now().UTC()), nil
+	// CanUseFeature / quotas all go through here — past grace → Free immediately
+	// (inside grace, EffectivePlanTier still returns Premium).
+	return domain.EffectivePlanTierWithGrace(u, time.Now().UTC(), s.grace()), nil
 }
 
 // IsPaidPlan is true for Premium and Premium+.
@@ -286,14 +302,18 @@ func (s *Service) ResetMonthlyUsage(ctx context.Context) (int64, error) {
 	return deleted, nil
 }
 
-// DowngradeExpiredPlans sets expired paid users back to Free (daily cron).
+// DowngradeExpiredPlans sets paid users past the grace window back to Free (daily cron).
+// Prefer usecase/subscription.Service.DowngradePastGrace when the full lifecycle
+// service is wired (writes subscriptions history). This path keeps entitlements
+// consistent when only premium deps are attached.
 // Each user is locked FOR UPDATE so a concurrent SePay IPN cannot race the downgrade.
 func (s *Service) DowngradeExpiredPlans(ctx context.Context) (int, error) {
 	if s == nil || s.db == nil || s.planUsers == nil {
 		return 0, fmt.Errorf("%w", ErrUnavailable)
 	}
 	now := time.Now().UTC()
-	candidates, err := s.planUsers.ListExpiredPaidUsers(ctx, now, 500)
+	graceDays := s.grace()
+	candidates, err := s.planUsers.ListPastGracePaidUsers(ctx, now, graceDays, 500)
 	if err != nil {
 		return 0, err
 	}
@@ -309,7 +329,7 @@ func (s *Service) DowngradeExpiredPlans(ctx context.Context) (int, error) {
 				return nil
 			}
 			// Re-check under lock (renewal IPN may have extended expiry).
-			if domain.EffectivePlanTier(u, now).IsPaidPlan() {
+			if domain.EffectivePlanTierWithGrace(u, now, graceDays).IsPaidPlan() {
 				return nil
 			}
 			from := domain.NormalizePlanTier(u.PlanTier)
@@ -330,7 +350,7 @@ func (s *Service) DowngradeExpiredPlans(ctx context.Context) (int, error) {
 					ActorEmail:  systemExpiryActorEmail,
 					FromPlan:    from,
 					ToPlan:      domain.PlanFree,
-					Reason:      "plan_expired",
+					Reason:      "grace_ended",
 				}
 				if err := s.logs.CreateTx(tx, &logRow); err != nil {
 					return err
@@ -350,6 +370,7 @@ func (s *Service) DowngradeExpiredPlans(ctx context.Context) (int, error) {
 	slog.Info("premium: expiry downgrade complete",
 		"candidates", len(candidates),
 		"downgraded", downgraded,
+		"grace_days", graceDays,
 	)
 	return downgraded, nil
 }

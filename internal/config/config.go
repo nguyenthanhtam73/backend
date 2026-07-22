@@ -13,6 +13,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 
+	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/pkg/retry"
 )
 
@@ -38,9 +39,35 @@ type Config struct {
 	AdminEmails []string `mapstructure:"admin_emails"`
 	// SePay is the Payment Gateway (sandbox / production) for Premium checkout.
 	SePay SePayConfig `mapstructure:"sepay"`
+	// Subscription controls trial length + post-expiry grace (Premium lifecycle).
+	Subscription SubscriptionConfig `mapstructure:"subscription"`
+	// Alert is optional ops alerting (Slack / Telegram) for payment & cron failures.
+	Alert AlertConfig `mapstructure:"alert"`
 	// E2ESecret enables POST /api/v1/internal/e2e/* helpers for Playwright smoke.
 	// Empty = routes not registered (never enable on production with a weak secret).
 	E2ESecret string `mapstructure:"e2e_secret"` // DADIARY_E2E_SECRET
+}
+
+// AlertConfig wires optional remote ops alerts (Slack / Telegram).
+// Console ops_alert / payment logs always emit; Enabled only gates remote sinks.
+// Cooldown (15m per key) applies to successful remote delivery only — see pkg/alert.
+type AlertConfig struct {
+	// Enabled turns on Slack/Telegram delivery. Default true when a sink URL/token is set.
+	// When false, console logging is unchanged (no remote, no cooldown).
+	Enabled bool `mapstructure:"enabled"` // DADIARY_ALERT_ENABLED
+	// WebhookURL is a Slack Incoming Webhook (or generic JSON POST endpoint).
+	WebhookURL string `mapstructure:"webhook_url"` // DADIARY_ALERT_WEBHOOK_URL
+	// TelegramBotToken + TelegramChatID enable Telegram Bot API alerts
+	// (errors + payment success pings).
+	TelegramBotToken string `mapstructure:"telegram_bot_token"` // DADIARY_ALERT_TELEGRAM_BOT_TOKEN
+	TelegramChatID   string `mapstructure:"telegram_chat_id"`   // DADIARY_ALERT_TELEGRAM_CHAT_ID
+}
+
+// SubscriptionConfig tunes trial / grace windows for Premium lifecycle.
+// TrialDays is clamped to [7, 14]; GraceDays to [3, 7].
+type SubscriptionConfig struct {
+	TrialDays int `mapstructure:"trial_days"` // DADIARY_SUBSCRIPTION_TRIAL_DAYS (default 7)
+	GraceDays int `mapstructure:"grace_days"` // DADIARY_SUBSCRIPTION_GRACE_DAYS (default 3)
 }
 
 // SePayConfig holds merchant credentials + callback URLs for SePay PG.
@@ -254,6 +281,12 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("sepay.success_url", "DADIARY_SEPAY_SUCCESS_URL")
 	_ = v.BindEnv("sepay.error_url", "DADIARY_SEPAY_ERROR_URL")
 	_ = v.BindEnv("sepay.cancel_url", "DADIARY_SEPAY_CANCEL_URL")
+	_ = v.BindEnv("subscription.trial_days", "DADIARY_SUBSCRIPTION_TRIAL_DAYS")
+	_ = v.BindEnv("subscription.grace_days", "DADIARY_SUBSCRIPTION_GRACE_DAYS")
+	_ = v.BindEnv("alert.enabled", "DADIARY_ALERT_ENABLED")
+	_ = v.BindEnv("alert.webhook_url", "DADIARY_ALERT_WEBHOOK_URL")
+	_ = v.BindEnv("alert.telegram_bot_token", "DADIARY_ALERT_TELEGRAM_BOT_TOKEN")
+	_ = v.BindEnv("alert.telegram_chat_id", "DADIARY_ALERT_TELEGRAM_CHAT_ID")
 
 	if err := v.ReadInConfig(); err != nil {
 		// Allow env-only mode if no yaml on disk
@@ -388,9 +421,26 @@ func Load(relativeEnvPath string) (*Config, error) {
 		}
 	}
 
+	// Subscription lifecycle: trial 7–14d, grace 3–7d.
+	cfg.Subscription.TrialDays = domain.ClampTrialDays(cfg.Subscription.TrialDays)
+	cfg.Subscription.GraceDays = domain.ClampGraceDays(cfg.Subscription.GraceDays)
+
 	cfg.E2ESecret = strings.TrimSpace(cfg.E2ESecret)
 	if raw := strings.TrimSpace(os.Getenv("DADIARY_E2E_SECRET")); raw != "" {
 		cfg.E2ESecret = raw
+	}
+
+	// Ops alerts: trim sinks; auto-enable remote delivery when a sink is set and
+	// DADIARY_ALERT_ENABLED is unset (console always logs via pkg/alert).
+	cfg.Alert.WebhookURL = strings.TrimSpace(cfg.Alert.WebhookURL)
+	cfg.Alert.TelegramBotToken = strings.TrimSpace(cfg.Alert.TelegramBotToken)
+	cfg.Alert.TelegramChatID = strings.TrimSpace(cfg.Alert.TelegramChatID)
+	hasAlertSink := cfg.Alert.WebhookURL != "" ||
+		(cfg.Alert.TelegramBotToken != "" && cfg.Alert.TelegramChatID != "")
+	if raw := strings.TrimSpace(os.Getenv("DADIARY_ALERT_ENABLED")); raw == "" {
+		cfg.Alert.Enabled = hasAlertSink
+	} else {
+		cfg.Alert.Enabled = parseEnvBool(raw, hasAlertSink)
 	}
 
 	// Validate the *final* merged retry settings (YAML + env + defaults). This

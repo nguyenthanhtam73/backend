@@ -10,6 +10,7 @@ import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/repository"
+	subscriptionuc "github.com/dadiary/backend/internal/usecase/subscription"
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -24,26 +25,36 @@ func setupPaymentFulfill(t *testing.T) (*Service, *domain.User, *repository.Gorm
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.PaymentOrder{}, &domain.PlanChangeLog{}); err != nil {
+	if err := db.AutoMigrate(
+		&domain.User{},
+		&domain.PaymentOrder{},
+		&domain.PlanChangeLog{},
+		&domain.Subscription{},
+	); err != nil {
 		t.Fatal(err)
 	}
 	users := repository.NewUserRepository(db)
 	orders := repository.NewPaymentOrderRepository(db)
 	logs := repository.NewPlanChangeLogRepository(db)
+	subsRepo := repository.NewSubscriptionRepository(db)
 	cfg := &config.Config{
 		SePay: config.SePayConfig{
 			MerchantID: "SP-TEST",
 			SecretKey:  "spsk_test",
 			Env:        "sandbox",
 		},
+		Subscription: config.SubscriptionConfig{TrialDays: 7, GraceDays: 3},
 	}
 	svc := NewService(db, cfg, orders, users, logs)
+	subSvc := subscriptionuc.NewService(db, users, subsRepo, logs, 7, 3)
+	svc.AttachSubscription(subSvc)
 
 	u := &domain.User{
-		Email:    "payer@test.com",
-		Username: "payer",
-		PlanTier: domain.PlanFree,
-		IsActive: true,
+		Email:              "payer@test.com",
+		Username:           "payer",
+		PlanTier:           domain.PlanFree,
+		SubscriptionStatus: domain.SubStatusNone,
+		IsActive:           true,
 	}
 	if err := users.Create(context.Background(), u); err != nil {
 		t.Fatal(err)
@@ -175,5 +186,59 @@ func TestFulfillPaidOrder_ConcurrentIPNsNoDowngrade(t *testing.T) {
 	}
 	if got.PlanTier != domain.PlanPremiumPlus {
 		t.Fatalf("race left tier=%s want premium_plus", got.PlanTier)
+	}
+}
+
+func TestHandleSePayWebhook_CancelNotification(t *testing.T) {
+	svc, user, users := setupPaymentFulfill(t)
+	invoice := "DD-CANCEL-1"
+	seedOrder(t, svc, user.ID, invoice, domain.PlanPremium, domain.BillingMonthly, 99000)
+
+	if err := svc.HandleSePayWebhook(context.Background(), "spsk_test", mustIPN(invoice, "99000")); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := users.GetByID(context.Background(), user.ID)
+	if got.PlanTier != domain.PlanPremium || got.CanceledAt != nil {
+		t.Fatalf("pre-cancel state: %+v", got)
+	}
+
+	cancelPayload := IPNPayload{NotificationType: "ORDER_CANCELLED"}
+	cancelPayload.Order.OrderInvoiceNumber = invoice
+	cancelPayload.Order.OrderStatus = "CANCELLED"
+	cancelPayload.Customer.CustomerID = user.ID.String()
+	raw, _ := json.Marshal(cancelPayload)
+
+	if err := svc.HandleSePayWebhook(context.Background(), "spsk_test", raw); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = users.GetByID(context.Background(), user.ID)
+	if got.CanceledAt == nil || got.SubscriptionStatus != domain.SubStatusCanceled {
+		t.Fatalf("expected canceled: status=%s canceled_at=%v", got.SubscriptionStatus, got.CanceledAt)
+	}
+	// Access continues until grace ends — tier stays Premium.
+	if got.PlanTier != domain.PlanPremium {
+		t.Fatalf("tier cleared on cancel: %s", got.PlanTier)
+	}
+
+	// Replay cancel → ack noop.
+	if err := svc.HandleSePayWebhook(context.Background(), "spsk_test", raw); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFulfillPaidOrder_SetsSubscriptionActive(t *testing.T) {
+	svc, user, users := setupPaymentFulfill(t)
+	invoice := "DD-SUB-ACTIVE"
+	seedOrder(t, svc, user.ID, invoice, domain.PlanPremium, domain.BillingMonthly, 99000)
+
+	if err := svc.HandleSePayWebhook(context.Background(), "spsk_test", mustIPN(invoice, "99000")); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := users.GetByID(context.Background(), user.ID)
+	if got.SubscriptionStatus != domain.SubStatusActive {
+		t.Fatalf("status=%s want active", got.SubscriptionStatus)
+	}
+	if got.PlanExpiresAt == nil {
+		t.Fatal("missing plan_expires_at")
 	}
 }

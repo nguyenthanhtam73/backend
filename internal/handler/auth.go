@@ -13,6 +13,7 @@ import (
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/security/turnstile"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
+	subscriptionuc "github.com/dadiary/backend/internal/usecase/subscription"
 	"github.com/dadiary/backend/pkg/response"
 )
 
@@ -21,6 +22,8 @@ type AuthHandler struct {
 	auth            *authuc.Usecase
 	turnstileSecret string // non-empty: require verified Turnstile token on register
 	cfg             *config.Config
+	// Optional: enriches GET /me with configured grace / trial windows.
+	subs *subscriptionuc.Service
 }
 
 // NewAuthHandler constructs an AuthHandler.
@@ -30,6 +33,14 @@ func NewAuthHandler(auth *authuc.Usecase, cfg *config.Config) *AuthHandler {
 		h.turnstileSecret = strings.TrimSpace(cfg.Turnstile.SecretKey)
 	}
 	return h
+}
+
+// AttachSubscription enables CheckActivePlan overlay on GET /me.
+func (h *AuthHandler) AttachSubscription(subs *subscriptionuc.Service) {
+	if h == nil {
+		return
+	}
+	h.subs = subs
 }
 
 // RegisterRoutes attaches public /auth/* and JWT-gated GET /me (+ logout).
@@ -111,6 +122,7 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 }
 
 // Me handles GET /me (protected).
+// Includes subscription lifecycle fields (status, days_left, in_grace, trial_ends_at, …).
 func (h *AuthHandler) Me(c *fiber.Ctx) error {
 	if h == nil || h.auth == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "authentication is not available")
@@ -124,6 +136,25 @@ func (h *AuthHandler) Me(c *fiber.Ctx) error {
 		return mapAuthError(c, err)
 	}
 	pub.IsAdmin = h.cfg != nil && h.cfg.IsAdminEmail(pub.Email)
+
+	// Overlay configured grace/trial days from SubscriptionService when wired.
+	if h.subs != nil {
+		if plan, planErr := h.subs.CheckActivePlan(c.UserContext(), uid); planErr == nil && plan != nil {
+			dto.ApplySubscriptionSnapshot(&pub, dto.SubscriptionSnapshot{
+				Active:            plan.Active,
+				PlanTier:          string(plan.PlanTier),
+				Status:            string(plan.Status),
+				PlanExpiresAt:     plan.PlanExpiresAt,
+				TrialEndsAt:       plan.TrialEndsAt,
+				CanceledAt:        plan.CanceledAt,
+				GraceEndsAt:       plan.GraceEndsAt,
+				DaysLeft:          plan.DaysLeft,
+				InGrace:           plan.InGrace,
+				CancelAtPeriodEnd: plan.CancelAtPeriodEnd,
+				EligibleForTrial:  plan.EligibleForTrial,
+			})
+		}
+	}
 	return response.JSONWithMessage(c, fiber.StatusOK, pub, "ok")
 }
 

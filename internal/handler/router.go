@@ -14,6 +14,7 @@ import (
 	"github.com/dadiary/backend/internal/token"
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
+	adminmetricsuc "github.com/dadiary/backend/internal/usecase/adminmetrics"
 	adminuseruc "github.com/dadiary/backend/internal/usecase/adminuser"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	betasignupuc "github.com/dadiary/backend/internal/usecase/betasignup"
@@ -26,10 +27,12 @@ import (
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	streakuc "github.com/dadiary/backend/internal/usecase/streak"
+	subscriptionuc "github.com/dadiary/backend/internal/usecase/subscription"
 	usageuc "github.com/dadiary/backend/internal/usecase/usage"
 	userdatauc "github.com/dadiary/backend/internal/usecase/userdata"
 	usermemoryuc "github.com/dadiary/backend/internal/usecase/usermemory"
 	wardrobeuc "github.com/dadiary/backend/internal/usecase/wardrobe"
+	"github.com/dadiary/backend/pkg/alert"
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
@@ -264,21 +267,63 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Get("/admin/users/:id", jwt, admin, adminUsersH.Get)
 		api.Put("/admin/users/:id/plan", jwt, admin, adminUsersH.UpdatePlan)
 
+		// Payment / subscription monitoring dashboard (admin-only).
+		payOrders := repository.NewPaymentOrderRepository(db)
+		payOps := repository.NewPaymentOpsEventRepository(db)
+		adminMetricsH := NewAdminMetricsHandler(adminmetricsuc.NewService(payOrders, userRepo, payOps))
+		api.Get("/admin/metrics/payment", jwt, admin, adminMetricsH.Payment)
+
 		// Public Beta waitlist — landing page email capture (no auth required).
 		betaSignupRepo := repository.NewBetaSignupRepository(db)
 		betaSignupSvc := betasignupuc.NewService(betaSignupRepo)
 		betaSignupH := NewBetaSignupHandler(betaSignupSvc)
 		api.Post("/beta-signups", betaSignupH.Create)
 
+		// Subscription lifecycle (trial / cancel / renew / grace).
+		subsRepo := repository.NewSubscriptionRepository(db)
+		trialDays, graceDays := 7, 3
+		if cfg != nil {
+			trialDays = cfg.Subscription.TrialDays
+			graceDays = cfg.Subscription.GraceDays
+		}
+		subSvc := subscriptionuc.NewService(db, userRepo, subsRepo, planLogRepo, trialDays, graceDays)
+		authH.AttachSubscription(subSvc)
+		subH := NewSubscriptionHandler(subSvc)
+		api.Post("/subscription/cancel", jwt, subH.Cancel)
+
 		// SePay Payment Gateway — checkout (JWT) + IPN webhook (public).
 		// Configure IPN URL in SePay dashboard → POST /api/v1/payment/sepay/webhook
-		payOrders := repository.NewPaymentOrderRepository(db)
+		// ORDER_PAID → SubscriptionService.ApplyRenewalTx (same DB transaction).
 		paySvc := paymentuc.NewService(db, cfg, payOrders, userRepo, planLogRepo)
+		paySvc.AttachSubscription(subSvc)
+		var opsAlerter alert.Alerter
+		var alertRec *alert.Recorder
+		if cfg != nil {
+			fanout := alert.New(alert.Config{
+				Enabled:          cfg.Alert.Enabled,
+				WebhookURL:       cfg.Alert.WebhookURL,
+				TelegramBotToken: cfg.Alert.TelegramBotToken,
+				TelegramChatID:   cfg.Alert.TelegramChatID,
+			})
+			// When E2E helpers are on, tee alerts into an in-memory Recorder so
+			// Playwright can assert payment_success without real Telegram.
+			if cfg.E2EHelpersEnabled() {
+				alertRec = alert.NewRecorder(fanout)
+				opsAlerter = alertRec
+			} else {
+				opsAlerter = fanout
+			}
+			paySvc.AttachAlerter(opsAlerter)
+			paySvc.AttachMonitor(paymentuc.NewMonitor(opsAlerter, payOps))
+		}
 		payH := NewPaymentSePayHandler(paySvc)
 		api.Post("/payment/sepay/checkout", jwt, payH.CreateCheckout)
 		api.Post("/payment/sepay/webhook", payH.Webhook)
 
 		// Playwright smoke helpers — only when DADIARY_E2E_SECRET is set.
-		NewE2EHandler(cfg, db, userRepo).Register(api)
+		NewE2EHandler(cfg, db, userRepo).
+			AttachAlertRecorder(alertRec).
+			AttachOpsRepo(payOps).
+			Register(api)
 	}
 }

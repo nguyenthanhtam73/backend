@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/handler"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
@@ -20,6 +21,8 @@ import (
 	"github.com/dadiary/backend/internal/token"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	pushuc "github.com/dadiary/backend/internal/usecase/push"
+	subscriptionuc "github.com/dadiary/backend/internal/usecase/subscription"
+	"github.com/dadiary/backend/pkg/alert"
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
@@ -71,7 +74,7 @@ func main() {
 	// Background jobs — cancelled with the same ctx that stops HTTP on SIGINT/SIGTERM.
 	startDailyReminderJob(ctx, cfg, db)
 	startMonthlyUsageResetJob(ctx, db)
-	startPlanExpiryJob(ctx, db)
+	startPlanExpiryJob(ctx, cfg, db)
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.HTTP.Port)
@@ -123,8 +126,10 @@ func startMonthlyUsageResetJob(ctx context.Context, db *gorm.DB) {
 	scheduler.NewMonthlyUsageResetJob(premiumSvc, jobLocks).Start(ctx)
 }
 
-// startPlanExpiryJob downgrades users whose plan_expires_at has passed (daily UTC).
-func startPlanExpiryJob(ctx context.Context, db *gorm.DB) {
+// startPlanExpiryJob downgrades users whose grace window ended (daily UTC).
+// Prefers SubscriptionService (history + status) when available; falls back to
+// premium.DowngradeExpiredPlans for the same grace-aware cutoff.
+func startPlanExpiryJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
 	if db == nil {
 		slog.Warn("plan_expiry_job: skipped — database not available")
 		return
@@ -132,10 +137,27 @@ func startPlanExpiryJob(ctx context.Context, db *gorm.DB) {
 	userRepo := repository.NewUserRepository(db)
 	usageRepo := repository.NewUserUsageRepository(db)
 	logs := repository.NewPlanChangeLogRepository(db)
+	subsRepo := repository.NewSubscriptionRepository(db)
+	graceDays := domain.DefaultGraceDays
+	trialDays := domain.DefaultTrialDays
+	if cfg != nil {
+		graceDays = cfg.Subscription.GraceDays
+		trialDays = cfg.Subscription.TrialDays
+	}
 	premiumSvc := premiumuc.NewService(userRepo, usageRepo)
-	premiumSvc.AttachPlanExpiryDeps(db, userRepo, logs)
+	premiumSvc.AttachPlanExpiryDeps(db, userRepo, logs, graceDays)
+	subSvc := subscriptionuc.NewService(db, userRepo, subsRepo, logs, trialDays, graceDays)
 	jobLocks := repository.NewPushJobLockRepository(db)
-	scheduler.NewPlanExpiryJob(premiumSvc, jobLocks).Start(ctx)
+	job := scheduler.NewPlanExpiryJob(premiumSvc, subSvc, jobLocks)
+	if cfg != nil {
+		job.AttachAlerter(alert.New(alert.Config{
+			Enabled:          cfg.Alert.Enabled,
+			WebhookURL:       cfg.Alert.WebhookURL,
+			TelegramBotToken: cfg.Alert.TelegramBotToken,
+			TelegramChatID:   cfg.Alert.TelegramChatID,
+		}))
+	}
+	job.Start(ctx)
 }
 
 // registerUploadServing exposes stored photos under the stable "/uploads/*" path.

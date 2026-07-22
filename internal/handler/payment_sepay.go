@@ -64,11 +64,21 @@ func (h *PaymentSePayHandler) Webhook(c *fiber.Ctx) error {
 
 	if err := h.svc.HandleSePayWebhook(c.UserContext(), secret, raw); err != nil {
 		status, code, msg := paymentuc.MapError(err)
-		slog.Warn("payment: sepay webhook rejected",
-			"status", status,
-			"code", code,
-			"message", msg,
-		)
+		// Usecase already Error-logs + alerts signature_invalid / 5xx paths.
+		// Keep a compact HTTP-layer line for access correlation.
+		if status >= 500 || code == "unauthorized" {
+			slog.Error("payment: sepay webhook rejected",
+				"status", status,
+				"code", code,
+				"message", msg,
+			)
+		} else {
+			slog.Warn("payment: sepay webhook rejected",
+				"status", status,
+				"code", code,
+				"message", msg,
+			)
+		}
 		// 401/409 → tell SePay not to treat as success; 404 may be probe — still fail closed.
 		return c.Status(status).JSON(fiber.Map{
 			"success": false,

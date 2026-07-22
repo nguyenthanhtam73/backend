@@ -44,6 +44,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.UserUsage{},
 		&domain.PlanChangeLog{},
 		&domain.PaymentOrder{},
+		&domain.PaymentOpsEvent{},
+		&domain.Subscription{},
 		&domain.Streak{},
 		&domain.PushSubscription{},
 		&domain.PushJobLock{},
