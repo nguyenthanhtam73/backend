@@ -21,7 +21,18 @@ type LoginRequest struct {
 	Password string `json:"password"`
 }
 
-// AuthTokensResponse is returned after successful register or login.
+// RefreshRequest is the JSON body for POST /api/v1/auth/refresh.
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
+// LogoutRequest is the optional JSON body for POST /api/v1/auth/logout.
+// When refresh_token is present it is revoked first; all user sessions are then revoked.
+type LogoutRequest struct {
+	RefreshToken string `json:"refresh_token,omitempty"`
+}
+
+// AuthTokensResponse is returned after successful register, login, or refresh.
 type AuthTokensResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`

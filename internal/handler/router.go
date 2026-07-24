@@ -79,6 +79,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 	if db != nil && tok != nil {
 		authRepo := repository.NewAuthRepository(db)
 		authSvc = authuc.NewUsecase(authRepo, tok)
+		authSvc.AttachSessions(repository.NewRefreshSessionRepository(db))
 	}
 	authH := NewAuthHandler(authSvc, cfg)
 	authH.RegisterRoutes(api, jwt)
@@ -164,6 +165,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// starter routine prompt — keeping the new starter coherent with
 		// what the coach already knows about them.
 		profSvc := profileuc.NewService(cfg, profRepo, repo, fbRepo, routineRepo, wardRepo, memCache)
+		profSvc.AttachPreviewJobs(repository.NewOnboardingPreviewJobRepository(db))
 		ph := NewProfileHandler(profSvc, cfg, store, premiumSvc)
 		api.Get("/profile/skin", jwt, ph.GetSkin)
 		api.Put("/profile/skin", jwt, ph.PutSkin)

@@ -13,11 +13,16 @@ import (
 // Satisfied by repository.GormAuthRepository (and tests with fakes).
 type AuthRepository = repository.AuthRepository
 
+// RefreshSessionStore tracks refresh JWTs so logout / rotation can revoke them.
+type RefreshSessionStore = repository.RefreshSessionRepository
+
 // TokenIssuer creates signed access and refresh JWTs for a subject user.
 type TokenIssuer interface {
 	SignAccess(userID uuid.UUID) (string, error)
-	SignRefresh(userID uuid.UUID) (string, error)
+	SignRefresh(userID uuid.UUID) (token string, jti uuid.UUID, err error)
+	ParseRefreshToken(tokenString string) (userID, jti uuid.UUID, err error)
 	AccessTTL() time.Duration
+	RefreshTTL() time.Duration
 }
 
 // UserReaderWriter is retained as an alias for older call sites / tests.

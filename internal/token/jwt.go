@@ -53,17 +53,24 @@ func (s *Service) AccessTTL() time.Duration {
 	return s.accessTTL
 }
 
+// RefreshTTL returns configured refresh token lifetime.
+func (s *Service) RefreshTTL() time.Duration {
+	return s.refreshTTL
+}
+
 // SignAccess creates a short-lived access JWT for the given user ID.
 func (s *Service) SignAccess(userID uuid.UUID) (string, error) {
-	return s.sign(userID, claimTokenUseAccess, s.accessTTL)
+	return s.sign(userID, claimTokenUseAccess, s.accessTTL, uuid.Nil)
 }
 
-// SignRefresh creates a long-lived refresh JWT for the given user ID.
-func (s *Service) SignRefresh(userID uuid.UUID) (string, error) {
-	return s.sign(userID, claimTokenUseRefresh, s.refreshTTL)
+// SignRefresh creates a long-lived refresh JWT with a unique jti (session id).
+func (s *Service) SignRefresh(userID uuid.UUID) (token string, jti uuid.UUID, err error) {
+	jti = uuid.New()
+	token, err = s.sign(userID, claimTokenUseRefresh, s.refreshTTL, jti)
+	return token, jti, err
 }
 
-func (s *Service) sign(userID uuid.UUID, use string, ttl time.Duration) (string, error) {
+func (s *Service) sign(userID uuid.UUID, use string, ttl time.Duration, jti uuid.UUID) (string, error) {
 	now := time.Now().UTC()
 	claims := diaryClaims{
 		TokenUse: use,
@@ -74,24 +81,28 @@ func (s *Service) sign(userID uuid.UUID, use string, ttl time.Duration) (string,
 			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
 		},
 	}
+	if jti != uuid.Nil {
+		claims.ID = jti.String()
+	}
 	t := jwt.NewWithClaims(jwt.SigningMethodHS256, &claims)
 	return t.SignedString(s.secret)
 }
 
 // ParseAccessToken validates an access JWT and returns the embedded user ID.
 func (s *Service) ParseAccessToken(tokenString string) (uuid.UUID, error) {
-	return s.parse(tokenString, claimTokenUseAccess)
+	userID, _, err := s.parse(tokenString, claimTokenUseAccess)
+	return userID, err
 }
 
-// ParseRefreshToken validates a refresh JWT and returns the embedded user ID.
-func (s *Service) ParseRefreshToken(tokenString string) (uuid.UUID, error) {
+// ParseRefreshToken validates a refresh JWT and returns user ID + jti.
+func (s *Service) ParseRefreshToken(tokenString string) (userID, jti uuid.UUID, err error) {
 	return s.parse(tokenString, claimTokenUseRefresh)
 }
 
-func (s *Service) parse(tokenString, expectedUse string) (uuid.UUID, error) {
+func (s *Service) parse(tokenString, expectedUse string) (userID, jti uuid.UUID, err error) {
 	tokenString = strings.TrimSpace(tokenString)
 	if tokenString == "" {
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, uuid.Nil, ErrInvalidToken
 	}
 
 	parsed, err := jwt.ParseWithClaims(tokenString, &diaryClaims{}, func(t *jwt.Token) (any, error) {
@@ -101,20 +112,26 @@ func (s *Service) parse(tokenString, expectedUse string) (uuid.UUID, error) {
 		return s.secret, nil
 	})
 	if err != nil {
-		return uuid.Nil, fmt.Errorf("%w: %v", ErrInvalidToken, err)
+		return uuid.Nil, uuid.Nil, fmt.Errorf("%w: %v", ErrInvalidToken, err)
 	}
 
 	claims, ok := parsed.Claims.(*diaryClaims)
 	if !ok || !parsed.Valid {
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, uuid.Nil, ErrInvalidToken
 	}
 	if claims.TokenUse != expectedUse {
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, uuid.Nil, ErrInvalidToken
 	}
 
 	id, err := uuid.Parse(strings.TrimSpace(claims.Subject))
 	if err != nil || id == uuid.Nil {
-		return uuid.Nil, ErrInvalidToken
+		return uuid.Nil, uuid.Nil, ErrInvalidToken
 	}
-	return id, nil
+	if expectedUse == claimTokenUseRefresh {
+		jti, err = uuid.Parse(strings.TrimSpace(claims.ID))
+		if err != nil || jti == uuid.Nil {
+			return uuid.Nil, uuid.Nil, ErrInvalidToken
+		}
+	}
+	return id, jti, nil
 }

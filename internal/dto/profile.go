@@ -73,6 +73,8 @@ type OnboardingPreviewResponse struct {
 	StarterRoutine        StarterRoutineResponse `json:"starter_routine"`
 	StarterRoutinePending bool                   `json:"starter_routine_pending,omitempty"`
 	PreviewJobID          string                 `json:"preview_job_id,omitempty"`
+	// PreviewAccessToken is a one-time secret required to poll preview-routine (not a JWT).
+	PreviewAccessToken string `json:"preview_access_token,omitempty"`
 }
 
 // OnboardingPreviewPollResponse is returned while polling a guest preview job.

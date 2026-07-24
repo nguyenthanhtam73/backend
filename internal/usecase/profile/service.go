@@ -31,13 +31,14 @@ var (
 // file). Wired this way so a fresh-install API node can still serve
 // CompleteOnboarding even when those repos aren't constructed.
 type Service struct {
-	cfg      *config.Config
-	prof     *repository.GormSkinProfileRepository
-	checks   *repository.GormSkinCheckRepository
-	feedback *repository.GormAIFeedbackRepository
-	routines *repository.GormRoutineEntryRepository
-	wardrobe *repository.GormSkincareProductRepository
-	cache    *ai.MemoryCache
+	cfg         *config.Config
+	prof        *repository.GormSkinProfileRepository
+	checks      *repository.GormSkinCheckRepository
+	feedback    *repository.GormAIFeedbackRepository
+	routines    *repository.GormRoutineEntryRepository
+	wardrobe    *repository.GormSkincareProductRepository
+	cache       *ai.MemoryCache
+	previewJobs PreviewJobStore // guest preview jobs (DB); required for preview-complete
 }
 
 // NewService wires dependencies. Pass nil for any of the optional history
@@ -59,6 +60,13 @@ func NewService(
 		routines: routines,
 		wardrobe: wardrobe,
 		cache:    cache,
+	}
+}
+
+// AttachPreviewJobs wires Postgres-backed guest preview job storage.
+func (s *Service) AttachPreviewJobs(jobs PreviewJobStore) {
+	if s != nil {
+		s.previewJobs = jobs
 	}
 }
 
@@ -467,26 +475,29 @@ func (s *Service) PreviewOnboardingComplete(ctx context.Context, req dto.Onboard
 	loc := onboardingLocale(req.Locale)
 	quick := quickStarterFromOnboarding(req, loc)
 	quickDTO := starterRoutineResponseFromAI(quick)
-	jobID := newPreviewJobID()
-	storePreviewJob(jobID, quickDTO)
+	jobID, accessToken, err := s.createPreviewJob(ctx, quickDTO)
+	if err != nil {
+		return zero, err
+	}
 
-	go func(payload []byte, locale, id string, fallback dto.StarterRoutineResponse) {
-		ctx, cancel := context.WithTimeout(context.Background(), starterRoutineBGTimeout)
+	go func(payload []byte, locale string, id uuid.UUID, fallback dto.StarterRoutineResponse) {
+		bg, cancel := context.WithTimeout(context.Background(), starterRoutineBGTimeout)
 		defer cancel()
-		starter, err := ai.GenerateStarterRoutine(ctx, s.cfg, payload, locale, "")
+		starter, err := ai.GenerateStarterRoutine(bg, s.cfg, payload, locale, "")
 		if err != nil {
 			slog.Warn("onboarding: guest preview starter routine failed", "preview_job_id", id, "err", err)
-			failPreviewJob(id, fallback)
+			s.failPreviewJob(bg, id, fallback)
 			return
 		}
-		finishPreviewJob(id, starterRoutineResponseFromAI(starter))
+		s.finishPreviewJob(bg, id, starterRoutineResponseFromAI(starter))
 		slog.Info("onboarding: guest preview starter routine ready", "preview_job_id", id)
 	}(snapJSON, loc, jobID, quickDTO)
 
 	return dto.OnboardingPreviewResponse{
 		StarterRoutine:        quickDTO,
 		StarterRoutinePending: true,
-		PreviewJobID:          jobID,
+		PreviewJobID:          jobID.String(),
+		PreviewAccessToken:    accessToken,
 	}, nil
 }
 

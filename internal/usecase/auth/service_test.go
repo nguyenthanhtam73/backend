@@ -58,15 +58,68 @@ func (m *memAuthRepo) UsernameExists(_ context.Context, username string) (bool, 
 	return m.names[username], nil
 }
 
-type stubTokens struct{}
+type memSessions struct {
+	byID map[uuid.UUID]*domain.RefreshSession
+}
 
-func (stubTokens) SignAccess(uuid.UUID) (string, error)  { return "access", nil }
-func (stubTokens) SignRefresh(uuid.UUID) (string, error) { return "refresh", nil }
-func (stubTokens) AccessTTL() time.Duration              { return time.Hour }
+func newMemSessions() *memSessions {
+	return &memSessions{byID: map[uuid.UUID]*domain.RefreshSession{}}
+}
+
+func (m *memSessions) Create(_ context.Context, session *domain.RefreshSession) error {
+	cp := *session
+	m.byID[session.ID] = &cp
+	return nil
+}
+
+func (m *memSessions) GetByID(_ context.Context, id uuid.UUID) (*domain.RefreshSession, error) {
+	s := m.byID[id]
+	if s == nil {
+		return nil, nil
+	}
+	cp := *s
+	return &cp, nil
+}
+
+func (m *memSessions) RevokeByID(_ context.Context, id uuid.UUID, at time.Time) error {
+	if s := m.byID[id]; s != nil && s.RevokedAt == nil {
+		t := at.UTC()
+		s.RevokedAt = &t
+	}
+	return nil
+}
+
+func (m *memSessions) RevokeAllForUser(_ context.Context, userID uuid.UUID, at time.Time) error {
+	t := at.UTC()
+	for _, s := range m.byID {
+		if s.UserID == userID && s.RevokedAt == nil {
+			s.RevokedAt = &t
+		}
+	}
+	return nil
+}
+
+type stubTokens struct {
+	refreshN int
+}
+
+func (s stubTokens) SignAccess(uuid.UUID) (string, error) { return "access", nil }
+func (s *stubTokens) SignRefresh(uuid.UUID) (string, uuid.UUID, error) {
+	s.refreshN++
+	return "refresh-" + uuid.NewString()[:8], uuid.New(), nil
+}
+func (stubTokens) ParseRefreshToken(token string) (uuid.UUID, uuid.UUID, error) {
+	return uuid.Nil, uuid.Nil, errors.New("not used in basic test")
+}
+func (stubTokens) AccessTTL() time.Duration  { return time.Hour }
+func (stubTokens) RefreshTTL() time.Duration { return 24 * time.Hour }
 
 func TestRegisterLoginMe_AppErrorSentinel(t *testing.T) {
 	repo := newMemAuthRepo()
-	uc := NewUsecase(repo, stubTokens{})
+	sessions := newMemSessions()
+	tok := &stubTokens{}
+	uc := NewUsecase(repo, tok)
+	uc.AttachSessions(sessions)
 
 	res, err := uc.Register(context.Background(), dto.RegisterRequest{
 		Email:    "alice@example.com",
@@ -77,6 +130,12 @@ func TestRegisterLoginMe_AppErrorSentinel(t *testing.T) {
 	}
 	if res.Tokens.AccessToken == "" || res.User.Email != "alice@example.com" {
 		t.Fatalf("register result: %+v", res)
+	}
+	if res.Tokens.RefreshToken == "" {
+		t.Fatal("expected refresh token")
+	}
+	if len(sessions.byID) != 1 {
+		t.Fatalf("expected 1 refresh session, got %d", len(sessions.byID))
 	}
 
 	_, err = uc.Register(context.Background(), dto.RegisterRequest{
@@ -104,7 +163,12 @@ func TestRegisterLoginMe_AppErrorSentinel(t *testing.T) {
 	if me.Email != "alice@example.com" {
 		t.Fatalf("me=%+v", me)
 	}
-	if err := uc.Logout(context.Background(), uuid.MustParse(login.User.ID)); err != nil {
+	if err := uc.Logout(context.Background(), uuid.MustParse(login.User.ID), ""); err != nil {
 		t.Fatal(err)
+	}
+	for _, s := range sessions.byID {
+		if s.RevokedAt == nil {
+			t.Fatal("expected all refresh sessions revoked after logout")
+		}
 	}
 }

@@ -20,7 +20,7 @@ func RegisterDefault(app *fiber.App) {
 		// (browsers forbid * + credentials). Frontend must use Bearer in headers, not cookie sessions, unless you set explicit AllowOrigins.
 		AllowOrigins:     "*",
 		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-		AllowHeaders:     "Origin, Content-Type, Accept, Authorization",
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-Preview-Token",
 		AllowCredentials: false,
 	}))
 }

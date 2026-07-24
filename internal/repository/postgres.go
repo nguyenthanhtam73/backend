@@ -30,6 +30,8 @@ func NewPostgres(cfg *config.Config) (*gorm.DB, error) {
 func AutoMigrate(db *gorm.DB) error {
 	return db.AutoMigrate(
 		&domain.User{},
+		&domain.RefreshSession{},
+		&domain.OnboardingPreviewJob{},
 		&domain.SkinProfile{},
 		&domain.SkinCheck{},
 		&domain.SkinAnalysis{},

@@ -18,7 +18,12 @@ var (
 	ErrUserNotFound       = errors.New("user not found")
 	ErrDatabase           = errors.New("database error")
 	ErrTokenConfig        = errors.New("token service misconfigured")
+	ErrInvalidRefresh     = errors.New("invalid or revoked refresh token")
 )
+
+func appInvalidRefresh() error {
+	return domain.Wrap(ErrInvalidRefresh, http.StatusUnauthorized, "invalid_refresh", ErrInvalidRefresh.Error())
+}
 
 // AppError helpers — usecase returns these; Unwrap preserves sentinel for errors.Is.
 

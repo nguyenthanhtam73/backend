@@ -1,14 +1,17 @@
-// Package auth implements AuthUsecase: register, login, logout, getMe.
+// Package auth implements AuthUsecase: register, login, logout, refresh, getMe.
 //
 // Layering: Domain → AuthRepository → AuthUsecase → Handler.
 package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/mail"
 	"regexp"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -29,8 +32,9 @@ var usernameSanitizer = regexp.MustCompile(`[^a-zA-Z0-9_]+`)
 
 // Service is the AuthUsecase implementation.
 type Service struct {
-	repo   AuthRepository
-	tokens TokenIssuer
+	repo     AuthRepository
+	sessions RefreshSessionStore // optional in unit tests; required for revoke/refresh in prod
+	tokens   TokenIssuer
 }
 
 // Usecase is an alias for Service (Clean Architecture naming).
@@ -46,7 +50,14 @@ func NewUsecase(repo AuthRepository, tokens TokenIssuer) *Usecase {
 	return NewService(repo, tokens)
 }
 
-// Result is returned by Register and Login (tokens + public user profile).
+// AttachSessions wires refresh-session persistence (logout revoke + /auth/refresh).
+func (s *Service) AttachSessions(sessions RefreshSessionStore) {
+	if s != nil {
+		s.sessions = sessions
+	}
+}
+
+// Result is returned by Register, Login, and Refresh (tokens + public user profile).
 type Result struct {
 	Tokens dto.AuthTokensResponse
 	User   dto.UserPublic
@@ -115,7 +126,7 @@ func (s *Service) Register(ctx context.Context, req dto.RegisterRequest) (Result
 		return zero, appDatabase(err)
 	}
 
-	return s.issueResult(user)
+	return s.issueResult(ctx, user)
 }
 
 // Login validates credentials and returns JWT pair + public profile.
@@ -148,7 +159,61 @@ func (s *Service) Login(ctx context.Context, req dto.LoginRequest) (Result, erro
 		return zero, appInvalidCredentials()
 	}
 
-	return s.issueResult(user)
+	return s.issueResult(ctx, user)
+}
+
+// Refresh rotates a valid refresh token into a new access + refresh pair.
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (Result, error) {
+	var zero Result
+	if s == nil || s.repo == nil || s.tokens == nil {
+		return zero, appTokenConfig()
+	}
+	raw := strings.TrimSpace(refreshToken)
+	if raw == "" {
+		return zero, appInvalidRefresh()
+	}
+
+	userID, jti, err := s.tokens.ParseRefreshToken(raw)
+	if err != nil || userID == uuid.Nil || jti == uuid.Nil {
+		return zero, appInvalidRefresh()
+	}
+	// Refresh requires server-side session tracking — fail closed when unwired.
+	if s.sessions == nil {
+		return zero, appTokenConfig()
+	}
+
+	now := time.Now().UTC()
+	sess, err := s.sessions.GetByID(ctx, jti)
+	if err != nil {
+		return zero, appDatabase(err)
+	}
+	if sess == nil || sess.UserID != userID || !sess.IsActive(now) {
+		return zero, appInvalidRefresh()
+	}
+	if sess.TokenHash != hashToken(raw) {
+		return zero, appInvalidRefresh()
+	}
+
+	user, err := s.repo.GetByID(ctx, userID)
+	if err != nil {
+		return zero, appDatabase(err)
+	}
+	if user == nil {
+		return zero, appUserNotFound()
+	}
+	if !user.IsActive {
+		return zero, appUserInactive()
+	}
+
+	// Issue the new pair FIRST so a DB blip after revoke can't lock the user out.
+	out, err := s.issueResult(ctx, user)
+	if err != nil {
+		return zero, err
+	}
+	// Best-effort revoke of the presented jti (rotation). Failure here still
+	// returns the new tokens — old token remains valid until TTL / next use.
+	_ = s.sessions.RevokeByID(ctx, jti, now)
+	return out, nil
 }
 
 // Me (GetMe) returns the public profile for a user ID (JWT subject).
@@ -175,18 +240,33 @@ func (s *Service) GetMe(ctx context.Context, userID uuid.UUID) (dto.UserPublic, 
 	return s.Me(ctx, userID)
 }
 
-// Logout acknowledges client-side session clear (stateless JWT — no server revoke list yet).
-func (s *Service) Logout(_ context.Context, userID uuid.UUID) error {
+// Logout revokes refresh sessions for the user (and optionally one specific token).
+// Access JWTs remain valid until expiry (stateless); clients must drop them.
+func (s *Service) Logout(ctx context.Context, userID uuid.UUID, refreshToken string) error {
 	if s == nil {
 		return appTokenConfig()
 	}
 	if userID == uuid.Nil {
 		return appInvalidInput("missing user id")
 	}
+	now := time.Now().UTC()
+
+	if s.sessions == nil {
+		return nil
+	}
+
+	if raw := strings.TrimSpace(refreshToken); raw != "" && s.tokens != nil {
+		if _, jti, err := s.tokens.ParseRefreshToken(raw); err == nil && jti != uuid.Nil {
+			_ = s.sessions.RevokeByID(ctx, jti, now)
+		}
+	}
+	if err := s.sessions.RevokeAllForUser(ctx, userID, now); err != nil {
+		return appDatabase(err)
+	}
 	return nil
 }
 
-func (s *Service) issueResult(user *domain.User) (Result, error) {
+func (s *Service) issueResult(ctx context.Context, user *domain.User) (Result, error) {
 	if user == nil {
 		return Result{}, appUserNotFound()
 	}
@@ -194,10 +274,27 @@ func (s *Service) issueResult(user *domain.User) (Result, error) {
 	if err != nil {
 		return Result{}, domain.Internal("token_error", "could not issue access token", err)
 	}
-	refresh, err := s.tokens.SignRefresh(user.ID)
+	refresh, jti, err := s.tokens.SignRefresh(user.ID)
 	if err != nil {
 		return Result{}, domain.Internal("token_error", "could not issue refresh token", err)
 	}
+
+	if s.sessions != nil {
+		ttl := s.tokens.RefreshTTL()
+		if ttl <= 0 {
+			ttl = 168 * time.Hour
+		}
+		sess := &domain.RefreshSession{
+			ID:        jti,
+			UserID:    user.ID,
+			TokenHash: hashToken(refresh),
+			ExpiresAt: time.Now().UTC().Add(ttl),
+		}
+		if err := s.sessions.Create(ctx, sess); err != nil {
+			return Result{}, appDatabase(err)
+		}
+	}
+
 	exp := int64(s.tokens.AccessTTL().Seconds())
 	if exp < 1 {
 		exp = 1
@@ -211,6 +308,11 @@ func (s *Service) issueResult(user *domain.User) (Result, error) {
 		},
 		User: dto.UserFromDomain(user),
 	}, nil
+}
+
+func hashToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
 
 func normalizeEmail(s string) string {

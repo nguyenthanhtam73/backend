@@ -48,6 +48,8 @@ type CreateInput struct {
 	EnvironmentNote string
 	Visibility      domain.CheckVisibility
 	Images          []UploadImage
+	// SkipMode allows tag/notes-only check-ins with zero images (privacy path).
+	SkipMode bool
 }
 
 // Service orchestrates skin checks and AI analysis jobs.
@@ -100,10 +102,20 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 	if userID == uuid.Nil {
 		return zero, fmt.Errorf("%w: user id required", ErrInvalidInput)
 	}
+	hasTextSignal := strings.TrimSpace(in.UserNote) != "" ||
+		strings.TrimSpace(in.EnvironmentNote) != "" ||
+		len(in.Conditions) > 0 ||
+		len(in.Symptoms) > 0
 	if len(in.Images) == 0 {
-		return zero, fmt.Errorf("%w: at least one image required", ErrInvalidInput)
+		if !in.SkipMode {
+			return zero, fmt.Errorf("%w: at least one image required", ErrInvalidInput)
+		}
+		if !hasTextSignal {
+			return zero, fmt.Errorf("%w: skip-mode check-in needs tags or a note", ErrInvalidInput)
+		}
 	}
-	if s.store == nil {
+	// Photo uploads need storage; skip-mode (no images) does not.
+	if len(in.Images) > 0 && s.store == nil {
 		return zero, fmt.Errorf("%w: storage unavailable", ErrDatabase)
 	}
 

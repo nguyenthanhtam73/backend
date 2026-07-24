@@ -17,7 +17,7 @@ import (
 	"github.com/dadiary/backend/pkg/response"
 )
 
-// AuthHandler is the HTTP adapter for AuthUsecase (register / login / logout / me).
+// AuthHandler is the HTTP adapter for AuthUsecase (register / login / logout / refresh / me).
 type AuthHandler struct {
 	auth            *authuc.Usecase
 	turnstileSecret string // non-empty: require verified Turnstile token on register
@@ -52,6 +52,7 @@ func (h *AuthHandler) RegisterRoutes(public fiber.Router, jwt fiber.Handler) {
 	g := public.Group("/auth")
 	g.Post("/register", h.Register)
 	g.Post("/login", h.Login)
+	g.Post("/refresh", h.Refresh)
 }
 
 // Register handles POST /auth/register.
@@ -104,7 +105,26 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	}, "logged_in")
 }
 
-// Logout handles POST /auth/logout (JWT required). Stateless — client clears tokens.
+// Refresh handles POST /auth/refresh (public — uses refresh_token body, not access JWT).
+func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
+	if h == nil || h.auth == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "authentication is not available")
+	}
+	var body dto.RefreshRequest
+	if err := c.BodyParser(&body); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "request body must be valid JSON")
+	}
+	res, err := h.auth.Refresh(c.UserContext(), body.RefreshToken)
+	if err != nil {
+		return mapAuthError(c, err)
+	}
+	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
+		"tokens": res.Tokens,
+		"user":   res.User,
+	}, "refreshed")
+}
+
+// Logout handles POST /auth/logout (JWT required). Revokes refresh sessions server-side.
 func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 	if h == nil || h.auth == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "authentication is not available")
@@ -113,7 +133,9 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 	if uid == uuid.Nil {
 		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "user context missing")
 	}
-	if err := h.auth.Logout(c.UserContext(), uid); err != nil {
+	var body dto.LogoutRequest
+	_ = c.BodyParser(&body) // body optional
+	if err := h.auth.Logout(c.UserContext(), uid, body.RefreshToken); err != nil {
 		return mapAuthError(c, err)
 	}
 	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
@@ -170,6 +192,8 @@ func mapAuthError(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusConflict, "username_taken", err.Error())
 	case errors.Is(err, authuc.ErrInvalidCredentials):
 		return response.Error(c, fiber.StatusUnauthorized, "invalid_credentials", err.Error())
+	case errors.Is(err, authuc.ErrInvalidRefresh):
+		return response.Error(c, fiber.StatusUnauthorized, "invalid_refresh", err.Error())
 	case errors.Is(err, authuc.ErrUserInactive):
 		return response.Error(c, fiber.StatusForbidden, "user_inactive", err.Error())
 	case errors.Is(err, authuc.ErrUserNotFound):

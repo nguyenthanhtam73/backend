@@ -210,12 +210,17 @@ func (h *ProfileHandler) PreviewOnboardingComplete(c *fiber.Ctx) error {
 }
 
 // GetPreviewRoutine handles GET /onboarding/preview-routine/:id (guest poll).
+// Requires ?token= (or X-Preview-Token) matching the secret returned at preview-complete.
 func (h *ProfileHandler) GetPreviewRoutine(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "profile service unavailable")
 	}
 	jobID := strings.TrimSpace(c.Params("id"))
-	res, ok, err := h.svc.GetPreviewRoutineJob(jobID)
+	token := strings.TrimSpace(c.Query("token"))
+	if token == "" {
+		token = strings.TrimSpace(c.Get("X-Preview-Token"))
+	}
+	res, ok, err := h.svc.GetPreviewRoutineJob(c.UserContext(), jobID, token)
 	if err != nil {
 		return mapProfileError(c, err)
 	}

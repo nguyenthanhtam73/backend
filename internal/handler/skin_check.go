@@ -59,24 +59,8 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 	}
 	defer func() { _ = form.RemoveAll() }()
 
+	skipMode := parseTruthy(firstValue(form.Value["skip_mode"]))
 	files := form.File["images"]
-	if len(files) == 0 {
-		return response.Error(c, fiber.StatusBadRequest, "missing_images", "field \"images\" must include at least one file")
-	}
-	const maxCheckInImages = 2
-	if len(files) > maxCheckInImages {
-		return response.Error(c, fiber.StatusBadRequest, "too_many_images", fmt.Sprintf("maximum %d photos per check-in", maxCheckInImages))
-	}
-	// Multi-angle check-in (>1 photo) requires Premium+ advanced_skin_analysis.
-	if len(files) > 1 {
-		if h.premium == nil {
-			return mapPremiumGateError(c, domain.FeatureAdvancedSkinAnalysis, premiumuc.ErrUnavailable)
-		}
-		if err := h.premium.AssertFeature(c.UserContext(), userID, domain.FeatureAdvancedSkinAnalysis); err != nil {
-			return mapPremiumGateError(c, domain.FeatureAdvancedSkinAnalysis, err)
-		}
-	}
-
 	title := firstValue(form.Value["title"])
 	userNote := firstValue(form.Value["user_note"])
 	envNote := firstValue(form.Value["environment_note"])
@@ -90,6 +74,33 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 	var climateJSON json.RawMessage
 	if climateRaw != "" {
 		climateJSON = json.RawMessage(climateRaw)
+	}
+
+	hasTextSignal := strings.TrimSpace(userNote) != "" ||
+		strings.TrimSpace(envNote) != "" ||
+		len(conditions) > 0 ||
+		len(symptoms) > 0
+
+	if len(files) == 0 {
+		if !skipMode {
+			return response.Error(c, fiber.StatusBadRequest, "missing_images", "field \"images\" must include at least one file")
+		}
+		if !hasTextSignal {
+			return response.Error(c, fiber.StatusBadRequest, "skip_mode_empty", "skip-mode check-in needs at least one tag or note")
+		}
+	}
+	const maxCheckInImages = 2
+	if len(files) > maxCheckInImages {
+		return response.Error(c, fiber.StatusBadRequest, "too_many_images", fmt.Sprintf("maximum %d photos per check-in", maxCheckInImages))
+	}
+	// Multi-angle check-in (>1 photo) requires Premium+ advanced_skin_analysis.
+	if len(files) > 1 {
+		if h.premium == nil {
+			return mapPremiumGateError(c, domain.FeatureAdvancedSkinAnalysis, premiumuc.ErrUnavailable)
+		}
+		if err := h.premium.AssertFeature(c.UserContext(), userID, domain.FeatureAdvancedSkinAnalysis); err != nil {
+			return mapPremiumGateError(c, domain.FeatureAdvancedSkinAnalysis, err)
+		}
 	}
 
 	vis := normalizeVisibility(visStr)
@@ -150,6 +161,7 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 		EnvironmentNote: envNote,
 		Visibility:      vis,
 		Images:          images,
+		SkipMode:        skipMode && len(images) == 0,
 	}
 
 	res, err := h.svc.Create(c.UserContext(), userID, in)
@@ -209,6 +221,15 @@ func normalizeVisibility(v string) domain.CheckVisibility {
 		return domain.CheckVisibilityPrivate
 	default:
 		return domain.CheckVisibility("")
+	}
+}
+
+func parseTruthy(raw string) bool {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
 	}
 }
 

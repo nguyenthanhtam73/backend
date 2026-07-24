@@ -150,16 +150,20 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	if s == nil || s.checks == nil || s.cfg == nil {
 		return fmt.Errorf("analysis: not configured")
 	}
-	if strings.TrimSpace(s.cfg.OpenAI.APIKey) == "" {
-		return s.failWithMessage(ctx, skinCheckID, "OpenAI API key missing (required for photo analysis vision pass)")
-	}
-
 	o, err := s.checks.GetByID(ctx, skinCheckID)
 	if err != nil {
 		return err
 	}
 	if o == nil || o.Analysis == nil {
 		return fmt.Errorf("skin check or analysis not found")
+	}
+
+	urls, urlErr := dto.DecodeStringSlice(o.ImageURLs)
+	skipPhoto := urlErr != nil || len(urls) == 0
+	// Photo check-ins need OpenAI for the vision pass; tag/notes-only skip-mode
+	// goes straight to the text coach (Anthropic / OpenAI text).
+	if !skipPhoto && strings.TrimSpace(s.cfg.OpenAI.APIKey) == "" {
+		return s.failWithMessage(ctx, skinCheckID, "OpenAI API key missing (required for photo analysis vision pass)")
 	}
 
 	a := o.Analysis
@@ -176,13 +180,6 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		if perr == nil {
 			prof = p
 		}
-	}
-
-	// USER_MEMORY and vision pass are independent — run them in parallel so
-	// wall time is max(memory DB, vision API) instead of their sum.
-	urls, urlErr := dto.DecodeStringSlice(o.ImageURLs)
-	if urlErr != nil || len(urls) == 0 {
-		return fmt.Errorf("analysis: no image paths")
 	}
 
 	var (
@@ -219,9 +216,14 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	go func() {
 		defer wg.Done()
 		start := time.Now()
-		visionRaw, visionStatus = ai.RunVisionObservationPassForCheck(
-			ctx, s.cfg, s.httpClient, s.store, urls,
-		)
+		if skipPhoto {
+			// Privacy / skip-face path — coach uses tags + notes + memory only.
+			visionRaw, visionStatus = "", "skipped_no_photo"
+		} else {
+			visionRaw, visionStatus = ai.RunVisionObservationPassForCheck(
+				ctx, s.cfg, s.httpClient, s.store, urls,
+			)
+		}
 		visionMs = time.Since(start).Milliseconds()
 	}()
 	wg.Wait()

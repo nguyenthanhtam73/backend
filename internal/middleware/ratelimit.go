@@ -48,8 +48,10 @@ func AILimiter(max int, expiration time.Duration) fiber.Handler {
 				"Too many requests. Please slow down for a minute and try again.",
 			)
 		},
-		// Don't count failed requests against the user — gives them room to
-		// retry after a transient backend hiccup without being locked out.
-		SkipFailedRequests: true,
+		// Count every attempt — including 4xx/5xx after the handler runs.
+		// AI routes often call the vendor before returning an error (timeout,
+		// moderation, parse failure). Skipping failures would let an attacker
+		// burn OpenAI/Anthropic credit indefinitely without hitting 429.
+		SkipFailedRequests: false,
 	})
 }
