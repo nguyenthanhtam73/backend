@@ -78,6 +78,9 @@ type SePayConfig struct {
 	SecretKey  string `mapstructure:"secret_key"`  // DADIARY_SEPAY_SECRET_KEY
 	// Env: sandbox | production. Default sandbox.
 	Env string `mapstructure:"env"` // DADIARY_SEPAY_ENV
+	// CheckoutEnabled gates self-serve POST /payment/sepay/checkout.
+	// Default false (Beta: Free for all; Premium via admin). Set true to open SePay.
+	CheckoutEnabled bool `mapstructure:"checkout_enabled"` // DADIARY_SEPAY_CHECKOUT_ENABLED
 	// PublicWebURL is the Next.js origin (e.g. https://dadiary.vn).
 	// Used to build locale-aware success/error/cancel URLs at checkout time.
 	PublicWebURL string `mapstructure:"public_web_url"` // DADIARY_PUBLIC_WEB_URL
@@ -277,6 +280,7 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("sepay.merchant_id", "DADIARY_SEPAY_MERCHANT_ID")
 	_ = v.BindEnv("sepay.secret_key", "DADIARY_SEPAY_SECRET_KEY")
 	_ = v.BindEnv("sepay.env", "DADIARY_SEPAY_ENV")
+	_ = v.BindEnv("sepay.checkout_enabled", "DADIARY_SEPAY_CHECKOUT_ENABLED")
 	_ = v.BindEnv("sepay.public_web_url", "DADIARY_PUBLIC_WEB_URL")
 	_ = v.BindEnv("sepay.success_url", "DADIARY_SEPAY_SUCCESS_URL")
 	_ = v.BindEnv("sepay.error_url", "DADIARY_SEPAY_ERROR_URL")

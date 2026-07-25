@@ -4,7 +4,7 @@
 #   railway whoami
 #
 # Usage (from backend/):
-#   pwsh -File scripts/sync-railway-env.ps1
+#   powershell -File scripts/sync-railway-env.ps1
 
 $ErrorActionPreference = "Stop"
 
@@ -12,8 +12,12 @@ $ProjectID = "d256f6f2-651d-4c8a-b880-95e19c9ce09c"
 $Service = "backend"
 $Environment = "production"
 
-if (-not $env:RAILWAY_TOKEN -and -not $env:RAILWAY_API_TOKEN) {
-    Write-Error "Set RAILWAY_TOKEN (project token) or RAILWAY_API_TOKEN (account token) first, then run: railway whoami"
+# Prefer interactive CLI login (`railway login` / `railway whoami`).
+# Token env vars are optional for CI / non-interactive runs.
+try {
+    railway whoami | Out-Null
+} catch {
+    Write-Error "Railway CLI not authenticated. Run: railway login   (or set RAILWAY_TOKEN / RAILWAY_API_TOKEN)"
 }
 
 $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
@@ -64,6 +68,6 @@ foreach ($key in ($vars.Keys | Sort-Object)) {
 }
 
 Write-Host "Done. Current variables (keys only):"
-railway variable list --project $ProjectID --service $Service --environment $Environment --json |
-    ConvertFrom-Json |
-    ForEach-Object { $_.name }
+$listed = railway variable list --project $ProjectID --service $Service --environment $Environment --json |
+    ConvertFrom-Json
+$listed.PSObject.Properties.Name | Sort-Object | ForEach-Object { $_ }

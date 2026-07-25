@@ -24,6 +24,26 @@ func CheckoutInitURL(env string) string {
 	return sepayCheckoutSandbox
 }
 
+// CheckoutFormPostOrder is the HTML <input> order SePay expects on POST
+// /v1/checkout/init. Unlike signedFieldOrder (HMAC only), posting fields in
+// JSON/map alphabetical order makes SePay return a checkout shell with no
+// payment methods ("Lỗi không xác định"). FE must append inputs in this order.
+var CheckoutFormPostOrder = []string{
+	"order_amount",
+	"merchant",
+	"currency",
+	"operation",
+	"order_description",
+	"order_invoice_number",
+	"customer_id",
+	"payment_method",
+	"success_url",
+	"error_url",
+	"cancel_url",
+	"custom_data",
+	"signature",
+}
+
 // signedFieldOrder matches SePay Payment Gateway form docs (PHP sample).
 // Do not reorder — signature verification on SePay side depends on this order.
 var signedFieldOrder = []string{

@@ -61,8 +61,36 @@ Restart the service after changing env.
 - [ ] `GET /me` shows `premium` or `premium_plus`
 - [ ] `payment_orders.status = paid` + `plan_change_logs` row with `sepay:…`
 
-## 7. Before real money (later)
+## 6b. Beta: self-serve checkout OFF
+
+Until SePay personal KYC is ready, keep checkout closed so users never hit sandbox:
+
+- Railway: `DADIARY_SEPAY_CHECKOUT_ENABLED=false` (or unset — default off)
+- Vercel: omit / leave unset `NEXT_PUBLIC_SEPAY_CHECKOUT_ENABLED` (default off)
+- Premium: grant via admin `PUT /api/v1/admin/users/:id/plan`
+- To reopen SePay later: set both flags to `true` + flip production keys
+
+## 7. Before real money (BLOCKED — waiting on SePay)
+
+**Status (2026-07-25):** Keep **sandbox**. SePay Production KYC only offers
+Doanh nghiệp / Hộ kinh doanh; **Cá nhân = sắp ra mắt**. Do **not** pick a
+business account type as a workaround. Do **not** set
+`DADIARY_SEPAY_ENV=production` until you have a legitimate live merchant.
+
+When SePay opens Cá nhân (or you register Hộ kinh doanh for real):
+
+1. SePay dashboard → Khởi tạo Production → copy live Merchant ID + Secret
+   (must **not** be `SP-TEST-…` / `spsk_test_…`)
+2. IPN tab → URL:
+   `https://backend-production-bfaa.up.railway.app/api/v1/payment/sepay/webhook`
+   Auth: SECRET_KEY = live secret
+3. Put keys in repo-root `.env`, then run:
+   ```powershell
+   powershell -File backend/scripts/flip-sepay-production.ps1
+   ```
+4. Smoke one small real payment (see [`PRODUCTION-CHECKLIST.md`](./PRODUCTION-CHECKLIST.md))
 
 - [ ] Switch `DADIARY_SEPAY_ENV=production` + live merchant/secret
 - [ ] Remove sandbox secret defaults from shared prod
-- [ ] Plan expiry / renewals (monthly/yearly) — not shipped yet
+- [ ] `DADIARY_E2E_SECRET` unset on Railway
+- [ ] One live smoke: Pricing → SePay → `/payment/success` → `/me` premium

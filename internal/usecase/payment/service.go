@@ -95,6 +95,10 @@ func (s *Service) CreatePayment(
 	if err := s.ready(); err != nil {
 		return zero, err
 	}
+	// Beta: self-serve upgrades off until live SePay KYC — Premium via admin only.
+	if s.cfg != nil && !s.cfg.SePay.CheckoutEnabled {
+		return zero, ErrCheckoutDisabled
+	}
 	if userID == uuid.Nil {
 		return zero, ErrInvalidUser
 	}
@@ -747,6 +751,8 @@ func MapError(err error) (status int, code, message string) {
 		return 401, "unauthorized", "invalid sepay secret"
 	case errors.Is(err, ErrNotConfigured):
 		return 503, "sepay_not_configured", "SePay is not configured"
+	case errors.Is(err, ErrCheckoutDisabled):
+		return 503, "checkout_disabled", "Self-serve checkout is disabled during Beta"
 	case errors.Is(err, ErrUnavailable):
 		return 503, "service_unavailable", "payment service unavailable"
 	case errors.Is(err, ErrInvalidRequest):

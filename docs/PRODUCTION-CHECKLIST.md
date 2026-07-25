@@ -3,6 +3,12 @@
 Use this before taking real money on SePay. Sandbox deploy steps live in
 [`SEPAY_DEPLOY_CHECKLIST.md`](./SEPAY_DEPLOY_CHECKLIST.md).
 
+## 0. Gate — personal / HKD KYC first
+
+**Do not start this checklist** while SePay only offers Doanh nghiệp / Hộ kinh
+doanh and your account is Cá nhân (coming soon). Stay on sandbox until then.
+Flip helper (rejects sandbox keys): `backend/scripts/flip-sepay-production.ps1`.
+
 ## 1. SePay production keys + IPN
 
 - [ ] SePay dashboard switched to **production** merchant

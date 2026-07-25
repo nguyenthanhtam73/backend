@@ -39,9 +39,10 @@ func setupPaymentFulfill(t *testing.T) (*Service, *domain.User, *repository.Gorm
 	subsRepo := repository.NewSubscriptionRepository(db)
 	cfg := &config.Config{
 		SePay: config.SePayConfig{
-			MerchantID: "SP-TEST",
-			SecretKey:  "spsk_test",
-			Env:        "sandbox",
+			MerchantID:      "SP-TEST",
+			SecretKey:       "spsk_test",
+			Env:             "sandbox",
+			CheckoutEnabled: true,
 		},
 		Subscription: config.SubscriptionConfig{TrialDays: 7, GraceDays: 3},
 	}

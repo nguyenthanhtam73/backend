@@ -4,6 +4,23 @@ import (
 	"testing"
 )
 
+func TestCheckoutFormPostOrder_StartsLikeSePaySample(t *testing.T) {
+	// Sample form in SePay docs starts with order_amount → merchant → currency…
+	wantPrefix := []string{"order_amount", "merchant", "currency", "operation"}
+	if len(CheckoutFormPostOrder) < len(wantPrefix) {
+		t.Fatalf("CheckoutFormPostOrder too short: %#v", CheckoutFormPostOrder)
+	}
+	for i, w := range wantPrefix {
+		if CheckoutFormPostOrder[i] != w {
+			t.Fatalf("CheckoutFormPostOrder[%d]=%q want %q (SePay HTML order)", i, CheckoutFormPostOrder[i], w)
+		}
+	}
+	// signature must be last among known fields
+	if CheckoutFormPostOrder[len(CheckoutFormPostOrder)-1] != "signature" {
+		t.Fatalf("signature should be last, got %#v", CheckoutFormPostOrder)
+	}
+}
+
 func TestSignFormFields_MatchesDocExampleShape(t *testing.T) {
 	fields := map[string]string{
 		"order_amount":         "100000",
