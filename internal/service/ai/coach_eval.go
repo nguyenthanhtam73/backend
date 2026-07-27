@@ -220,6 +220,12 @@ func outputHasRequiredVisionOpenerText(situation string) bool {
 	if strings.Contains(situation, "trông hôm nay") {
 		return true
 	}
+	if strings.Contains(situation, "cái vùng") && strings.Contains(situation, "hôm nay") {
+		return true
+	}
+	if strings.Contains(situation, "trên ảnh tao thấy") {
+		return true
+	}
 	if strings.Contains(situation, "mình thấy hôm nay") {
 		return true
 	}
@@ -230,7 +236,7 @@ func outputHasRequiredVisionOpenerText(situation string) bool {
 		return true
 	}
 	for _, phrase := range []string{
-		"vùng ", "của bạn", "hôm nay da bạn", "hôm nay da nó", "mình thấy", "mày thấy",
+		"vùng ", "của bạn", "hôm nay da bạn", "hôm nay da nó", "mình thấy", "mày thấy", "thằng này", "bà này",
 	} {
 		if strings.Contains(situation, phrase) {
 			return true

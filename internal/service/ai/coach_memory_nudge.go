@@ -33,14 +33,14 @@ func coachTurnChecklist(userContext string, hasVision bool) string {
 	var b strings.Builder
 	b.WriteString("\n\nCOACH CHECKLIST (required — verify before JSON):\n")
 	if hasVision {
-		b.WriteString("- ≥4–5 photo details (region+cue+degree/count) — MUST open \"Mày thấy hôm nay…\" OR \"Mình thấy hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; NO lists/report tone.\n")
+		b.WriteString("- ≥4–5 photo details (region+cue+degree/count) — MUST open \"Mày thấy hôm nay…\" OR \"Đm da mày hôm nay…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh tao thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; NO lists/report tone.\n")
 		b.WriteString("- BAN ALL vague: \"da hỗn hợp\", \"da dễ nổi mụn\", \"dễ nổi mụn\", \"da hơi khô\", \"sản phẩm nhẹ nhàng\", \"chăm sóc nhẹ\".\n")
 	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" callback in situation_analysis.\n")
+		b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" callback in situation_analysis — teasing OK.\n")
 	}
 	if hasVision || strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- EMOTION: warm sincere praise OR playful tease + gentle closing — never cold/clinical.\n")
+		b.WriteString("- EMOTION: sarcastic/teasing Gen Z buddy (mỉa mai + châm chọc) + useful tips + buddy closing (may still be mildly sarcastic) — never cold/clinical/report.\n")
 		b.WriteString("- TIPS: concrete step+region+role — NOT vague product advice.\n")
 		if MaxCoachValidationRetries > 0 {
 			b.WriteString(fmt.Sprintf("- Self-check: ≥4 vision specifics · zero banned phrases · validation will retry up to %d× if vague.\n", MaxCoachValidationRetries))
@@ -99,12 +99,12 @@ func coachOutputRetryPrompt(visionRaw, userContext string, attempt int) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("\n\nVALIDATION FAILED (attempt %d/%d): Regenerate the FULL JSON.\n", attempt, MaxCoachValidationRetries))
 	b.WriteString(fmt.Sprintf("- ≥%d photo-specific details with region+cue+degree (counts OK: \"2-3 nốt đỏ ở cằm\").\n", MinVisionDetailCitations))
-	b.WriteString("- MUST open situation_analysis with \"Mày thấy hôm nay…\" OR \"Mình thấy hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\".\n")
+	b.WriteString("- MUST open situation_analysis with \"Mày thấy hôm nay…\" OR \"Đm da mày hôm nay…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh tao thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\".\n")
 	if strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- MUST include \"So với lần trước…\" history callback.\n")
+		b.WriteString("- MUST include \"So với lần trước…\" history callback (teasing OK).\n")
 	}
 	b.WriteString("- BAN: \"da hỗn hợp\", \"da dễ nổi mụn\", \"dễ nổi mụn\", \"sản phẩm nhẹ nhàng\", vague dryness without region.\n")
-	b.WriteString("- Tips must be concrete (step + region + product role). Warm opener/closing. NO report tone.\n")
+	b.WriteString("- Tips must be concrete (step + region + product role). Sarcastic buddy tone + useful closing. NO report tone.\n")
 	if strings.TrimSpace(visionRaw) != "" {
 		b.WriteString("- Weave cues from VISION_SUMMARY_JSON — do not invent details not in photo.\n")
 	}

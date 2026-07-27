@@ -49,4 +49,9 @@ package ai
 // mandating everyday Vietnamese translations, so beginners aren't confused. BREVITY now
 // also requires "short but understandable". Tone (bựa bựa) + ≥3–4 photo-detail floor +
 // JSON schema all unchanged.
-const CoachDailyPromptVersion = 23
+//
+// v24 (2026-07-28) — Gen Z Việt sarcastic best-friend: always mild roast + teasing (Beginner
+// included — only lighter intensity). Default address mày/con/thằng này/bà này; allow vl/đm/
+// "trông hơi thảm" style lines; ban heavy swears, body-shame, English jargon. Mandatory
+// 3–4 photo details, history roast-OK compare, immediate tip, buddy closing. Schema unchanged.
+const CoachDailyPromptVersion = 24

@@ -42,7 +42,7 @@ func starterUserMessage(onboardingJSON []byte, locale, userMemory string) string
 	langLine := "Output language: **friendly, beginner-leaning English**. Write every user-facing string in natural, warm English a total beginner could follow. Prefer 'sunscreen' (not bare 'SPF'), 'skin barrier' on first mention, and explain any technical ingredient briefly."
 	if strings.EqualFold(strings.TrimSpace(locale), "vi") {
 		lang = "Vietnamese (Tiếng Việt)"
-		langLine = "Ngôn ngữ đầu ra: **Tiếng Việt thân thiện, dễ hiểu**. Mọi chuỗi hiển thị cho người dùng phải bằng tiếng Việt đời thường (không lẫn câu tiếng Anh), giọng như một người bạn nói chuyện. Tránh thuật ngữ chuyên môn cứng (barrier → 'lớp bảo vệ da'; SPF → 'kem chống nắng'; dehydrated → 'da khô bên trong'; exfoliant → 'tẩy da chết'; patch test → 'thử trước trên vùng da nhỏ')."
+		langLine = "Ngôn ngữ đầu ra: **Tiếng Việt đời thường, dễ hiểu**. Mọi chuỗi hiển thị cho người dùng phải bằng tiếng Việt (không lẫn câu tiếng Anh), giọng bạn thân Gen Z — được mỉa mai nhẹ / châm chọc nhưng vẫn hữu ích. Tránh thuật ngữ chuyên môn cứng (barrier → 'lớp bảo vệ da'; SPF → 'kem chống nắng'; dehydrated → 'da khô bên trong'; exfoliant → 'tẩy da chết'; patch test → 'thử trước trên vùng da nhỏ')."
 	}
 
 	memoryBlock := ""
@@ -63,7 +63,7 @@ When **skin_analysis** is present (vision + coach photo pass), ground morning/ev
 ` + affiliateStarterTail() + `
 Trả về ONE JSON object duy nhất (không markdown), đúng cấu trúc sau:
 {
-  "encouragement": "Câu khích lệ ngắn, bựa vui",
+  "encouragement": "Câu khích lệ kiểu bạn thân, có thể hơi xéo",
   "skin_readback": "Tóm tắt ngắn gọn loại da + concerns + mục tiêu",
   "morning": ["Bước 1", "Bước 2", "Bước 3"],
   "evening": ["Bước 1", "Bước 2", "Bước 3"],

@@ -5,29 +5,33 @@ import (
 	"testing"
 )
 
-func TestCoachPrompt_v21_BucaToneRules(t *testing.T) {
+func TestCoachPrompt_v24_SarcasticBuddyTone(t *testing.T) {
 	for _, skill := range []string{"beginner", "intermediate"} {
 		t.Run(skill, func(t *testing.T) {
 			p := GetCoachPrompt(skill)
-			mustContain(t, p, "bựa bựa")
-			mustContain(t, p, "xéo xắt")
+			mustContain(t, p, "Gen Z Việt")
+			mustContain(t, p, "mỉa mai")
+			mustContain(t, p, "châm chọc")
 			mustContain(t, p, "da hỗn hợp")
 			mustContain(t, p, "da dễ nổi mụn")
 			mustContain(t, p, "≥3–4 chi tiết cụ thể")
 			mustContain(t, p, "Mày thấy hôm nay")
 			mustContain(t, p, "Có … nốt mụn")
 			mustContain(t, p, "sản phẩm nhẹ nhàng")
-			mustContain(t, p, "troll nhẹ nhàng")
+			mustContain(t, p, "mày / con / thằng này / bà này")
 			if skill == "beginner" {
-				mustContain(t, p, "Bớt bựa")
+				mustContain(t, p, "nhẹ tay hơn")
+			}
+			if skill == "intermediate" {
+				mustContain(t, p, "bựa full")
 			}
 		})
 	}
 }
 
-func TestCoachPromptVersion_v23(t *testing.T) {
-	if CoachDailyPromptVersion != 23 {
-		t.Fatalf("expected CoachDailyPromptVersion == 23, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v24(t *testing.T) {
+	if CoachDailyPromptVersion != 24 {
+		t.Fatalf("expected CoachDailyPromptVersion == 24, got %d", CoachDailyPromptVersion)
 	}
 }
 
@@ -121,6 +125,8 @@ func TestOutputHasRequiredVisionOpener(t *testing.T) {
 	}{
 		{"Mày thấy hôm nay má trái hơi đỏ.", true},
 		{"Đm da mày hôm nay T-zone bóng dầu vl.", true},
+		{"Cái vùng cằm này hôm nay đỏ rực vl.", true},
+		{"Trên ảnh tao thấy vùng má gần tai sần nhẹ.", true},
 		{"Mình thấy hôm nay má trái hơi đỏ.", true},
 		{"Trên ảnh mình thấy vùng má gần tai sần nhẹ.", true},
 		{"Có 3 nốt mụn ở cằm.", true},
