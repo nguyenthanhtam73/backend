@@ -21,6 +21,7 @@ type AdminSkinReviewAnalysis struct {
 	Overview               string                   `json:"overview"`
 	SkinType               string                   `json:"skin_type"`
 	SkinTypeSeverity       string                   `json:"skin_type_severity"`
+	SkinTypeNote           string                   `json:"skin_type_note,omitempty"`
 	AttentionAreas         []AdminSkinAttentionArea `json:"attention_areas"`
 	AdditionalObservations string                   `json:"additional_observations"`
 	PhotoNotes             string                   `json:"photo_notes"`
@@ -189,6 +190,7 @@ func NormalizeAdminSkinReviewAnalysis(a *AdminSkinReviewAnalysis, locale string)
 	if strings.TrimSpace(a.SkinTypeSeverity) == "" && strings.TrimSpace(a.OverallSeverity) != "" {
 		a.SkinTypeSeverity = a.OverallSeverity
 	}
+	a.SkinTypeNote = strings.TrimSpace(a.SkinTypeNote)
 	if strings.TrimSpace(a.AdditionalObservations) == "" {
 		parts := make([]string, 0, 2)
 		if s := strings.TrimSpace(a.DetailedFindings); s != "" {

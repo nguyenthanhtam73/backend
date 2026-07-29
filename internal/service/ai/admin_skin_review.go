@@ -56,13 +56,16 @@ func AdminSkinReviewAnalyze(
 	model := cfg.OpenAIVisionModel()
 	logVisionModelSelection("admin-skin-review", model)
 
-	langHead := "**Output locale: Vietnamese (vi).** Write overview, attention_areas[].note, additional_observations, photo_notes, and non_diagnostic in natural Vietnamese. If photos are clear, photo_notes MUST be exactly: Ảnh đủ rõ để nhận xét"
+	langHead := "**Output locale: Vietnamese (vi).** Warm, lightly witty, never mocking. Scan forehead→nose→cheeks→chin; mark concern \"none\" ONLY if that region is truly clear on the photo. Raised spots/heads/clusters → acne|papules|pustules (not redness-only). Problem notes must include color + location + density/size (≥2 sentences, no empty filler). Never mention products, brands, mỹ phẩm, or care advice."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Write overview, attention_areas[].note, additional_observations, photo_notes, and non_diagnostic in natural English. If photos are clear, photo_notes MUST be exactly: Photos are clear enough for review"
+		langHead = "**Output locale: English (en).** Warm, lightly witty, never mocking. Scan forehead→nose→cheeks→chin; mark concern \"none\" ONLY if that region is truly clear on the photo. Raised spots/heads/clusters → acne|papules|pustules (not redness-only). Problem notes must include color + location + density/size (≥2 sentences, no empty filler). Never mention products, brands, or care advice."
 	}
 	userText := langHead + "\n\n" + AdminSkinReviewJSONSchemaBlock +
-		"\n\nPhotos: **1–3 well-lit skin photos** for deep observation-only review. " +
-		"Fill all 5 sections. Do NOT invent routines, products, care steps, or treatment advice."
+		"\n\nPhotos: **1–3 skin photos** for deep observation-only review.\n" +
+		"Do not miss visible spots on forehead/chin/cheeks — if spots exist, concern must not be \"none\".\n" +
+		"Prefer acne/papules/pustules when raised lesions are visible; use redness only for diffuse flush.\n" +
+		"Do NOT invent routines, products, brands, care steps, treatment advice, or medical diagnoses.\n" +
+		"Banned: \"sản phẩm chăm sóc da\", \"mỹ phẩm\", \"nên dùng\", \"nên thoa\", \"nên bôi\"."
 
 	parts := []map[string]any{
 		{"type": "text", "text": userText},
@@ -87,7 +90,8 @@ func AdminSkinReviewAnalyze(
 
 	body := map[string]any{
 		"model":           model,
-		"temperature":     0.2,
+		"temperature":     0.5,  // warm / lightly witty voice; still observation-grounded
+		"max_tokens":      8192, // room for verbose multi-region visual notes
 		"response_format": map[string]any{"type": "json_object"},
 		"messages": []map[string]any{
 			{
@@ -157,6 +161,7 @@ func parseAdminSkinReviewAnalysis(raw []byte, locale string) (*dto.AdminSkinRevi
 	if out.SkinTypeSeverity == "" {
 		out.SkinTypeSeverity = "mild"
 	}
+	out.SkinTypeNote = strings.TrimSpace(out.SkinTypeNote)
 	out.AdditionalObservations = strings.TrimSpace(out.AdditionalObservations)
 	if out.AdditionalObservations == "" {
 		parts := make([]string, 0, 2)
@@ -260,7 +265,16 @@ func normalizeAdminSeverityLevel(v string) string {
 
 func normalizeAdminConcern(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "acne", "dark_spots", "redness", "pores", "dryness", "oiliness", "texture", "irritation", "other":
+	case "none", "clear", "ok", "normal":
+		return "none"
+	case "papule":
+		return "papules"
+	case "pustule":
+		return "pustules"
+	case "pigment", "pih", "hyperpigmentation":
+		return "pigmentation"
+	case "acne", "papules", "pustules", "redness", "pigmentation", "dark_spots",
+		"pores", "dryness", "oiliness", "texture", "irritation", "other":
 		return strings.ToLower(strings.TrimSpace(v))
 	default:
 		return "other"
