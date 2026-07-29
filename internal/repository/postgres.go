@@ -41,6 +41,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.ProgressLog{},
 		&domain.AIUserFeedback{},
 		&domain.Feedback{},
+		&domain.AdminSkinReview{},
 		&domain.BetaSignup{},
 		&domain.UsageEvent{},
 		&domain.UserUsage{},

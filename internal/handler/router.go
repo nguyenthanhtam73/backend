@@ -15,6 +15,7 @@ import (
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
 	adminmetricsuc "github.com/dadiary/backend/internal/usecase/adminmetrics"
+	adminskinreviewuc "github.com/dadiary/backend/internal/usecase/adminskinreview"
 	adminuseruc "github.com/dadiary/backend/internal/usecase/adminuser"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	betasignupuc "github.com/dadiary/backend/internal/usecase/betasignup"
@@ -274,6 +275,17 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		payOps := repository.NewPaymentOpsEventRepository(db)
 		adminMetricsH := NewAdminMetricsHandler(adminmetricsuc.NewService(payOrders, userRepo, payOps))
 		api.Get("/admin/metrics/payment", jwt, admin, adminMetricsH.Payment)
+
+		// Admin Skin Review — deep observations-only AI (bypasses Free quota;
+		// no AILimiter — access is already allow-list gated via RequireAdmin).
+		if store != nil {
+			adminReviewRepo := repository.NewAdminSkinReviewRepository(db)
+			adminReviewSvc := adminskinreviewuc.NewService(adminReviewRepo, store, cfg)
+			adminReviewH := NewAdminSkinReviewHandler(adminReviewSvc, cfg)
+			api.Post("/admin/skin-review", jwt, admin, adminReviewH.Create)
+			api.Get("/admin/skin-review/:id", jwt, admin, adminReviewH.Get)
+			api.Patch("/admin/skin-review/:id", jwt, admin, adminReviewH.Patch)
+		}
 
 		// Public Beta waitlist — landing page email capture (no auth required).
 		betaSignupRepo := repository.NewBetaSignupRepository(db)
