@@ -56,14 +56,15 @@ func AdminSkinReviewAnalyze(
 	model := cfg.OpenAIVisionModel()
 	logVisionModelSelection("admin-skin-review", model)
 
-	langHead := "**Output locale: Vietnamese (vi).** Warm, lightly witty, never mocking. Scan forehead→nose→cheeks→chin; mark concern \"none\" ONLY if that region is truly clear on the photo. Raised spots/heads/clusters → acne|papules|pustules (not redness-only). Problem notes must include color + location + density/size (≥2 sentences, no empty filler). Never mention products, brands, mỹ phẩm, or care advice."
+	langHead := "**Output locale: Vietnamese (vi).** Warm, lightly witty, never mocking. Write LONG, information-dense notes — short answers FAIL. Length floors (sentences ending . ! ? …): overview 4–6; skin_type_note exactly 2; each attention note 3–5 (none regions still 3–4 explaining WHY calm); additional_observations 3–5; photo_notes 2–3. Scan forehead→nose→cheeks→chin; mark concern \"none\" ONLY if truly clear. Raised spots/heads/clusters → acne|papules|pustules (not redness-only). Problem notes must cover location detail, count/density, color, morphology, contrast vs nearby zones, and how obvious on photo. Never mention products, brands, mỹ phẩm, or care advice."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Warm, lightly witty, never mocking. Scan forehead→nose→cheeks→chin; mark concern \"none\" ONLY if that region is truly clear on the photo. Raised spots/heads/clusters → acne|papules|pustules (not redness-only). Problem notes must include color + location + density/size (≥2 sentences, no empty filler). Never mention products, brands, or care advice."
+		langHead = "**Output locale: English (en).** Warm, lightly witty, never mocking. Write LONG, information-dense notes — short answers FAIL. Length floors: overview 4–6 sentences; skin_type_note exactly 2; each attention note 3–5 (none regions still 3–4 explaining WHY calm); additional_observations 3–5; photo_notes 2–3. Scan forehead→nose→cheeks→chin; mark concern \"none\" ONLY if truly clear. Raised spots/heads/clusters → acne|papules|pustules (not redness-only). Problem notes must cover location detail, count/density, color, morphology, contrast vs nearby zones, and how obvious on photo. Never mention products, brands, or care advice."
 	}
 	userText := langHead + "\n\n" + AdminSkinReviewJSONSchemaBlock +
 		"\n\nPhotos: **1–3 skin photos** for deep observation-only review.\n" +
 		"Do not miss visible spots on forehead/chin/cheeks — if spots exist, concern must not be \"none\".\n" +
 		"Prefer acne/papules/pustules when raised lesions are visible; use redness only for diffuse flush.\n" +
+		"LENGTH: do not write short filler. Hit the sentence floors above; pack visual detail into every note.\n" +
 		"Do NOT invent routines, products, brands, care steps, treatment advice, or medical diagnoses.\n" +
 		"Banned: \"sản phẩm chăm sóc da\", \"mỹ phẩm\", \"nên dùng\", \"nên thoa\", \"nên bôi\"."
 
