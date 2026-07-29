@@ -3,11 +3,13 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
+	"github.com/dadiary/backend/internal/repository"
 	adminskinreviewuc "github.com/dadiary/backend/internal/usecase/adminskinreview"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
@@ -17,6 +19,8 @@ import (
 // AdminSkinReviewHandler serves admin-only skin observation endpoints.
 // Authz is enforced by RequireAdmin middleware on every route (403 if not admin).
 // Free plan quotas are intentionally NOT applied.
+//
+// PublicShare is the unauthenticated GET by slug (registered without jwt/admin).
 type AdminSkinReviewHandler struct {
 	svc *adminskinreviewuc.Service
 	cfg *config.Config
@@ -100,6 +104,31 @@ func (h *AdminSkinReviewHandler) Create(c *fiber.Ctx) error {
 	return response.JSON(c, fiber.StatusCreated, res)
 }
 
+// List handles GET /api/v1/admin/skin-reviews?status=&page=&page_size=
+func (h *AdminSkinReviewHandler) List(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")
+	}
+	filter := repository.AdminSkinReviewListFilter{
+		Status: strings.TrimSpace(c.Query("status")),
+	}
+	if raw := strings.TrimSpace(c.Query("page")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			filter.Page = n
+		}
+	}
+	if raw := strings.TrimSpace(c.Query("page_size")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			filter.PageSize = n
+		}
+	}
+	res, err := h.svc.List(c.UserContext(), filter)
+	if err != nil {
+		return mapAdminSkinReviewError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
 // Get handles GET /api/v1/admin/skin-review/:id
 func (h *AdminSkinReviewHandler) Get(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil {
@@ -130,6 +159,53 @@ func (h *AdminSkinReviewHandler) Patch(c *fiber.Ctx) error {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
 	}
 	res, err := h.svc.Patch(c.UserContext(), id, body)
+	if err != nil {
+		return mapAdminSkinReviewError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
+// Publish handles PATCH /api/v1/admin/skin-review/:id/publish
+// Generates a unique public_slug, privacy-blurs images, sets is_public=true.
+func (h *AdminSkinReviewHandler) Publish(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")
+	}
+	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil || id == uuid.Nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_id", "id must be a valid UUID")
+	}
+	res, err := h.svc.Publish(c.UserContext(), id)
+	if err != nil {
+		return mapAdminSkinReviewError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
+// Unpublish handles PATCH /api/v1/admin/skin-review/:id/unpublish
+func (h *AdminSkinReviewHandler) Unpublish(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")
+	}
+	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil || id == uuid.Nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_id", "id must be a valid UUID")
+	}
+	res, err := h.svc.Unpublish(c.UserContext(), id)
+	if err != nil {
+		return mapAdminSkinReviewError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
+// GetPublic handles GET /api/v1/public/skin-review/:slug (no auth).
+// Returns observations + blurred image URLs only — never admin notes / originals.
+func (h *AdminSkinReviewHandler) GetPublic(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")
+	}
+	slug := strings.TrimSpace(c.Params("slug"))
+	res, err := h.svc.GetPublic(c.UserContext(), slug)
 	if err != nil {
 		return mapAdminSkinReviewError(c, err)
 	}

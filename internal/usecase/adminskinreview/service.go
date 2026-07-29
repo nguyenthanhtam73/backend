@@ -3,9 +3,11 @@ package adminskinreview
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/http"
 	"strings"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/platform/imgprep"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/dadiary/backend/internal/storage"
@@ -25,6 +28,9 @@ var (
 	ErrInvalidInput = errors.New("invalid admin skin review input")
 	ErrAnalysis     = errors.New("admin skin review analysis failed")
 )
+
+const publicSlugAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+const publicSlugLength = 10
 
 // UploadImage is one validated photo ready to persist + send to vision.
 type UploadImage struct {
@@ -89,7 +95,6 @@ func (s *Service) Create(ctx context.Context, adminUserID uuid.UUID, in CreateIn
 	}
 	locale := dto.NormalizeAdminSkinReviewLocale(in.Locale)
 
-	// Persist photos first so GET can show thumbnails even if AI is slow to return.
 	rels := make([]string, 0, len(in.Images))
 	aiImgs := make([]ai.ImageBytes, 0, len(in.Images))
 	for _, img := range in.Images {
@@ -117,14 +122,15 @@ func (s *Service) Create(ctx context.Context, adminUserID uuid.UUID, in CreateIn
 	}
 
 	row := &domain.AdminSkinReview{
-		AdminUserID: adminUserID,
-		Title:       strings.TrimSpace(in.Title),
-		Notes:       strings.TrimSpace(in.Notes),
-		Status:      status,
-		ImagePaths:  pathsJSON,
-		Analysis:    analysisJSON,
-		Locale:      locale,
-		ModelUsed:   modelUsed,
+		AdminUserID:      adminUserID,
+		Title:            strings.TrimSpace(in.Title),
+		Notes:            strings.TrimSpace(in.Notes),
+		Status:           status,
+		ImagePaths:       pathsJSON,
+		PublicImagePaths: json.RawMessage("[]"),
+		Analysis:         analysisJSON,
+		Locale:           locale,
+		ModelUsed:        modelUsed,
 	}
 	if err := s.repo.Create(ctx, row); err != nil {
 		return zero, err
@@ -190,6 +196,194 @@ func (s *Service) Patch(
 	return dto.FromDomainAdminSkinReview(row, publicUploadURLs(rels)), nil
 }
 
+// Publish generates a unique public slug, privacy-blurs images, and marks the review public.
+// Idempotent: if already public with a slug, returns the existing share payload
+// (re-blurs only when public_image_paths is empty).
+func (s *Service) Publish(ctx context.Context, id uuid.UUID) (dto.AdminSkinReviewResponse, error) {
+	var zero dto.AdminSkinReviewResponse
+	if s == nil || s.repo == nil || s.store == nil {
+		return zero, ErrUnavailable
+	}
+	row, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return zero, err
+	}
+	if row == nil {
+		return zero, ErrNotFound
+	}
+
+	slug := strings.TrimSpace(row.PublicSlug)
+	if slug == "" {
+		slug, err = s.uniquePublicSlug(ctx)
+		if err != nil {
+			return zero, err
+		}
+	}
+
+	blurRels, _ := dto.DecodeStringSlice(row.PublicImagePaths)
+	if len(blurRels) == 0 {
+		origRels, _ := dto.DecodeStringSlice(row.ImagePaths)
+		if len(origRels) == 0 {
+			return zero, fmt.Errorf("%w: no images to publish", ErrInvalidInput)
+		}
+		blurRels = make([]string, 0, len(origRels))
+		for i, rel := range origRels {
+			raw, rerr := s.store.Read(ctx, rel)
+			if rerr != nil {
+				return zero, fmt.Errorf("read image for blur: %w", rerr)
+			}
+			blurred, berr := imgprep.SoftBlurForShare(raw)
+			if berr != nil {
+				return zero, fmt.Errorf("blur image: %w", berr)
+			}
+			blurRel := pathJoin(
+				row.AdminUserID.String(),
+				"admin-skin-review",
+				"public",
+				slug,
+				fmt.Sprintf("%d.jpg", i),
+			)
+			if err := s.store.Save(ctx, blurRel, blurred, "image/jpeg"); err != nil {
+				return zero, fmt.Errorf("save blurred image: %w", err)
+			}
+			blurRels = append(blurRels, blurRel)
+		}
+	}
+
+	pathsJSON, err := json.Marshal(blurRels)
+	if err != nil {
+		return zero, err
+	}
+	publishedAt := time.Now().UTC()
+	if row.PublishedAt != nil {
+		publishedAt = *row.PublishedAt
+	}
+
+	updated, err := s.repo.PublishFields(ctx, id, slug, pathsJSON, publishedAt)
+	if err != nil {
+		return zero, err
+	}
+	if updated == nil {
+		return zero, ErrNotFound
+	}
+	origRels, _ := dto.DecodeStringSlice(updated.ImagePaths)
+	return dto.FromDomainAdminSkinReview(updated, publicUploadURLs(origRels)), nil
+}
+
+// List returns paginated reviews for the admin console.
+func (s *Service) List(
+	ctx context.Context,
+	filter repository.AdminSkinReviewListFilter,
+) (dto.AdminSkinReviewListResponse, error) {
+	var zero dto.AdminSkinReviewListResponse
+	if s == nil || s.repo == nil {
+		return zero, ErrUnavailable
+	}
+	rows, total, err := s.repo.ListAdmin(ctx, filter)
+	if err != nil {
+		return zero, err
+	}
+	page := filter.Page
+	if page <= 0 {
+		page = 1
+	}
+	pageSize := filter.PageSize
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+	out := dto.AdminSkinReviewListResponse{
+		Items:    make([]dto.AdminSkinReviewListItem, 0, len(rows)),
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}
+	for _, row := range rows {
+		out.Items = append(out.Items, dto.FromDomainAdminSkinReviewListItem(row))
+	}
+	return out, nil
+}
+
+// Unpublish removes public visibility (admin-only).
+func (s *Service) Unpublish(ctx context.Context, id uuid.UUID) (dto.AdminSkinReviewResponse, error) {
+	var zero dto.AdminSkinReviewResponse
+	if s == nil || s.repo == nil {
+		return zero, ErrUnavailable
+	}
+	row, err := s.repo.UnpublishFields(ctx, id)
+	if err != nil {
+		return zero, err
+	}
+	if row == nil {
+		return zero, ErrNotFound
+	}
+	rels, _ := dto.DecodeStringSlice(row.ImagePaths)
+	return dto.FromDomainAdminSkinReview(row, publicUploadURLs(rels)), nil
+}
+
+// GetPublic returns the share payload for a public slug (no admin notes, blurred images only).
+func (s *Service) GetPublic(ctx context.Context, slug string) (dto.PublicSkinReviewResponse, error) {
+	var zero dto.PublicSkinReviewResponse
+	if s == nil || s.repo == nil {
+		return zero, ErrUnavailable
+	}
+	slug = strings.ToLower(strings.TrimSpace(slug))
+	if slug == "" || !isValidPublicSlug(slug) {
+		return zero, ErrNotFound
+	}
+	row, err := s.repo.GetByPublicSlug(ctx, slug)
+	if err != nil {
+		return zero, err
+	}
+	if row == nil {
+		return zero, ErrNotFound
+	}
+	blurRels, _ := dto.DecodeStringSlice(row.PublicImagePaths)
+	return dto.FromDomainPublicSkinReview(row, publicUploadURLs(blurRels)), nil
+}
+
+func (s *Service) uniquePublicSlug(ctx context.Context) (string, error) {
+	for i := 0; i < 12; i++ {
+		slug, err := randomPublicSlug(publicSlugLength)
+		if err != nil {
+			return "", err
+		}
+		exists, err := s.repo.ExistsPublicSlug(ctx, slug)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return slug, nil
+		}
+	}
+	return "", fmt.Errorf("could not allocate unique public slug")
+}
+
+func randomPublicSlug(n int) (string, error) {
+	var b strings.Builder
+	b.Grow(n)
+	max := big.NewInt(int64(len(publicSlugAlphabet)))
+	for i := 0; i < n; i++ {
+		v, err := rand.Int(rand.Reader, max)
+		if err != nil {
+			return "", err
+		}
+		b.WriteByte(publicSlugAlphabet[v.Int64()])
+	}
+	return b.String(), nil
+}
+
+func isValidPublicSlug(slug string) bool {
+	if len(slug) < 6 || len(slug) > 32 {
+		return false
+	}
+	for _, r := range slug {
+		if (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
 func publicUploadURLs(rels []string) []string {
 	out := make([]string, 0, len(rels))
 	for _, rel := range rels {
@@ -200,4 +394,15 @@ func publicUploadURLs(rels []string) []string {
 		out = append(out, "/uploads/"+clean)
 	}
 	return out
+}
+
+func pathJoin(parts ...string) string {
+	cleaned := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.Trim(strings.ReplaceAll(p, "\\", "/"), "/")
+		if p != "" {
+			cleaned = append(cleaned, p)
+		}
+	}
+	return strings.Join(cleaned, "/")
 }

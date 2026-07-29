@@ -283,8 +283,14 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			adminReviewSvc := adminskinreviewuc.NewService(adminReviewRepo, store, cfg)
 			adminReviewH := NewAdminSkinReviewHandler(adminReviewSvc, cfg)
 			api.Post("/admin/skin-review", jwt, admin, adminReviewH.Create)
+			api.Get("/admin/skin-reviews", jwt, admin, adminReviewH.List)
 			api.Get("/admin/skin-review/:id", jwt, admin, adminReviewH.Get)
+			// Register /publish|/unpublish before /:id patch so Fiber matches longer paths.
+			api.Patch("/admin/skin-review/:id/publish", jwt, admin, adminReviewH.Publish)
+			api.Patch("/admin/skin-review/:id/unpublish", jwt, admin, adminReviewH.Unpublish)
 			api.Patch("/admin/skin-review/:id", jwt, admin, adminReviewH.Patch)
+			// Public share page (Facebook) — no auth; observations + blurred images only.
+			api.Get("/public/skin-review/:slug", adminReviewH.GetPublic)
 		}
 
 		// Public Beta waitlist — landing page email capture (no auth required).
