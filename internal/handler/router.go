@@ -255,7 +255,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 
 		// Admin triage console — gated by DADIARY_ADMIN_EMAILS allow-list
 		// (exposed to clients as user.is_admin on GET /me).
+		// Skin-review-only operators use DADIARY_SKIN_REVIEW_EMAILS + RequireSkinReview
+		// (can_skin_review on GET /me) — they do not get other /admin/* routes.
 		admin := middleware.RequireAdmin(cfg, userRepo)
+		skinReview := middleware.RequireSkinReview(cfg, userRepo)
 		api.Get("/admin/feedbacks", jwt, admin, appFeedbackH.AdminList)
 		api.Patch("/admin/feedbacks/:id", jwt, admin, appFeedbackH.AdminUpdateStatus)
 		// Streak reconcile: repair drifted counters from SkinCheck history.
@@ -277,18 +280,18 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Get("/admin/metrics/payment", jwt, admin, adminMetricsH.Payment)
 
 		// Admin Skin Review — deep observations-only AI (bypasses Free quota;
-		// no AILimiter — access is already allow-list gated via RequireAdmin).
+		// no AILimiter — gated by RequireSkinReview: full admin OR skin-review list).
 		if store != nil {
 			adminReviewRepo := repository.NewAdminSkinReviewRepository(db)
 			adminReviewSvc := adminskinreviewuc.NewService(adminReviewRepo, store, cfg)
 			adminReviewH := NewAdminSkinReviewHandler(adminReviewSvc, cfg)
-			api.Post("/admin/skin-review", jwt, admin, adminReviewH.Create)
-			api.Get("/admin/skin-reviews", jwt, admin, adminReviewH.List)
-			api.Get("/admin/skin-review/:id", jwt, admin, adminReviewH.Get)
+			api.Post("/admin/skin-review", jwt, skinReview, adminReviewH.Create)
+			api.Get("/admin/skin-reviews", jwt, skinReview, adminReviewH.List)
+			api.Get("/admin/skin-review/:id", jwt, skinReview, adminReviewH.Get)
 			// Register /publish|/unpublish before /:id patch so Fiber matches longer paths.
-			api.Patch("/admin/skin-review/:id/publish", jwt, admin, adminReviewH.Publish)
-			api.Patch("/admin/skin-review/:id/unpublish", jwt, admin, adminReviewH.Unpublish)
-			api.Patch("/admin/skin-review/:id", jwt, admin, adminReviewH.Patch)
+			api.Patch("/admin/skin-review/:id/publish", jwt, skinReview, adminReviewH.Publish)
+			api.Patch("/admin/skin-review/:id/unpublish", jwt, skinReview, adminReviewH.Unpublish)
+			api.Patch("/admin/skin-review/:id", jwt, skinReview, adminReviewH.Patch)
 			// Public share page (Facebook) — no auth; observations + blurred images only.
 			api.Get("/public/skin-review/:slug", adminReviewH.GetPublic)
 		}

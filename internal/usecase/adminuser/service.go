@@ -198,20 +198,22 @@ func (s *Service) toListItem(u *domain.User) dto.AdminUserListItem {
 	if u == nil {
 		return dto.AdminUserListItem{}
 	}
-	isAdmin := false
+	isAdmin, canSkinReview := false, false
 	if s.cfg != nil {
 		isAdmin = s.cfg.IsAdminEmail(u.Email)
+		canSkinReview = s.cfg.CanSkinReviewEmail(u.Email)
 	}
 	return dto.AdminUserListItem{
-		ID:          u.ID.String(),
-		Email:       u.Email,
-		Username:    u.Username,
-		DisplayName: u.DisplayName,
-		PlanTier:    string(domain.NormalizePlanTier(u.PlanTier)),
-		IsActive:    u.IsActive,
-		IsAdmin:     isAdmin,
-		CreatedAt:   u.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:   u.UpdatedAt.UTC().Format(time.RFC3339),
+		ID:            u.ID.String(),
+		Email:         u.Email,
+		Username:      u.Username,
+		DisplayName:   u.DisplayName,
+		PlanTier:      string(domain.NormalizePlanTier(u.PlanTier)),
+		IsActive:      u.IsActive,
+		IsAdmin:       isAdmin,
+		CanSkinReview: canSkinReview,
+		CreatedAt:     u.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:     u.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 }
 

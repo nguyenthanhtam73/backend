@@ -157,7 +157,10 @@ func (h *AuthHandler) Me(c *fiber.Ctx) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
-	pub.IsAdmin = h.cfg != nil && h.cfg.IsAdminEmail(pub.Email)
+	if h.cfg != nil {
+		pub.IsAdmin = h.cfg.IsAdminEmail(pub.Email)
+		pub.CanSkinReview = h.cfg.CanSkinReviewEmail(pub.Email)
+	}
 
 	// Overlay configured grace/trial days from SubscriptionService when wired.
 	if h.subs != nil {

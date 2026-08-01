@@ -66,8 +66,10 @@ type UserPublic struct {
 	CancelAtPeriodEnd bool `json:"cancel_at_period_end"`
 	EligibleForTrial  bool `json:"eligible_for_trial"`
 
-	IsAdmin   bool   `json:"is_admin,omitempty"`
-	CreatedAt string `json:"created_at"`
+	IsAdmin bool `json:"is_admin,omitempty"`
+	// CanSkinReview is true for full admins or DADIARY_SKIN_REVIEW_EMAILS operators.
+	CanSkinReview bool   `json:"can_skin_review,omitempty"`
+	CreatedAt     string `json:"created_at"`
 }
 
 // SubscriptionSnapshot is a minimal view applied onto UserPublic (from SubscriptionService).

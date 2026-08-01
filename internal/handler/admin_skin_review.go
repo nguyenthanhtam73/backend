@@ -16,8 +16,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// AdminSkinReviewHandler serves admin-only skin observation endpoints.
-// Authz is enforced by RequireAdmin middleware on every route (403 if not admin).
+// AdminSkinReviewHandler serves skin observation endpoints for full admins and
+// skin-review operators. Authz is RequireSkinReview (403 otherwise).
 // Free plan quotas are intentionally NOT applied.
 //
 // PublicShare is the unauthenticated GET by slug (registered without jwt/admin).

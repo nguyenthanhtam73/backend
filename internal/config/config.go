@@ -34,9 +34,13 @@ type Config struct {
 	VAPID VAPIDConfig `mapstructure:"vapid"`
 	// DailyReminder schedules the check-in nudge job (Asia/Ho_Chi_Minh via streaktime).
 	DailyReminder DailyReminderConfig `mapstructure:"daily_reminder"`
-	// AdminEmails lists accounts allowed to call /admin/* endpoints.
+	// AdminEmails lists accounts allowed to call full /admin/* endpoints.
 	// Comma-separated via DADIARY_ADMIN_EMAILS.
 	AdminEmails []string `mapstructure:"admin_emails"`
+	// SkinReviewEmails lists accounts allowed only for /admin/skin-review* APIs
+	// (and can_skin_review on GET /me). Full admins are always included via
+	// CanSkinReviewEmail. Comma-separated via DADIARY_SKIN_REVIEW_EMAILS.
+	SkinReviewEmails []string `mapstructure:"skin_review_emails"`
 	// SePay is the Payment Gateway (sandbox / production) for Premium checkout.
 	SePay SePayConfig `mapstructure:"sepay"`
 	// Subscription controls trial length + post-expiry grace (Premium lifecycle).
@@ -271,6 +275,7 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("storage.r2.bucket", "DADIARY_R2_BUCKET")
 	_ = v.BindEnv("storage.r2.endpoint", "DADIARY_R2_ENDPOINT")
 	_ = v.BindEnv("admin_emails", "DADIARY_ADMIN_EMAILS")
+	_ = v.BindEnv("skin_review_emails", "DADIARY_SKIN_REVIEW_EMAILS")
 	_ = v.BindEnv("vapid.public_key", "DADIARY_VAPID_PUBLIC_KEY")
 	_ = v.BindEnv("vapid.private_key", "DADIARY_VAPID_PRIVATE_KEY")
 	_ = v.BindEnv("vapid.subject", "DADIARY_VAPID_SUBJECT")
@@ -358,17 +363,9 @@ func Load(relativeEnvPath string) (*Config, error) {
 		cfg.AI.Retry.BackoffMultiplier = 2
 	}
 
-	// Admin emails: support comma-separated env for simple Beta admin gating.
-	if raw := strings.TrimSpace(os.Getenv("DADIARY_ADMIN_EMAILS")); raw != "" && len(cfg.AdminEmails) == 0 {
-		for _, part := range strings.Split(raw, ",") {
-			if e := strings.TrimSpace(strings.ToLower(part)); e != "" {
-				cfg.AdminEmails = append(cfg.AdminEmails, e)
-			}
-		}
-	}
-	for i, e := range cfg.AdminEmails {
-		cfg.AdminEmails[i] = strings.TrimSpace(strings.ToLower(e))
-	}
+	// Admin / skin-review emails: support comma-separated env for Beta gating.
+	cfg.AdminEmails = normalizeEmailList(cfg.AdminEmails, os.Getenv("DADIARY_ADMIN_EMAILS"))
+	cfg.SkinReviewEmails = normalizeEmailList(cfg.SkinReviewEmails, os.Getenv("DADIARY_SKIN_REVIEW_EMAILS"))
 
 	cfg.VAPID.PublicKey = strings.TrimSpace(cfg.VAPID.PublicKey)
 	cfg.VAPID.PrivateKey = strings.TrimSpace(cfg.VAPID.PrivateKey)
@@ -551,18 +548,56 @@ func (c *Config) HasOpenAIKey() bool {
 	return c != nil && strings.TrimSpace(c.OpenAI.APIKey) != ""
 }
 
-// IsAdminEmail reports whether email is in the configured admin allow-list.
+// IsAdminEmail reports whether email is in the configured full-admin allow-list.
 func (c *Config) IsAdminEmail(email string) bool {
-	if c == nil || len(c.AdminEmails) == 0 {
+	return emailInList(c, c.AdminEmails, email)
+}
+
+// IsSkinReviewOperatorEmail reports whether email is on the skin-review-only list
+// (does not imply full admin).
+func (c *Config) IsSkinReviewOperatorEmail(email string) bool {
+	return emailInList(c, c.SkinReviewEmails, email)
+}
+
+// CanSkinReviewEmail reports whether email may use /admin/skin-review* —
+// full admins or skin-review operators.
+func (c *Config) CanSkinReviewEmail(email string) bool {
+	return c.IsAdminEmail(email) || c.IsSkinReviewOperatorEmail(email)
+}
+
+func emailInList(c *Config, list []string, email string) bool {
+	if c == nil || len(list) == 0 {
 		return false
 	}
 	norm := strings.TrimSpace(strings.ToLower(email))
-	for _, e := range c.AdminEmails {
+	if norm == "" {
+		return false
+	}
+	for _, e := range list {
 		if e == norm {
 			return true
 		}
 	}
 	return false
+}
+
+// normalizeEmailList lowercases/trims a configured list; if empty, falls back to
+// parsing a comma-separated env raw value.
+func normalizeEmailList(existing []string, envRaw string) []string {
+	out := make([]string, 0, len(existing))
+	for _, e := range existing {
+		if n := strings.TrimSpace(strings.ToLower(e)); n != "" {
+			out = append(out, n)
+		}
+	}
+	if len(out) == 0 {
+		for _, part := range strings.Split(strings.TrimSpace(envRaw), ",") {
+			if e := strings.TrimSpace(strings.ToLower(part)); e != "" {
+				out = append(out, e)
+			}
+		}
+	}
+	return out
 }
 
 // HasVAPIDKeys reports whether Web Push sending can be attempted.

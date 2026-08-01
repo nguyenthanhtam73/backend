@@ -7,10 +7,12 @@ type AdminUserListItem struct {
 	Username    string `json:"username"`
 	DisplayName string `json:"display_name,omitempty"`
 	PlanTier    string `json:"plan_tier"`
-	IsActive    bool   `json:"is_active"`
-	IsAdmin     bool   `json:"is_admin"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	IsActive bool `json:"is_active"`
+	IsAdmin  bool `json:"is_admin"`
+	// CanSkinReview is true for full admins or skin-review-only operators.
+	CanSkinReview bool   `json:"can_skin_review"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
 }
 
 // AdminUserListResponse is the paginated admin user search result.
