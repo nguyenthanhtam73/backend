@@ -38,6 +38,7 @@ var catalog = map[domain.PlanTier]map[domain.Feature]Entitlement{
 	domain.PlanFree: {
 		domain.FeatureAIRoutineSuggestion:  {Kind: EntitlementMonthlyQuota, Enabled: true, MonthlyLimit: 3},
 		domain.FeatureEditRoutine:          {Kind: EntitlementMonthlyQuota, Enabled: true, MonthlyLimit: 5},
+		// Unlimited shelf + edit/delete. Free create slots live in usage.FreeWardrobeProductLimit.
 		domain.FeatureWardrobeFull:         {Kind: EntitlementBoolean, Enabled: false},
 		domain.FeatureProgressFullHistory:  {Kind: EntitlementHistoryMonths, Enabled: true, HistoryMonths: 3},
 		domain.FeatureMilestoneFull:        {Kind: EntitlementBoolean, Enabled: false},

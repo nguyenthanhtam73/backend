@@ -11,7 +11,8 @@ const (
 	FeatureAIRoutineSuggestion Feature = "ai_routine_suggestion"
 	// FeatureEditRoutine — structural routine saves (monthly quota on Free).
 	FeatureEditRoutine Feature = "edit_routine"
-	// FeatureWardrobeFull — create/edit wardrobe products (boolean).
+	// FeatureWardrobeFull — unlimited shelf + edit/delete (boolean on Premium).
+	// Free create slots (N=3) are enforced in usecase/usage, not this boolean.
 	FeatureWardrobeFull Feature = "wardrobe_full"
 	// FeatureProgressFullHistory — progress lookback window (months).
 	FeatureProgressFullHistory Feature = "progress_full_history"

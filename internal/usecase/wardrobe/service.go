@@ -19,6 +19,7 @@ import (
 var (
 	ErrInvalidInput = errors.New("invalid product payload")
 	ErrUnavailable  = errors.New("wardrobe service unavailable")
+	ErrNotFound     = errors.New("wardrobe product not found")
 )
 
 // Service handles product CRUD for the wardrobe API.
@@ -37,36 +38,28 @@ func NewService(
 	return &Service{products: products, cache: cache, usage: usage}
 }
 
-// Create adds a product owned by the user.
+// Create adds a product owned by the user (Free: up to FreeWardrobeProductLimit).
 func (s *Service) Create(ctx context.Context, userID uuid.UUID, req dto.CreateWardrobeProductRequest) (dto.WardrobeProductResponse, error) {
 	var zero dto.WardrobeProductResponse
 	if s == nil || s.products == nil {
 		return zero, fmt.Errorf("%w", ErrUnavailable)
 	}
 	if s.usage != nil {
-		if err := s.usage.AssertWardrobeWrite(ctx, userID); err != nil {
+		if err := s.usage.AssertWardrobeCreate(ctx, userID); err != nil {
 			return zero, err
 		}
 	}
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return zero, fmt.Errorf("%w: name is required", ErrInvalidInput)
-	}
-	brand := strings.TrimSpace(req.Brand)
-	if brand == "" {
-		return zero, fmt.Errorf("%w: brand is required", ErrInvalidInput)
+	name, brand, category, notes, opened, err := normalizeProductFields(req.Name, req.Brand, req.Category, req.Notes, req.OpenedAt)
+	if err != nil {
+		return zero, err
 	}
 	p := &domain.SkincareProduct{
 		UserID:   userID,
 		Name:     name,
 		Brand:    brand,
-		Category: strings.TrimSpace(req.Category),
-		Notes:    strings.TrimSpace(req.Notes),
-	}
-	if opened, err := parseOpenedAt(req.OpenedAt); err != nil {
-		return zero, fmt.Errorf("%w: %v", ErrInvalidInput, err)
-	} else if opened != nil {
-		p.OpenedAt = opened
+		Category: category,
+		Notes:    notes,
+		OpenedAt: opened,
 	}
 	if err := s.products.Create(ctx, p); err != nil {
 		return zero, err
@@ -75,6 +68,75 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req dto.CreateWa
 		s.cache.Bust(userID)
 	}
 	return dto.WardrobeProductFromDomain(p), nil
+}
+
+// Update edits a product owned by the user (Premium wardrobe_full).
+func (s *Service) Update(
+	ctx context.Context,
+	userID, productID uuid.UUID,
+	req dto.UpdateWardrobeProductRequest,
+) (dto.WardrobeProductResponse, error) {
+	var zero dto.WardrobeProductResponse
+	if s == nil || s.products == nil {
+		return zero, fmt.Errorf("%w", ErrUnavailable)
+	}
+	if productID == uuid.Nil {
+		return zero, ErrNotFound
+	}
+	if s.usage != nil {
+		if err := s.usage.AssertWardrobeManage(ctx, userID); err != nil {
+			return zero, err
+		}
+	}
+	name, brand, category, notes, opened, err := normalizeProductFields(req.Name, req.Brand, req.Category, req.Notes, req.OpenedAt)
+	if err != nil {
+		return zero, err
+	}
+	p, err := s.products.GetByIDForUser(ctx, userID, productID)
+	if err != nil {
+		return zero, err
+	}
+	if p == nil {
+		return zero, ErrNotFound
+	}
+	p.Name = name
+	p.Brand = brand
+	p.Category = category
+	p.Notes = notes
+	p.OpenedAt = opened
+	if err := s.products.Update(ctx, p); err != nil {
+		return zero, err
+	}
+	if s.cache != nil {
+		s.cache.Bust(userID)
+	}
+	return dto.WardrobeProductFromDomain(p), nil
+}
+
+// Delete soft-deletes a product owned by the user (Premium wardrobe_full).
+func (s *Service) Delete(ctx context.Context, userID, productID uuid.UUID) error {
+	if s == nil || s.products == nil {
+		return fmt.Errorf("%w", ErrUnavailable)
+	}
+	if productID == uuid.Nil {
+		return ErrNotFound
+	}
+	if s.usage != nil {
+		if err := s.usage.AssertWardrobeManage(ctx, userID); err != nil {
+			return err
+		}
+	}
+	ok, err := s.products.SoftDelete(ctx, userID, productID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return ErrNotFound
+	}
+	if s.cache != nil {
+		s.cache.Bust(userID)
+	}
+	return nil
 }
 
 // List returns the user's products (newest first).
@@ -92,6 +154,26 @@ func (s *Service) List(ctx context.Context, userID uuid.UUID) (dto.WardrobeListR
 		out.Products = append(out.Products, dto.WardrobeProductFromDomain(&rows[i]))
 	}
 	return out, nil
+}
+
+func normalizeProductFields(
+	nameRaw, brandRaw, categoryRaw, notesRaw, openedRaw string,
+) (name, brand, category, notes string, opened *time.Time, err error) {
+	name = strings.TrimSpace(nameRaw)
+	if name == "" {
+		return "", "", "", "", nil, fmt.Errorf("%w: name is required", ErrInvalidInput)
+	}
+	brand = strings.TrimSpace(brandRaw)
+	if brand == "" {
+		return "", "", "", "", nil, fmt.Errorf("%w: brand is required", ErrInvalidInput)
+	}
+	category = strings.TrimSpace(categoryRaw)
+	notes = strings.TrimSpace(notesRaw)
+	opened, err = parseOpenedAt(openedRaw)
+	if err != nil {
+		return "", "", "", "", nil, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+	return name, brand, category, notes, opened, nil
 }
 
 func parseOpenedAt(raw string) (*time.Time, error) {

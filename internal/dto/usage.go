@@ -8,9 +8,17 @@ type UsageCounter struct {
 	Unlimited bool `json:"unlimited,omitempty"`
 }
 
-// WardrobeUsage describes wardrobe write access for the current plan.
+// WardrobeUsage describes skincare-shelf access for the current plan.
+//
+// Free users may create up to `limit` products (`can_write`); edit/delete
+// require Premium (`can_manage`). Premium is unlimited create + manage.
 type WardrobeUsage struct {
-	CanWrite bool `json:"can_write"`
+	CanWrite  bool `json:"can_write"`
+	CanManage bool `json:"can_manage"`
+	Used      int  `json:"used"`
+	Limit     int  `json:"limit,omitempty"`
+	Remaining int  `json:"remaining,omitempty"`
+	Unlimited bool `json:"unlimited,omitempty"`
 }
 
 // FeatureAccessDTO is one entry in the plan feature catalog (GET /me/usage).
@@ -20,7 +28,7 @@ type FeatureAccessDTO struct {
 	Used          int    `json:"used,omitempty"`
 	Limit         int    `json:"limit,omitempty"`
 	Remaining     int    `json:"remaining,omitempty"`
-	Kind          string `json:"kind,omitempty"`           // boolean | monthly_quota | history_months
+	Kind          string `json:"kind,omitempty"`           // boolean | monthly_quota | history_months | shelf_slots
 	HistoryMonths int    `json:"history_months,omitempty"` // progress lookback; 0 = all when allowed
 }
 

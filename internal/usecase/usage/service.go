@@ -22,6 +22,9 @@ import (
 const (
 	FreeRoutineSuggestPerMonth    = 3
 	FreeRoutineManualEditPerMonth = 5
+	// FreeWardrobeProductLimit is how many shelf items Free users may create.
+	// Premium / Premium+ are unlimited. Edit/delete still require wardrobe_full.
+	FreeWardrobeProductLimit = 3
 )
 
 var (
@@ -30,9 +33,15 @@ var (
 	ErrQuotaExceeded   = errors.New("monthly quota exceeded")
 )
 
+// ShelfCounter counts active skincare-shelf products for Free create gating.
+type ShelfCounter interface {
+	CountByUser(ctx context.Context, userID uuid.UUID) (int64, error)
+}
+
 // Service checks plan gates (via premium) and records monthly usage.
 type Service struct {
 	gates *premiumuc.Service
+	shelf ShelfCounter
 }
 
 // NewService wires a private PremiumService + user_usages repo.
@@ -45,6 +54,14 @@ func NewService(users repository.UserRepository, usages repository.UserUsageRepo
 // NewWithGates injects a shared PremiumService (preferred when multiple usecases share it).
 func NewWithGates(gates *premiumuc.Service) *Service {
 	return &Service{gates: gates}
+}
+
+// AttachShelfCounter enables Free shelf-slot checks on create + GET /me/usage.
+func (s *Service) AttachShelfCounter(counter ShelfCounter) {
+	if s == nil {
+		return
+	}
+	s.shelf = counter
 }
 
 // Gates exposes the underlying PremiumService for handlers that need richer checks.
@@ -135,16 +152,12 @@ func (s *Service) GetQuota(ctx context.Context, userID uuid.UUID) (dto.UsageQuot
 	if err != nil {
 		return out, err
 	}
-	wardrobeQ, err := s.gates.GetRemainingQuota(ctx, userID, domain.FeatureWardrobeFull)
-	if err != nil {
-		return out, err
-	}
 	histQ, err := s.gates.GetRemainingQuota(ctx, userID, domain.FeatureProgressFullHistory)
 	if err != nil {
 		return out, err
 	}
 
-	out.Wardrobe = dto.WardrobeUsage{CanWrite: wardrobeQ.Allowed}
+	out.Wardrobe = s.wardrobeUsage(ctx, userID, paid)
 	out.RoutineSuggest = quotaToCounter(suggestQ)
 	out.RoutineManualEdit = quotaToCounter(editQ)
 	out.ProgressHistoryMonths = histQ.HistoryMonths
@@ -157,15 +170,95 @@ func (s *Service) GetQuota(ctx context.Context, userID uuid.UUID) (dto.UsageQuot
 		}
 		out.Features[string(f)] = quotaToFeatureDTO(q)
 	}
+	// Override wardrobe_full with live shelf slots so Free create uses the
+	// soft-paywall (allowed while remaining > 0). Manage stays Premium-only
+	// via AssertWardrobeManage / wardrobe.can_manage.
+	out.Features[string(domain.FeatureWardrobeFull)] = wardrobeFeatureDTO(out.Wardrobe)
 	return out, nil
 }
 
-// AssertWardrobeWrite blocks free users from adding/editing wardrobe items.
-func (s *Service) AssertWardrobeWrite(ctx context.Context, userID uuid.UUID) error {
+func (s *Service) shelfCount(ctx context.Context, userID uuid.UUID) int {
+	if s == nil || s.shelf == nil || userID == uuid.Nil {
+		return 0
+	}
+	n, err := s.shelf.CountByUser(ctx, userID)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return int(n)
+}
+
+func (s *Service) wardrobeUsage(ctx context.Context, userID uuid.UUID, paid bool) dto.WardrobeUsage {
+	used := s.shelfCount(ctx, userID)
+	if paid {
+		return dto.WardrobeUsage{
+			CanWrite:  true,
+			CanManage: true,
+			Used:      used,
+			Unlimited: true,
+		}
+	}
+	remaining := FreeWardrobeProductLimit - used
+	if remaining < 0 {
+		remaining = 0
+	}
+	return dto.WardrobeUsage{
+		CanWrite:  remaining > 0,
+		CanManage: false,
+		Used:      used,
+		Limit:     FreeWardrobeProductLimit,
+		Remaining: remaining,
+	}
+}
+
+func wardrobeFeatureDTO(w dto.WardrobeUsage) dto.FeatureAccessDTO {
+	if w.Unlimited {
+		return dto.FeatureAccessDTO{
+			Allowed:   true,
+			Unlimited: true,
+			Used:      w.Used,
+			Kind:      "shelf_slots",
+		}
+	}
+	return dto.FeatureAccessDTO{
+		Allowed:   w.CanWrite,
+		Unlimited: false,
+		Used:      w.Used,
+		Limit:     w.Limit,
+		Remaining: w.Remaining,
+		Kind:      "shelf_slots",
+	}
+}
+
+// AssertWardrobeCreate allows Premium always, or Free while under FreeWardrobeProductLimit.
+func (s *Service) AssertWardrobeCreate(ctx context.Context, userID uuid.UUID) error {
+	if s == nil || s.gates == nil {
+		return fmt.Errorf("%w", ErrUnavailable)
+	}
+	paid, err := s.IsPremium(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if paid {
+		return nil
+	}
+	if s.shelfCount(ctx, userID) >= FreeWardrobeProductLimit {
+		return ErrQuotaExceeded
+	}
+	return nil
+}
+
+// AssertWardrobeManage requires wardrobe_full (Premium / Premium+) for edit/delete.
+func (s *Service) AssertWardrobeManage(ctx context.Context, userID uuid.UUID) error {
 	if s == nil || s.gates == nil {
 		return fmt.Errorf("%w", ErrUnavailable)
 	}
 	return s.mapAssert(s.gates.AssertFeature(ctx, userID, domain.FeatureWardrobeFull))
+}
+
+// AssertWardrobeWrite is an alias for AssertWardrobeManage (edit/delete / full shelf).
+func (s *Service) AssertWardrobeWrite(ctx context.Context, userID uuid.UUID) error {
+	return s.AssertWardrobeManage(ctx, userID)
 }
 
 func (s *Service) mapAssert(err error) error {

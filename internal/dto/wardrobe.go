@@ -16,6 +16,16 @@ type CreateWardrobeProductRequest struct {
 	OpenedAt string `json:"opened_at,omitempty"`
 }
 
+// UpdateWardrobeProductRequest is PATCH /wardrobe/products/:id body.
+type UpdateWardrobeProductRequest struct {
+	Name     string `json:"name"`
+	Brand    string `json:"brand,omitempty"`
+	Category string `json:"category,omitempty"`
+	Notes    string `json:"notes,omitempty"`
+	// OpenedAt is an optional ISO date (YYYY-MM-DD). Empty string clears the date.
+	OpenedAt string `json:"opened_at,omitempty"`
+}
+
 // WardrobeProductResponse is one item in GET /wardrobe.
 type WardrobeProductResponse struct {
 	ID        string `json:"id"`

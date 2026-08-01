@@ -131,6 +131,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		userUsageRepo := repository.NewUserUsageRepository(db)
 		premiumSvc := premiumuc.NewService(userRepo, userUsageRepo)
 		usageSvc := usageuc.NewWithGates(premiumSvc)
+		usageSvc.AttachShelfCounter(wardRepo)
 		usageH := NewMeUsageHandler(usageSvc)
 		api.Get("/me/usage", jwt, usageH.Get)
 
@@ -191,6 +192,8 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		wardSvc := wardrobeuc.NewService(wardRepo, memCache, usageSvc)
 		wh := NewWardrobeHandler(wardSvc)
 		api.Post("/wardrobe/products", jwt, wh.CreateProduct)
+		api.Patch("/wardrobe/products/:id", jwt, wh.UpdateProduct)
+		api.Delete("/wardrobe/products/:id", jwt, wh.DeleteProduct)
 		api.Get("/wardrobe", jwt, wh.List)
 
 		affiliateSvc := affiliateuc.NewService(affiliateRepo)
