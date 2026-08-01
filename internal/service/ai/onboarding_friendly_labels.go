@@ -23,16 +23,27 @@ var friendlyUndertoneEN = map[string]string{
 }
 
 var friendlyConcernVI = map[string]string{
-	"acne": "mụn", "hyperpigmentation": "thâm / sạm màu", "dryness": "da khô",
-	"redness": "da đỏ / dễ kích ứng", "large_pores": "lỗ chân lông to",
-	"weak_barrier": "lớp bảo vệ da yếu", "dullness": "da xỉn màu",
-	"dehydration": "da khô bên trong", "uneven_texture": "bề mặt da không đều",
+	"acne":              "mụn",
+	"hyperpigmentation": "thâm / sạm",
+	"dryness":           "da khô",
+	"redness":           "da đỏ / dễ kích ứng",
+	"large_pores":       "lỗ chân lông to",
+	"weak_barrier":      "da dễ đỏ / yếu hơn bình thường",
+	"dullness":          "da xỉn màu",
+	"dehydration":       "da thiếu ẩm",
+	"uneven_texture":    "da hơi sần / không đều màu",
 }
 
 var friendlyConcernEN = map[string]string{
-	"acne": "breakouts", "hyperpigmentation": "dark spots", "dryness": "dryness",
-	"redness": "redness", "large_pores": "visible pores", "weak_barrier": "a weakened skin barrier",
-	"dullness": "dullness", "dehydration": "dehydration", "uneven_texture": "uneven texture",
+	"acne":              "breakouts",
+	"hyperpigmentation": "dark spots",
+	"dryness":           "dryness",
+	"redness":           "redness / easily irritated",
+	"large_pores":       "visible pores",
+	"weak_barrier":      "skin that gets irritated easily",
+	"dullness":          "dullness",
+	"dehydration":       "dehydrated-feeling skin",
+	"uneven_texture":    "uneven / bumpy-looking skin",
 }
 
 func friendlySkinType(raw, locale string) string {
@@ -78,7 +89,7 @@ func friendlyConcern(raw, locale string) string {
 	} else if s, ok := friendlyConcernVI[key]; ok {
 		return s
 	}
-	// Already a human label from vision (e.g. "mụn viêm").
+	// Already a human label from vision (e.g. "mụn", "nốt đỏ").
 	return raw
 }
 

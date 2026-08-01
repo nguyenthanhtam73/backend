@@ -85,9 +85,9 @@ func onboardingVisionPass(
 	images []ImageBytes,
 	locale, model string,
 ) (*dto.OnboardingSkinAnalyzeResponse, error) {
-	langHead := "**Output locale: Vietnamese (vi).** Write detailed_observations and main_concerns only in natural Vietnamese."
+	langHead := "**Output locale: Vietnamese (vi).** Write detailed_observations and main_concerns only in plain everyday Vietnamese — no barrier/erythema/sebum/papules/hyperpigmentation/texture/T-zone jargon."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Write detailed_observations and main_concerns only in natural English."
+		langHead = "**Output locale: English (en).** Write detailed_observations and main_concerns only in plain everyday English — no clinical jargon or raw enum codes."
 	}
 	userText := langHead + "\n\n" + OnboardingSkinJSONSchemaBlock + "\n\nPhotos: **2–3 close, well-lit photos of facial skin** (natural light, little or no makeup). Include a **front** view plus a **slight side/profile** if possible—this flow is optimized for face-only onboarding."
 	parts := []map[string]any{
@@ -252,7 +252,7 @@ func fallbackOnboardingCoachingNotes(vision *dto.OnboardingSkinAnalyzeResponse, 
 	} else if !strings.HasPrefix(strings.ToLower(p1), "trên ảnh") {
 		p1 = "Trên ảnh mình thấy: " + p1
 	}
-	skin := friendlySkinType(vision.SkinTypeGuess, locale)
+	skin := strings.TrimPrefix(friendlySkinType(vision.SkinTypeGuess, locale), "da ")
 	tone := friendlyUndertone(vision.UndertoneGuess, locale)
 	concern := friendlyConcern(primaryConcern, locale)
 	p2 := fmt.Sprintf("Tóm lại da bạn có vẻ %s, %s — vấn đề chính là %s.", skin, tone, concern)

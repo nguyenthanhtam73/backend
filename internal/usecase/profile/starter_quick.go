@@ -35,14 +35,30 @@ func quickStarterFromOnboarding(req dto.OnboardingCompleteRequest, locale string
 
 	morning := []string{
 		ternary(isEn,
-			"Gentle cleanser + moisturizer + SPF in the morning.",
-			"Sáng: sữa rửa mặt dịu + kem dưỡng ẩm + kem chống nắng.",
+			"Gentle cleanser — soft wash, no hard scrubbing.",
+			"Rửa mặt dịu — làm sạch nhẹ, không chà mạnh.",
+		),
+		ternary(isEn,
+			"Light moisturizer — keep skin comfortable.",
+			"Kem dưỡng ẩm nhẹ — giữ da êm trong ngày.",
+		),
+		ternary(isEn,
+			"Morning sunscreen — protect even near windows at home.",
+			"Kem chống nắng buổi sáng — bảo vệ kể cả ở nhà gần cửa sổ.",
 		),
 	}
 	evening := []string{
 		ternary(isEn,
-			"Evening: cleanse + light moisturizer; add one active only when skin feels calm.",
-			"Tối: rửa mặt + dưỡng ẩm nhẹ; thêm hoạt chất khi da ổn định.",
+			"Evening cleanse — remove the day gently.",
+			"Rửa mặt buổi tối — gỡ nhẹ bụi và sản phẩm trong ngày.",
+		),
+		ternary(isEn,
+			"Light moisturizer — overnight comfort.",
+			"Kem dưỡng ẩm nhẹ — đủ êm qua đêm.",
+		),
+		ternary(isEn,
+			"Add one active only when skin feels calm — not every night at first.",
+			"Chỉ thêm 1 hoạt chất khi da đã êm — chưa cần dùng mỗi tối ngay.",
 		),
 	}
 	if len(bullets) > 0 {
@@ -83,26 +99,28 @@ func buildStarterPackBullets(req dto.OnboardingCompleteRequest) []string {
 	switch skill {
 	case "beginner":
 		lines = append(lines,
-			"Nền an toàn: sữa rửa mặt dịu + kem dưỡng ẩm + SPF buổi sáng (kể cả ở nhà gần cửa sổ).",
-			"Một hoạt chất mới / tuần — patch test trước khi full face.",
+			"Rửa mặt dịu — nền an toàn mỗi sáng trước kem dưỡng và kem chống nắng.",
+			"Kem chống nắng buổi sáng — kể cả ở nhà gần cửa sổ.",
+			"Mỗi tuần chỉ thêm tối đa 1 sản phẩm mới — thử ít ở vùng nhỏ trước.",
 		)
 	case "intermediate":
 		lines = append(lines,
-			"Xen kẽ hoạt chất (VD: BHA/PHA tối) — luôn kẹp cấp ẩm + phục hồi khi da căng.",
-			"Ghi routine 5–7 ngày để nhìn pattern da, không đổi cùng lúc nhiều sản phẩm.",
+			"Nếu dùng dung dịch tẩy da chết nhẹ vào tối — luôn kèm kem dưỡng khi da căng.",
+			"Ghi routine 5–7 ngày để nhìn da thay đổi, không đổi nhiều sản phẩm cùng lúc.",
 		)
 	case "advanced":
 		lines = append(lines,
-			"Tối ưu tầng (layering) có chủ đích; theo dõi pH và thứ tự acid/retinol.",
-			"So ảnh cùng ánh sáng/góc trước khi kết luận “tiến triển”.",
+			"Xếp lớp sản phẩm có chủ đích; đi chậm với acid/retinol và ghi cảm giác da hôm sau.",
+			"So ảnh cùng ánh sáng/góc trước khi kết luận da đang khá hơn.",
 		)
 	}
 
 	goal := strings.TrimSpace(req.Goal)
 	if goal != "" && goal != "unsure" {
+		goalLabel := mapQuickGoalLabel(goal)
 		lines = append(lines, fmt.Sprintf(
-			"Mục tiêu: %s — coach AI sẽ ưu tiên giải thích “vì sao” trước “dùng gì”.",
-			goal,
+			"Mục tiêu: %s — ưu tiên giải thích “vì sao” trước “dùng gì”.",
+			goalLabel,
 		))
 	}
 	if len(lines) > 6 {
@@ -123,4 +141,19 @@ func ternary(cond bool, a, b string) string {
 		return a
 	}
 	return b
+}
+
+func mapQuickGoalLabel(goal string) string {
+	switch strings.ToLower(strings.TrimSpace(goal)) {
+	case "glow":
+		return "da sáng khoẻ"
+	case "clear_acne":
+		return "giảm mụn"
+	case "barrier":
+		return "làm dịu / da dễ kích ứng"
+	case "anti_aging":
+		return "căng ẩm / chống lão hoá nhẹ"
+	default:
+		return goal
+	}
 }

@@ -184,29 +184,37 @@ func (c *concernCollector) ids() []string { return c.out }
 
 var concernLabelAliases = map[string]string{
 	"mun viem": "acne", "mun": "acne", "mụn viêm": "acne", "mụn": "acne", "acne": "acne",
+	"not do": "acne", "nốt đỏ": "acne", "not sung": "acne", "nốt sưng": "acne",
 	"tham nam": "hyperpigmentation", "thâm nám": "hyperpigmentation", "tham": "hyperpigmentation",
 	"thâm": "hyperpigmentation", "hyperpigmentation": "hyperpigmentation",
+	"da khong deu mau": "hyperpigmentation", "da không đều màu": "hyperpigmentation",
 	"da kho": "dryness", "da khô": "dryness", "dryness": "dryness",
 	"lo chan long to": "large_pores", "lỗ chân lông to": "large_pores",
 	"large pores": "large_pores", "large_pores": "large_pores",
 	"da do": "redness", "da đỏ": "redness", "redness": "redness",
+	"da de kich ung": "redness", "da dễ kích ứng": "redness",
+	"da de do": "weak_barrier", "da dễ đỏ": "weak_barrier",
+	"da yeu hon binh thuong": "weak_barrier", "da yếu hơn bình thường": "weak_barrier",
 	"barrier yeu": "weak_barrier", "barrier yếu": "weak_barrier",
 	"weak barrier": "weak_barrier", "weak_barrier": "weak_barrier",
 	"dehydration": "dehydration", "mat nuoc": "dehydration", "mất nước": "dehydration",
+	"da thieu am": "dehydration", "da thiếu ẩm": "dehydration",
 	"uneven texture": "uneven_texture", "uneven_texture": "uneven_texture",
 	"da khong deu": "uneven_texture", "da không đều": "uneven_texture",
+	"da hoi san": "uneven_texture", "da hơi sần": "uneven_texture",
 }
 
 var concernLabelSubstrings = []struct {
 	id       string
 	contains []string
 }{
-	{"acne", []string{"mụn", "mun"}},
-	{"hyperpigmentation", []string{"thâm", "tham", "nám", "nam"}},
-	{"dryness", []string{"khô", "kho"}},
+	{"acne", []string{"mụn", "mun", "nốt đỏ", "nốt sưng"}},
+	{"hyperpigmentation", []string{"thâm", "tham", "nám", "nam", "không đều màu"}},
+	{"dryness", []string{"da khô", "khô"}},
 	{"large_pores", []string{"chân lông", "chan long", "pore"}},
-	{"redness", []string{"đỏ", "do", "red"}},
-	{"weak_barrier", []string{"barrier", "yếu", "yeu"}},
+	{"redness", []string{"dễ kích ứng", "da đỏ", "ửng đỏ"}},
+	{"weak_barrier", []string{"barrier", "yếu hơn bình thường", "da dễ đỏ", "da yếu"}},
+	{"uneven_texture", []string{"hơi sần", "không mịn", "không đều"}},
 }
 
 func normalizeConcernLabel(s string) string {
@@ -330,16 +338,71 @@ const (
 	visualObsOiliness     visualObsFieldID = "oiliness_level"
 )
 
-// visualObsFieldPrefixes holds locale-specific labels for each structured observation field.
-var visualObsFieldPrefixes = map[visualObsFieldID]map[string]string{
-	visualObsTZone:        {"vi": "T-zone: "},
-	visualObsCheeks:       {"vi": "Má: "},
-	visualObsPoreSize:     {"vi": "Lỗ chân lông: "},
-	visualObsTexture:      {"vi": "Texture: "},
-	visualObsRedness:      {"vi": "Đỏ/viêm: "},
-	visualObsPigmentation: {"vi": "Sắc tố: "},
-	visualObsAcneStatus:   {"vi": "Mụn: "},
-	visualObsOiliness:     {"vi": "Dầu: "},
+// visualObsPlain maps structured enum values → plain user-facing bullets (no English jargon).
+var visualObsPlainVI = map[visualObsFieldID]map[string]string{
+	visualObsTZone: {
+		"dry": "Vùng chữ T (trán–mũi–cằm) hơi khô.", "slightly_oily": "Vùng chữ T (trán–mũi–cằm) hơi bóng.",
+		"very_oily": "Vùng chữ T (trán–mũi–cằm) bóng dầu rõ.", "normal": "Vùng chữ T (trán–mũi–cằm) trông ổn.",
+	},
+	visualObsCheeks: {
+		"dry": "Má hơi khô.", "normal": "Má trông ổn.", "slightly_oily": "Má hơi bóng nhẹ.",
+	},
+	visualObsPoreSize: {
+		"small": "Lỗ chân lông nhỏ, ít lộ.", "medium": "Lỗ chân lông vừa phải.",
+		"large": "Lỗ chân lông to, nhìn rõ hơn.", "very_large": "Lỗ chân lông rất to trên ảnh.",
+	},
+	visualObsTexture: {
+		"smooth": "Da nhìn khá mịn.", "slightly_rough": "Da hơi sần / không mịn đều.",
+		"rough": "Da nhìn sần rõ hơn.", "bumpy": "Da có chỗ gồ ghề nhẹ.",
+	},
+	visualObsRedness: {
+		"mild": "Da ửng đỏ nhẹ.", "moderate": "Da đỏ rõ hơn ở vài vùng.", "severe": "Da đỏ khá rõ trên ảnh.",
+	},
+	visualObsPigmentation: {
+		"slight_uneven": "Da hơi không đều màu.", "hyperpigmentation": "Có thâm / sạm nhìn thấy.",
+		"dark_spots": "Có đốm thâm trên ảnh.",
+	},
+	visualObsAcneStatus: {
+		"few_whiteheads": "Có vài nốt nhỏ kiểu đầu trắng.", "inflammatory_acne": "Có nốt đỏ / mụn viêm nhìn thấy.",
+		"cystic_acne": "Có nốt sưng sâu trông khó chịu.",
+	},
+	visualObsOiliness: {
+		"low": "Da ít bóng dầu.", "medium": "Da bóng dầu mức vừa.",
+		"high": "Da bóng dầu khá rõ.", "very_high": "Da bóng dầu rất rõ trên ảnh.",
+	},
+}
+
+var visualObsPlainEN = map[visualObsFieldID]map[string]string{
+	visualObsTZone: {
+		"dry": "The T-zone (forehead–nose–chin) looks a bit dry.", "slightly_oily": "The T-zone looks slightly shiny.",
+		"very_oily": "The T-zone looks clearly oily.", "normal": "The T-zone looks balanced.",
+	},
+	visualObsCheeks: {
+		"dry": "Cheeks look a bit dry.", "normal": "Cheeks look fine.", "slightly_oily": "Cheeks look slightly shiny.",
+	},
+	visualObsPoreSize: {
+		"small": "Pores look small.", "medium": "Pores look medium.",
+		"large": "Pores look enlarged.", "very_large": "Pores look very enlarged in the photos.",
+	},
+	visualObsTexture: {
+		"smooth": "Skin looks fairly smooth.", "slightly_rough": "Skin looks a bit uneven / not fully smooth.",
+		"rough": "Skin looks clearly uneven.", "bumpy": "Skin looks a bit bumpy in places.",
+	},
+	visualObsRedness: {
+		"mild": "Mild redness is visible.", "moderate": "Redness is clearer in a few areas.", "severe": "Redness is quite obvious in the photos.",
+	},
+	visualObsPigmentation: {
+		"slight_uneven": "Tone looks slightly uneven.", "hyperpigmentation": "Dark spots / discoloration are visible.",
+		"dark_spots": "Dark spots show up in the photos.",
+	},
+	visualObsAcneStatus: {
+		"few_whiteheads": "A few small whitehead-like bumps.", "inflammatory_acne": "Red inflamed spots are visible.",
+		"cystic_acne": "Deeper swollen spots look uncomfortable.",
+	},
+	visualObsOiliness: {
+		"low": "Oiliness looks low.", "medium": "Oiliness looks moderate.",
+		"high": "Oiliness looks quite clear.", "very_high": "Oiliness looks very clear in the photos.",
+	},
 }
 
 type visualObsField struct {
@@ -359,19 +422,22 @@ var visualObsFields = []visualObsField{
 	{visualObsOiliness, func(o dto.OnboardingSkinObservations) string { return o.OilinessLevel }, nil},
 }
 
-// mapVisualObsPrefix resolves the locale-specific label prefix for a structured observation field.
-func mapVisualObsPrefix(id visualObsFieldID, locale string) string {
-	labels, ok := visualObsFieldPrefixes[id]
-	if !ok {
-		return ""
+// friendlyVisualObsBullet turns a structured enum cue into a plain-language bullet for the UI.
+func friendlyVisualObsBullet(id visualObsFieldID, rawValue, locale string) string {
+	value := normLower(rawValue)
+	table := visualObsPlainVI
+	if strings.EqualFold(strings.TrimSpace(locale), "en") {
+		table = visualObsPlainEN
 	}
-	if prefix, ok := labels[normLower(locale)]; ok {
-		return prefix
+	if byField, ok := table[id]; ok {
+		if s, ok := byField[value]; ok {
+			return s
+		}
 	}
-	return labels["vi"]
+	return ""
 }
 
-// buildStructuredVisualBullets formats non-empty structured skin_observations fields as labeled bullets.
+// buildStructuredVisualBullets formats structured skin_observations as plain-language bullets.
 func buildStructuredVisualBullets(obs dto.OnboardingSkinObservations, locale string) []string {
 	bullets := make([]string, 0, len(visualObsFields))
 	for _, field := range visualObsFields {
@@ -379,10 +445,12 @@ func buildStructuredVisualBullets(obs dto.OnboardingSkinObservations, locale str
 		if value == "" {
 			continue
 		}
-		if _, skip := field.skipValues[value]; skip {
+		if _, skip := field.skipValues[normLower(value)]; skip {
 			continue
 		}
-		bullets = append(bullets, mapVisualObsPrefix(field.id, locale)+value)
+		if line := friendlyVisualObsBullet(field.id, value, locale); line != "" {
+			bullets = append(bullets, line)
+		}
 	}
 	return bullets
 }
