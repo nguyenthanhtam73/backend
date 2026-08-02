@@ -139,6 +139,17 @@ func (s *Service) Delete(ctx context.Context, userID, productID uuid.UUID) error
 	return nil
 }
 
+// AssertCanCreate checks Free shelf slots / Premium write access without creating a row.
+func (s *Service) AssertCanCreate(ctx context.Context, userID uuid.UUID) error {
+	if s == nil {
+		return fmt.Errorf("%w", ErrUnavailable)
+	}
+	if s.usage == nil {
+		return nil
+	}
+	return s.usage.AssertWardrobeCreate(ctx, userID)
+}
+
 // List returns the user's products (newest first).
 func (s *Service) List(ctx context.Context, userID uuid.UUID) (dto.WardrobeListResponse, error) {
 	var out dto.WardrobeListResponse

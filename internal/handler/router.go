@@ -63,6 +63,10 @@ const (
 
 	onboardingCompleteRateMax    = 6
 	onboardingCompleteRateWindow = time.Minute
+
+	// Wardrobe label scan: vision OCR only (no product persist). Cap spam / cost.
+	wardrobeScanRateMax    = 10
+	wardrobeScanRateWindow = time.Hour
 )
 
 // Router wires API v1 routes: health (public), auth (mixed), skin-checks (protected).
@@ -104,6 +108,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 	onboardingCompleteLimit := middleware.AILimiter(
 		onboardingCompleteRateMax,
 		onboardingCompleteRateWindow,
+	)
+	wardrobeScanLimit := middleware.AILimiter(
+		wardrobeScanRateMax,
+		wardrobeScanRateWindow,
 	)
 
 	if cfg != nil {
@@ -190,7 +198,8 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		)
 
 		wardSvc := wardrobeuc.NewService(wardRepo, memCache, usageSvc)
-		wh := NewWardrobeHandler(wardSvc)
+		wh := NewWardrobeHandler(wardSvc, cfg)
+		api.Post("/wardrobe/products/scan", jwt, wardrobeScanLimit, wh.ScanProduct)
 		api.Post("/wardrobe/products", jwt, wh.CreateProduct)
 		api.Patch("/wardrobe/products/:id", jwt, wh.UpdateProduct)
 		api.Delete("/wardrobe/products/:id", jwt, wh.DeleteProduct)

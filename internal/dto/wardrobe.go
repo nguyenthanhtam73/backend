@@ -44,6 +44,16 @@ type WardrobeListResponse struct {
 	Products []WardrobeProductResponse `json:"products"`
 }
 
+// WardrobeLabelScanResponse is the AI suggestion from POST /wardrobe/products/scan.
+// Client must confirm / edit before POST /wardrobe/products — nothing is persisted here.
+type WardrobeLabelScanResponse struct {
+	Name       string  `json:"name"`
+	Brand      string  `json:"brand"`
+	Category   string  `json:"category"`
+	Notes      string  `json:"notes,omitempty"`
+	Confidence float64 `json:"confidence,omitempty"`
+}
+
 // WardrobeProductFromDomain maps domain row to API.
 func WardrobeProductFromDomain(p *domain.SkincareProduct) WardrobeProductResponse {
 	if p == nil {
