@@ -165,7 +165,16 @@ func startPlanExpiryJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
 //   - local driver: serve straight from disk (fast, unchanged dev behavior).
 //   - r2 driver:    proxy object bytes from R2 so the public URL shape and the
 //     stored DB paths never change (no presigned-URL TTLs leaking to the client).
+//
+// Always set Access-Control-Allow-Origin on /uploads. Fiber's CORS middleware only
+// adds ACAO when the request has an Origin header; CDNs can cache a no-Origin
+// response (no ACAO) and later serve it to browser canvas/fetch CORS → fail.
 func registerUploadServing(app *fiber.App, store storage.Storage) {
+	app.Use("/uploads", func(c *fiber.Ctx) error {
+		c.Set("Access-Control-Allow-Origin", "*")
+		c.Set("Cross-Origin-Resource-Policy", "cross-origin")
+		return c.Next()
+	})
 	if store.Driver() == "local" {
 		app.Static("/uploads", store.LocalDir())
 		return
@@ -183,7 +192,8 @@ func registerUploadServing(app *fiber.App, store storage.Storage) {
 			c.Set("Content-Type", ct)
 		}
 		// Photos are immutable once written (keys are UUIDs), so allow caching.
-		c.Set("Cache-Control", "private, max-age=3600")
+		// public + ACAO * is safe to CDN-cache (ACAO is constant, not Origin-varying).
+		c.Set("Cache-Control", "public, max-age=3600")
 		return c.Send(data)
 	})
 }
