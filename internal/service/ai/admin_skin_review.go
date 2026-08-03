@@ -69,7 +69,7 @@ func AdminSkinReviewAnalyze(
 		"SINGLE-REGION crop (only forehead/cheek/chin visible): that region's note MUST be 4–6 thick sentences — density/spread, color/swelling/whiteheads, oil/dry, precise location. overview 3–5 sentences on the visible zone + short missing-face reminder.\n" +
 		"Do NOT copy few-shot wording — count/location/color/shine must match THIS photo.\n" +
 		"Prefer concern acne/papules/pustules when raised spots are visible; use redness only for diffuse flush. In note text say nốt đỏ sưng / nốt có đầu trắng / mụn (VI) or red bumps / whiteheads (EN) — never leave bare papules/pustules/not_visible in notes.\n" +
-		"PLAIN LANGUAGE: user must not need a dictionary. Ban in overview/notes: papules, pustules, comedone, erythema, barrier, inflammation, hyperpigmentation, sebum, texture, morphology, clinical, buccal, PIH, T-zone (say vùng chữ T: trán–mũi–cằm).\n" +
+		"PLAIN LANGUAGE: user must not need a dictionary. Ban in overview/notes: papules, pustules, comedone, erythema, barrier, inflammation, hyperpigmentation, sebum, texture, morphology, clinical, buccal, PIH, T-zone, vùng chữ T, chữ T, vùng T (say trán–mũi–cằm or trán, mũi và cằm).\n" +
 		"BAN sến: ồn ào, party, drama, lên tiếng, bận rộn.\n" +
 		"LENGTH: do not write short filler. Hit the sentence floors above; pack visual detail into every note.\n" +
 		"Do NOT invent routines, products, brands, care steps, treatment advice, or medical diagnoses.\n" +
