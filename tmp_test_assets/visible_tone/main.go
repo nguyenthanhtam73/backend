@@ -68,8 +68,15 @@ func main() {
 		{"forehead_only", foreheadPath, checkForeheadOnly},
 		{"face_with_spots", spotsPath, checkFaceWithSpots},
 	}
+	only := ""
+	if len(os.Args) > 1 {
+		only = strings.TrimSpace(os.Args[1])
+	}
 
 	for _, c := range cases {
+		if only != "" && c.name != only {
+			continue
+		}
 		fmt.Printf("\n######## CASE: %s (%s) ########\n", c.name, c.path)
 		raw, err := os.ReadFile(c.path)
 		if err != nil {
@@ -296,27 +303,47 @@ func checkForeheadOnly(a *dto.AdminSkinReviewAnalysis) []checkRow {
 	var fakeDetails []string
 	missingNotVisible := false
 	var missDetails []string
+	tooLong := false
+	var longDetails []string
+	fillerHit := false
+	var fillerDetails []string
+	fillerRe := regexp.MustCompile(`(?i)không bịa|đoán mò|không có cơ sở|ngoài khung thì mình`)
 
+	fmt.Println("\n=== not_visible NOTES (nose / cheeks / chin) ===")
 	for _, region := range offRegions {
 		area := findRegion(a, region)
 		if area == nil {
 			missingNotVisible = true
 			missDetails = append(missDetails, region+": MISSING from attention_areas")
+			fmt.Printf("%s: MISSING\n", region)
 			continue
 		}
-		note := strings.ToLower(area.Note)
-		if looksLikeFakeCalm(note) {
+		note := area.Note
+		noteLow := strings.ToLower(note)
+		nSent := countSentences(note)
+		fmt.Printf("%s [%s] (%d câu): %s\n", region, area.Concern, nSent, note)
+		if looksLikeFakeCalm(noteLow) {
 			fakeCalm = true
-			fakeDetails = append(fakeDetails, fmt.Sprintf("%s note invents visible calm: %q", region, compact(area.Note, 60)))
+			fakeDetails = append(fakeDetails, fmt.Sprintf("%s note invents visible calm: %q", region, compact(note, 60)))
 		}
-		if !looksNotVisible(note) && !strings.EqualFold(area.Concern, "not_visible") {
+		if !looksNotVisible(noteLow) && !strings.EqualFold(area.Concern, "not_visible") {
 			missingNotVisible = true
-			missDetails = append(missDetails, fmt.Sprintf("%s expected not_visible / no-info cue, got concern=%q note=%q", region, area.Concern, compact(area.Note, 60)))
+			missDetails = append(missDetails, fmt.Sprintf("%s expected not_visible / no-info cue, got concern=%q note=%q", region, area.Concern, compact(note, 60)))
+		}
+		if nSent > 2 {
+			tooLong = true
+			longDetails = append(longDetails, fmt.Sprintf("%s=%d câu: %q", region, nSent, compact(note, 50)))
+		}
+		if fillerRe.MatchString(note) {
+			fillerHit = true
+			fillerDetails = append(fillerDetails, fmt.Sprintf("%s: %q", region, compact(note, 50)))
 		}
 	}
 	rows = append(rows,
 		row("forehead_only", "A.offframe_not_fake_calm", !fakeCalm, strings.Join(fakeDetails, "; ")),
 		row("forehead_only", "A.offframe_no_info_cue", !missingNotVisible, strings.Join(missDetails, "; ")),
+		row("forehead_only", "A.offframe_note_short", !tooLong, strings.Join(longDetails, "; ")),
+		row("forehead_only", "A.offframe_no_filler", !fillerHit, strings.Join(fillerDetails, "; ")),
 	)
 
 	pn := strings.ToLower(a.PhotoNotes)
@@ -562,6 +589,25 @@ func compact(s string, max int) string {
 	}
 	r := []rune(s)
 	return string(r[:max-1]) + "…"
+}
+
+func countSentences(s string) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	re := regexp.MustCompile(`[.!?…]+|\n+`)
+	parts := re.Split(s, -1)
+	n := 0
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			n++
+		}
+	}
+	if n == 0 {
+		return 1
+	}
+	return n
 }
 
 func printPromptSuggestions(rows []checkRow) {
