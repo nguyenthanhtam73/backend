@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/color"
 	"image/jpeg"
 	"net/http"
 	"os"
@@ -133,17 +134,13 @@ func ensureAssets(sourceAcne, foreheadPath, spotsPath string) error {
 	if _, err := os.Stat(sourceAcne); err != nil {
 		return fmt.Errorf("missing source %s (run gen_acne or restore assets)", sourceAcne)
 	}
-	// face_with_spots = copy of acne_clear_issues if missing
-	if _, err := os.Stat(spotsPath); err != nil {
-		data, err := os.ReadFile(sourceAcne)
-		if err != nil {
-			return err
-		}
-		if err := os.WriteFile(spotsPath, data, 0o644); err != nil {
-			return err
-		}
-		fmt.Printf("wrote %s (copy of acne_clear_issues.jpg)\n", spotsPath)
+	// Always refresh face_with_spots with a painted nose bridge so full-face
+	// checks are fair on the synthetic acne canvas (otherwise vision invents
+	// "nose outside frame" even when forehead+cheeks+chin are all scored).
+	if err := writeFaceWithNose(sourceAcne, spotsPath); err != nil {
+		return err
 	}
+	fmt.Printf("wrote %s (acne + painted nose bridge)\n", spotsPath)
 	if _, err := os.Stat(foreheadPath); err == nil {
 		fmt.Printf("using existing %s\n", foreheadPath)
 		return nil
@@ -153,6 +150,67 @@ func ensureAssets(sourceAcne, foreheadPath, spotsPath string) error {
 	}
 	fmt.Printf("wrote %s (top ~32%% crop of %s)\n", foreheadPath, filepath.Base(sourceAcne))
 	return nil
+}
+
+func writeFaceWithNose(srcPath, dstPath string) error {
+	f, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	img, err := jpeg.Decode(f)
+	if err != nil {
+		return err
+	}
+	b := img.Bounds()
+	rgba := image.NewRGBA(b)
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		for x := b.Min.X; x < b.Max.X; x++ {
+			rgba.Set(x, y, img.At(x, y))
+		}
+	}
+	// Simple vertical nose bridge + small alae in the face center.
+	cx := (b.Min.X + b.Max.X) / 2
+	y0 := b.Min.Y + b.Dy()*38/100
+	y1 := b.Min.Y + b.Dy()*58/100
+	for y := y0; y < y1; y++ {
+		for dx := -10; dx <= 10; dx++ {
+			x := cx + dx
+			if x < b.Min.X || x >= b.Max.X {
+				continue
+			}
+			shade := uint8(150 + absInt(dx)*4)
+			rgba.Set(x, y, color.RGBA{shade, shade - 30, shade - 45, 255})
+		}
+	}
+	// Alae bulbs
+	for _, ox := range []int{-22, 22} {
+		for dy := -12; dy <= 12; dy++ {
+			for dx := -14; dx <= 14; dx++ {
+				if dx*dx+dy*dy > 160 {
+					continue
+				}
+				x, y := cx+ox+dx, y1-8+dy
+				if x < b.Min.X || x >= b.Max.X || y < b.Min.Y || y >= b.Max.Y {
+					continue
+				}
+				rgba.Set(x, y, color.RGBA{175, 120, 100, 255})
+			}
+		}
+	}
+	out, err := os.Create(dstPath)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	return jpeg.Encode(out, rgba, &jpeg.Options{Quality: 92})
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func cropForeheadOnly(srcPath, dstPath string) error {
@@ -181,12 +239,29 @@ func cropForeheadOnly(srcPath, dstPath string) error {
 	} else {
 		return fmt.Errorf("image type %T does not support SubImage", img)
 	}
+	// Paint a dark hairline band at the top edge so strip reads as upper face / forehead
+	// (synthetic skin alone is easy to mislabel as chin).
+	rgba := image.NewRGBA(cropped.Bounds())
+	for y := cropped.Bounds().Min.Y; y < cropped.Bounds().Max.Y; y++ {
+		for x := cropped.Bounds().Min.X; x < cropped.Bounds().Max.X; x++ {
+			rgba.Set(x, y, cropped.At(x, y))
+		}
+	}
+	hairH := rgba.Bounds().Dy() / 8
+	if hairH < 12 {
+		hairH = 12
+	}
+	for y := rgba.Bounds().Min.Y; y < rgba.Bounds().Min.Y+hairH; y++ {
+		for x := rgba.Bounds().Min.X; x < rgba.Bounds().Max.X; x++ {
+			rgba.Set(x, y, color.RGBA{10, 8, 6, 255})
+		}
+	}
 	out, err := os.Create(dstPath)
 	if err != nil {
 		return err
 	}
 	defer out.Close()
-	return jpeg.Encode(out, cropped, &jpeg.Options{Quality: 92})
+	return jpeg.Encode(out, rgba, &jpeg.Options{Quality: 92})
 }
 
 func checkShared(caseName string, a *dto.AdminSkinReviewAnalysis) []checkRow {
@@ -201,6 +276,21 @@ func checkShared(caseName string, a *dto.AdminSkinReviewAnalysis) []checkRow {
 func checkForeheadOnly(a *dto.AdminSkinReviewAnalysis) []checkRow {
 	offRegions := []string{"nose", "cheeks", "chin"}
 	var rows []checkRow
+
+	// Soft issue #1: primary visible band must be forehead, not chin.
+	fh := findRegion(a, "forehead")
+	chin := findRegion(a, "chin")
+	primaryOK := fh != nil && !strings.EqualFold(fh.Concern, "not_visible")
+	chinOff := chin != nil && (strings.EqualFold(chin.Concern, "not_visible") || looksNotVisible(strings.ToLower(chin.Note)))
+	chinNotPrimary := true
+	if chin != nil && !strings.EqualFold(chin.Concern, "not_visible") && !looksNotVisible(strings.ToLower(chin.Note)) {
+		// Chin treated as visible/primary while this asset is a top-band crop.
+		chinNotPrimary = false
+	}
+	rows = append(rows, row("forehead_only", "A1.primary_forehead_not_chin",
+		primaryOK && chinOff && chinNotPrimary,
+		fmt.Sprintf("forehead=%v concern=%q; chin=%v concern=%q",
+			fh != nil, concernOf(fh), chin != nil, concernOf(chin))))
 
 	fakeCalm := false
 	var fakeDetails []string
@@ -220,9 +310,8 @@ func checkForeheadOnly(a *dto.AdminSkinReviewAnalysis) []checkRow {
 			fakeDetails = append(fakeDetails, fmt.Sprintf("%s note invents visible calm: %q", region, compact(area.Note, 60)))
 		}
 		if !looksNotVisible(note) && !strings.EqualFold(area.Concern, "not_visible") {
-			// concern may stay "none" per schema; note MUST signal no-info.
 			missingNotVisible = true
-			missDetails = append(missDetails, fmt.Sprintf("%s note lacks no-info/out-of-frame cue: %q", region, compact(area.Note, 60)))
+			missDetails = append(missDetails, fmt.Sprintf("%s expected not_visible / no-info cue, got concern=%q note=%q", region, area.Concern, compact(area.Note, 60)))
 		}
 	}
 	rows = append(rows,
@@ -233,15 +322,34 @@ func checkForeheadOnly(a *dto.AdminSkinReviewAnalysis) []checkRow {
 	pn := strings.ToLower(a.PhotoNotes)
 	photoOK := strings.Contains(pn, "trán") || strings.Contains(pn, "forehead") ||
 		strings.Contains(pn, "chỉ thấy") || strings.Contains(pn, "crop") ||
-		strings.Contains(pn, "ngoài khung") || strings.Contains(pn, "thiếu") ||
-		strings.Contains(pn, "phần") && (strings.Contains(pn, "thấy") || strings.Contains(pn, "hiện"))
-	rows = append(rows, row("forehead_only", "A.photo_notes_visibility", photoOK,
-		"photo_notes should state only forehead / which parts visible: "+compact(a.PhotoNotes, 70)))
+		strings.Contains(pn, "một dải") || strings.Contains(pn, "ngoài khung") || strings.Contains(pn, "thiếu") ||
+		(strings.Contains(pn, "phần") && (strings.Contains(pn, "thấy") || strings.Contains(pn, "hiện")))
+	// Must not claim the visible band is chin.
+	photoWrongChin := strings.Contains(pn, "chỉ thấy") && strings.Contains(pn, "cằm") && !strings.Contains(pn, "trán")
+	rows = append(rows, row("forehead_only", "A.photo_notes_visibility", photoOK && !photoWrongChin,
+		"photo_notes should state forehead / strip crop (not chin-only): "+compact(a.PhotoNotes, 70)))
 	return rows
 }
 
 func checkFaceWithSpots(a *dto.AdminSkinReviewAnalysis) []checkRow {
 	var rows []checkRow
+
+	// Soft issue #2: nose must be reviewed on full-face; not falsely not_visible/out of frame.
+	nose := findRegion(a, "nose")
+	noseOK := false
+	noseDetail := "nose missing from attention_areas"
+	if nose != nil {
+		c := strings.ToLower(strings.TrimSpace(nose.Concern))
+		noteLow := strings.ToLower(nose.Note)
+		falselyOutside := c == "not_visible" || looksNotVisible(noteLow)
+		noseOK = !falselyOutside
+		noseDetail = fmt.Sprintf("concern=%q note=%q", nose.Concern, compact(nose.Note, 70))
+		if falselyOutside {
+			noseDetail = "nose falsely outside/not_visible on full face: " + noseDetail
+		}
+	}
+	rows = append(rows, row("face_with_spots", "B2.nose_present_not_outside", noseOK, noseDetail))
+
 	problemOK := false
 	var problemDetail string
 	for _, area := range a.AttentionAreas {
@@ -268,6 +376,13 @@ func checkFaceWithSpots(a *dto.AdminSkinReviewAnalysis) []checkRow {
 	jargon := jargonHits(a)
 	rows = append(rows, row("face_with_spots", "B.no_heavy_jargon", len(jargon) == 0, joinHits(jargon)))
 	return rows
+}
+
+func concernOf(a *dto.AdminSkinAttentionArea) string {
+	if a == nil {
+		return ""
+	}
+	return a.Concern
 }
 
 func row(caseName, id string, pass bool, detail string) checkRow {
@@ -457,16 +572,20 @@ func printPromptSuggestions(rows []checkRow) {
 		}
 		var tip string
 		switch {
+		case r.ID == "A1.primary_forehead_not_chin":
+			tip = "Siết FRAME LOCALIZATION: dải sát cạnh trên = forehead; CẤM chin trừ khi thấy môi/cằm. Few-shot Case 1 nhấn “không phải cằm”."
 		case strings.HasPrefix(r.ID, "A.offframe"):
-			tip = "Trong system prompt / schema: nhấn mạnh lại — vùng ngoài khung BẮT buộc note chứa “không có thông tin/ngoài khung/chụp đủ mặt”; CẤM “nhìn ổn/không thấy nốt” khi không thấy vùng đó. Thêm negative few-shot 1 dòng."
+			tip = "Off-frame → concern=not_visible + note không có thông tin/ngoài khung/chụp đủ mặt; CẤM bịa ổn."
 		case r.ID == "A.photo_notes_visibility":
-			tip = "photo_notes: bắt buộc câu đầu nêu phần mặt đang thấy (vd. “Ảnh này chỉ thấy trán…”)."
+			tip = "photo_notes: bắt buộc nêu crop một dải / chỉ thấy trán — không gọi nhầm cằm."
+		case r.ID == "B2.nose_present_not_outside":
+			tip = "NOSE rule: full face góc thẳng thấy sống/cánh mũi → concern none|real, CẤM not_visible oan."
 		case r.ID == "B.problem_region_concrete":
 			tip = "Case full-face: khi có nốt, note phải có số lượng ước lượng + màu + vị trí; fail nếu chỉ nói chung “có mụn”."
 		case r.ID == "B.no_sen_phrases":
 			tip = "Thêm ban list cứng vào schema Hard rules + few-shot không dùng ồn ào/party/drama/lên tiếng/bận rộn."
 		case r.ID == "B.no_heavy_jargon":
-			tip = "Nhắc lại: enum papules/pustules/texture chỉ ở field concern; note = lời thường."
+			tip = "Nhắc lại: enum papules/pustules/texture/not_visible chỉ ở field concern; note = lời thường."
 		case r.ID == "C.no_routine_product":
 			tip = "Cấm tuyệt đối routine/sản phẩm đã có — siết banned list trong user message."
 		default:

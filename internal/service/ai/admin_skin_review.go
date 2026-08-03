@@ -56,15 +56,17 @@ func AdminSkinReviewAnalyze(
 	model := cfg.OpenAIVisionModel()
 	logVisionModelSelection("admin-skin-review", model)
 
-	langHead := "**Output locale: Vietnamese (vi).** Best-friend voice: straight, lightly tart / mild scolding when spots are clear — never mocking, never xàm, never forced cool. Write for non-experts: every technical idea in overview/notes must be everyday Vietnamese — nốt đỏ sưng, nốt có đầu trắng, thâm, da bóng, da khô, lỗ chân lông to, da hơi sần… Enum keys (papules/pustules/texture/mild…) OK only in concern/severity/skin_type fields — NEVER paste those English/medical terms into overview, notes, additional_observations, photo_notes, or skin_type_note. BAN sến phrases: ồn ào, party, drama, lên tiếng, bận rộn, chill, ngồi yên. VISIBLE-ONLY: never invent notes for off-frame regions — concern \"none\" + no-info / out of frame / ask fuller face; photo_notes must state which face parts are visible. Write LONG, information-dense notes — short answers FAIL. Length floors (sentences ending . ! ? …): overview 4–6; skin_type_note exactly 2; each attention note 3–5 (visible calm regions 3–4 WHY calm; off-frame regions 3–4 no-info); additional_observations 3–5; photo_notes 2–3. Scan forehead→nose→cheeks→chin always. Raised spots/heads/clusters → concern acne|papules|pustules (not redness-only) but describe as nốt đỏ sưng / nốt có đầu trắng / mụn in the note text. Problem notes must cover location detail, count/density, color, shape (sưng/phẳng/đầu trắng), contrast vs nearby VISIBLE zones, how obvious on photo, optional mild accountability beat. Never mention products, brands, mỹ phẩm, or care advice."
+	langHead := "**Output locale: Vietnamese (vi).** Best-friend voice: straight, lightly tart / mild scolding when spots are clear — never mocking, never xàm, never forced cool. Write for non-experts: every technical idea in overview/notes must be everyday Vietnamese — nốt đỏ sưng, nốt có đầu trắng, thâm, da bóng, da khô, lỗ chân lông to, da hơi sần… Enum keys (papules/pustules/texture/mild/not_visible…) OK only in concern/severity/skin_type fields — NEVER paste those English/medical terms into overview, notes, additional_observations, photo_notes, or skin_type_note. BAN sến phrases: ồn ào, party, drama, lên tiếng, bận rộn, chill, ngồi yên. FRAME LOCALIZATION: top-of-frame/narrow upper strip → forehead (NOT chin unless lower-face landmarks); bottom → chin; center → nose/cheeks. Narrow crop → photo_notes say “ảnh crop chỉ một dải…”, one primary visible region, others concern=not_visible. NOSE: frontal/¾ with bridge/alae → must review nose (none or real concern); not_visible ONLY if truly cut/covered — never fake outside. VISIBLE-ONLY: off-frame → concern \"not_visible\" + no-info note (never invent calm; never use \"none\" for missing regions). Write LONG, information-dense notes — short answers FAIL. Length floors (sentences ending . ! ? …): overview 4–6; skin_type_note exactly 2; each attention note 3–5 (visible calm 3–4 WHY calm; not_visible 3–4 no-info); additional_observations 3–5; photo_notes 2–3. Scan forehead→nose→cheeks→chin always. Raised spots/heads/clusters → concern acne|papules|pustules (not redness-only) but describe as nốt đỏ sưng / nốt có đầu trắng / mụn in the note text. Problem notes must cover location detail, count/density, color, shape (sưng/phẳng/đầu trắng), contrast vs nearby VISIBLE zones, how obvious on photo, optional mild accountability beat. Never mention products, brands, mỹ phẩm, or care advice."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Best-friend voice: straight, lightly tart / mild scolding when spots are clear — never mocking, never try-hard cool. Write for non-experts: plain everyday words in overview/notes (red bumps, whiteheads, dark marks, shiny, dry, large pores, uneven surface) — do NOT dump clinical jargon (papules, pustules, erythema, barrier, hyperpigmentation, sebum, morphology) into user-facing text. Enum keys OK only in concern/severity/skin_type fields. BAN cute filler like \"drama\", \"party\", \"noisy\". VISIBLE-ONLY: never invent notes for off-frame regions — concern \"none\" + no info / out of frame / ask for fuller face; photo_notes must state which face parts are visible. Write LONG, information-dense notes — short answers FAIL. Length floors: overview 4–6 sentences; skin_type_note exactly 2; each attention note 3–5 (visible calm 3–4 WHY calm; off-frame 3–4 no-info); additional_observations 3–5; photo_notes 2–3. Scan forehead→nose→cheeks→chin always. Raised spots/heads/clusters → concern acne|papules|pustules (not redness-only); note text stays plain English. Problem notes must cover location detail, count/density, color, shape, contrast vs nearby VISIBLE zones, and how obvious on photo. Never mention products, brands, or care advice."
+		langHead = "**Output locale: English (en).** Best-friend voice: straight, lightly tart / mild scolding when spots are clear — never mocking, never try-hard cool. Write for non-experts: plain everyday words in overview/notes (red bumps, whiteheads, dark marks, shiny, dry, large pores, uneven surface) — do NOT dump clinical jargon (papules, pustules, erythema, barrier, hyperpigmentation, sebum, morphology) into user-facing text. Enum keys OK only in concern/severity/skin_type fields. BAN cute filler like \"drama\", \"party\", \"noisy\". FRAME LOCALIZATION: top-of-frame/narrow upper strip → forehead (NOT chin unless lower-face landmarks); bottom → chin; center → nose/cheeks. Narrow crop → photo_notes say it is a strip crop, one primary visible region, others concern=not_visible. NOSE: frontal/¾ with bridge/alae → must review nose; not_visible ONLY if truly cut/covered. VISIBLE-ONLY: off-frame → concern \"not_visible\" + no-info note (never invent calm). Write LONG, information-dense notes — short answers FAIL. Length floors: overview 4–6 sentences; skin_type_note exactly 2; each attention note 3–5 (visible calm 3–4 WHY calm; not_visible 3–4 no-info); additional_observations 3–5; photo_notes 2–3. Scan forehead→nose→cheeks→chin always. Raised spots/heads/clusters → concern acne|papules|pustules (not redness-only); note text stays plain English. Problem notes must cover location detail, count/density, color, shape, contrast vs nearby VISIBLE zones, and how obvious on photo. Never mention products, brands, or care advice."
 	}
 	userText := langHead + "\n\n" + AdminSkinReviewJSONSchemaBlock +
 		"\n\nPhotos: **1–3 skin photos** for deep observation-only review.\n" +
-		"Do not miss visible spots on forehead/chin/cheeks — if spots exist on a VISIBLE region, concern must not be \"none\".\n" +
-		"If a region is off-frame / not visible: concern \"none\" + note says no info / out of frame / ask fuller face — NEVER invent calm skin for missing regions.\n" +
-		"Prefer concern acne/papules/pustules when raised spots are visible; use redness only for diffuse flush. In note text say nốt đỏ sưng / nốt có đầu trắng / mụn (VI) or red bumps / whiteheads (EN) — never leave bare papules/pustules in notes.\n" +
+		"FRAME: narrow strip without lips/mouth → forehead (NOT chin). Chin only if lips/mouth/jaw visible. photo_notes \"ảnh crop chỉ một dải…\" + one primary region; others not_visible.\n" +
+		"NOSE: if forehead+cheeks+chin are all visible on this photo, nose must NOT be not_visible — use none or a real concern. Same if other notes mention sống mũi/cánh mũi.\n" +
+		"Do not miss visible spots on forehead/chin/cheeks — if spots exist on a VISIBLE region, concern must not be \"none\" or \"not_visible\".\n" +
+		"If a region is off-frame / not visible: concern \"not_visible\" + note says no info / out of frame / ask fuller face — NEVER invent calm skin; do not use concern \"none\" for missing regions.\n" +
+		"Prefer concern acne/papules/pustules when raised spots are visible; use redness only for diffuse flush. In note text say nốt đỏ sưng / nốt có đầu trắng / mụn (VI) or red bumps / whiteheads (EN) — never leave bare papules/pustules/not_visible in notes.\n" +
 		"PLAIN LANGUAGE: user must not need a dictionary. Ban in overview/notes: papules, pustules, comedone, erythema, barrier, inflammation, hyperpigmentation, sebum, texture, morphology, clinical, buccal, PIH, T-zone (say vùng chữ T: trán–mũi–cằm).\n" +
 		"BAN sến: ồn ào, party, drama, lên tiếng, bận rộn.\n" +
 		"LENGTH: do not write short filler. Hit the sentence floors above; pack visual detail into every note.\n" +
@@ -208,6 +210,7 @@ func parseAdminSkinReviewAnalysis(raw []byte, locale string) (*dto.AdminSkinRevi
 		})
 	}
 	out.AttentionAreas = areas
+	out.AttentionAreas = coerceNoseIfFaceCenterPresent(out.AttentionAreas, locale)
 
 	// Canonical response shape only.
 	out.OverallSeverity = ""
@@ -216,6 +219,42 @@ func parseAdminSkinReviewAnalysis(raw []byte, locale string) (*dto.AdminSkinRevi
 	out.PhotoQuality = ""
 
 	return &out, nil
+}
+
+// coerceNoseIfFaceCenterPresent fixes a recurring model error: marking nose
+// not_visible while forehead + cheeks + chin are all reviewed on the same photo.
+func coerceNoseIfFaceCenterPresent(areas []dto.AdminSkinAttentionArea, locale string) []dto.AdminSkinAttentionArea {
+	visible := map[string]bool{}
+	noseIdx := -1
+	for i, a := range areas {
+		r := strings.ToLower(a.Region)
+		c := strings.ToLower(a.Concern)
+		if r == "nose" {
+			noseIdx = i
+		}
+		if c != "not_visible" && (r == "forehead" || r == "cheeks" || r == "chin") {
+			visible[r] = true
+		}
+	}
+	if noseIdx < 0 || !visible["forehead"] || !visible["cheeks"] || !visible["chin"] {
+		return areas
+	}
+	if strings.ToLower(areas[noseIdx].Concern) != "not_visible" {
+		return areas
+	}
+	note := "Mũi nằm giữa trán–má–cằm trên ảnh này nên vẫn nhận xét được. Không thấy nốt sưng hay đỏ lan rõ ở sống mũi / cánh mũi. Bề mặt khá đều so với hai má. Đang yên hơn vùng đang nổi bên cạnh."
+	if locale == "en" {
+		note = "The nose sits between the visible forehead, cheeks, and chin on this photo, so it is in frame. No clear raised spots or diffuse redness on the bridge or sides. Surface looks relatively even versus the cheeks. Calmer than the active spots nearby."
+	}
+	areas[noseIdx].Concern = "none"
+	areas[noseIdx].Severity = "mild"
+	if strings.TrimSpace(areas[noseIdx].Note) == "" || strings.Contains(strings.ToLower(areas[noseIdx].Note), "ngoài khung") ||
+		strings.Contains(strings.ToLower(areas[noseIdx].Note), "không có trên ảnh") ||
+		strings.Contains(strings.ToLower(areas[noseIdx].Note), "not visible") ||
+		strings.Contains(strings.ToLower(areas[noseIdx].Note), "out of frame") {
+		areas[noseIdx].Note = note
+	}
+	return areas
 }
 
 func defaultClearPhotoNotes(locale string) string {
@@ -271,6 +310,8 @@ func normalizeAdminConcern(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "none", "clear", "ok", "normal":
 		return "none"
+	case "not_visible", "notvisible", "off_frame", "offframe", "out_of_frame", "unavailable":
+		return "not_visible"
 	case "papule":
 		return "papules"
 	case "pustule":
