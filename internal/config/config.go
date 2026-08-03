@@ -97,8 +97,8 @@ type SePayConfig struct {
 
 // Sandbox test credentials (SePay PG Test Mode). Override via env in any shared/prod deploy.
 const (
-	sepaySandboxMerchantDefault = "SP-TEST-NT956599"
-	sepaySandboxSecretDefault   = "spsk_test_UHoXRUQEfLBChDYghS6AE8B6V9HQpErZ"
+	sepaySandboxMerchantDefault = "SP-TEST-TTA67779"
+	sepaySandboxSecretDefault   = "spsk_test_etsH4PdQCBM7KvtTCjkJ5GpLjqYwMX89"
 )
 
 // Configured reports whether we have enough credentials to sign checkouts / verify IPN.

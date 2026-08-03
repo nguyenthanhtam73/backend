@@ -28,7 +28,7 @@ Set on the **backend** service (sandbox for now):
 | Variable | Value |
 |----------|--------|
 | `DADIARY_SEPAY_ENV` | `sandbox` |
-| `DADIARY_SEPAY_MERCHANT_ID` | `SP-TEST-NT956599` |
+| `DADIARY_SEPAY_MERCHANT_ID` | `SP-TEST-TTA67779` |
 | `DADIARY_SEPAY_SECRET_KEY` | (sandbox secret) |
 | `DADIARY_PUBLIC_WEB_URL` | `https://dadiary.vn` |
 | `DADIARY_SEPAY_SUCCESS_URL` | `https://dadiary.vn/payment/success` (optional if public web set) |
