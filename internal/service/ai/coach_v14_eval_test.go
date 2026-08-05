@@ -29,9 +29,9 @@ func TestCoachPrompt_v24_SarcasticBuddyTone(t *testing.T) {
 	}
 }
 
-func TestCoachPromptVersion_v24(t *testing.T) {
-	if CoachDailyPromptVersion != 24 {
-		t.Fatalf("expected CoachDailyPromptVersion == 24, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v25(t *testing.T) {
+	if CoachDailyPromptVersion != 25 {
+		t.Fatalf("expected CoachDailyPromptVersion == 25, got %d", CoachDailyPromptVersion)
 	}
 }
 
@@ -41,6 +41,7 @@ func TestCoachPrompt_v22_BrevityRules(t *testing.T) {
 	p := GetCoachPrompt("intermediate")
 	mustContain(t, p, "BREVITY")
 	mustContain(t, p, "improvements 2–3")
+	mustContain(t, p, "care_suggestions")
 	mustContain(t, p, "routine_hints 3–4")
 }
 

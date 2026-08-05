@@ -16,7 +16,9 @@ type AdminSkinAttentionArea struct {
 	Note     string `json:"note"`
 }
 
-// AdminSkinReviewAnalysis is observations-only AI output (no routine / products / care steps).
+// AdminSkinReviewAnalysis is AI output for admin/public skin review.
+// Observations-first; possible_causes + soothing_tips are short public-safe
+// blocks (no full routine, brands, or prescription actives).
 type AdminSkinReviewAnalysis struct {
 	Overview               string                   `json:"overview"`
 	SkinType               string                   `json:"skin_type"`
@@ -25,7 +27,11 @@ type AdminSkinReviewAnalysis struct {
 	AttentionAreas         []AdminSkinAttentionArea `json:"attention_areas"`
 	AdditionalObservations string                   `json:"additional_observations"`
 	PhotoNotes             string                   `json:"photo_notes"`
-	NonDiagnostic          string                   `json:"non_diagnostic"`
+	// PossibleCauses: 1–2 soft non-certain causes for public share.
+	PossibleCauses []string `json:"possible_causes"`
+	// SoothingTips: 2–3 gentle avoid/do tips for public share (no brands/meds).
+	SoothingTips  []string `json:"soothing_tips"`
+	NonDiagnostic string   `json:"non_diagnostic"`
 
 	// Legacy fields kept for unmarshaling older saved reviews.
 	OverallSeverity  string `json:"overall_severity,omitempty"`
@@ -204,10 +210,31 @@ func NormalizeAdminSkinReviewAnalysis(a *AdminSkinReviewAnalysis, locale string)
 	if strings.TrimSpace(a.PhotoNotes) == "" {
 		a.PhotoNotes = defaultPhotoNotesFromQuality(a.PhotoQuality, locale)
 	}
+	a.PossibleCauses = ClampAdminSkinStringList(a.PossibleCauses, 2)
+	a.SoothingTips = ClampAdminSkinStringList(a.SoothingTips, 3)
 	a.OverallSeverity = ""
 	a.ExtraNotes = ""
 	a.DetailedFindings = ""
 	a.PhotoQuality = ""
+}
+
+// ClampAdminSkinStringList trims empties and caps length (nil → empty slice).
+func ClampAdminSkinStringList(in []string, max int) []string {
+	if max <= 0 {
+		return []string{}
+	}
+	out := make([]string, 0, max)
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+		if len(out) >= max {
+			break
+		}
+	}
+	return out
 }
 
 func defaultPhotoNotesFromQuality(quality, locale string) string {

@@ -54,4 +54,9 @@ package ai
 // included — only lighter intensity). Default address mày/con/thằng này/bà này; allow vl/đm/
 // "trông hơi thảm" style lines; ban heavy swears, body-shame, English jargon. Mandatory
 // 3–4 photo details, history roast-OK compare, immediate tip, buddy closing. Schema unchanged.
-const CoachDailyPromptVersion = 24
+//
+// v25 (2026-08-05) — In-app care_suggestions[] (slot/step/why/safety_note): detailed gentle
+// care checklist after check-in. Richer than public Admin Skin Review soothing_tips; must NOT
+// be copied to /share/skin-review. Stored in skin_scores.care_suggestions. Full AI
+// /routines/suggest remains separately Premium/quota-gated.
+const CoachDailyPromptVersion = 25

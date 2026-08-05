@@ -269,6 +269,10 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	if strings.TrimSpace(parsed.SituationAnalysis) != "" {
 		labels["situation_analysis"] = strings.TrimSpace(parsed.SituationAnalysis)
 	}
+	// In-app care checklist (NOT for public Admin Skin Review share).
+	if care := ai.NormalizeCareSuggestions(parsed); len(care) > 0 {
+		labels["care_suggestions"] = care
+	}
 	ss, _ := json.Marshal(labels)
 
 	str, _ := json.Marshal(parsed.Strengths)

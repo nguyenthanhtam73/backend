@@ -27,9 +27,21 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
     }
     // 2–3 items MAX (both modes) — pick the highest-impact steps, don't pad.
   ],
+  "care_suggestions": [
+    {
+      "slot": <"morning"|"evening"|"today" — group for UI. Prefer morning/evening when a step is time-bound; use "today" for priority avoid/do once.>,
+      "step": <string — everyday step NAME only, no brand: "Rửa mặt dịu", "Dưỡng ẩm", "Chống nắng", "Giảm active mạnh". EN: "Gentle cleanse", "Moisturize", "SPF".>,
+      "why": <string — ONE sentence: why this fits TODAY's photo/tags (region + cue).>,
+      "safety_note": <string — optional short caution: avoid picking, ease strong actives if inflamed, patch-test if new, see derm if large/painful/lasting. Empty string if N/A.>
+    }
+    // 3–5 items. IN-APP ONLY detailed care (richer than public share 2–3 soothing_tips).
+    // BAN: hard diagnosis, prescription drugs/antibiotics, mandatory brand names.
+    // Do NOT invent a full multi-product AM–PM shelf routine — light checklist only.
+  ],
   "routine_hints": [<string> — EVERY line MUST start with "Sáng:" or "Tối:" (VI) or "AM:" / "PM:" (EN). Keep each line to one short step.
                      When USER_MEMORY ## Routine adherence COACH_ACTION says low/none: cap at 2–3 lines total.
-                     Beginner: 2–3 total; Normal: 3–4 total.>],
+                     Beginner: 2–3 total; Normal: 3–4 total.
+                     These stay short apply-to-today lines; put richer why/safety in care_suggestions.>],
   "avoid_or_patch": [<string> — what to ease off / patch-test / not stack today.
                       Always include a patch-test reminder when user mentions any new product.>],
   "safety_reminders": [<string> — 1–2 short lines only: SPF reapply habit, one-change-at-a-time rule, when to seek
@@ -56,7 +68,7 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
 
 Strict output rules:
 - Output EXACTLY ONE JSON object. No markdown, no code fences, no text before or after.
-- BREVITY (HARD): keep every string tight and skimmable — no filler, no preamble, never repeat a detail across fields. Respect the per-field caps above: situation_analysis 2–3 sentences, improvements 2–3 items, routine_hints 3–4 lines (Beginner 2–3), safety_reminders 1–2 lines, concern_alignment 1–2 sentences. Shorter output = faster response; specific-and-short beats long-and-generic.
+- BREVITY (HARD): keep every string tight and skimmable — no filler, no preamble, never repeat a detail across fields. Respect the per-field caps above: situation_analysis 2–3 sentences, improvements 2–3 items, care_suggestions 3–5 items, routine_hints 3–4 lines (Beginner 2–3), safety_reminders 1–2 lines, concern_alignment 1–2 sentences. Shorter output = faster response; specific-and-short beats long-and-generic.
 - JSON keys MUST use the exact ASCII spellings above.
 - "routine_hints": every line MUST be prefixed. Never leave a hint unprefixed (the UI splits cards by prefix).
 - Match USER_INTERFACE_LOCALE (vi or en) for ALL human-readable string values when present.

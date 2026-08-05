@@ -53,20 +53,43 @@ type CoachImprovementItem struct {
 	Why string `json:"why"`
 }
 
+// CoachCareSuggestionItem is an in-app detailed care step after check-in.
+// Richer than public Admin Skin Review soothing_tips; never exposed on /share/skin-review.
+//
+// Example (in-app GET /skin-checks/:id → analysis.coach):
+//
+//	{
+//	  "slot": "morning",
+//	  "step": "Chống nắng",
+//	  "why": "Má đang đỏ — SPF giúp hạn chế kích thêm khi ra nắng.",
+//	  "safety_note": "Tránh nặn khi vùng viêm còn sưng."
+//	}
+type CoachCareSuggestionItem struct {
+	Slot       string `json:"slot"`                  // morning | evening | today
+	Step       string `json:"step"`                  // everyday step name
+	Why        string `json:"why,omitempty"`         // why it fits today
+	SafetyNote string `json:"safety_note,omitempty"` // optional caution
+}
+
 // SkinCoachDetail is structured AI feedback for the daily check-in UI (Claude primary pipeline).
+//
+// In-app care (detailed): care_suggestions + routine_hints + improvements + safety.
+// Public share Admin Skin Review is a separate DTO (overview / possible_causes / soothing_tips only)
+// and must not include care_suggestions or full AM–PM care checklists.
 type SkinCoachDetail struct {
-	SummaryNotes       string                 `json:"summary_notes,omitempty"`
-	Strengths          []string               `json:"strengths,omitempty"`
-	SituationSummary   string                 `json:"situation_summary,omitempty"`
-	ConcernAlignment   string                 `json:"concern_alignment,omitempty"`
-	SkinScoreGauges    *SkinCoachScoreGauges  `json:"skin_score_gauges,omitempty"`
-	Improvements       []CoachImprovementItem `json:"improvements,omitempty"`
-	RoutineHints       []string               `json:"routine_hints,omitempty"`
-	AvoidOrPatch       []string               `json:"avoid_or_patch,omitempty"`
-	SafetyReminders    []string               `json:"safety_reminders,omitempty"`
-	MedicalDisclaimer  string                 `json:"medical_disclaimer,omitempty"`
-	ProductSuggestions []ProductSuggestion    `json:"product_suggestions,omitempty"`
-	ErrorMessage       string                 `json:"error_message,omitempty"`
+	SummaryNotes       string                     `json:"summary_notes,omitempty"`
+	Strengths          []string                   `json:"strengths,omitempty"`
+	SituationSummary   string                     `json:"situation_summary,omitempty"`
+	ConcernAlignment   string                     `json:"concern_alignment,omitempty"`
+	SkinScoreGauges    *SkinCoachScoreGauges      `json:"skin_score_gauges,omitempty"`
+	Improvements       []CoachImprovementItem     `json:"improvements,omitempty"`
+	CareSuggestions    []CoachCareSuggestionItem  `json:"care_suggestions,omitempty"`
+	RoutineHints       []string                   `json:"routine_hints,omitempty"`
+	AvoidOrPatch       []string                   `json:"avoid_or_patch,omitempty"`
+	SafetyReminders    []string                   `json:"safety_reminders,omitempty"`
+	MedicalDisclaimer  string                     `json:"medical_disclaimer,omitempty"`
+	ProductSuggestions []ProductSuggestion        `json:"product_suggestions,omitempty"`
+	ErrorMessage       string                     `json:"error_message,omitempty"`
 }
 
 // SkinCoachScoreGauges exposes soft 0–1 subscores from the coach JSON (not clinical).
@@ -188,13 +211,100 @@ func buildCoachDetailFromDomain(a *domain.SkinAnalysis) *SkinCoachDetail {
 			if v, ok := scores["concern_alignment"].(string); ok {
 				d.ConcernAlignment = v
 			}
+			d.CareSuggestions = extractCareSuggestions(scores)
 			g := extractScoreGauges(scores)
 			if g != nil {
 				d.SkinScoreGauges = g
 			}
 		}
 	}
+	// Older analyses: synthesize checklist from improvements so FE still shows "Gợi ý chăm sóc".
+	if len(d.CareSuggestions) == 0 && len(d.Improvements) > 0 {
+		d.CareSuggestions = careSuggestionsFromImprovements(d.Improvements)
+	}
 	return d
+}
+
+// careSuggestionsFromImprovements maps legacy tip/why rows into care checklist items.
+// Parses Sáng:/Tối:/AM:/PM: prefixes into morning/evening slots (same idea as AI normalize).
+func careSuggestionsFromImprovements(imps []CoachImprovementItem) []CoachCareSuggestionItem {
+	out := make([]CoachCareSuggestionItem, 0, len(imps))
+	for _, imp := range imps {
+		tip := strings.TrimSpace(imp.Tip)
+		if tip == "" {
+			continue
+		}
+		slot := "today"
+		step := tip
+		lower := strings.ToLower(tip)
+		switch {
+		case strings.HasPrefix(lower, "sáng:") || strings.HasPrefix(lower, "sang:") ||
+			strings.HasPrefix(lower, "am:") || strings.HasPrefix(lower, "morning:"):
+			slot = "morning"
+			if i := strings.Index(tip, ":"); i >= 0 && i+1 < len(tip) {
+				step = strings.TrimSpace(tip[i+1:])
+			}
+		case strings.HasPrefix(lower, "tối:") || strings.HasPrefix(lower, "toi:") ||
+			strings.HasPrefix(lower, "pm:") || strings.HasPrefix(lower, "evening:"):
+			slot = "evening"
+			if i := strings.Index(tip, ":"); i >= 0 && i+1 < len(tip) {
+				step = strings.TrimSpace(tip[i+1:])
+			}
+		}
+		if step == "" {
+			step = tip
+		}
+		out = append(out, CoachCareSuggestionItem{
+			Slot: slot,
+			Step: step,
+			Why:  strings.TrimSpace(imp.Why),
+		})
+		if len(out) >= 5 {
+			break
+		}
+	}
+	return out
+}
+
+func extractCareSuggestions(scores map[string]any) []CoachCareSuggestionItem {
+	if scores == nil {
+		return nil
+	}
+	raw, ok := scores["care_suggestions"]
+	if !ok || raw == nil {
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var list []CoachCareSuggestionItem
+	if err := json.Unmarshal(b, &list); err != nil {
+		return nil
+	}
+	out := make([]CoachCareSuggestionItem, 0, len(list))
+	for _, c := range list {
+		step := strings.TrimSpace(c.Step)
+		if step == "" {
+			continue
+		}
+		slot := strings.ToLower(strings.TrimSpace(c.Slot))
+		switch slot {
+		case "morning", "evening", "today":
+		default:
+			slot = "today"
+		}
+		out = append(out, CoachCareSuggestionItem{
+			Slot:       slot,
+			Step:       step,
+			Why:        strings.TrimSpace(c.Why),
+			SafetyNote: strings.TrimSpace(c.SafetyNote),
+		})
+		if len(out) >= 5 {
+			break
+		}
+	}
+	return out
 }
 
 func extractScoreGauges(scores map[string]any) *SkinCoachScoreGauges {

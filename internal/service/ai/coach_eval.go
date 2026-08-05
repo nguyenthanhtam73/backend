@@ -40,6 +40,9 @@ func FlattenCoachOutput(out *CoachStructuredOutput) string {
 	for _, imp := range out.Improvements {
 		parts = append(parts, imp.Tip, imp.Why)
 	}
+	for _, c := range out.CareSuggestions {
+		parts = append(parts, c.Step, c.Why, c.SafetyNote)
+	}
 	parts = append(parts, out.RoutineHints...)
 	parts = append(parts, out.AvoidOrPatch...)
 	parts = append(parts, out.SafetyReminders...)
@@ -496,6 +499,7 @@ func LogCoachOutput(pipeline, personaID string, out *CoachStructuredOutput) {
 		"score", out.Score,
 		"strengths", len(out.Strengths),
 		"improvements", len(out.Improvements),
+		"care_suggestions", len(out.CareSuggestions),
 		"routine_hints", len(out.RoutineHints),
 		"situation_analysis", truncateRunes(out.SituationAnalysis, 200),
 		"summary_notes", truncateRunes(out.SummaryNotes, 160),

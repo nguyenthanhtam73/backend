@@ -5,9 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/dto"
@@ -15,11 +18,33 @@ import (
 	"github.com/dadiary/backend/internal/platform/imgprep"
 )
 
+var adminSkinSentenceSplitRe = regexp.MustCompile(`[.!?…]+|\n+`)
+
+// Patterns that must not appear in expanded notes (brands / meds / jargon / hard care advice).
+var adminSkinExpandBanRes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)\b(retinol|niacinamide|benzoyl|antibiotic|papules?|pustules?|comedones?|erythema|barrier|hyperpigmentation|sebum|morpholog\w*|clinical|BHA|AHA)\b`),
+	regexp.MustCompile(`(?i)\b(la\s*roche|cerave|ordinary|the\s+ordinary|cera\s*ve)\b`),
+	regexp.MustCompile(`(?i)kháng sinh|routine sáng|routine tối|nên thoa|nên bôi|nên dùng|hết mụn|mỹ phẩm`),
+	regexp.MustCompile(`(?i)sản phẩm chăm sóc da`),
+}
+
+// Strip negated "không nên …" before ban matching so "không nên dùng tay bẩn" is not treated as product advice.
+var adminSkinNegatedNênRe = regexp.MustCompile(`(?i)không\s+nên\s+(dùng|thoa|bôi)`)
+
+// Soft content refusals some models put in message.content instead of refusal.
+var adminSkinContentRefusalRes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)i'?m sorry[\s\S]{0,80}can'?t assist`),
+	regexp.MustCompile(`(?i)i cannot assist with that`),
+	regexp.MustCompile(`(?i)i can'?t assist with that`),
+	regexp.MustCompile(`(?i)xin lỗi[\s\S]{0,60}không (thể|thể hỗ trợ|hỗ trợ)`),
+}
+
 // AdminSkinReviewAnalyze runs a Premium-depth OpenAI vision pass that returns
 // skin observations only (no routine / products / care steps).
 //
 // Uses the configured vision model (default gpt-4o) — same deep multimodal path
 // as check-in vision — without calling the daily coach or suggest-routine flows.
+// On refusal / empty content, retries once with a compact prompt (no loop).
 func AdminSkinReviewAnalyze(
 	ctx context.Context,
 	cfg *config.Config,
@@ -56,28 +81,78 @@ func AdminSkinReviewAnalyze(
 	model := cfg.OpenAIVisionModel()
 	logVisionModelSelection("admin-skin-review", model)
 
-	langHead := "**Output locale: Vietnamese (vi).** Best-friend voice: straight, lightly tart / mild scolding when spots are clear — never mocking, never xàm, never forced cool. Write for non-experts: every technical idea in overview/notes must be everyday Vietnamese — nốt đỏ sưng, nốt có đầu trắng, thâm, da bóng, da khô, lỗ chân lông to, da hơi sần… Enum keys (papules/pustules/texture/mild/not_visible…) OK only in concern/severity/skin_type fields — NEVER paste those English/medical terms into overview, notes, additional_observations, photo_notes, or skin_type_note. BAN sến phrases: ồn ào, party, drama, lên tiếng, bận rộn, chill, ngồi yên. FRAME LOCALIZATION: top-of-frame/narrow upper strip → forehead (NOT chin unless lower-face landmarks); bottom → chin; center → nose/cheeks. Narrow crop → photo_notes say “ảnh crop chỉ một dải…”, one primary visible region, others concern=not_visible. NOSE: frontal/¾ with bridge/alae → must review nose (none or real concern); not_visible ONLY if truly cut/covered — never fake outside. VISIBLE-ONLY: off-frame → concern \"not_visible\" + EXACTLY 1 short sentence (\"Không thấy X trên ảnh — chụp đủ mặt mới nhận xét được.\"); BAN filler. SINGLE-REGION crop (e.g. forehead only): visible note 4–6 THICK sentences (density/spread, color/swelling/heads, oil/dry, precise location); overview 3–5 stuck to visible zone + missing-face reminder. Never invent calm; never use \"none\" for missing regions. Length: full-face overview 4–6; single-region overview 3–5; skin_type_note 2; single-region problem ≥4; full-face problem 3–5; visible calm 3–4; not_visible = 1; additional 3–5; photo_notes 2–3. Scan forehead→nose→cheeks→chin always. Raised spots/heads/clusters → concern acne|papules|pustules (not redness-only) but describe as nốt đỏ sưng / nốt có đầu trắng / mụn in the note text. Problem notes must cover location detail, count/density, color, shape (sưng/phẳng/đầu trắng), contrast vs nearby VISIBLE zones, how obvious on photo, optional mild accountability beat. Never mention products, brands, mỹ phẩm, or care advice."
-	if locale == "en" {
-		langHead = "**Output locale: English (en).** Best-friend voice: straight, lightly tart / mild scolding when spots are clear — never mocking, never try-hard cool. Write for non-experts: plain everyday words in overview/notes (red bumps, whiteheads, dark marks, shiny, dry, large pores, uneven surface) — do NOT dump clinical jargon (papules, pustules, erythema, barrier, hyperpigmentation, sebum, morphology) into user-facing text. Enum keys OK only in concern/severity/skin_type fields. BAN cute filler like \"drama\", \"party\", \"noisy\". FRAME LOCALIZATION: top-of-frame/narrow upper strip → forehead (NOT chin unless lower-face landmarks); bottom → chin; center → nose/cheeks. Narrow crop → photo_notes say it is a strip crop, one primary visible region, others concern=not_visible. NOSE: frontal/¾ with bridge/alae → must review nose; not_visible ONLY if truly cut/covered. VISIBLE-ONLY: off-frame → concern \"not_visible\" + EXACTLY 1 short sentence. SINGLE-REGION crop: visible note 4–6 thick sentences; overview 3–5. Never invent calm. Length: full-face overview 4–6; single-region overview 3–5; skin_type_note 2; single-region problem ≥4; full-face problem 3–5; visible calm 3–4; not_visible = 1; additional 3–5; photo_notes 2–3. Scan forehead→nose→cheeks→chin always. Raised spots/heads/clusters → concern acne|papules|pustules (not redness-only); note text stays plain English. Problem notes must cover location detail, count/density, color, shape, contrast vs nearby VISIBLE zones, and how obvious on photo. Never mention products, brands, or care advice."
+	imageParts, err := adminSkinReviewImageParts(prepared)
+	if err != nil {
+		return nil, "", err
 	}
-	userText := langHead + "\n\n" + AdminSkinReviewJSONSchemaBlock +
-		"\n\nPhotos: **1–3 skin photos** for deep observation-only review.\n" +
-		"FRAME: narrow strip without lips/mouth → forehead (NOT chin). Chin only if lips/mouth/jaw visible. photo_notes \"ảnh crop chỉ một dải…\" + one primary region; others not_visible.\n" +
-		"NOSE: if forehead+cheeks+chin are all visible on this photo, nose must NOT be not_visible — use none or a real concern. Same if other notes mention sống mũi/cánh mũi.\n" +
-		"Do not miss visible spots on forehead/chin/cheeks — if spots exist on a VISIBLE region, concern must not be \"none\" or \"not_visible\".\n" +
-		"If a region is off-frame / not visible: concern \"not_visible\" + EXACTLY 1 sentence: \"Không thấy X trên ảnh — chụp đủ mặt mới nhận xét được.\" BAN filler. NEVER invent calm/bad skin; do not use concern \"none\" for missing regions.\n" +
-		"SINGLE-REGION crop (only forehead/cheek/chin visible): that region's note MUST be 4–6 thick sentences — density/spread, color/swelling/whiteheads, oil/dry, precise location. overview 3–5 sentences on the visible zone + short missing-face reminder.\n" +
-		"Do NOT copy few-shot wording — count/location/color/shine must match THIS photo.\n" +
-		"Prefer concern acne/papules/pustules when raised spots are visible; use redness only for diffuse flush. In note text say nốt đỏ sưng / nốt có đầu trắng / mụn (VI) or red bumps / whiteheads (EN) — never leave bare papules/pustules/not_visible in notes.\n" +
-		"PLAIN LANGUAGE: user must not need a dictionary. Ban in overview/notes: papules, pustules, comedone, erythema, barrier, inflammation, hyperpigmentation, sebum, texture, morphology, clinical, buccal, PIH, T-zone, vùng chữ T, chữ T, vùng T (say trán–mũi–cằm or trán, mũi và cằm).\n" +
-		"BAN sến: ồn ào, party, drama, lên tiếng, bận rộn.\n" +
-		"LENGTH: do not write short filler. Hit the sentence floors above; pack visual detail into every note.\n" +
-		"Do NOT invent routines, products, brands, care steps, treatment advice, or medical diagnoses.\n" +
-		"Banned: \"sản phẩm chăm sóc da\", \"mỹ phẩm\", \"nên dùng\", \"nên thoa\", \"nên bôi\"."
 
-	parts := []map[string]any{
-		{"type": "text", "text": userText},
+	// Attempt 1 — full prompt.
+	raw, meta, err := callAdminSkinReviewVision(ctx, cfg, httpClient, model, AdminSkinReviewSystemPrompt(), adminSkinReviewUserText(locale, false), imageParts, "openai-admin-skin-review")
+	if err != nil {
+		return nil, "", err
 	}
+	if adminSkinEmptyOrRefused(raw, meta) {
+		slog.Warn("admin skin review: attempt 1 empty/refusal — retrying once with compact prompt",
+			"finish", meta.FinishReason,
+			"refusal", meta.Refusal,
+			"content_len", len(raw),
+		)
+		// Attempt 2 — compact system + user (still observations-first + causes/tips).
+		raw2, meta2, err2 := callAdminSkinReviewVision(ctx, cfg, httpClient, model, AdminSkinReviewCompactSystemPrompt(), adminSkinReviewUserText(locale, true), imageParts, "openai-admin-skin-review-retry")
+		if err2 != nil {
+			return nil, "", fmt.Errorf("admin skin review: retry after refusal failed: %w (attempt1 finish=%s refusal=%q)", err2, meta.FinishReason, meta.Refusal)
+		}
+		if adminSkinEmptyOrRefused(raw2, meta2) {
+			return nil, "", fmt.Errorf("admin skin review: empty/refusal after retry (attempt1 finish=%s refusal=%q; attempt2 finish=%s refusal=%q)",
+				meta.FinishReason, meta.Refusal, meta2.FinishReason, meta2.Refusal)
+		}
+		slog.Info("admin skin review: compact retry succeeded",
+			"finish", meta2.FinishReason,
+			"content_len", len(raw2),
+		)
+		raw = raw2
+	} else {
+		slog.Info("admin skin review: attempt 1 ok", "content_len", len(raw))
+	}
+
+	jsonBytes, err := ExtractJSONObject(raw)
+	if err != nil {
+		return nil, "", fmt.Errorf("admin skin review: extract json: %w", err)
+	}
+	if len(jsonBytes) == 0 {
+		return nil, "", fmt.Errorf("admin skin review: extracted empty json (raw_len=%d head=%q)", len(raw), trimForLog(raw, 120))
+	}
+
+	parsed, err := parseAdminSkinReviewAnalysis(jsonBytes, locale)
+	if err != nil {
+		return nil, "", fmt.Errorf("admin skin review: parse analysis (raw_len=%d head=%q): %w", len(raw), trimForLog(raw, 160), err)
+	}
+	if expanded, expErr := expandShortAdminSkinProblemNotes(ctx, cfg, httpClient, model, parsed, locale); expErr == nil && expanded != nil {
+		parsed = expanded
+	}
+	return parsed, model, nil
+}
+
+func adminSkinReviewUserText(locale string, compact bool) string {
+	langHead := "**Output locale: Vietnamese (vi).** Viết nhận xét quan sát từ ảnh cho bạn bè share group: thẳng, hơi chanh chua nhẹ, không mắng nặng. Mỗi câu overview mang thông tin (vị trí, mật độ, mức sưng, vùng nặng nhất). CẤM cụm rỗng: không thể bỏ qua, nhìn là biết, chịu trách nhiệm với da, đừng bảo không sao. Close-up/crop: chỉ nhận xét vùng thấy; vùng ngoài khung = not_visible + đúng 1 câu ngắn; photo_notes nói rõ close-up/crop/chỉ nửa mặt; cấm bịa trán yên / mũi không nốt. Full face: đủ trán+má+cằm thì phải nhận xét mũi. Giữ trông giống…, thường gặp khi…, không chắc 100%. Bắt buộc có possible_causes (1–2 câu mềm) và soothing_tips (2–3 gạch tránh/làm chung — không brand, không thuốc, không routine sáng/tối). Không chốt tên bệnh. Có thể 1 tip: ổ sưng to/đau kéo dài thì nên khám da liễu."
+	if locale == "en" {
+		langHead = "**Output locale: English (en).** Straight, lightly tart observation notes for sharing — photo facts only, no heavy scolding. Info-dense overview. BAN empty filler. Close-up/crop: visible region only; others not_visible + 1 short sentence. Full face: review nose when forehead+cheeks+chin visible. Required: possible_causes (1–2 soft lines) and soothing_tips (2–3 gentle avoid/do bullets — no brands, meds, or AM/PM routine). No disease names. Optional tip: see a dermatologist if large swollen/painful spots lasting."
+	}
+	if compact {
+		if locale == "en" {
+			langHead = "**Output locale: English (en).** Short retry. Observations-first JSON. Soft morphology + light hypotheses. possible_causes 1–2; soothing_tips 2–3 (no brands/meds/AM-PM routine). Close-up: visible only; others not_visible 1 sentence."
+		} else {
+			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Observations-first JSON. Hình thái mềm + giả thuyết nhẹ. possible_causes 1–2; soothing_tips 2–3 (không brand/thuốc/routine sáng–tối). Close-up: chỉ vùng thấy; ngoài khung not_visible 1 câu."
+		}
+		return langHead + "\n\n" + AdminSkinReviewCompactJSONSchemaBlock +
+			"\n\nReview the attached skin photo(s). Return one JSON object only. Match THIS photo."
+	}
+	return langHead + "\n\n" + AdminSkinReviewJSONSchemaBlock +
+		"\n\nReview the attached skin photo(s). Return one JSON object only. Match what is actually visible on THIS photo."
+}
+
+func adminSkinReviewImageParts(prepared []ImageBytes) ([]map[string]any, error) {
+	parts := make([]map[string]any, 0, len(prepared))
 	for _, im := range prepared {
 		head := im.Data
 		if len(head) > 512 {
@@ -85,7 +160,7 @@ func AdminSkinReviewAnalyze(
 		}
 		mime := http.DetectContentType(head)
 		if !strings.HasPrefix(mime, "image/") {
-			return nil, "", fmt.Errorf("admin skin review: invalid image bytes")
+			return nil, fmt.Errorf("admin skin review: invalid image bytes")
 		}
 		b64 := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(im.Data))
 		parts = append(parts, map[string]any{
@@ -95,39 +170,184 @@ func AdminSkinReviewAnalyze(
 			},
 		})
 	}
+	return parts, nil
+}
+
+type adminSkinVisionMeta struct {
+	FinishReason string
+	Refusal      string
+}
+
+func callAdminSkinReviewVision(
+	ctx context.Context,
+	cfg *config.Config,
+	httpClient *http.Client,
+	model string,
+	systemPrompt string,
+	userText string,
+	imageParts []map[string]any,
+	op string,
+) (string, adminSkinVisionMeta, error) {
+	var meta adminSkinVisionMeta
+	parts := make([]map[string]any, 0, 1+len(imageParts))
+	parts = append(parts, map[string]any{"type": "text", "text": userText})
+	parts = append(parts, imageParts...)
 
 	body := map[string]any{
 		"model":           model,
-		"temperature":     0.45, // straight / lightly tart friend voice; still observation-grounded
-		"max_tokens":      8192, // room for verbose multi-region visual notes
+		"temperature":     0.4,
+		"max_tokens":      8192,
 		"response_format": map[string]any{"type": "json_object"},
 		"messages": []map[string]any{
-			{
-				"role":    "system",
-				"content": AdminSkinReviewSystemPrompt(),
-			},
-			{
-				"role":    "user",
-				"content": parts,
-			},
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": parts},
 		},
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return nil, "", err
+		return "", meta, err
 	}
 	headers := map[string]string{
 		"Authorization": "Bearer " + cfg.OpenAI.APIKey,
 		"Content-Type":  "application/json",
 	}
-
-	b, err := CallAIWithRetry(ctx, cfg, "openai-admin-skin-review", func(ctx context.Context) ([]byte, error) {
+	b, err := CallAIWithRetry(ctx, cfg, op, func(ctx context.Context) ([]byte, error) {
 		return httpx.PostJSON(ctx, httpClient, "openai admin skin review", "https://api.openai.com/v1/chat/completions", headers, payload)
 	})
 	if err != nil {
-		return nil, "", err
+		return "", meta, err
+	}
+	var apiOut struct {
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+			Message      struct {
+				Content string  `json:"content"`
+				Refusal *string `json:"refusal"`
+			} `json:"message"`
+		} `json:"choices"`
+		Error any `json:"error"`
+	}
+	if err := json.Unmarshal(b, &apiOut); err != nil {
+		return "", meta, fmt.Errorf("admin skin review: decode api response: %w", err)
+	}
+	if apiOut.Error != nil {
+		return "", meta, fmt.Errorf("admin skin review: api error: %v", apiOut.Error)
+	}
+	if len(apiOut.Choices) == 0 {
+		return "", meta, fmt.Errorf("admin skin review: empty model response body_len=%d head=%q", len(b), trimForLog(string(b), 200))
+	}
+	meta.FinishReason = apiOut.Choices[0].FinishReason
+	if apiOut.Choices[0].Message.Refusal != nil {
+		meta.Refusal = strings.TrimSpace(*apiOut.Choices[0].Message.Refusal)
+	}
+	return strings.TrimSpace(apiOut.Choices[0].Message.Content), meta, nil
+}
+
+func adminSkinEmptyOrRefused(content string, meta adminSkinVisionMeta) bool {
+	if strings.TrimSpace(meta.Refusal) != "" {
+		return true
+	}
+	c := strings.TrimSpace(content)
+	if c == "" {
+		return true
+	}
+	// Some responses put a polite refuse in content with an empty refusal field.
+	for _, re := range adminSkinContentRefusalRes {
+		if re.MatchString(c) {
+			return true
+		}
+	}
+	return false
+}
+
+// expandShortAdminSkinProblemNotes rewrites thin problem-region notes to 5–8
+// separate sentences without inventing new visual claims. Best-effort; on
+// failure or failed verify the original note is kept.
+func expandShortAdminSkinProblemNotes(
+	ctx context.Context,
+	cfg *config.Config,
+	httpClient *http.Client,
+	model string,
+	in *dto.AdminSkinReviewAnalysis,
+	locale string,
+) (*dto.AdminSkinReviewAnalysis, error) {
+	if in == nil {
+		return nil, nil
+	}
+	type thinNote struct {
+		Index   int    `json:"index"`
+		Region  string `json:"region"`
+		Concern string `json:"concern"`
+		Note    string `json:"note"`
+	}
+	thin := make([]thinNote, 0)
+	for i, a := range in.AttentionAreas {
+		c := strings.ToLower(strings.TrimSpace(a.Concern))
+		if c == "" || c == "none" || c == "not_visible" {
+			continue
+		}
+		if countAdminSkinSentences(a.Note) >= 5 {
+			continue
+		}
+		thin = append(thin, thinNote{Index: i, Region: a.Region, Concern: a.Concern, Note: a.Note})
+	}
+	for i, a := range in.AttentionAreas {
+		c := strings.ToLower(strings.TrimSpace(a.Concern))
+		if c != "none" {
+			continue
+		}
+		if countAdminSkinSentences(a.Note) >= 3 {
+			continue
+		}
+		thin = append(thin, thinNote{Index: i, Region: a.Region, Concern: a.Concern, Note: a.Note})
+	}
+	if len(thin) == 0 {
+		return in, nil
 	}
 
+	thinJSON, err := json.Marshal(thin)
+	if err != nil {
+		return nil, err
+	}
+	lang := "Vietnamese"
+	if locale == "en" {
+		lang = "English"
+	}
+	user := "Thicken ONLY these Admin Skin Review notes by splitting packed ideas into SEPARATE short sentences " +
+		"(problem concern: 5–8; concern=none: 3–4). " +
+		"ONLY expand ideas already present in each note — do NOT invent new spot counts, locations, colors, marks, scars, or diagnoses. " +
+		"You may add soft hedges only as wording (not new facts): \"trông giống…\" / \"thường gặp khi…\" / \"không chắc 100% chỉ từ một ảnh\" " +
+		"(or English equivalents). Do not add \"chưa thấy X\" unless the original note already said that. No products, brands, routines, hard disease names. Locale: " + lang + ".\n\n" +
+		"Input notes JSON:\n" + string(thinJSON) + "\n\n" +
+		"Return JSON object: {\"notes\":[{\"index\":<int>,\"note\":\"...\"}, ...]} with the same indexes."
+
+	body := map[string]any{
+		"model":           model,
+		"temperature":     0.2,
+		"max_tokens":      2048,
+		"response_format": map[string]any{"type": "json_object"},
+		"messages": []map[string]any{
+			{
+				"role":    "system",
+				"content": "You thicken observation notes by splitting sentences. Only elaborate ideas already in the note. Never invent new skin findings. Never name brands or medicines.",
+			},
+			{"role": "user", "content": user},
+		},
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	headers := map[string]string{
+		"Authorization": "Bearer " + cfg.OpenAI.APIKey,
+		"Content-Type":  "application/json",
+	}
+	b, err := CallAIWithRetry(ctx, cfg, "openai-admin-skin-review-expand", func(ctx context.Context) ([]byte, error) {
+		return httpx.PostJSON(ctx, httpClient, "openai admin skin review expand", "https://api.openai.com/v1/chat/completions", headers, payload)
+	})
+	if err != nil {
+		return nil, err
+	}
 	var apiOut struct {
 		Choices []struct {
 			Message struct {
@@ -136,22 +356,108 @@ func AdminSkinReviewAnalyze(
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(b, &apiOut); err != nil {
-		return nil, "", fmt.Errorf("admin skin review: decode api response: %w", err)
+		return nil, err
 	}
 	if len(apiOut.Choices) == 0 {
-		return nil, "", fmt.Errorf("admin skin review: empty model response")
+		return nil, fmt.Errorf("admin skin review expand: empty")
 	}
-	raw := strings.TrimSpace(apiOut.Choices[0].Message.Content)
-	jsonBytes, err := ExtractJSONObject(raw)
+	rawObj, err := ExtractJSONObject(strings.TrimSpace(apiOut.Choices[0].Message.Content))
 	if err != nil {
-		return nil, "", fmt.Errorf("admin skin review: extract json: %w", err)
+		return nil, err
 	}
+	var patched struct {
+		Notes []struct {
+			Index int    `json:"index"`
+			Note  string `json:"note"`
+		} `json:"notes"`
+	}
+	if err := json.Unmarshal(rawObj, &patched); err != nil {
+		return nil, err
+	}
+	out := *in
+	out.AttentionAreas = append([]dto.AdminSkinAttentionArea(nil), in.AttentionAreas...)
+	kept, rejected := 0, 0
+	for _, n := range patched.Notes {
+		if n.Index < 0 || n.Index >= len(out.AttentionAreas) {
+			continue
+		}
+		original := out.AttentionAreas[n.Index].Note
+		note := strings.TrimSpace(n.Note)
+		if !acceptExpandedAdminSkinNote(original, note) {
+			rejected++
+			slog.Info("admin skin review expand: rejected rewrite, keeping original",
+				"region", out.AttentionAreas[n.Index].Region,
+				"concern", out.AttentionAreas[n.Index].Concern,
+			)
+			continue
+		}
+		out.AttentionAreas[n.Index].Note = note
+		kept++
+	}
+	slog.Info("admin skin review expand: verify done", "accepted", kept, "rejected", rejected)
+	return &out, nil
+}
 
-	parsed, err := parseAdminSkinReviewAnalysis(jsonBytes, locale)
-	if err != nil {
-		return nil, "", err
+// acceptExpandedAdminSkinNote returns true when rewritten note is safely thicker
+// than original and free of banned brand/med/jargon content.
+func acceptExpandedAdminSkinNote(original, expanded string) bool {
+	expanded = strings.TrimSpace(expanded)
+	original = strings.TrimSpace(original)
+	if expanded == "" {
+		return false
 	}
-	return parsed, model, nil
+	if adminSkinNoteHasBannedContent(expanded) {
+		return false
+	}
+	origSent := countAdminSkinSentences(original)
+	expSent := countAdminSkinSentences(expanded)
+	origLen := utf8.RuneCountInString(original)
+	expLen := utf8.RuneCountInString(expanded)
+
+	// Prefer more sentences; otherwise require meaningfully longer text (~15%+ or +24 chars).
+	thickerBySentences := expSent > origSent
+	thickerByLen := expLen >= origLen+24 || (origLen > 0 && expLen*100 >= origLen*115)
+	if !thickerBySentences && !thickerByLen {
+		return false
+	}
+	return true
+}
+
+func adminSkinNoteHasBannedContent(s string) bool {
+	// Avoid false positive: "không nên dùng/thoa/bôi …" is avoid-advice, not product pitch.
+	cleaned := adminSkinNegatedNênRe.ReplaceAllString(s, " ")
+	for _, re := range adminSkinExpandBanRes {
+		if re.MatchString(cleaned) {
+			return true
+		}
+	}
+	return false
+}
+
+func trimForLog(s string, max int) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
+}
+
+func countAdminSkinSentences(s string) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	parts := adminSkinSentenceSplitRe.Split(s, -1)
+	n := 0
+	for _, p := range parts {
+		if strings.TrimSpace(p) != "" {
+			n++
+		}
+	}
+	if n == 0 {
+		return 1
+	}
+	return n
 }
 
 func parseAdminSkinReviewAnalysis(raw []byte, locale string) (*dto.AdminSkinReviewAnalysis, error) {
@@ -189,6 +495,8 @@ func parseAdminSkinReviewAnalysis(raw []byte, locale string) (*dto.AdminSkinRevi
 			out.PhotoNotes = defaultClearPhotoNotes(locale)
 		}
 	}
+	out.PossibleCauses = dto.ClampAdminSkinStringList(out.PossibleCauses, 2)
+	out.SoothingTips = dto.ClampAdminSkinStringList(out.SoothingTips, 3)
 	out.NonDiagnostic = normalizeAdminDisclaimer(out.NonDiagnostic, locale)
 
 	areas := make([]dto.AdminSkinAttentionArea, 0, len(out.AttentionAreas))
@@ -200,7 +508,6 @@ func parseAdminSkinReviewAnalysis(raw []byte, locale string) (*dto.AdminSkinRevi
 		if severity == "" {
 			severity = "mild"
 		}
-		// Drop empty rows (no region + no note + generic concern).
 		if region == "other" && note == "" && concern == "other" {
 			continue
 		}
@@ -214,7 +521,6 @@ func parseAdminSkinReviewAnalysis(raw []byte, locale string) (*dto.AdminSkinRevi
 	out.AttentionAreas = areas
 	out.AttentionAreas = coerceNoseIfFaceCenterPresent(out.AttentionAreas, locale)
 
-	// Canonical response shape only.
 	out.OverallSeverity = ""
 	out.ExtraNotes = ""
 	out.DetailedFindings = ""
@@ -241,7 +547,16 @@ func coerceNoseIfFaceCenterPresent(areas []dto.AdminSkinAttentionArea, locale st
 	if noseIdx < 0 || !visible["forehead"] || !visible["cheeks"] || !visible["chin"] {
 		return areas
 	}
-	if strings.ToLower(areas[noseIdx].Concern) != "not_visible" {
+	noseConcern := strings.ToLower(areas[noseIdx].Concern)
+	noseNoteLow := strings.ToLower(areas[noseIdx].Note)
+	falselyOutside := noseConcern == "not_visible" ||
+		strings.Contains(noseNoteLow, "không thấy mũi") ||
+		strings.Contains(noseNoteLow, "không có trên ảnh") ||
+		strings.Contains(noseNoteLow, "ngoài khung") ||
+		strings.Contains(noseNoteLow, "not visible") ||
+		strings.Contains(noseNoteLow, "out of frame") ||
+		strings.Contains(noseNoteLow, "chụp đủ mặt mới nhận xét")
+	if !falselyOutside {
 		return areas
 	}
 	note := "Mũi nằm giữa trán–má–cằm trên ảnh này nên vẫn nhận xét được. Không thấy nốt sưng hay đỏ lan rõ ở sống mũi / cánh mũi. Bề mặt khá đều so với hai má. Đang yên hơn vùng đang nổi bên cạnh."
@@ -250,12 +565,7 @@ func coerceNoseIfFaceCenterPresent(areas []dto.AdminSkinAttentionArea, locale st
 	}
 	areas[noseIdx].Concern = "none"
 	areas[noseIdx].Severity = "mild"
-	if strings.TrimSpace(areas[noseIdx].Note) == "" || strings.Contains(strings.ToLower(areas[noseIdx].Note), "ngoài khung") ||
-		strings.Contains(strings.ToLower(areas[noseIdx].Note), "không có trên ảnh") ||
-		strings.Contains(strings.ToLower(areas[noseIdx].Note), "not visible") ||
-		strings.Contains(strings.ToLower(areas[noseIdx].Note), "out of frame") {
-		areas[noseIdx].Note = note
-	}
+	areas[noseIdx].Note = note
 	return areas
 }
 
@@ -294,7 +604,6 @@ func normalizeAdminSkinType(v string) string {
 	}
 }
 
-// normalizeAdminSeverityLevel returns mild|moderate|pronounced (no "clear").
 func normalizeAdminSeverityLevel(v string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "mild", "moderate", "pronounced":
@@ -354,7 +663,6 @@ func normalizeAdminRegion(v string) string {
 		if trimmed == "" {
 			return "other"
 		}
-		// Preserve free-text region labels for display when model doesn't use enums.
 		return trimmed
 	}
 }
@@ -365,7 +673,7 @@ func normalizeAdminDisclaimer(s, locale string) string {
 		return s
 	}
 	if locale == "en" {
-		return "Observation from photos only — not a medical diagnosis."
+		return "Observation from photos only — not a doctor visit or medical diagnosis."
 	}
-	return "Chỉ là nhận xét từ ảnh, không phải chẩn đoán y khoa."
+	return "Chỉ quan sát từ ảnh thôi, không thay khám bác sĩ hay chẩn đoán y khoa."
 }

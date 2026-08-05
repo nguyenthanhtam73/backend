@@ -146,6 +146,7 @@ func parseCoachStructuredOutput(text, label string) (*CoachStructuredOutput, err
 		return nil, fmt.Errorf("%s: parse json: %w", label, err)
 	}
 	out.ProductSuggestions = SanitizeProductSuggestions(out.ProductSuggestions)
+	NormalizeCareSuggestions(&out)
 	LogCoachOutput(label, "", &out)
 	return &out, nil
 }
