@@ -219,6 +219,28 @@ func (s *Service) Patch(
 		req.Answer = &a
 	}
 
+	// Public rows must keep the Q⇒A invariant (drafts may have question before answer).
+	existing, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return zero, err
+	}
+	if existing == nil {
+		return zero, ErrNotFound
+	}
+	if existing.IsPublic {
+		nextQ := existing.UserQuestion
+		nextA := existing.Answer
+		if req.UserQuestion != nil {
+			nextQ = *req.UserQuestion
+		}
+		if req.Answer != nil {
+			nextA = *req.Answer
+		}
+		if err := requireAnswerIfQuestion(nextQ, nextA); err != nil {
+			return zero, err
+		}
+	}
+
 	row, err := s.repo.UpdateMeta(ctx, id, req.Title, req.Notes, req.UserQuestion, req.Answer, req.Status)
 	if err != nil {
 		return zero, err
@@ -296,6 +318,9 @@ func (s *Service) Publish(ctx context.Context, id uuid.UUID) (dto.AdminSkinRevie
 	}
 	if row == nil {
 		return zero, ErrNotFound
+	}
+	if err := requireAnswerIfQuestion(row.UserQuestion, row.Answer); err != nil {
+		return zero, err
 	}
 
 	slug := strings.TrimSpace(row.PublicSlug)
@@ -503,4 +528,13 @@ func clampAdminSkinText(raw string, maxRunes int) (string, error) {
 		return "", fmt.Errorf("%w: text exceeds %d characters", ErrInvalidInput, maxRunes)
 	}
 	return s, nil
+}
+
+// requireAnswerIfQuestion enforces: public FB question must ship with a reply.
+// Drafts may store a question alone until the admin drafts/saves an answer.
+func requireAnswerIfQuestion(userQuestion, answer string) error {
+	if strings.TrimSpace(userQuestion) != "" && strings.TrimSpace(answer) == "" {
+		return fmt.Errorf("%w: answer required when user_question is set", ErrInvalidInput)
+	}
+	return nil
 }
