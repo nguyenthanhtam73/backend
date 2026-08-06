@@ -59,4 +59,7 @@ package ai
 // care checklist after check-in. Richer than public Admin Skin Review soothing_tips; must NOT
 // be copied to /share/skin-review. Stored in skin_scores.care_suggestions. Full AI
 // /routines/suggest remains separately Premium/quota-gated.
-const CoachDailyPromptVersion = 25
+//
+// v26 (2026-08-06) — Confident conclusions on clear photo/tag cues; less hedge spam
+// (“không chắc 100% / có thể là / nghi…”); keep tao/mày tart buddy voice + care_suggestions.
+const CoachDailyPromptVersion = 26

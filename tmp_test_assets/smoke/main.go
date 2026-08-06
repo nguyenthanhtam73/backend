@@ -105,6 +105,14 @@ func main() {
 	}
 	printLen("additional_observations", analysis.AdditionalObservations)
 	printLen("photo_notes", analysis.PhotoNotes)
+	fmt.Printf("possible_causes: %d items\n", len(analysis.PossibleCauses))
+	for i, c := range analysis.PossibleCauses {
+		fmt.Printf("  [%d] %s\n", i, c)
+	}
+	fmt.Printf("soothing_tips: %d items\n", len(analysis.SoothingTips))
+	for i, tip := range analysis.SoothingTips {
+		fmt.Printf("  [%d] %s\n", i, tip)
+	}
 	printLen("non_diagnostic", analysis.NonDiagnostic)
 
 	fmt.Println("\n=== LENGTH FLOOR CHECKLIST ===")
@@ -114,8 +122,14 @@ func main() {
 	for i, a := range analysis.AttentionAreas {
 		min := 3
 		label := fmt.Sprintf("attention_areas[%d].note (%s/%s)", i, a.Region, a.Concern)
-		if a.Concern != "none" {
-			min = 3 // problem notes ≥3 (target 3–5)
+		c := strings.ToLower(strings.TrimSpace(a.Concern))
+		switch c {
+		case "not_visible":
+			min = 1
+		case "none":
+			min = 3
+		default:
+			min = 5 // problem notes 5–8
 		}
 		fail = checkFloor(label, a.Note, min) || fail
 	}
@@ -125,6 +139,56 @@ func main() {
 		fmt.Println("LENGTH CHECK: FAIL")
 	} else {
 		fmt.Println("LENGTH CHECK: PASS")
+	}
+
+	fmt.Println("\n=== DEPTH CHECKLIST (confident morphology / low hedge / accompanying) ===")
+	confidentRe := regexp.MustCompile(`(?i)đây là|mày đang|trông đúng kiểu|mụn viêm|mụn có mủ|mụn bọc|mụn cồi|this is|inflammatory|pustule|comedone`)
+	hedgeSpamRe := regexp.MustCompile(`(?i)không chắc 100%|chưa chắc|trên ảnh nghi|đôi khi liên quan|có thể là|thường gặp khi`)
+	accRe := regexp.MustCompile(`(?i)thâm|bóng|khô|sần|lỗ chân lông|ửng đỏ|dark mark|shiny|dry|uneven|pore`)
+	diagHardRe := regexp.MustCompile(`(?i)bạn bị viêm nang lông|cystic acne giai đoạn|chẩn đoán là|you have folliculitis|diagnosed as`)
+	depthFail := false
+	hasConfident := confidentRe.MatchString(analysis.Overview)
+	hasHedgeSpam := hedgeSpamRe.MatchString(allUserText(analysis))
+	hasAcc := accRe.MatchString(analysis.AdditionalObservations)
+	for _, a := range analysis.AttentionAreas {
+		c := strings.ToLower(strings.TrimSpace(a.Concern))
+		if c == "" || c == "none" || c == "not_visible" {
+			continue
+		}
+		if confidentRe.MatchString(a.Note) {
+			hasConfident = true
+		}
+		if accRe.MatchString(a.Note) {
+			hasAcc = true
+		}
+	}
+	printBoolCheck("confident morphology (Đây là… / mụn viêm…)", hasConfident, &depthFail)
+	printBoolCheck("no hedge spam (không chắc 100%…)", !hasHedgeSpam, &depthFail)
+	printBoolCheck("accompanying signs (thâm/bóng/sần…)", hasAcc, &depthFail)
+	printBoolCheck("no hard diagnosis lock-in", !diagHardRe.MatchString(allUserText(analysis)), &depthFail)
+	voiceRe := regexp.MustCompile(`(?i)\btao\b|\bmày\b`)
+	mainVoice := analysis.Overview + " " + analysis.SkinTypeNote
+	for _, a := range analysis.AttentionAreas {
+		if strings.ToLower(strings.TrimSpace(a.Concern)) == "not_visible" {
+			continue
+		}
+		mainVoice += " " + a.Note
+	}
+	printBoolCheck("tao/mày voice in main prose", voiceRe.MatchString(mainVoice), &depthFail)
+	causesOK := len(analysis.PossibleCauses) >= 1 && len(analysis.PossibleCauses) <= 2
+	tipsOK := len(analysis.SoothingTips) >= 2 && len(analysis.SoothingTips) <= 3
+	publicText := strings.Join(append(append([]string{}, analysis.PossibleCauses...), analysis.SoothingTips...), "\n")
+	brandMedRe := regexp.MustCompile(`(?i)\b(retinol|BHA|AHA|benzoyl|antibiotic|kháng sinh|la roche|cerave|the ordinary)\b|routine sáng|routine tối|hết mụn`)
+	printBoolCheck("possible_causes 1–2", causesOK, &depthFail)
+	printBoolCheck("soothing_tips 2–3", tipsOK, &depthFail)
+	printBoolCheck("public blocks no brand/med/long routine", !brandMedRe.MatchString(publicText), &depthFail)
+	dermRe := regexp.MustCompile(`(?i)khám da|khám chuyên khoa|dermatologist`)
+	fmt.Printf("[INFO] derm_tip_present=%v\n", dermRe.MatchString(publicText))
+	if depthFail {
+		fail = true
+		fmt.Println("DEPTH CHECK: FAIL")
+	} else {
+		fmt.Println("DEPTH CHECK: PASS")
 	}
 
 	fmt.Println("\n=== COVERAGE / VISUAL CHECKLIST ===")
@@ -189,6 +253,41 @@ func checkFloor(name, s string, min int) bool {
 	}
 	fmt.Printf("[%s] %s: %d sentences (min %d)\n", status, name, n, min)
 	return !ok
+}
+
+func printBoolCheck(name string, ok bool, fail *bool) {
+	status := "OK"
+	if !ok {
+		status = "FAIL"
+		*fail = true
+	}
+	fmt.Printf("[%s] %s\n", status, name)
+}
+
+func allUserText(a *dto.AdminSkinReviewAnalysis) string {
+	var b strings.Builder
+	b.WriteString(a.Overview)
+	b.WriteString("\n")
+	b.WriteString(a.SkinTypeNote)
+	b.WriteString("\n")
+	b.WriteString(a.AdditionalObservations)
+	b.WriteString("\n")
+	b.WriteString(a.PhotoNotes)
+	b.WriteString("\n")
+	b.WriteString(a.NonDiagnostic)
+	for _, area := range a.AttentionAreas {
+		b.WriteString("\n")
+		b.WriteString(area.Note)
+	}
+	for _, s := range a.PossibleCauses {
+		b.WriteString("\n")
+		b.WriteString(s)
+	}
+	for _, s := range a.SoothingTips {
+		b.WriteString("\n")
+		b.WriteString(s)
+	}
+	return b.String()
 }
 
 func callOpenAIRaw(ctx context.Context, cfg *config.Config, data []byte, locale string) (string, error) {
@@ -296,6 +395,12 @@ func jargonHits(a *dto.AdminSkinReviewAnalysis) []string {
 	for i, area := range a.AttentionAreas {
 		fields = append(fields, field{fmt.Sprintf("attention_areas[%d].note", i), area.Note})
 	}
+	for i, s := range a.PossibleCauses {
+		fields = append(fields, field{fmt.Sprintf("possible_causes[%d]", i), s})
+	}
+	for i, s := range a.SoothingTips {
+		fields = append(fields, field{fmt.Sprintf("soothing_tips[%d]", i), s})
+	}
 	var hits []string
 	seen := map[string]bool{}
 	for _, f := range fields {
@@ -347,12 +452,30 @@ func banHits(a *dto.AdminSkinReviewAnalysis) []string {
 			field{fmt.Sprintf("attention_areas[%d].note", i), area.Note},
 		)
 	}
+	for i, s := range a.PossibleCauses {
+		fields = append(fields, field{fmt.Sprintf("possible_causes[%d]", i), s})
+	}
+	// Public tips may say “đừng thử nhiều sản phẩm mới” — ban brands/meds/AM-PM only.
+	tipBan := []string{
+		`(?i)\b(retinol|BHA|AHA|benzoyl|antibiotic)\b`,
+		`kháng sinh`, `(?i)la roche`, `(?i)cerave`, `(?i)the ordinary`,
+		`routine sáng`, `routine tối`, `nên thoa`, `nên bôi`, `hết mụn`,
+	}
 	var hits []string
 	for _, f := range fields {
 		for _, p := range patterns {
 			re := regexp.MustCompile(p)
 			if m := re.FindString(f.text); m != "" {
 				hits = append(hits, fmt.Sprintf("%s contains %q (pattern %s)", f.name, m, p))
+			}
+		}
+	}
+	for i, s := range a.SoothingTips {
+		name := fmt.Sprintf("soothing_tips[%d]", i)
+		for _, p := range tipBan {
+			re := regexp.MustCompile(p)
+			if m := re.FindString(s); m != "" {
+				hits = append(hits, fmt.Sprintf("%s contains %q (pattern %s)", name, m, p))
 			}
 		}
 	}

@@ -22,8 +22,8 @@ func TestPrintOnboardingPlainLanguageSamples(t *testing.T) {
 			AcneStatus:      "inflammatory_acne",
 			OilinessLevel:   "high",
 		},
-		DetailedObservations: "Trán bóng rõ hơn má. Cằm có khoảng 4–5 nốt đỏ nhỏ. Má hơi không đều màu, có vài đốm thâm nhẹ. Mũi lộ lỗ chân lông to. Da nhìn hơi sần ở vùng chữ T.",
-		MainConcerns:         []string{"nốt đỏ", "thâm", "lỗ chân lông to"},
+		DetailedObservations: "Trán mày bóng rõ hơn má. Cằm đang có khoảng 4–5 nốt đỏ nhỏ kiểu mụn viêm. Má hơi không đều màu, xen vài đốm thâm nhẹ. Mũi lộ lỗ chân lông to. Da hơi sần ở trán–mũi–cằm.",
+		MainConcerns:         []string{"mụn viêm", "thâm", "lỗ chân lông to"},
 		SkinTone:             "medium",
 		Undertone:            "warm",
 		PhotoQuality:         "good",
@@ -47,7 +47,7 @@ func TestPrintOnboardingPlainLanguageSamples(t *testing.T) {
 
 	// Goal-only path: no photos — emulate short coach-style note from friendly labels.
 	goalOnly := fmt.Sprintf(
-		"Bạn chọn mục tiêu làm dịu / da dễ kích ứng, quan tâm %s và %s.\n\nBắt đầu đơn giản: rửa mặt dịu + kem dưỡng + kem chống nắng buổi sáng.",
+		"Mày chọn mục tiêu làm dịu / da dễ kích ứng, quan tâm %s và %s.\n\nBắt đầu đơn giản: rửa mặt dịu + kem dưỡng + kem chống nắng buổi sáng.",
 		friendlyConcern("redness", "vi"),
 		friendlyConcern("dryness", "vi"),
 	)

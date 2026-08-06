@@ -27,7 +27,7 @@ type AdminSkinReviewAnalysis struct {
 	AttentionAreas         []AdminSkinAttentionArea `json:"attention_areas"`
 	AdditionalObservations string                   `json:"additional_observations"`
 	PhotoNotes             string                   `json:"photo_notes"`
-	// PossibleCauses: 1–2 soft non-certain causes for public share.
+	// PossibleCauses: 1–2 direct public causes (no hedge closers like “không chắc 100%”).
 	PossibleCauses []string `json:"possible_causes"`
 	// SoothingTips: 2–3 gentle avoid/do tips for public share (no brands/meds).
 	SoothingTips  []string `json:"soothing_tips"`

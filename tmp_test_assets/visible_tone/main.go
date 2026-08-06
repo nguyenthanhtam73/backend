@@ -379,6 +379,12 @@ func checkFaceWithSpots(a *dto.AdminSkinReviewAnalysis) []checkRow {
 
 	problemOK := false
 	var problemDetail string
+	confidentOK := false
+	hedgeSpam := false
+	thickOK := false
+	var thickDetail string
+	confidentRe := regexp.MustCompile(`(?i)đây là|mày đang|trông đúng kiểu|mụn viêm|mụn có mủ|mụn bọc|mụn cồi`)
+	hedgeSpamRe := regexp.MustCompile(`(?i)không chắc 100%|chưa chắc|trên ảnh nghi|đôi khi liên quan|có thể là|thường gặp khi`)
 	for _, area := range a.AttentionAreas {
 		c := strings.ToLower(strings.TrimSpace(area.Concern))
 		if c == "" || c == "none" || c == "not_visible" {
@@ -388,14 +394,32 @@ func checkFaceWithSpots(a *dto.AdminSkinReviewAnalysis) []checkRow {
 		if hasConcreteSpotDetail(note) {
 			problemOK = true
 			problemDetail = fmt.Sprintf("%s/%s: %s", area.Region, area.Concern, compact(note, 70))
-			break
+		} else if problemDetail == "" {
+			problemDetail = fmt.Sprintf("%s/%s lacks count/color/location: %s", area.Region, area.Concern, compact(note, 70))
 		}
-		problemDetail = fmt.Sprintf("%s/%s lacks count/color/location: %s", area.Region, area.Concern, compact(note, 70))
+		if confidentRe.MatchString(note) || confidentRe.MatchString(a.Overview) {
+			confidentOK = true
+		}
+		if hedgeSpamRe.MatchString(note) || hedgeSpamRe.MatchString(a.Overview) {
+			hedgeSpam = true
+		}
+		nSent := countSentences(note)
+		if nSent >= 5 {
+			thickOK = true
+			thickDetail = fmt.Sprintf("%s/%s: %d câu", area.Region, area.Concern, nSent)
+		} else if thickDetail == "" {
+			thickDetail = fmt.Sprintf("%s/%s only %d câu (need ≥5)", area.Region, area.Concern, nSent)
+		}
 	}
 	if !problemOK && problemDetail == "" {
 		problemDetail = "no attention_area with concern != none/not_visible"
 	}
 	rows = append(rows, row("face_with_spots", "B.problem_region_concrete", problemOK, problemDetail))
+	rows = append(rows, row("face_with_spots", "B.confident_morphology", confidentOK, "need Đây là… / mụn viêm…"))
+	rows = append(rows, row("face_with_spots", "B.no_hedge_spam", !hedgeSpam, "ban không chắc 100%… / nghi…"))
+	rows = append(rows, row("face_with_spots", "B.problem_note_thick", thickOK, thickDetail))
+	ovOK := countSentences(a.Overview) >= 4
+	rows = append(rows, row("face_with_spots", "B.overview_4plus", ovOK, fmt.Sprintf("%d câu", countSentences(a.Overview))))
 
 	senHits := senPhraseHits(a)
 	rows = append(rows, row("face_with_spots", "B.no_sen_phrases", len(senHits) == 0, joinHits(senHits)))

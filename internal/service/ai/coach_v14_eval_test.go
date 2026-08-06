@@ -29,9 +29,9 @@ func TestCoachPrompt_v24_SarcasticBuddyTone(t *testing.T) {
 	}
 }
 
-func TestCoachPromptVersion_v25(t *testing.T) {
-	if CoachDailyPromptVersion != 25 {
-		t.Fatalf("expected CoachDailyPromptVersion == 25, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v26(t *testing.T) {
+	if CoachDailyPromptVersion != 26 {
+		t.Fatalf("expected CoachDailyPromptVersion == 26, got %d", CoachDailyPromptVersion)
 	}
 }
 

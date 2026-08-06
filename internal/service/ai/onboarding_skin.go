@@ -248,15 +248,15 @@ func fallbackOnboardingCoachingNotes(vision *dto.OnboardingSkinAnalyzeResponse, 
 	}
 	p1 := obs
 	if p1 == "" {
-		p1 = "Ảnh hơi khó nhìn chi tiết — có thể do ánh sáng hoặc góc chụp."
+		p1 = "Ảnh hơi khó nhìn chi tiết — ánh sáng hoặc góc chụp đang làm tao đọc kém."
 	} else if !strings.HasPrefix(strings.ToLower(p1), "trên ảnh") {
-		p1 = "Trên ảnh mình thấy: " + p1
+		p1 = "Trên ảnh tao thấy: " + p1
 	}
 	skin := strings.TrimPrefix(friendlySkinType(vision.SkinTypeGuess, locale), "da ")
 	tone := friendlyUndertone(vision.UndertoneGuess, locale)
 	concern := friendlyConcern(primaryConcern, locale)
-	p2 := fmt.Sprintf("Tóm lại da bạn có vẻ %s, %s — vấn đề chính là %s.", skin, tone, concern)
-	p3 := "Đây chỉ là đọc nhẹ từ ảnh thôi — chỉnh lại nếu không khớp cảm nhận của bạn nhé."
+	p2 := fmt.Sprintf("Tóm lại da mày đang %s, %s — vấn đề chính là %s.", skin, tone, concern)
+	p3 := "Đây chỉ là đọc từ ảnh thôi — mày cứ chỉnh lại nếu không khớp cảm nhận nhé."
 	p4 := fmt.Sprintf("Bắt đầu đơn giản: rửa dịu + dưỡng ẩm + kem chống nắng buổi sáng; ưu tiên xử lý %s trước.", concern)
 	return strings.Join([]string{p1, p2, p3, p4}, "\n\n")
 }

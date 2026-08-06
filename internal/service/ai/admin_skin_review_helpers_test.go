@@ -34,7 +34,7 @@ func TestAdminSkinEmptyOrRefused(t *testing.T) {
 func TestAcceptExpandedAdminSkinNote(t *testing.T) {
 	t.Parallel()
 	orig := "Má có vài nốt đỏ sưng. Màu đỏ nhẹ."
-	good := "Má trông giống cụm nốt đỏ sưng. Khoảng vài hạt hơi nổi gần giữa má. Màu đỏ nhẹ, mức vừa. Chưa thấy đầu trắng rõ. Thường gặp khi dầu + bít tắc. Không chắc 100% chỉ từ một ảnh."
+	good := "Má mày đang có cụm mụn viêm đỏ sưng. Khoảng vài hạt hơi nổi gần giữa má. Màu đỏ nhẹ, mức vừa. Chưa thấy đầu trắng rõ. Đây đúng kiểu dầu bít tắc tại chỗ. Má đang đỏ rõ đó."
 	if !acceptExpandedAdminSkinNote(orig, good) {
 		t.Fatal("expected thicker clean rewrite to be accepted")
 	}
@@ -53,9 +53,42 @@ func TestAcceptExpandedAdminSkinNote(t *testing.T) {
 	if acceptExpandedAdminSkinNote(orig, "") {
 		t.Fatal("empty rewrite must be rejected")
 	}
-	avoidAdvice := "Má trông giống cụm nốt đỏ sưng. Khoảng vài hạt hơi nổi gần giữa má. Màu đỏ nhẹ, mức vừa. Không nên dùng tay bẩn chạm mặt. Thường gặp khi dầu + bít tắc. Không chắc 100% chỉ từ một ảnh."
+	avoidAdvice := "Má mày đang có cụm mụn viêm đỏ sưng. Khoảng vài hạt hơi nổi gần giữa má. Màu đỏ nhẹ, mức vừa. Không nên dùng tay bẩn chạm mặt. Đây đúng kiểu dầu bít tắc tại chỗ. Má đang đỏ rõ đó."
 	if !acceptExpandedAdminSkinNote(orig, avoidAdvice) {
 		t.Fatal("không nên dùng (avoid advice) must not false-positive ban")
+	}
+
+	// New hedge phrases must be rejected (full phrases only).
+	withHedge := good + " Không chắc 100% chỉ từ một ảnh."
+	if acceptExpandedAdminSkinNote(orig, withHedge) {
+		t.Fatal("new 'không chắc 100%' hedge must be rejected")
+	}
+	withNghi := "Má mày đang có cụm mụn viêm. Khoảng vài hạt hơi nổi gần giữa má. Màu đỏ nhẹ. Trên ảnh nghi dầu bít. Đây đúng kiểu kích ứng tại chỗ. Má đang đỏ rõ đó."
+	if acceptExpandedAdminSkinNote(orig, withNghi) {
+		t.Fatal("new 'trên ảnh nghi' hedge must be rejected")
+	}
+	withDoiKhi := "Má mày đang có cụm mụn viêm. Khoảng vài hạt hơi nổi gần giữa má. Màu đỏ nhẹ. Đôi khi liên quan cọ xát. Đây đúng kiểu dầu bít. Má đang đỏ rõ đó."
+	if acceptExpandedAdminSkinNote(orig, withDoiKhi) {
+		t.Fatal("new 'đôi khi liên quan' hedge must be rejected")
+	}
+	withChuaChac := "Má mày đang có cụm mụn viêm. Khoảng vài hạt hơi nổi gần giữa má. Màu đỏ nhẹ, chưa chắc đầu trắng. Đây đúng kiểu dầu bít. Má đang đỏ rõ đó."
+	if acceptExpandedAdminSkinNote(orig, withChuaChac) {
+		t.Fatal("new 'chưa chắc' hedge must be rejected")
+	}
+	// Bare "có thể" / "nghi" alone must NOT false-positive.
+	withCoThe := "Má mày đang có cụm mụn viêm. Khoảng vài hạt hơi nổi gần giữa má. Màu đỏ nhẹ. Crop hẹp nên mật độ có thể trông dày hơn. Đây đúng kiểu dầu bít. Má đang đỏ rõ đó."
+	if !acceptExpandedAdminSkinNote(orig, withCoThe) {
+		t.Fatal("bare 'có thể' must not false-positive hedge ban")
+	}
+	withCoTheLa := "Má mày đang có cụm mụn viêm. Khoảng vài hạt hơi nổi gần giữa má. Màu đỏ nhẹ. Có thể là dầu bít tắc. Đây đúng kiểu kích ứng tại chỗ. Má đang đỏ rõ đó."
+	if acceptExpandedAdminSkinNote(orig, withCoTheLa) {
+		t.Fatal("new 'có thể là' hedge must be rejected")
+	}
+	// Preserving a hedge already in the original is allowed (not newly added).
+	origWithHedge := "Má có vài nốt đỏ sưng. Không chắc 100% chỉ từ một ảnh."
+	preserve := "Má mày đang có cụm mụn viêm đỏ sưng. Khoảng vài hạt hơi nổi gần giữa má. Màu đỏ nhẹ, mức vừa. Không chắc 100% chỉ từ một ảnh. Đây đúng kiểu dầu bít tắc tại chỗ."
+	if !acceptExpandedAdminSkinNote(origWithHedge, preserve) {
+		t.Fatal("preserving original hedge phrase should still accept thicker rewrite")
 	}
 }
 

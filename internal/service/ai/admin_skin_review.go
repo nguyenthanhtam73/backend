@@ -28,6 +28,15 @@ var adminSkinExpandBanRes = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)sản phẩm chăm sóc da`),
 }
 
+// Full hedge phrases banned when newly introduced by expand (not bare "có thể"/"nghi").
+var adminSkinExpandHedgeRes = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)không\s+chắc\s+100%`),
+	regexp.MustCompile(`(?i)trên\s+ảnh\s+nghi`),
+	regexp.MustCompile(`(?i)đôi\s+khi\s+liên\s+quan`),
+	regexp.MustCompile(`(?i)chưa\s+chắc`),
+	regexp.MustCompile(`(?i)có\s+thể\s+là`),
+}
+
 // Strip negated "không nên …" before ban matching so "không nên dùng tay bẩn" is not treated as product advice.
 var adminSkinNegatedNênRe = regexp.MustCompile(`(?i)không\s+nên\s+(dùng|thoa|bôi)`)
 
@@ -90,6 +99,7 @@ func AdminSkinReviewAnalyze(
 	}
 
 	// Attempt 1 — full prompt.
+	usedCompact := false
 	raw, meta, err := callAdminSkinReviewVision(ctx, cfg, httpClient, model, AdminSkinReviewSystemPrompt(), adminSkinReviewUserText(locale, false), imageParts, "openai-admin-skin-review")
 	if err != nil {
 		return nil, "", err
@@ -114,6 +124,7 @@ func AdminSkinReviewAnalyze(
 			"content_len", len(raw2),
 		)
 		raw = raw2
+		usedCompact = true
 	} else {
 		slog.Info("admin skin review: attempt 1 ok", "content_len", len(raw))
 	}
@@ -133,19 +144,68 @@ func AdminSkinReviewAnalyze(
 	if expanded, expErr := expandShortAdminSkinProblemNotes(ctx, cfg, httpClient, model, parsed, locale); expErr == nil && expanded != nil {
 		parsed = expanded
 	}
+	if usedCompact {
+		thinRegions := adminSkinThinProblemRegions(parsed)
+		ovSent := countAdminSkinSentences(parsed.Overview)
+		if len(thinRegions) > 0 || ovSent < 4 {
+			slog.Warn("admin skin review: compact retry produced thin analysis",
+				"overview_sentences", ovSent,
+				"thin_problem_regions", thinRegions,
+			)
+			if ovSent < 3 || len(thinRegions) > 0 && adminSkinAllProblemNotesThin(parsed) {
+				return nil, "", fmt.Errorf("admin skin review: nhận xét quá ngắn sau khi AI từ chối ảnh (compact retry). Thử ảnh rõ hơn, đủ sáng, hoặc chụp lại vùng da")
+			}
+		}
+	}
 	return parsed, model, nil
 }
 
+// adminSkinThinProblemRegions lists visible problem regions whose notes are under 5 sentences.
+func adminSkinThinProblemRegions(a *dto.AdminSkinReviewAnalysis) []string {
+	if a == nil {
+		return nil
+	}
+	var out []string
+	for _, ar := range a.AttentionAreas {
+		c := strings.ToLower(strings.TrimSpace(ar.Concern))
+		if c == "" || c == "none" || c == "not_visible" {
+			continue
+		}
+		if countAdminSkinSentences(ar.Note) < 5 {
+			out = append(out, ar.Region+"/"+ar.Concern)
+		}
+	}
+	return out
+}
+
+func adminSkinAllProblemNotesThin(a *dto.AdminSkinReviewAnalysis) bool {
+	if a == nil {
+		return true
+	}
+	n := 0
+	for _, ar := range a.AttentionAreas {
+		c := strings.ToLower(strings.TrimSpace(ar.Concern))
+		if c == "" || c == "none" || c == "not_visible" {
+			continue
+		}
+		n++
+		if countAdminSkinSentences(ar.Note) >= 5 {
+			return false
+		}
+	}
+	return n > 0
+}
+
 func adminSkinReviewUserText(locale string, compact bool) string {
-	langHead := "**Output locale: Vietnamese (vi).** Xưng tao/mày — thẳng, đanh đá, chanh chua, không tục, không nịnh, không mình/bạn. Overview 4–6 câu chỗ nổi bật, không copy lặp sang note+additional. Có thâm nông → nói thâm rất nhẹ/thâm nông; CẤM “không thấy thâm” nếu ảnh có dấu. Close-up: chỉ vùng thấy; ngoài khung = not_visible + 1 câu ngắn. Full face: đủ trán+má+cằm thì phải nhận xét mũi. Giữ trông giống…, thường gặp khi…, không chắc 100%. possible_causes 1–2; soothing_tips 2–3 (không brand/thuốc/routine; khám da chỉ khi ổ to/đau/kéo dài)."
+	langHead := "**Output locale: Vietnamese (vi).** Xưng tao/mày — thẳng, đanh đá, chanh chua, tự tin trên dấu hiệu rõ, không tục, không nịnh, không mình/bạn. Overview 4–6 câu chỗ nổi bật, không copy lặp sang note+additional. Ảnh rõ → nói thẳng “Đây là… / Má mày đang… / Trông đúng kiểu…”; gọi tên nhóm (mụn viêm / có mủ / bọc / cồi) khi đủ dấu. CẤM nhồi “không chắc 100%…/chưa chắc/trên ảnh nghi…/đôi khi liên quan…/có thể là…” khi ảnh rõ. Có thâm nông → nói thâm rất nhẹ/thâm nông; CẤM “không thấy thâm” nếu ảnh có dấu. Close-up: chỉ vùng thấy; ngoài khung = not_visible + 1 câu ngắn; skin_type_note: “Chỉ thấy má — chưa đủ chốt loại da cả mặt”. Full face: đủ trán+má+cằm thì phải nhận xét mũi. possible_causes 1–2 câu trực tiếp (không hedge cuối câu); soothing_tips 2–3 (không brand/thuốc/routine; khám da chỉ khi ổ to/đau/kéo dài)."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Best-friend tart voice (I/you), photo facts only — no fluff, no scolding insults. Info-dense overview without repeating the same shine/pores/bumps across notes. If faint marks exist say “very light PIH / shallow marks” — never “no dark marks” when marks exist. Close-up: visible only; others not_visible + 1 short sentence. Full face: review nose when forehead+cheeks+chin visible. possible_causes 1–2; soothing_tips 2–3 (no brands/meds/AM-PM); derm tip only if large/painful/lasting."
+		langHead = "**Output locale: English (en).** Best-friend tart voice (I/you), confident on clear photo facts — no fluff, no scolding insults, no hedge spam when signs are clear. Name morphology groups when clear (inflammatory bumps / pustules / cysts / comedones). Info-dense overview without repeating the same shine/pores/bumps across notes. If faint marks exist say “very light PIH / shallow marks” — never “no dark marks” when marks exist. Close-up: visible only; others not_visible + 1 short sentence; skin_type_note once that crop isn’t enough for full-face type. Full face: review nose when forehead+cheeks+chin visible. possible_causes 1–2 direct; soothing_tips 2–3 (no brands/meds/AM-PM); derm tip only if large/painful/lasting."
 	}
 	if compact {
 		if locale == "en" {
-			langHead = "**Output locale: English (en).** Short retry. Tart best-friend voice. Observations-first. possible_causes 1–2; soothing_tips 2–3. Close-up: visible only; others not_visible 1 sentence. No false “no dark marks”."
+			langHead = "**Output locale: English (en).** Short retry. Tart best-friend voice, confident on clear facts. Observations-first. possible_causes 1–2 direct; soothing_tips 2–3. Close-up: visible only; others not_visible 1 sentence. No false “no dark marks”. No hedge spam."
 		} else {
-			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Xưng tao/mày, đanh đá không tục. Observations-first. possible_causes 1–2; soothing_tips 2–3. Close-up: chỉ vùng thấy; ngoài khung not_visible 1 câu. Có thâm nông thì nói thâm nhẹ — cấm “không thấy thâm”."
+			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Xưng tao/mày, đanh đá không tục, tự tin trên dấu rõ. Observations-first. Gọi tên nhóm khi đủ dấu. CẤM nhồi hedge. possible_causes 1–2 trực tiếp; soothing_tips 2–3. Close-up: chỉ vùng thấy; ngoài khung not_visible 1 câu. Có thâm nông thì nói thâm nhẹ — cấm “không thấy thâm”."
 		}
 		return langHead + "\n\n" + AdminSkinReviewCompactJSONSchemaBlock +
 			"\n\nReview the attached skin photo(s). Return one JSON object only. Match THIS photo."
@@ -317,10 +377,11 @@ func expandShortAdminSkinProblemNotes(
 		lang = "English"
 	}
 	user := "Thicken ONLY these Admin Skin Review notes by splitting packed ideas into SEPARATE short sentences " +
-		"(problem concern: 5–8; concern=none: 3–4). Keep tao/mày voice. " +
-		"ONLY expand ideas already present in each note — do NOT invent new spot counts, locations, colors, marks, scars, or diagnoses. " +
-		"FIRST sentence of a problem note MUST keep or add soft morphology: \"trông giống…\" / \"trên ảnh nghi…\". " +
-		"You may add soft hedges only as wording (not new facts): \"thường gặp khi…\" / \"không chắc 100% chỉ từ một ảnh\". " +
+		"(problem concern: 5–8; concern=none: 3–4). Keep tao/mày voice, confident on clear facts. " +
+		"ONLY expand ideas already present in each note — do NOT invent new spot counts, locations, colors, marks, scars, or disease names. " +
+		"FIRST sentence of a problem note should stay/get confident: \"Má mày đang…\" / \"Đây là…\" / \"Trông đúng kiểu…\". " +
+		"Keep morphology group names if already present (mụn viêm / mụn có mủ / mụn bọc / mụn cồi). " +
+		"Do NOT add hedge spam: \"không chắc 100%…\", \"chưa chắc\", \"trên ảnh nghi…\", \"đôi khi liên quan…\", \"có thể là…\". " +
 		"If the note mentions thâm/marks, NEVER rewrite to \"không thấy thâm\" / \"không thấy thâm rõ\". " +
 		"Do not add \"chưa thấy X\" unless the original note already said that. No products, brands, routines, hard disease names. Locale: " + lang + ".\n\n" +
 		"Input notes JSON:\n" + string(thinJSON) + "\n\n" +
@@ -334,7 +395,7 @@ func expandShortAdminSkinProblemNotes(
 		"messages": []map[string]any{
 			{
 				"role":    "system",
-				"content": "You thicken DaDiary Admin Skin Review notes in Vietnamese best-friend voice (tao/mày), tart but not vulgar. Only elaborate ideas already in the note. Never invent new findings. If the note already mentions thâm/marks, never rewrite to “không thấy thâm”. Never name brands or medicines.",
+				"content": "You thicken DaDiary Admin Skin Review notes in Vietnamese best-friend voice (tao/mày), tart but not vulgar, confident on clear photo facts. Only elaborate ideas already in the note. Never invent new findings. Never add hedge spam. If the note already mentions thâm/marks, never rewrite to “không thấy thâm”. Never name brands or medicines.",
 			},
 			{"role": "user", "content": user},
 		},
@@ -404,7 +465,8 @@ func expandShortAdminSkinProblemNotes(
 }
 
 // acceptExpandedAdminSkinNote returns true when rewritten note is safely thicker
-// than original and free of banned brand/med/jargon content.
+// than original, free of banned brand/med/jargon, and does not newly introduce
+// banned hedge phrases (full phrases only — not bare "có thể"/"nghi").
 func acceptExpandedAdminSkinNote(original, expanded string) bool {
 	expanded = strings.TrimSpace(expanded)
 	original = strings.TrimSpace(original)
@@ -412,6 +474,9 @@ func acceptExpandedAdminSkinNote(original, expanded string) bool {
 		return false
 	}
 	if adminSkinNoteHasBannedContent(expanded) {
+		return false
+	}
+	if adminSkinExpandAddsHedge(original, expanded) {
 		return false
 	}
 	origSent := countAdminSkinSentences(original)
@@ -426,6 +491,17 @@ func acceptExpandedAdminSkinNote(original, expanded string) bool {
 		return false
 	}
 	return true
+}
+
+// adminSkinExpandAddsHedge is true when expanded contains a banned hedge phrase
+// that was not already present in the original note.
+func adminSkinExpandAddsHedge(original, expanded string) bool {
+	for _, re := range adminSkinExpandHedgeRes {
+		if re.MatchString(expanded) && !re.MatchString(original) {
+			return true
+		}
+	}
+	return false
 }
 
 func adminSkinNoteHasBannedContent(s string) bool {
