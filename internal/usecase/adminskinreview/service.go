@@ -41,12 +41,19 @@ type UploadImage struct {
 
 // CreateInput is the analyze (+ persist) request from the admin handler.
 type CreateInput struct {
-	Title  string
-	Notes  string
-	Status string
-	Locale string
-	Images []UploadImage
+	Title        string
+	Notes        string
+	UserQuestion string
+	Answer       string
+	Status       string
+	Locale       string
+	Images       []UploadImage
 }
+
+const (
+	maxUserQuestionRunes = 2000
+	maxAnswerRunes       = 4000
+)
 
 // Service orchestrates storage + Premium vision analysis + persistence.
 // Intentionally does NOT call premium.AssertFeature / user_usages — admin bypasses Free quotas.
@@ -97,6 +104,14 @@ func (s *Service) Create(ctx context.Context, adminUserID uuid.UUID, in CreateIn
 		return zero, fmt.Errorf("%w: status must be draft or published", ErrInvalidInput)
 	}
 	locale := dto.NormalizeAdminSkinReviewLocale(in.Locale)
+	userQuestion, err := clampAdminSkinText(in.UserQuestion, maxUserQuestionRunes)
+	if err != nil {
+		return zero, err
+	}
+	answer, err := clampAdminSkinText(in.Answer, maxAnswerRunes)
+	if err != nil {
+		return zero, err
+	}
 
 	rels := make([]string, 0, len(in.Images))
 	aiImgs := make([]ai.ImageBytes, 0, len(in.Images))
@@ -128,6 +143,8 @@ func (s *Service) Create(ctx context.Context, adminUserID uuid.UUID, in CreateIn
 		AdminUserID:      adminUserID,
 		Title:            strings.TrimSpace(in.Title),
 		Notes:            strings.TrimSpace(in.Notes),
+		UserQuestion:     userQuestion,
+		Answer:           answer,
 		Status:           status,
 		ImagePaths:       pathsJSON,
 		PublicImagePaths: json.RawMessage("[]"),
@@ -159,7 +176,7 @@ func (s *Service) Get(ctx context.Context, id uuid.UUID) (dto.AdminSkinReviewRes
 	return dto.FromDomainAdminSkinReview(row, publicUploadURLs(rels)), nil
 }
 
-// Patch updates title / notes / status on an existing review.
+// Patch updates title / notes / user_question / answer / status on an existing review.
 func (s *Service) Patch(
 	ctx context.Context,
 	id uuid.UUID,
@@ -169,8 +186,8 @@ func (s *Service) Patch(
 	if s == nil || s.repo == nil {
 		return zero, ErrUnavailable
 	}
-	if req.Title == nil && req.Notes == nil && req.Status == nil {
-		return zero, fmt.Errorf("%w: provide title, notes, and/or status", ErrInvalidInput)
+	if req.Title == nil && req.Notes == nil && req.UserQuestion == nil && req.Answer == nil && req.Status == nil {
+		return zero, fmt.Errorf("%w: provide title, notes, user_question, answer, and/or status", ErrInvalidInput)
 	}
 	if req.Status != nil {
 		st := strings.TrimSpace(*req.Status)
@@ -187,8 +204,22 @@ func (s *Service) Patch(
 		n := strings.TrimSpace(*req.Notes)
 		req.Notes = &n
 	}
+	if req.UserQuestion != nil {
+		q, err := clampAdminSkinText(*req.UserQuestion, maxUserQuestionRunes)
+		if err != nil {
+			return zero, err
+		}
+		req.UserQuestion = &q
+	}
+	if req.Answer != nil {
+		a, err := clampAdminSkinText(*req.Answer, maxAnswerRunes)
+		if err != nil {
+			return zero, err
+		}
+		req.Answer = &a
+	}
 
-	row, err := s.repo.UpdateMeta(ctx, id, req.Title, req.Notes, req.Status)
+	row, err := s.repo.UpdateMeta(ctx, id, req.Title, req.Notes, req.UserQuestion, req.Answer, req.Status)
 	if err != nil {
 		return zero, err
 	}
@@ -197,6 +228,58 @@ func (s *Service) Patch(
 	}
 	rels, _ := dto.DecodeStringSlice(row.ImagePaths)
 	return dto.FromDomainAdminSkinReview(row, publicUploadURLs(rels)), nil
+}
+
+// SuggestAnswer drafts a public reply from user_question + saved analysis (admin may edit).
+func (s *Service) SuggestAnswer(
+	ctx context.Context,
+	id uuid.UUID,
+	req dto.SuggestAdminSkinReviewAnswerRequest,
+) (dto.SuggestAdminSkinReviewAnswerResponse, error) {
+	var zero dto.SuggestAdminSkinReviewAnswerResponse
+	if s == nil || s.repo == nil || s.cfg == nil {
+		return zero, ErrUnavailable
+	}
+	row, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return zero, err
+	}
+	if row == nil {
+		return zero, ErrNotFound
+	}
+
+	question := strings.TrimSpace(row.UserQuestion)
+	// Only non-empty overrides win — empty JSON "" must not wipe a saved question.
+	if req.UserQuestion != nil {
+		if q := strings.TrimSpace(*req.UserQuestion); q != "" {
+			question = q
+		}
+	}
+	if question == "" {
+		return zero, fmt.Errorf("%w: user_question required to suggest an answer", ErrInvalidInput)
+	}
+	if _, err := clampAdminSkinText(question, maxUserQuestionRunes); err != nil {
+		return zero, err
+	}
+
+	analysis := dto.AdminSkinReviewAnalysis{}
+	if len(row.Analysis) > 0 {
+		_ = json.Unmarshal(row.Analysis, &analysis)
+	}
+	dto.NormalizeAdminSkinReviewAnalysis(&analysis, row.Locale)
+
+	draft, err := ai.AdminSkinReviewSuggestAnswer(ctx, s.cfg, s.httpClient, question, &analysis, row.Locale)
+	if err != nil {
+		return zero, fmt.Errorf("%w: %v", ErrAnalysis, err)
+	}
+	draft, err = clampAdminSkinText(draft, maxAnswerRunes)
+	if err != nil {
+		return zero, err
+	}
+	if draft == "" {
+		return zero, fmt.Errorf("%w: empty suggested answer", ErrAnalysis)
+	}
+	return dto.SuggestAdminSkinReviewAnswerResponse{Answer: draft}, nil
 }
 
 // Publish generates a unique public slug, privacy-blurs images, and marks the review public.
@@ -408,4 +491,16 @@ func pathJoin(parts ...string) string {
 		}
 	}
 	return strings.Join(cleaned, "/")
+}
+
+func clampAdminSkinText(raw string, maxRunes int) (string, error) {
+	s := strings.TrimSpace(raw)
+	if maxRunes <= 0 {
+		return s, nil
+	}
+	runes := []rune(s)
+	if len(runes) > maxRunes {
+		return "", fmt.Errorf("%w: text exceeds %d characters", ErrInvalidInput, maxRunes)
+	}
+	return s, nil
 }

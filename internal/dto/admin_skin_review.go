@@ -42,27 +42,32 @@ type AdminSkinReviewAnalysis struct {
 
 // AdminSkinReviewResponse is the admin API shape for create / get / patch / publish.
 type AdminSkinReviewResponse struct {
-	ID          string                  `json:"id"`
-	Title       string                  `json:"title"`
-	Notes       string                  `json:"notes"`
-	Status      string                  `json:"status"`
-	ImageURLs   []string                `json:"image_urls"`
-	Analysis    AdminSkinReviewAnalysis `json:"analysis"`
-	Locale      string                  `json:"locale"`
-	ModelUsed   string                  `json:"model_used"`
-	IsPublic    bool                    `json:"is_public"`
-	PublicSlug  string                  `json:"public_slug,omitempty"`
-	PublishedAt string                  `json:"published_at,omitempty"`
-	SharePath   string                  `json:"share_path,omitempty"` // e.g. /share/skin-review/{slug}
-	CreatedAt   string                  `json:"created_at"`
-	UpdatedAt   string                  `json:"updated_at"`
+	ID           string                  `json:"id"`
+	Title        string                  `json:"title"`
+	Notes        string                  `json:"notes"`
+	UserQuestion string                  `json:"user_question"`
+	Answer       string                  `json:"answer"`
+	Status       string                  `json:"status"`
+	ImageURLs    []string                `json:"image_urls"`
+	Analysis     AdminSkinReviewAnalysis `json:"analysis"`
+	Locale       string                  `json:"locale"`
+	ModelUsed    string                  `json:"model_used"`
+	IsPublic     bool                    `json:"is_public"`
+	PublicSlug   string                  `json:"public_slug,omitempty"`
+	PublishedAt  string                  `json:"published_at,omitempty"`
+	SharePath    string                  `json:"share_path,omitempty"` // e.g. /share/skin-review/{slug}
+	CreatedAt    string                  `json:"created_at"`
+	UpdatedAt    string                  `json:"updated_at"`
 }
 
 // PublicSkinReviewResponse is the unauthenticated share payload.
 // Omits admin internal notes and original (unblurred) image paths.
+// Includes user_question / answer when set (public Q&A for FB share).
 type PublicSkinReviewResponse struct {
 	Slug          string                  `json:"slug"`
 	Title         string                  `json:"title"`
+	UserQuestion  string                  `json:"user_question,omitempty"`
+	Answer        string                  `json:"answer,omitempty"`
 	Analysis      AdminSkinReviewAnalysis `json:"analysis"`
 	ImageURLs     []string                `json:"image_urls"` // privacy-blurred only
 	ImagesBlurred bool                    `json:"images_blurred"`
@@ -73,9 +78,22 @@ type PublicSkinReviewResponse struct {
 
 // PatchAdminSkinReviewRequest updates optional metadata after analysis.
 type PatchAdminSkinReviewRequest struct {
-	Title  *string `json:"title"`
-	Notes  *string `json:"notes"`
-	Status *string `json:"status"`
+	Title        *string `json:"title"`
+	Notes        *string `json:"notes"`
+	UserQuestion *string `json:"user_question"`
+	Answer       *string `json:"answer"`
+	Status       *string `json:"status"`
+}
+
+// SuggestAdminSkinReviewAnswerRequest drafts a public reply from Q + analysis.
+type SuggestAdminSkinReviewAnswerRequest struct {
+	// UserQuestion overrides the saved question for this draft (optional).
+	UserQuestion *string `json:"user_question"`
+}
+
+// SuggestAdminSkinReviewAnswerResponse is the AI draft reply (admin edits before save).
+type SuggestAdminSkinReviewAnswerResponse struct {
+	Answer string `json:"answer"`
 }
 
 // AdminSkinReviewListItem is a compact row for the admin list table.
@@ -135,18 +153,20 @@ func FromDomainAdminSkinReview(row *domain.AdminSkinReview, imageURLs []string) 
 		imageURLs = []string{}
 	}
 	out := AdminSkinReviewResponse{
-		ID:         row.ID.String(),
-		Title:      row.Title,
-		Notes:      row.Notes,
-		Status:     row.Status,
-		ImageURLs:  imageURLs,
-		Analysis:   analysis,
-		Locale:     row.Locale,
-		ModelUsed:  row.ModelUsed,
-		IsPublic:   row.IsPublic,
-		PublicSlug: row.PublicSlug,
-		CreatedAt:  row.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:  row.UpdatedAt.UTC().Format(time.RFC3339),
+		ID:           row.ID.String(),
+		Title:        row.Title,
+		Notes:        row.Notes,
+		UserQuestion: row.UserQuestion,
+		Answer:       row.Answer,
+		Status:       row.Status,
+		ImageURLs:    imageURLs,
+		Analysis:     analysis,
+		Locale:       row.Locale,
+		ModelUsed:    row.ModelUsed,
+		IsPublic:     row.IsPublic,
+		PublicSlug:   row.PublicSlug,
+		CreatedAt:    row.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt:    row.UpdatedAt.UTC().Format(time.RFC3339),
 	}
 	if row.PublishedAt != nil {
 		out.PublishedAt = row.PublishedAt.UTC().Format(time.RFC3339)
@@ -173,6 +193,8 @@ func FromDomainPublicSkinReview(row *domain.AdminSkinReview, blurredURLs []strin
 	out := PublicSkinReviewResponse{
 		Slug:          row.PublicSlug,
 		Title:         strings.TrimSpace(row.Title),
+		UserQuestion:  strings.TrimSpace(row.UserQuestion),
+		Answer:        strings.TrimSpace(row.Answer),
 		Analysis:      analysis,
 		ImageURLs:     blurredURLs,
 		ImagesBlurred: true,

@@ -34,7 +34,11 @@ type AdminSkinReview struct {
 	AdminUserID uuid.UUID       `gorm:"type:uuid;not null;index" json:"admin_user_id"`
 	Title       string          `gorm:"size:200;not null;default:''" json:"title"`
 	Notes       string          `gorm:"type:text;not null;default:''" json:"notes"`
-	Status      string          `gorm:"size:16;not null;default:draft;index" json:"status"`
+	// UserQuestion is the FB/group question the admin is answering (public when set).
+	UserQuestion string `gorm:"type:text;not null;default:''" json:"user_question"`
+	// Answer is the admin/AI reply shown on share + PNG export (public when set).
+	Answer string `gorm:"type:text;not null;default:''" json:"answer"`
+	Status string `gorm:"size:16;not null;default:draft;index" json:"status"`
 	ImagePaths  json.RawMessage `gorm:"type:jsonb;not null;default:'[]'" json:"image_paths"`
 	// PublicImagePaths are privacy-blurred copies served on the public share page.
 	PublicImagePaths json.RawMessage `gorm:"type:jsonb;not null;default:'[]'" json:"public_image_paths"`

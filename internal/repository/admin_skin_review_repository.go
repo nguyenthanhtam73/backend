@@ -97,12 +97,14 @@ func (r *GormAdminSkinReviewRepository) ExistsPublicSlug(ctx context.Context, sl
 	return n > 0, nil
 }
 
-// UpdateMeta patches title / notes / status for one review.
+// UpdateMeta patches title / notes / user_question / answer / status for one review.
 func (r *GormAdminSkinReviewRepository) UpdateMeta(
 	ctx context.Context,
 	id uuid.UUID,
 	title *string,
 	notes *string,
+	userQuestion *string,
+	answer *string,
 	status *string,
 ) (*domain.AdminSkinReview, error) {
 	db, err := r.dbOrErr()
@@ -119,6 +121,12 @@ func (r *GormAdminSkinReviewRepository) UpdateMeta(
 	}
 	if notes != nil {
 		updates["notes"] = *notes
+	}
+	if userQuestion != nil {
+		updates["user_question"] = *userQuestion
+	}
+	if answer != nil {
+		updates["answer"] = *answer
 	}
 	if status != nil {
 		updates["status"] = *status

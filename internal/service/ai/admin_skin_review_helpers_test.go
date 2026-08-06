@@ -5,6 +5,31 @@ import (
 	"testing"
 )
 
+func TestParseAdminSkinReviewSuggestedAnswer(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"json", `{"answer":"Má mày đang đỏ viêm."}`, "Má mày đang đỏ viêm."},
+		{"fenced", "```json\n{\"answer\":\"Ok.\"}\n```", "Ok."},
+		{"bare prose", "Má mày đang có cụm mụn viêm đỏ sưng. Rửa dịu thôi.", "Má mày đang có cụm mụn viêm đỏ sưng. Rửa dịu thôi."},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := parseAdminSkinReviewSuggestedAnswer(tc.raw)
+			if err != nil {
+				t.Fatalf("err: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAdminSkinEmptyOrRefused(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

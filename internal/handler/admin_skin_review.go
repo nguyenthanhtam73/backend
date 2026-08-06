@@ -32,7 +32,8 @@ func NewAdminSkinReviewHandler(svc *adminskinreviewuc.Service, cfg *config.Confi
 }
 
 // Create handles POST /api/v1/admin/skin-review
-// Multipart: images (1 required, up to 3 optional extras), optional title, notes, status, locale.
+// Multipart: images (1 required, up to 3 optional extras), optional title, notes,
+// user_question, answer, status, locale.
 func (h *AdminSkinReviewHandler) Create(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil || h.cfg == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")
@@ -90,11 +91,13 @@ func (h *AdminSkinReviewHandler) Create(c *fiber.Ctx) error {
 	}
 
 	in := adminskinreviewuc.CreateInput{
-		Title:  firstValue(form.Value["title"]),
-		Notes:  firstValue(form.Value["notes"]),
-		Status: firstValue(form.Value["status"]),
-		Locale: firstValue(form.Value["locale"]),
-		Images: images,
+		Title:        firstValue(form.Value["title"]),
+		Notes:        firstValue(form.Value["notes"]),
+		UserQuestion: firstValue(form.Value["user_question"]),
+		Answer:       firstValue(form.Value["answer"]),
+		Status:       firstValue(form.Value["status"]),
+		Locale:       firstValue(form.Value["locale"]),
+		Images:       images,
 	}
 
 	res, err := h.svc.Create(c.UserContext(), adminID, in)
@@ -145,7 +148,8 @@ func (h *AdminSkinReviewHandler) Get(c *fiber.Ctx) error {
 	return response.JSON(c, fiber.StatusOK, res)
 }
 
-// Patch handles PATCH /api/v1/admin/skin-review/:id (title / notes / status).
+// Patch handles PATCH /api/v1/admin/skin-review/:id
+// (title / notes / user_question / answer / status).
 func (h *AdminSkinReviewHandler) Patch(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")
@@ -159,6 +163,29 @@ func (h *AdminSkinReviewHandler) Patch(c *fiber.Ctx) error {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
 	}
 	res, err := h.svc.Patch(c.UserContext(), id, body)
+	if err != nil {
+		return mapAdminSkinReviewError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
+// SuggestAnswer handles POST /api/v1/admin/skin-review/:id/suggest-answer
+// Drafts a short public reply from user_question + saved analysis (not persisted).
+func (h *AdminSkinReviewHandler) SuggestAnswer(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")
+	}
+	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil || id == uuid.Nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_id", "id must be a valid UUID")
+	}
+	var body dto.SuggestAdminSkinReviewAnswerRequest
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&body); err != nil {
+			return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
+		}
+	}
+	res, err := h.svc.SuggestAnswer(c.UserContext(), id, body)
 	if err != nil {
 		return mapAdminSkinReviewError(c, err)
 	}
@@ -199,7 +226,8 @@ func (h *AdminSkinReviewHandler) Unpublish(c *fiber.Ctx) error {
 }
 
 // GetPublic handles GET /api/v1/public/skin-review/:slug (no auth).
-// Returns observations + blurred image URLs only — never admin notes / originals.
+// Returns observations + blurred image URLs + optional public Q&A —
+// never admin notes / originals.
 func (h *AdminSkinReviewHandler) GetPublic(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")

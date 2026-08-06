@@ -300,7 +300,8 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			api.Post("/admin/skin-review", jwt, skinReview, adminReviewH.Create)
 			api.Get("/admin/skin-reviews", jwt, skinReview, adminReviewH.List)
 			api.Get("/admin/skin-review/:id", jwt, skinReview, adminReviewH.Get)
-			// Register /publish|/unpublish before /:id patch so Fiber matches longer paths.
+			// Register longer paths before /:id patch so Fiber matches correctly.
+			api.Post("/admin/skin-review/:id/suggest-answer", jwt, skinReview, adminReviewH.SuggestAnswer)
 			api.Patch("/admin/skin-review/:id/publish", jwt, skinReview, adminReviewH.Publish)
 			api.Patch("/admin/skin-review/:id/unpublish", jwt, skinReview, adminReviewH.Unpublish)
 			api.Patch("/admin/skin-review/:id", jwt, skinReview, adminReviewH.Patch)
