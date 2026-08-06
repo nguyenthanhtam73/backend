@@ -126,7 +126,7 @@ func (s *Service) Create(ctx context.Context, adminUserID uuid.UUID, in CreateIn
 		aiImgs = append(aiImgs, ai.ImageBytes{Data: img.Data})
 	}
 
-	analysis, modelUsed, err := ai.AdminSkinReviewAnalyze(ctx, s.cfg, s.httpClient, aiImgs, locale)
+	analysis, modelUsed, err := ai.AdminSkinReviewAnalyze(ctx, s.cfg, s.httpClient, aiImgs, locale, userQuestion)
 	if err != nil {
 		return zero, fmt.Errorf("%w: %v", ErrAnalysis, err)
 	}
@@ -252,7 +252,87 @@ func (s *Service) Patch(
 	return dto.FromDomainAdminSkinReview(row, publicUploadURLs(rels)), nil
 }
 
+// Reanalyze re-runs vision on saved images using the current (or override) user_question
+// so the public analysis block picks up context typed after the first Create.
+func (s *Service) Reanalyze(
+	ctx context.Context,
+	id uuid.UUID,
+	req dto.ReanalyzeAdminSkinReviewRequest,
+) (dto.AdminSkinReviewResponse, error) {
+	var zero dto.AdminSkinReviewResponse
+	if s == nil || s.repo == nil || s.store == nil || s.cfg == nil {
+		return zero, ErrUnavailable
+	}
+	row, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return zero, err
+	}
+	if row == nil {
+		return zero, ErrNotFound
+	}
+
+	question := strings.TrimSpace(row.UserQuestion)
+	// Only non-empty overrides win — empty "" must not wipe a saved question.
+	if req.UserQuestion != nil {
+		if q := strings.TrimSpace(*req.UserQuestion); q != "" {
+			q, cerr := clampAdminSkinText(q, maxUserQuestionRunes)
+			if cerr != nil {
+				return zero, cerr
+			}
+			question = q
+			if q != strings.TrimSpace(row.UserQuestion) {
+				patched, perr := s.repo.UpdateMeta(ctx, id, nil, nil, &q, nil, nil)
+				if perr != nil {
+					return zero, perr
+				}
+				if patched != nil {
+					row = patched
+				}
+			}
+		}
+	}
+
+	rels, _ := dto.DecodeStringSlice(row.ImagePaths)
+	if len(rels) == 0 {
+		return zero, fmt.Errorf("%w: no images to reanalyze", ErrInvalidInput)
+	}
+	aiImgs := make([]ai.ImageBytes, 0, len(rels))
+	for _, rel := range rels {
+		raw, rerr := s.store.Read(ctx, rel)
+		if rerr != nil {
+			return zero, fmt.Errorf("%w: read image: %v", ErrAnalysis, rerr)
+		}
+		if len(raw) == 0 {
+			continue
+		}
+		aiImgs = append(aiImgs, ai.ImageBytes{Data: raw})
+	}
+	if len(aiImgs) == 0 {
+		return zero, fmt.Errorf("%w: no readable images", ErrAnalysis)
+	}
+
+	analysis, modelUsed, err := ai.AdminSkinReviewAnalyze(ctx, s.cfg, s.httpClient, aiImgs, row.Locale, question)
+	if err != nil {
+		return zero, fmt.Errorf("%w: %v", ErrAnalysis, err)
+	}
+	analysisJSON, err := json.Marshal(analysis)
+	if err != nil {
+		return zero, fmt.Errorf("marshal analysis: %w", err)
+	}
+	row, err = s.repo.UpdateAnalysis(ctx, id, analysisJSON, modelUsed)
+	if err != nil {
+		return zero, err
+	}
+	if row == nil {
+		return zero, ErrNotFound
+	}
+	outRels, _ := dto.DecodeStringSlice(row.ImagePaths)
+	return dto.FromDomainAdminSkinReview(row, publicUploadURLs(outRels)), nil
+}
+
 // SuggestAnswer drafts a public reply from user_question + saved analysis (admin may edit).
+// When refresh_analysis=true, re-runs vision with the question first.
+// Always aligns public tips/laterality with the question and persists if changed.
 func (s *Service) SuggestAnswer(
 	ctx context.Context,
 	id uuid.UUID,
@@ -262,6 +342,15 @@ func (s *Service) SuggestAnswer(
 	if s == nil || s.repo == nil || s.cfg == nil {
 		return zero, ErrUnavailable
 	}
+
+	refresh := req.RefreshAnalysis != nil && *req.RefreshAnalysis
+	if refresh {
+		reReq := dto.ReanalyzeAdminSkinReviewRequest{UserQuestion: req.UserQuestion}
+		if _, err := s.Reanalyze(ctx, id, reReq); err != nil {
+			return zero, err
+		}
+	}
+
 	row, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return zero, err
@@ -275,6 +364,15 @@ func (s *Service) SuggestAnswer(
 	if req.UserQuestion != nil {
 		if q := strings.TrimSpace(*req.UserQuestion); q != "" {
 			question = q
+			if !refresh && q != strings.TrimSpace(row.UserQuestion) {
+				if _, perr := s.repo.UpdateMeta(ctx, id, nil, nil, &q, nil, nil); perr != nil {
+					return zero, perr
+				}
+				row, _ = s.repo.GetByID(ctx, id)
+				if row == nil {
+					return zero, ErrNotFound
+				}
+			}
 		}
 	}
 	if question == "" {
@@ -290,6 +388,23 @@ func (s *Service) SuggestAnswer(
 	}
 	dto.NormalizeAdminSkinReviewAnalysis(&analysis, row.Locale)
 
+	aligned := ai.AlignAdminSkinAnalysisWithQuestion(&analysis, question, row.Locale)
+	var analysisOut *dto.AdminSkinReviewAnalysis
+	if aligned {
+		analysisJSON, merr := json.Marshal(analysis)
+		if merr != nil {
+			return zero, fmt.Errorf("marshal analysis: %w", merr)
+		}
+		if _, uerr := s.repo.UpdateAnalysis(ctx, id, analysisJSON, ""); uerr != nil {
+			return zero, uerr
+		}
+	}
+	// Return analysis when refreshed or aligned so the admin UI can update the notes block.
+	if aligned || refresh {
+		cp := analysis
+		analysisOut = &cp
+	}
+
 	draft, err := ai.AdminSkinReviewSuggestAnswer(ctx, s.cfg, s.httpClient, question, &analysis, row.Locale)
 	if err != nil {
 		return zero, fmt.Errorf("%w: %v", ErrAnalysis, err)
@@ -301,7 +416,7 @@ func (s *Service) SuggestAnswer(
 	if draft == "" {
 		return zero, fmt.Errorf("%w: empty suggested answer", ErrAnalysis)
 	}
-	return dto.SuggestAdminSkinReviewAnswerResponse{Answer: draft}, nil
+	return dto.SuggestAdminSkinReviewAnswerResponse{Answer: draft, Analysis: analysisOut}, nil
 }
 
 // Publish generates a unique public slug, privacy-blurs images, and marks the review public.

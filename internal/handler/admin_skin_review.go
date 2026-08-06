@@ -169,8 +169,32 @@ func (h *AdminSkinReviewHandler) Patch(c *fiber.Ctx) error {
 	return response.JSON(c, fiber.StatusOK, res)
 }
 
+// Reanalyze handles POST /api/v1/admin/skin-review/:id/reanalyze
+// Re-runs vision on saved images with the current (or override) user_question.
+func (h *AdminSkinReviewHandler) Reanalyze(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")
+	}
+	id, err := uuid.Parse(strings.TrimSpace(c.Params("id")))
+	if err != nil || id == uuid.Nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_id", "id must be a valid UUID")
+	}
+	var body dto.ReanalyzeAdminSkinReviewRequest
+	if len(c.Body()) > 0 {
+		if err := c.BodyParser(&body); err != nil {
+			return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
+		}
+	}
+	res, err := h.svc.Reanalyze(c.UserContext(), id, body)
+	if err != nil {
+		return mapAdminSkinReviewError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
 // SuggestAnswer handles POST /api/v1/admin/skin-review/:id/suggest-answer
 // Drafts a short public reply from user_question + saved analysis (not persisted).
+// Optional refresh_analysis re-runs vision first; tips/laterality are always aligned to the question.
 func (h *AdminSkinReviewHandler) SuggestAnswer(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")

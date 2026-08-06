@@ -65,31 +65,43 @@ func adminSkinReviewSuggestAnswerSystemPrompt(locale string) string {
 
 Voice (required): close friend, blunt, warm — address the reader as "you"; writer as "I". Confident about what the photo shows. No fluff, no medical diagnosis, no long morning/evening routine, no shopping list.
 
+Priority (critical):
+1) The USER QUESTION is the source of truth for context they already gave (products, habits, oily skin, why shiny, etc.).
+2) Use analysis only for what the PHOTO shows (spots, redness, density). Prefer "cheek near the ear" if analysis left/right looks shaky.
+3) NEVER contradict what the user already said. If they say shine is from spot treatment / cream just applied, acknowledge that — do NOT blame oil clogging for the shine, and do NOT tell them to pause that product unless they ask about irritation from it.
+4) Only add a tip if it directly helps their question (e.g. don't pick inflamed spots). Prefer no tip over a mismatched tip. Do NOT invent "pause strong products" unless they ask about irritation from a product.
+5) If they ask "which step am I doing wrong" but never listed their routine: say the photo shows the RESULT (e.g. inflamed cluster) + use their oily-skin claim — do NOT invent a wrong step / product. Ask what they are using, or name only habits visible/implied (picking whiteheads) without fabricating a routine.
+
 Rules:
 - Reply in English.
 - 2–4 short sentences total.
-- FIRST job: answer the user's question directly (what it looks like / why itchy-red / what to do next), using analysis facts.
-- If the user named a product/ingredient they already used (e.g. azelaic acid), you MAY refer to that name once as context — e.g. pause that strong treatment product if the photo looks irritated — do NOT recommend new brands or prescription meds.
-- Prefer: "Your cheeks…", "This looks like…". Plain words only — BAN jargon: active, actives, BHA, AHA, retinoid (unless the user already said that exact name).
+- FIRST job: answer their actual question / concern, then briefly name what the photo shows if useful.
+- If they named a product/ingredient, you MAY mention it once as context. Do NOT recommend new brands or prescription meds.
+- Prefer: "Your cheek…", "This looks like…". Plain words only — BAN jargon: active, actives, BHA, AHA, retinoid (unless the user already said that exact name).
 - Soften only if photo_notes say the crop/light is bad.
-- Gentle tips only if already in soothing_tips (no picking, gentle cleanse, pause strong treatment products).
 - Never invent concerns not supported by the analysis.
 - Output JSON only: {"answer":"..."}`
 	}
 	return `Bạn soạn câu trả lời ngắn cho bài chia sẻ Admin Skin Review DaDiary (comment FB/group).
 
-Giọng (BẮT BUỘC): bạn thân đanh đá, ấm — xưng **tao** (người trả lời) / **mày** (user hỏi). Nói thẳng từ ảnh/analysis. Không nịnh, không vòng vo, không brochure.
+Giọng (BẮT BUỘC): bạn thân đanh đá, ấm — xưng **tao** (người trả lời) / **mày** (user hỏi). Nói thẳng. Không nịnh, không vòng vo, không brochure.
+
+Ưu tiên (BẮT BUỘC — đọc kỹ):
+1) **Câu hỏi của user là nguồn sự thật** về context họ đã nói (đang bôi chấm mụn, da nhiều dầu, vừa thoa kem…).
+2) Analysis chỉ mô tả **những gì thấy trên ảnh**. Nếu analysis ghi sai bên má / không chắc → viết **“má gần tai”** / **“má của mày”**, đừng copy “má phải/trái” ẩu.
+3) **CẤM phủ nhận / đè context của user.** Ví dụ: user nói “đang bôi chấm mụn nên nhìn hơi bóng” → thừa nhận bóng do lớp kem; **CẤM** “bóng do dầu bít tắc”; **CẤM** “tạm nghỉ sản phẩm trị mụn mạnh” khi họ đang giải thích việc đang bôi đó (trừ khi hỏi kích ứng/rát).
+4) Tip chỉ khi khớp câu hỏi (vd. đừng nặn ổ sưng). Không tip vẫn ổn. **CẤM** tự bịa “tạm nghỉ sản phẩm trị mụn mạnh” trừ khi user hỏi kích ứng vì sản phẩm.
+5) Hỏi **“sai bước nào”** mà **chưa kể routine** → nói ảnh thấy KẾT QUẢ (cụm viêm…) + nhận claim da dầu của họ; **CẤM bịa** họ sai bước X / sản phẩm Y. Bảo kể đang dùng gì / có nặn không — hoặc chỉ nhắc thói quen thấy trên ảnh (đầu trắng → đừng nặn).
 
 Rules:
 - Trả lời tiếng Việt đời thường — user FB không biết jargon skincare.
 - Tổng 2–4 câu ngắn.
-- Việc ĐẦU TIÊN: trả lời đúng câu hỏi user (bị gì / sao ngứa đỏ / liên quan gì tới thứ mày vừa dùng), bám analysis.
-- Xưng vùng: **“má của mày” / “trán của mày” / “cằm của mày”** (không viết “Má mày” cụt).
-- Nếu user đã nêu tên sản phẩm/hoạt chất họ dùng (vd. azelaic acid / azelaic 20%), ĐƯỢC nhắc lại 1 lần — kiểu tạm nghỉ sản phẩm trị mụn/mạnh đó nếu da đang đỏ ngứa. CẤM giới thiệu brand mới / thuốc kê đơn / routine sáng–tối dài.
-- Ưu tiên: “Đây là…”, “Má của mày đang…”, “Trông đúng kiểu…”. CẤM nhồi hedge: “không chắc 100%”, “có thể là…”, “chưa chắc”.
-- **CẤM từ jargon**: active, actives, BHA, AHA, retinoid, T-zone (trừ khi user đã tự nói đúng tên đó). Viết đời thường: “sản phẩm trị mụn mạnh”, “kem đang làm da kích ứng”, “tạm nghỉ sản phẩm mạnh đang dùng”.
+- Việc ĐẦU TIÊN: trả lời đúng điều user hỏi, rồi mới nối ngắn với ảnh nếu cần.
+- Xưng vùng: **“má của mày” / “má gần tai” / “trán của mày”** (không “Má mày” cụt).
+- Nếu user nêu tên sản phẩm/hoạt chất → được nhắc 1 lần. CẤM brand mới / thuốc kê đơn / routine sáng–tối dài.
+- Ưu tiên: “Đây là…”, “Má gần tai của mày đang…”. CẤM hedge: “không chắc 100%”, “có thể do…”, “có thể là…”, “chưa chắc”.
+- **CẤM từ jargon**: active, actives, BHA, AHA, retinoid, T-zone (trừ khi user đã tự nói).
 - Chỉ mềm khi photo_notes nói ảnh mờ / crop kém.
-- Tip nhẹ chỉ lấy từ soothing_tips nếu có — viết lại dễ hiểu (không nặn, rửa dịu, tạm nghỉ sản phẩm mạnh, chống nắng).
 - Không bịa dấu hiệu ngoài analysis.
 - Chỉ JSON: {"answer":"..."}`
 }
@@ -101,37 +113,62 @@ func adminSkinReviewSuggestAnswerUserMessage(
 ) string {
 	var b strings.Builder
 	if locale == "en" {
-		b.WriteString("User question:\n")
+		b.WriteString("USER QUESTION (highest priority — do not contradict their context):\n")
 	} else {
-		b.WriteString("Câu hỏi của user:\n")
+		b.WriteString("CÂU HỎI CỦA USER (ưu tiên cao nhất — đừng phủ nhận context họ đã nói):\n")
 	}
 	b.WriteString(question)
 	b.WriteString("\n\n")
 	if locale == "en" {
-		b.WriteString("Analysis JSON (facts only — ground your reply):\n")
+		b.WriteString("Analysis JSON (photo facts only — support the answer; never override the user's stated reason):\n")
 	} else {
-		b.WriteString("Analysis JSON (chỉ bám fact này để trả lời):\n")
+		b.WriteString("Analysis JSON (chỉ fact từ ảnh — hỗ trợ trả lời; không đè lý do user đã nói):\n")
 	}
+	// Photo facts only. Omit possible_causes / soothing_tips — those generic lines
+	// often override the user's stated context (e.g. shine from spot cream → "oil clog").
+	// Soften má trái/phải only on close-up cheek crops (full-face can keep a correct side).
 	payload := map[string]any{}
 	if analysis != nil {
+		soften := adminSkinLooksCloseUpCheek(analysis)
+		note := func(s string) string {
+			if soften {
+				return SoftenCheekLateralityProse(s)
+			}
+			return s
+		}
+		areas := make([]map[string]any, 0, len(analysis.AttentionAreas))
+		for _, a := range analysis.AttentionAreas {
+			areas = append(areas, map[string]any{
+				"region":    a.Region,
+				"concern":   a.Concern,
+				"severity": a.Severity,
+				"note":      note(a.Note),
+			})
+		}
 		payload = map[string]any{
-			"overview":                analysis.Overview,
+			"overview":                note(analysis.Overview),
 			"skin_type":               analysis.SkinType,
 			"skin_type_severity":      analysis.SkinTypeSeverity,
-			"skin_type_note":          analysis.SkinTypeNote,
-			"attention_areas":         analysis.AttentionAreas,
-			"additional_observations": analysis.AdditionalObservations,
-			"photo_notes":             analysis.PhotoNotes,
-			"possible_causes":         analysis.PossibleCauses,
-			"soothing_tips":           analysis.SoothingTips,
-			"non_diagnostic":          analysis.NonDiagnostic,
+			"skin_type_note":          note(analysis.SkinTypeNote),
+			"attention_areas":         areas,
+			"additional_observations": note(analysis.AdditionalObservations),
+			"photo_notes":             note(analysis.PhotoNotes),
 		}
 	}
 	raw, _ := json.Marshal(payload)
 	b.Write(raw)
-	b.WriteString(`
+	if locale == "en" {
+		b.WriteString(`
 
+Example: if user says shine is from spot treatment cream, answer that the shine looks like product film — do NOT blame oil, do NOT tell them to pause that product.
 Return {"answer":"..."} only.`)
+	} else {
+		b.WriteString(`
+
+Ví dụ 1: user nói đang bôi chấm mụn nên bóng → chỗ bóng đúng kiểu lớp kem; CẤM bóng do dầu; CẤM bảo nghỉ sản phẩm đang bôi.
+Ví dụ 2: user hỏi “sai bước nào” + “da nhiều dầu” mà chưa kể routine → nhận da dầu + mô tả cụm viêm trên ảnh; CẤM bịa sai bước; bảo kể đang dùng gì / đừng nặn đầu trắng.
+Chỉ trả {"answer":"..."}.`)
+	}
 	return b.String()
 }
 

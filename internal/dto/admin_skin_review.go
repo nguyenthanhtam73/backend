@@ -89,11 +89,20 @@ type PatchAdminSkinReviewRequest struct {
 type SuggestAdminSkinReviewAnswerRequest struct {
 	// UserQuestion overrides the saved question for this draft (optional).
 	UserQuestion *string `json:"user_question"`
+	// RefreshAnalysis re-runs vision with the current question before drafting.
+	RefreshAnalysis *bool `json:"refresh_analysis,omitempty"`
 }
 
 // SuggestAdminSkinReviewAnswerResponse is the AI draft reply (admin edits before save).
+// Analysis is set when tips/laterality were aligned or vision was refreshed.
 type SuggestAdminSkinReviewAnswerResponse struct {
-	Answer string `json:"answer"`
+	Answer   string                   `json:"answer"`
+	Analysis *AdminSkinReviewAnalysis `json:"analysis,omitempty"`
+}
+
+// ReanalyzeAdminSkinReviewRequest re-runs vision on saved images with optional question override.
+type ReanalyzeAdminSkinReviewRequest struct {
+	UserQuestion *string `json:"user_question"`
 }
 
 // AdminSkinReviewListItem is a compact row for the admin list table.

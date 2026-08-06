@@ -119,8 +119,8 @@ func TestAcceptExpandedAdminSkinNote(t *testing.T) {
 
 func TestAdminSkinReviewUserTextCompact(t *testing.T) {
 	t.Parallel()
-	full := adminSkinReviewUserText("vi", false)
-	compact := adminSkinReviewUserText("vi", true)
+	full := adminSkinReviewUserText("vi", false, "")
+	compact := adminSkinReviewUserText("vi", true, "")
 	if len(compact) >= len(full) {
 		t.Fatalf("compact user text should be shorter: compact=%d full=%d", len(compact), len(full))
 	}

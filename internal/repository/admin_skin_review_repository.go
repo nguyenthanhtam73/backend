@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
@@ -135,6 +136,42 @@ func (r *GormAdminSkinReviewRepository) UpdateMeta(
 		return r.GetByID(ctx, id)
 	}
 
+	res := db.WithContext(ctx).
+		Model(&domain.AdminSkinReview{}).
+		Where("id = ?", id).
+		Updates(updates)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, nil
+	}
+	return r.GetByID(ctx, id)
+}
+
+// UpdateAnalysis replaces the stored AI analysis JSON (+ optional model_used).
+func (r *GormAdminSkinReviewRepository) UpdateAnalysis(
+	ctx context.Context,
+	id uuid.UUID,
+	analysisJSON []byte,
+	modelUsed string,
+) (*domain.AdminSkinReview, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("admin skin review id required")
+	}
+	if len(analysisJSON) == 0 {
+		return nil, fmt.Errorf("analysis json required")
+	}
+	updates := map[string]any{
+		"analysis": analysisJSON,
+	}
+	if strings.TrimSpace(modelUsed) != "" {
+		updates["model_used"] = strings.TrimSpace(modelUsed)
+	}
 	res := db.WithContext(ctx).
 		Model(&domain.AdminSkinReview{}).
 		Where("id = ?", id).

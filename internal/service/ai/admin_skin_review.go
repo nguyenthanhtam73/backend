@@ -60,6 +60,7 @@ func AdminSkinReviewAnalyze(
 	httpClient *http.Client,
 	images []ImageBytes,
 	localeRaw string,
+	userQuestion ...string,
 ) (*dto.AdminSkinReviewAnalysis, string, error) {
 	if cfg == nil || strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
 		return nil, "", fmt.Errorf("admin skin review: openai api key required")
@@ -71,6 +72,10 @@ func AdminSkinReviewAnalyze(
 		return nil, "", fmt.Errorf("admin skin review: maximum 3 images")
 	}
 	locale := dto.NormalizeAdminSkinReviewLocale(localeRaw)
+	questionHint := ""
+	if len(userQuestion) > 0 {
+		questionHint = strings.TrimSpace(userQuestion[0])
+	}
 
 	prepared := make([]ImageBytes, 0, len(images))
 	for i, im := range images {
@@ -100,7 +105,7 @@ func AdminSkinReviewAnalyze(
 
 	// Attempt 1 — full prompt.
 	usedCompact := false
-	raw, meta, err := callAdminSkinReviewVision(ctx, cfg, httpClient, model, AdminSkinReviewSystemPrompt(), adminSkinReviewUserText(locale, false), imageParts, "openai-admin-skin-review")
+	raw, meta, err := callAdminSkinReviewVision(ctx, cfg, httpClient, model, AdminSkinReviewSystemPrompt(), adminSkinReviewUserText(locale, false, questionHint), imageParts, "openai-admin-skin-review")
 	if err != nil {
 		return nil, "", err
 	}
@@ -111,7 +116,7 @@ func AdminSkinReviewAnalyze(
 			"content_len", len(raw),
 		)
 		// Attempt 2 — compact system + user (still observations-first + causes/tips).
-		raw2, meta2, err2 := callAdminSkinReviewVision(ctx, cfg, httpClient, model, AdminSkinReviewCompactSystemPrompt(), adminSkinReviewUserText(locale, true), imageParts, "openai-admin-skin-review-retry")
+		raw2, meta2, err2 := callAdminSkinReviewVision(ctx, cfg, httpClient, model, AdminSkinReviewCompactSystemPrompt(), adminSkinReviewUserText(locale, true, questionHint), imageParts, "openai-admin-skin-review-retry")
 		if err2 != nil {
 			return nil, "", fmt.Errorf("admin skin review: retry after refusal failed: %w (attempt1 finish=%s refusal=%q)", err2, meta.FinishReason, meta.Refusal)
 		}
@@ -144,6 +149,8 @@ func AdminSkinReviewAnalyze(
 	if expanded, expErr := expandShortAdminSkinProblemNotes(ctx, cfg, httpClient, model, parsed, locale); expErr == nil && expanded != nil {
 		parsed = expanded
 	}
+	// Soften close-up laterality + align public tips/causes with the user's question.
+	_ = AlignAdminSkinAnalysisWithQuestion(parsed, questionHint, locale)
 	if usedCompact {
 		thinRegions := adminSkinThinProblemRegions(parsed)
 		ovSent := countAdminSkinSentences(parsed.Overview)
@@ -196,22 +203,43 @@ func adminSkinAllProblemNotesThin(a *dto.AdminSkinReviewAnalysis) bool {
 	return n > 0
 }
 
-func adminSkinReviewUserText(locale string, compact bool) string {
-	langHead := "**Output locale: Vietnamese (vi).** Xưng tao/mày — thẳng, đanh đá, chanh chua, tự tin trên dấu hiệu rõ, không tục, không nịnh, không mình/bạn. Overview 4–6 câu chỗ nổi bật, không copy lặp sang note+additional. Ảnh rõ → nói thẳng “Đây là… / Má của mày đang… / Trông đúng kiểu…”; gọi tên nhóm (mụn viêm / có mủ / bọc / cồi) khi đủ dấu. CẤM nhồi “không chắc 100%…/chưa chắc/trên ảnh nghi…/đôi khi liên quan…/có thể là…” khi ảnh rõ. Có thâm nông → nói thâm rất nhẹ/thâm nông; CẤM “không thấy thâm” nếu ảnh có dấu. Close-up: chỉ vùng thấy; ngoài khung = not_visible + 1 câu ngắn; skin_type_note: “Chỉ thấy má — chưa đủ chốt loại da cả mặt”. Full face: đủ trán+má+cằm thì phải nhận xét mũi. possible_causes 1–2 câu trực tiếp (không hedge cuối câu); soothing_tips 2–3 đời thường (CẤM từ “active”; viết tạm nghỉ sản phẩm trị mụn/mạnh; không brand/thuốc/routine; khám da chỉ khi ổ to/đau/kéo dài)."
+func adminSkinReviewUserText(locale string, compact bool, userQuestion string) string {
+	langHead := "**Output locale: Vietnamese (vi).** Xưng tao/mày — thẳng, đanh đá, chanh chua, tự tin trên dấu hiệu rõ, không tục, không nịnh, không mình/bạn. Overview 4–6 câu chỗ nổi bật, không copy lặp sang note+additional. Ảnh rõ → nói thẳng “Đây là… / Má của mày đang… / Trông đúng kiểu…”; gọi tên nhóm (mụn viêm / có mủ / bọc / cồi) khi đủ dấu. CẤM nhồi “không chắc 100%…/chưa chắc/trên ảnh nghi…/đôi khi liên quan…/có thể là…” khi ảnh rõ. Có thâm nông → nói thâm rất nhẹ/thâm nông; CẤM “không thấy thâm” nếu ảnh có dấu. Close-up: chỉ vùng thấy; ngoài khung = not_visible + 1 câu ngắn; skin_type_note: “Chỉ thấy má — chưa đủ chốt loại da cả mặt”. Trái/phải má: theo tai của người trong ảnh; không chắc → “má gần tai” (CẤM đoán má phải/trái). Full face: đủ trán+má+cằm thì phải nhận xét mũi. possible_causes 1–2 câu trực tiếp (không hedge cuối câu); soothing_tips 2–3 đời thường (CẤM từ “active”; viết tạm nghỉ sản phẩm trị mụn/mạnh; không brand/thuốc/routine; khám da chỉ khi ổ to/đau/kéo dài)."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Best-friend tart voice (I/you), confident on clear photo facts — no fluff, no scolding insults, no hedge spam when signs are clear. Name morphology groups when clear (inflammatory bumps / pustules / cysts / comedones). Info-dense overview without repeating the same shine/pores/bumps across notes. If faint marks exist say “very light PIH / shallow marks” — never “no dark marks” when marks exist. Close-up: visible only; others not_visible + 1 short sentence; skin_type_note once that crop isn’t enough for full-face type. Full face: review nose when forehead+cheeks+chin visible. possible_causes 1–2 direct; soothing_tips 2–3 (no brands/meds/AM-PM); derm tip only if large/painful/lasting."
+		langHead = "**Output locale: English (en).** Best-friend tart voice (I/you), confident on clear photo facts — no fluff, no scolding insults, no hedge spam when signs are clear. Name morphology groups when clear (inflammatory bumps / pustules / cysts / comedones). Info-dense overview without repeating the same shine/pores/bumps across notes. If faint marks exist say “very light PIH / shallow marks” — never “no dark marks” when marks exist. Close-up: visible only; others not_visible + 1 short sentence; skin_type_note once that crop isn’t enough for full-face type. Laterality: use the person’s ear landmark; if unsure say “cheek near the ear” — never guess left/right. Full face: review nose when forehead+cheeks+chin visible. possible_causes 1–2 direct; soothing_tips 2–3 (no brands/meds/AM-PM); derm tip only if large/painful/lasting."
 	}
 	if compact {
 		if locale == "en" {
-			langHead = "**Output locale: English (en).** Short retry. Tart best-friend voice, confident on clear facts. Observations-first. possible_causes 1–2 direct; soothing_tips 2–3. Close-up: visible only; others not_visible 1 sentence. No false “no dark marks”. No hedge spam."
+			langHead = "**Output locale: English (en).** Short retry. Tart best-friend voice, confident on clear facts. Observations-first. possible_causes 1–2 direct; soothing_tips 2–3. Close-up: visible only; others not_visible 1 sentence. No false “no dark marks”. No hedge spam. Ear landmark for left/right cheek; else “cheek near the ear”."
 		} else {
-			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Xưng tao/mày, đanh đá không tục, tự tin trên dấu rõ. Observations-first. Gọi tên nhóm khi đủ dấu. CẤM nhồi hedge. possible_causes 1–2 trực tiếp; soothing_tips 2–3. Close-up: chỉ vùng thấy; ngoài khung not_visible 1 câu. Có thâm nông thì nói thâm nhẹ — cấm “không thấy thâm”."
+			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Xưng tao/mày, đanh đá không tục, tự tin trên dấu rõ. Observations-first. Gọi tên nhóm khi đủ dấu. CẤM nhồi hedge. possible_causes 1–2 trực tiếp; soothing_tips 2–3. Close-up: chỉ vùng thấy; ngoài khung not_visible 1 câu. Có thâm nông thì nói thâm nhẹ — cấm “không thấy thâm”. Tai → má trái/phải; không chắc → “má gần tai”."
 		}
-		return langHead + "\n\n" + AdminSkinReviewCompactJSONSchemaBlock +
-			"\n\nReview the attached skin photo(s). Return one JSON object only. Match THIS photo."
 	}
-	return langHead + "\n\n" + AdminSkinReviewJSONSchemaBlock +
-		"\n\nReview the attached skin photo(s). Return one JSON object only. Match what is actually visible on THIS photo."
+	var b strings.Builder
+	b.WriteString(langHead)
+	b.WriteString("\n\n")
+	if compact {
+		b.WriteString(AdminSkinReviewCompactJSONSchemaBlock)
+	} else {
+		b.WriteString(AdminSkinReviewJSONSchemaBlock)
+	}
+	if q := strings.TrimSpace(userQuestion); q != "" {
+		if locale == "en" {
+			b.WriteString("\n\nUSER CONTEXT (from their question — soft cues only):\n")
+			b.WriteString(q)
+			b.WriteString("\nUse only claims they stated (e.g. oily skin). Do NOT invent routine steps or product mistakes they did not name. Photo facts still win for what is visible.")
+		} else {
+			b.WriteString("\n\nCONTEXT TỪ CÂU HỎI USER (chỉ gợi ý mềm):\n")
+			b.WriteString(q)
+			b.WriteString("\nChỉ dùng claim họ đã nói (vd. da nhiều dầu). CẤM bịa họ sai bước routine / tên sản phẩm khi họ chưa kể. Fact trên ảnh vẫn thắng cho phần nhìn thấy.")
+		}
+	}
+	if compact {
+		b.WriteString("\n\nReview the attached skin photo(s). Return one JSON object only. Match THIS photo.")
+	} else {
+		b.WriteString("\n\nReview the attached skin photo(s). Return one JSON object only. Match what is actually visible on THIS photo.")
+	}
+	return b.String()
 }
 
 func adminSkinReviewImageParts(prepared []ImageBytes) ([]map[string]any, error) {
