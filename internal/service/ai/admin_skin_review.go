@@ -208,15 +208,15 @@ func adminSkinAllProblemNotesThin(a *dto.AdminSkinReviewAnalysis) bool {
 }
 
 func adminSkinReviewUserText(locale string, compact bool, userQuestion string) string {
-	langHead := "**Output locale: Vietnamese (vi).** Xưng tao/mày — thẳng, đanh đá, chanh chua, tự tin trên dấu hiệu rõ, không tục, không nịnh, không mình/bạn. Overview 4–6 câu chỗ nổi bật; mỗi ý thâm/bóng/nốt chỉ nêu kỹ 1 lần — additional CẤM copy overview/note má. Ảnh rõ → nói thẳng; gọi tên nhóm (mụn viêm / có mủ / bọc / cồi / thâm) khi đủ dấu. CẤM hedge spam khi ảnh rõ. Close-up: chỉ vùng thấy; ngoài khung = not_visible 1 câu; trái/phải theo tai, không chắc → “má gần tai”. Causes: hướng thật (nắng, thâm sau mụn, dầu…) — CẤM “do thâm/sắc tố” vòng tròn. Tips khớp case (thâm→chống nắng; viêm→không nặn); CẤM tên BV/PK và số buổi/giá laser; CẤM jargon “active”."
+	langHead := "**Output locale: Vietnamese (vi).** Xưng tao/mày — thẳng, đanh đá, chanh chua, tự tin trên dấu hiệu rõ, không tục, không nịnh, không mình/bạn. Overview 4–6 câu chỗ nổi bật; mỗi ý thâm/bóng/nốt chỉ nêu kỹ 1 lần — additional CẤM copy overview/note má. Ảnh rõ → nói thẳng; gọi tên nhóm (mụn viêm / có mủ / bọc / cồi / thâm / viêm cấp sát mép miệng) khi đủ dấu. Chùm đỏ sưng sát/trên viền môi → viêm cấp sát mép — CẤM “Đây là mụn có mủ”; CẤM “có thể mụn hoặc lở miệng”; CẤM herpes chắc. Close-up: chỉ vùng thấy; ngoài khung = not_visible 1 câu; trái/phải theo tai, không chắc → “má gần tai”. Causes: hướng thật — mép miệng ưu tiên kích ứng/cọ xát, CẤM “do thâm/sắc tố” vòng tròn. Tips khớp case; CẤM tên BV/PK và số buổi/giá laser; CẤM jargon “active”."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Best-friend tart voice (I/you), confident on clear photo facts — no fluff, no scolding insults, no hedge spam when signs are clear. Name morphology groups when clear (inflammatory bumps / pustules / cysts / comedones). Info-dense overview without repeating the same shine/pores/bumps across notes. If faint marks exist say “very light PIH / shallow marks” — never “no dark marks” when marks exist. Close-up: visible only; others not_visible + 1 short sentence; skin_type_note once that crop isn’t enough for full-face type. Laterality: use the person’s ear landmark; if unsure say “cheek near the ear” — never guess left/right. Full face: review nose when forehead+cheeks+chin visible. possible_causes 1–2 direct; soothing_tips 2–3 (no brands/meds/AM-PM); derm tip only if large/painful/lasting."
+		langHead = "**Output locale: English (en).** Best-friend tart voice (I/you), confident on clear photo facts — no fluff, no scolding insults, no hedge spam when signs are clear. Name morphology groups when clear (inflammatory bumps / pustules / cysts / comedones / acute lip-edge irritation). Red swollen cluster on/at the vermilion → acute irritation at the lip edge — BAN locking “pustular acne”; BAN dual hedges (“could be acne or a cold sore”); BAN herpes certainty. Info-dense overview without repeating the same shine/pores/bumps across notes. If faint marks exist say “very light PIH / shallow marks” — never “no dark marks” when marks exist. Close-up: visible only; others not_visible + 1 short sentence; skin_type_note once that crop isn’t enough for full-face type. Laterality: use the person’s ear landmark; if unsure say “cheek near the ear” — never guess left/right. Full face: review nose when forehead+cheeks+chin visible. possible_causes 1–2 direct (lip-edge → local irritation/friction, not default oil-clog); soothing_tips 2–3 (no brands/meds/AM-PM); derm tip if pain worsens/spreads/returns."
 	}
 	if compact {
 		if locale == "en" {
-			langHead = "**Output locale: English (en).** Short retry. Tart best-friend voice, confident on clear facts. Observations-first. possible_causes 1–2 direct; soothing_tips 2–3. Close-up: visible only; others not_visible 1 sentence. No false “no dark marks”. No hedge spam. Ear landmark for left/right cheek; else “cheek near the ear”."
+			langHead = "**Output locale: English (en).** Short retry. Tart best-friend voice, confident on clear facts. Observations-first. Lip-edge cluster → acute irritation at the lip edge — BAN “pustular acne” lock / dual cold-sore hedge / herpes certainty. possible_causes 1–2 direct; soothing_tips 2–3. Close-up: visible only; others not_visible 1 sentence. No false “no dark marks”. No hedge spam. Ear landmark for left/right cheek; else “cheek near the ear”."
 		} else {
-			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Xưng tao/mày, đanh đá không tục, tự tin trên dấu rõ. Observations-first. Gọi tên nhóm khi đủ dấu. CẤM nhồi hedge. possible_causes 1–2 trực tiếp; soothing_tips 2–3. Close-up: chỉ vùng thấy; ngoài khung not_visible 1 câu. Có thâm nông thì nói thâm nhẹ — cấm “không thấy thâm”. Tai → má trái/phải; không chắc → “má gần tai”."
+			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Xưng tao/mày, đanh đá không tục, tự tin trên dấu rõ. Observations-first. Gọi tên nhóm khi đủ dấu. Chùm đỏ sưng sát/trên viền môi → viêm cấp sát mép — CẤM “Đây là mụn có mủ”; CẤM “có thể mụn hoặc lở miệng”; CẤM herpes chắc. CẤM nhồi hedge. possible_causes 1–2 trực tiếp (mép → kích ứng/cọ xát); soothing_tips 2–3. Close-up: chỉ vùng thấy; ngoài khung not_visible 1 câu. Có thâm nông thì nói thâm nhẹ — cấm “không thấy thâm”. Tai → má trái/phải; không chắc → “má gần tai”."
 		}
 	}
 	var b strings.Builder
@@ -412,8 +412,9 @@ func expandShortAdminSkinProblemNotes(
 		"(problem concern: 5–8; concern=none: 3–4). Keep tao/mày voice, confident on clear facts. " +
 		"ONLY expand ideas already present in each note — do NOT invent new spot counts, locations, colors, marks, scars, or disease names. " +
 		"FIRST sentence of a problem note should stay/get confident: \"Má của mày đang…\" / \"Đây là…\" / \"Trông đúng kiểu…\". " +
-		"Keep morphology group names if already present (mụn viêm / mụn có mủ / mụn bọc / mụn cồi). " +
-		"Do NOT add hedge spam: \"không chắc 100%…\", \"chưa chắc\", \"trên ảnh nghi…\", \"đôi khi liên quan…\", \"có thể là…\". " +
+		"Morphology: keep mụn viêm / mụn bọc / mụn cồi / thâm when already present on normal face skin. " +
+		"If the note mentions sát mép / khóe miệng / viền môi / mép miệng (on/at vermilion): use/keep “viêm cấp sát mép miệng” — REPLACE any “mụn có mủ” / pustular-acne lock in that note; do NOT preserve “mụn có mủ” just because it was in the thin draft. " +
+		"Do NOT add hedge spam: \"không chắc 100%…\", \"chưa chắc\", \"trên ảnh nghi…\", \"đôi khi liên quan…\", \"có thể là…\", \"có thể mụn hoặc lở miệng\". " +
 		"If the note mentions thâm/marks, NEVER rewrite to \"không thấy thâm\" / \"không thấy thâm rõ\". " +
 		"Do not add \"chưa thấy X\" unless the original note already said that. No products, brands, routines, hard disease names. Locale: " + lang + ".\n\n" +
 		"Input notes JSON:\n" + string(thinJSON) + "\n\n" +
@@ -427,7 +428,7 @@ func expandShortAdminSkinProblemNotes(
 		"messages": []map[string]any{
 			{
 				"role":    "system",
-				"content": "You thicken DaDiary Admin Skin Review notes in Vietnamese best-friend voice (tao/mày), tart but not vulgar, confident on clear photo facts. Only elaborate ideas already in the note. Never invent new findings. Never add hedge spam. If the note already mentions thâm/marks, never rewrite to “không thấy thâm”. Never name brands or medicines.",
+				"content": "You thicken DaDiary Admin Skin Review notes in Vietnamese best-friend voice (tao/mày), tart but not vulgar, confident on clear photo facts. Only elaborate ideas already in the note. Never invent new findings. Never add hedge spam. If a note is on/at the lip edge (mép/viền môi/khóe), prefer “viêm cấp sát mép miệng” and strip “mụn có mủ” locks. If the note already mentions thâm/marks, never rewrite to “không thấy thâm”. Never name brands or medicines.",
 			},
 			{"role": "user", "content": user},
 		},
