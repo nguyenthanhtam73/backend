@@ -55,8 +55,11 @@ func AdminSkinReviewAnalyze(
 	if cfg == nil || strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
 		return nil, "", fmt.Errorf("admin skin review: openai api key required")
 	}
-	if len(images) < 1 || len(images) > 3 {
-		return nil, "", fmt.Errorf("admin skin review: need 1 to 3 images")
+	if len(images) < 1 {
+		return nil, "", fmt.Errorf("admin skin review: need at least 1 image")
+	}
+	if len(images) > 3 {
+		return nil, "", fmt.Errorf("admin skin review: maximum 3 images")
 	}
 	locale := dto.NormalizeAdminSkinReviewLocale(localeRaw)
 
@@ -134,15 +137,15 @@ func AdminSkinReviewAnalyze(
 }
 
 func adminSkinReviewUserText(locale string, compact bool) string {
-	langHead := "**Output locale: Vietnamese (vi).** Viết nhận xét quan sát từ ảnh cho bạn bè share group: thẳng, hơi chanh chua nhẹ, không mắng nặng. Mỗi câu overview mang thông tin (vị trí, mật độ, mức sưng, vùng nặng nhất). CẤM cụm rỗng: không thể bỏ qua, nhìn là biết, chịu trách nhiệm với da, đừng bảo không sao. Close-up/crop: chỉ nhận xét vùng thấy; vùng ngoài khung = not_visible + đúng 1 câu ngắn; photo_notes nói rõ close-up/crop/chỉ nửa mặt; cấm bịa trán yên / mũi không nốt. Full face: đủ trán+má+cằm thì phải nhận xét mũi. Giữ trông giống…, thường gặp khi…, không chắc 100%. Bắt buộc có possible_causes (1–2 câu mềm) và soothing_tips (2–3 gạch tránh/làm chung — không brand, không thuốc, không routine sáng/tối). Không chốt tên bệnh. Có thể 1 tip: ổ sưng to/đau kéo dài thì nên khám da liễu."
+	langHead := "**Output locale: Vietnamese (vi).** Xưng tao/mày — thẳng, đanh đá, chanh chua, không tục, không nịnh, không mình/bạn. Overview 4–6 câu chỗ nổi bật, không copy lặp sang note+additional. Có thâm nông → nói thâm rất nhẹ/thâm nông; CẤM “không thấy thâm” nếu ảnh có dấu. Close-up: chỉ vùng thấy; ngoài khung = not_visible + 1 câu ngắn. Full face: đủ trán+má+cằm thì phải nhận xét mũi. Giữ trông giống…, thường gặp khi…, không chắc 100%. possible_causes 1–2; soothing_tips 2–3 (không brand/thuốc/routine; khám da chỉ khi ổ to/đau/kéo dài)."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Straight, lightly tart observation notes for sharing — photo facts only, no heavy scolding. Info-dense overview. BAN empty filler. Close-up/crop: visible region only; others not_visible + 1 short sentence. Full face: review nose when forehead+cheeks+chin visible. Required: possible_causes (1–2 soft lines) and soothing_tips (2–3 gentle avoid/do bullets — no brands, meds, or AM/PM routine). No disease names. Optional tip: see a dermatologist if large swollen/painful spots lasting."
+		langHead = "**Output locale: English (en).** Best-friend tart voice (I/you), photo facts only — no fluff, no scolding insults. Info-dense overview without repeating the same shine/pores/bumps across notes. If faint marks exist say “very light PIH / shallow marks” — never “no dark marks” when marks exist. Close-up: visible only; others not_visible + 1 short sentence. Full face: review nose when forehead+cheeks+chin visible. possible_causes 1–2; soothing_tips 2–3 (no brands/meds/AM-PM); derm tip only if large/painful/lasting."
 	}
 	if compact {
 		if locale == "en" {
-			langHead = "**Output locale: English (en).** Short retry. Observations-first JSON. Soft morphology + light hypotheses. possible_causes 1–2; soothing_tips 2–3 (no brands/meds/AM-PM routine). Close-up: visible only; others not_visible 1 sentence."
+			langHead = "**Output locale: English (en).** Short retry. Tart best-friend voice. Observations-first. possible_causes 1–2; soothing_tips 2–3. Close-up: visible only; others not_visible 1 sentence. No false “no dark marks”."
 		} else {
-			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Observations-first JSON. Hình thái mềm + giả thuyết nhẹ. possible_causes 1–2; soothing_tips 2–3 (không brand/thuốc/routine sáng–tối). Close-up: chỉ vùng thấy; ngoài khung not_visible 1 câu."
+			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Xưng tao/mày, đanh đá không tục. Observations-first. possible_causes 1–2; soothing_tips 2–3. Close-up: chỉ vùng thấy; ngoài khung not_visible 1 câu. Có thâm nông thì nói thâm nhẹ — cấm “không thấy thâm”."
 		}
 		return langHead + "\n\n" + AdminSkinReviewCompactJSONSchemaBlock +
 			"\n\nReview the attached skin photo(s). Return one JSON object only. Match THIS photo."
@@ -314,10 +317,12 @@ func expandShortAdminSkinProblemNotes(
 		lang = "English"
 	}
 	user := "Thicken ONLY these Admin Skin Review notes by splitting packed ideas into SEPARATE short sentences " +
-		"(problem concern: 5–8; concern=none: 3–4). " +
+		"(problem concern: 5–8; concern=none: 3–4). Keep tao/mày voice. " +
 		"ONLY expand ideas already present in each note — do NOT invent new spot counts, locations, colors, marks, scars, or diagnoses. " +
-		"You may add soft hedges only as wording (not new facts): \"trông giống…\" / \"thường gặp khi…\" / \"không chắc 100% chỉ từ một ảnh\" " +
-		"(or English equivalents). Do not add \"chưa thấy X\" unless the original note already said that. No products, brands, routines, hard disease names. Locale: " + lang + ".\n\n" +
+		"FIRST sentence of a problem note MUST keep or add soft morphology: \"trông giống…\" / \"trên ảnh nghi…\". " +
+		"You may add soft hedges only as wording (not new facts): \"thường gặp khi…\" / \"không chắc 100% chỉ từ một ảnh\". " +
+		"If the note mentions thâm/marks, NEVER rewrite to \"không thấy thâm\" / \"không thấy thâm rõ\". " +
+		"Do not add \"chưa thấy X\" unless the original note already said that. No products, brands, routines, hard disease names. Locale: " + lang + ".\n\n" +
 		"Input notes JSON:\n" + string(thinJSON) + "\n\n" +
 		"Return JSON object: {\"notes\":[{\"index\":<int>,\"note\":\"...\"}, ...]} with the same indexes."
 
@@ -329,7 +334,7 @@ func expandShortAdminSkinProblemNotes(
 		"messages": []map[string]any{
 			{
 				"role":    "system",
-				"content": "You thicken observation notes by splitting sentences. Only elaborate ideas already in the note. Never invent new skin findings. Never name brands or medicines.",
+				"content": "You thicken DaDiary Admin Skin Review notes in Vietnamese best-friend voice (tao/mày), tart but not vulgar. Only elaborate ideas already in the note. Never invent new findings. If the note already mentions thâm/marks, never rewrite to “không thấy thâm”. Never name brands or medicines.",
 			},
 			{"role": "user", "content": user},
 		},

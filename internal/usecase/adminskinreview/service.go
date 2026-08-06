@@ -82,8 +82,11 @@ func (s *Service) Create(ctx context.Context, adminUserID uuid.UUID, in CreateIn
 	if adminUserID == uuid.Nil {
 		return zero, fmt.Errorf("%w: admin user required", ErrInvalidInput)
 	}
-	if len(in.Images) < 1 || len(in.Images) > 3 {
-		return zero, fmt.Errorf("%w: upload 1 to 3 images", ErrInvalidInput)
+	if len(in.Images) < 1 {
+		return zero, fmt.Errorf("%w: upload 1 skin photo (required)", ErrInvalidInput)
+	}
+	if len(in.Images) > 3 {
+		return zero, fmt.Errorf("%w: maximum 3 images", ErrInvalidInput)
 	}
 
 	status := strings.TrimSpace(in.Status)

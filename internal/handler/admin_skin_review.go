@@ -32,7 +32,7 @@ func NewAdminSkinReviewHandler(svc *adminskinreviewuc.Service, cfg *config.Confi
 }
 
 // Create handles POST /api/v1/admin/skin-review
-// Multipart: images (1–3), optional title, notes, status, locale.
+// Multipart: images (1 required, up to 3 optional extras), optional title, notes, status, locale.
 func (h *AdminSkinReviewHandler) Create(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil || h.cfg == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")
@@ -50,7 +50,7 @@ func (h *AdminSkinReviewHandler) Create(c *fiber.Ctx) error {
 
 	files := form.File["images"]
 	if len(files) < 1 {
-		return response.Error(c, fiber.StatusBadRequest, "missing_images", "upload at least 1 skin photo")
+		return response.Error(c, fiber.StatusBadRequest, "missing_images", "upload 1 skin photo (required)")
 	}
 	if len(files) > 3 {
 		return response.Error(c, fiber.StatusBadRequest, "too_many_images", "maximum 3 photos for admin skin review")
