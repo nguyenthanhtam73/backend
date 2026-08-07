@@ -98,6 +98,77 @@ func TestAdminSkinReviewSuggestAnswerUserMessage_OmitsTipsAndSoftens(t *testing.
 	}
 }
 
+func TestAlignPeriOralThamVsAcute_WrongViemCapToPigment(t *testing.T) {
+	t.Parallel()
+	a := &dto.AdminSkinReviewAnalysis{
+		Overview:   "Close-up khóe miệng. Đây là viêm cấp sát mép miệng.",
+		PhotoNotes: "Crop quanh miệng.",
+		PossibleCauses: []string{
+			"Do kích ứng tại chỗ quanh mép môi.",
+		},
+		SoothingTips: []string{
+			"Không nặn, không bóc chùm đang đỏ.",
+			"Há miệng đau tăng thì nên khám da liễu.",
+		},
+		AttentionAreas: []dto.AdminSkinAttentionArea{
+			{Region: "chin", Concern: "irritation", Severity: "mild", Note: "Viêm cấp sát mép miệng — không chùm hạt đỏ sưng rõ."},
+			{Region: "forehead", Concern: "not_visible", Severity: "mild", Note: "Không thấy trán trên ảnh — chụp đủ mặt mới nhận xét được."},
+			{Region: "nose", Concern: "not_visible", Severity: "mild", Note: "Không thấy mũi trên ảnh — chụp đủ mặt mới nhận xét được."},
+			{Region: "cheeks", Concern: "not_visible", Severity: "mild", Note: "Không thấy má trên ảnh — chụp đủ mặt mới nhận xét được."},
+		},
+	}
+	q := "Cho e hỏi thâm 2 mép môi và dưới cằm của e phải làm sao ạ"
+	if !AlignAdminSkinAnalysisWithQuestion(a, q, "vi") {
+		t.Fatal("expected peri-oral align to rewrite wrong viêm cấp")
+	}
+	blob := strings.ToLower(a.Overview + " " + a.AttentionAreas[0].Note)
+	if strings.Contains(blob, "viêm cấp") {
+		t.Fatalf("viêm cấp should be rewritten to thâm, got overview=%q note=%q", a.Overview, a.AttentionAreas[0].Note)
+	}
+	if a.AttentionAreas[0].Concern != "pigmentation" {
+		t.Fatalf("concern want pigmentation, got %q", a.AttentionAreas[0].Concern)
+	}
+	for _, tip := range a.SoothingTips {
+		tl := strings.ToLower(tip)
+		if strings.Contains(tl, "không nặn") || strings.Contains(tl, "không bóc") {
+			t.Fatalf("acute tip should be removed, got %q", tip)
+		}
+	}
+	joinedTips := strings.ToLower(strings.Join(a.SoothingTips, " "))
+	if !strings.Contains(joinedTips, "chống nắng") && !strings.Contains(joinedTips, "thâm") {
+		t.Fatalf("expected pigment tips, got %#v", a.SoothingTips)
+	}
+}
+
+func TestAlignPeriOralThamVsAcute_StrongRedClusterKeepsB(t *testing.T) {
+	t.Parallel()
+	a := &dto.AdminSkinReviewAnalysis{
+		Overview: "Crop sát khóe miệng. Chùm hạt đỏ sưng ngay viền môi — viêm cấp sát mép.",
+		PossibleCauses: []string{
+			"Do kích ứng tại chỗ quanh mép môi.",
+		},
+		SoothingTips: []string{
+			"Không nặn, không bóc chùm đang đỏ.",
+		},
+		AttentionAreas: []dto.AdminSkinAttentionArea{
+			{Region: "chin", Concern: "irritation", Severity: "moderate", Note: "Chùm hạt đỏ sưng sát mép — viêm cấp sát mép miệng."},
+		},
+	}
+	q := "Cho e hỏi thâm 2 mép môi phải làm sao ạ" // Q says thâm, but photo is clear acute cluster
+	beforeOverview := a.Overview
+	beforeConcern := a.AttentionAreas[0].Concern
+	_ = AlignAdminSkinAnalysisWithQuestion(a, q, "vi")
+	if a.Overview != beforeOverview {
+		t.Fatalf("strong red cluster must keep B overview; before=%q after=%q", beforeOverview, a.Overview)
+	}
+	if a.AttentionAreas[0].Concern != beforeConcern {
+		t.Fatalf("strong red cluster must keep irritation concern, got %q", a.AttentionAreas[0].Concern)
+	}
+	if !strings.Contains(strings.ToLower(a.Overview), "viêm cấp") {
+		t.Fatalf("expected keep viêm cấp, got %q", a.Overview)
+	}
+}
+
 func TestCauseLooksCircularPigment(t *testing.T) {
 	t.Parallel()
 	if !causeLooksCircularPigment("Do thâm trên má.") {

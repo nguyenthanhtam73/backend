@@ -157,6 +157,206 @@ func VisionSafeUserQuestionHint(q string) string {
 	return strings.Join(parts, "; ") + ". Chỉ mô tả ảnh — không gợi ý phòng khám/bệnh viện, giá, hay số buổi."
 }
 
+func adminSkinTextBlob(a *dto.AdminSkinReviewAnalysis) string {
+	if a == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(a.Overview)
+	b.WriteByte(' ')
+	b.WriteString(a.AdditionalObservations)
+	b.WriteByte(' ')
+	b.WriteString(a.PhotoNotes)
+	b.WriteByte(' ')
+	b.WriteString(a.SkinTypeNote)
+	for _, ar := range a.AttentionAreas {
+		b.WriteByte(' ')
+		b.WriteString(ar.Note)
+		b.WriteByte(' ')
+		b.WriteString(ar.Region)
+		b.WriteByte(' ')
+		b.WriteString(ar.Concern)
+	}
+	return strings.ToLower(b.String())
+}
+
+func questionAsksPeriOralTham(q string) bool {
+	ql := strings.ToLower(q)
+	tham := strings.Contains(ql, "thâm") || strings.Contains(ql, "pigment") || strings.Contains(ql, "đốm nâu") || strings.Contains(ql, "dark mark")
+	mouth := strings.Contains(ql, "mép") || strings.Contains(ql, "khóe") ||
+		strings.Contains(ql, "miệng") || strings.Contains(ql, "cằm") ||
+		strings.Contains(ql, "mouth") || strings.Contains(ql, "lip")
+	return tham && mouth
+}
+
+func questionHasAcuteLipSignals(q string) bool {
+	ql := strings.ToLower(q)
+	mouthMove := strings.Contains(ql, "mở miệng") || strings.Contains(ql, "há miệng") || strings.Contains(ql, "open my mouth")
+	pain := strings.Contains(ql, "đau") || strings.Contains(ql, "chằn") || strings.Contains(ql, "cộm")
+	progress := (strings.Contains(ql, "nhô") || strings.Contains(ql, "nổi")) &&
+		(strings.Contains(ql, "sáng") || strings.Contains(ql, "trưa") || strings.Contains(ql, "giờ") || strings.Contains(ql, "nhanh"))
+	return (mouthMove && pain) || (progress && (pain || mouthMove))
+}
+
+func analysisHasStrongAcuteLipCluster(a *dto.AdminSkinReviewAnalysis) bool {
+	blob := adminSkinTextBlob(a)
+	if blob == "" {
+		return false
+	}
+	peri := strings.Contains(blob, "mép") || strings.Contains(blob, "khóe") ||
+		strings.Contains(blob, "viền môi") || strings.Contains(blob, "lip")
+	if !peri {
+		return false
+	}
+	// Affirmative cluster only — ignore “không chùm hạt đỏ…” denials.
+	hasCluster := (strings.Contains(blob, "chùm hạt đỏ") || strings.Contains(blob, "chùm hạt đỏ sưng")) &&
+		!strings.Contains(blob, "không chùm hạt đỏ") &&
+		!strings.Contains(blob, "ko chùm hạt đỏ") &&
+		!strings.Contains(blob, "chưa có chùm")
+	hasRedSwell := strings.Contains(blob, "đỏ sưng") &&
+		(strings.Contains(blob, "chùm") || strings.Contains(blob, "hạt")) &&
+		!strings.Contains(blob, "không chùm") &&
+		!strings.Contains(blob, "không đỏ sưng")
+	hasBrightHead := strings.Contains(blob, "đầu sáng") && strings.Contains(blob, "sưng")
+	return hasCluster || hasRedSwell || hasBrightHead
+}
+
+func analysisLooksWrongAcuteLipTemplate(a *dto.AdminSkinReviewAnalysis) bool {
+	blob := adminSkinTextBlob(a)
+	if !strings.Contains(blob, "viêm cấp sát mép") && !strings.Contains(blob, "viêm cấp sát mép miệng") {
+		return false
+	}
+	// Template-only / weak: has viêm cấp label but not a strong red cluster description.
+	return !analysisHasStrongAcuteLipCluster(a)
+}
+
+func rewritePeriOralViemCapToTham(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return s
+	}
+	out := s
+	repls := []struct{ old, neu string }{
+		{"viêm cấp sát mép miệng", "thâm/sắc tố quanh miệng"},
+		{"Viêm cấp sát mép miệng", "Thâm/sắc tố quanh miệng"},
+		{"viêm cấp sát mép", "thâm/sắc tố quanh miệng"},
+		{"Viêm cấp sát mép", "Thâm/sắc tố quanh miệng"},
+		{"chùm hạt đỏ sưng ngay viền môi", "mảng thâm nâu–xám quanh khóe miệng"},
+		{"Chùm hạt đỏ sưng ngay viền môi", "Mảng thâm nâu–xám quanh khóe miệng"},
+		{"không nên xử như mụn thường trên má", "đây đúng kiểu thâm quanh miệng chứ không phải ổ viêm cấp"},
+		{"đừng mặc định bôi/trị như mụn có mủ", "đừng kỳ vọng hết thâm chỉ sau vài ngày tẩy mạnh"},
+	}
+	for _, r := range repls {
+		out = strings.ReplaceAll(out, r.old, r.neu)
+	}
+	return out
+}
+
+// alignPeriOralThamVsAcute fixes mislabeled “viêm cấp sát mép” when the user
+// asks about peri-oral thâm and the photo lacks a strong acute red cluster.
+// Strong acute cluster on photo always wins (keeps B).
+func alignPeriOralThamVsAcute(a *dto.AdminSkinReviewAnalysis, question, locale string) bool {
+	if a == nil {
+		return false
+	}
+	if analysisHasStrongAcuteLipCluster(a) {
+		return false // Photo acute cluster wins — keep khung B.
+	}
+	q := strings.TrimSpace(question)
+	blob := adminSkinTextBlob(a)
+	periOralBlob := strings.Contains(blob, "mép") || strings.Contains(blob, "khóe") ||
+		strings.Contains(blob, "viền môi") || strings.Contains(blob, "quanh miệng")
+	wrongViemCap := analysisLooksWrongAcuteLipTemplate(a)
+	// Only rewrite when peri-oral context is present — don't strip inflamed tips from unrelated chin acne.
+	asksTham := questionAsksPeriOralTham(q)
+	mislabelHint := wrongViemCap || strings.Contains(blob, "viêm cấp") || strings.Contains(blob, "kích ứng")
+	forceA := !questionHasAcuteLipSignals(q) && periOralBlob && (wrongViemCap || (asksTham && mislabelHint))
+	if !forceA && wrongViemCap && !questionHasAcuteLipSignals(q) {
+		if strings.Contains(blob, "thâm") || strings.Contains(blob, "nâu") || strings.Contains(blob, "sẫm") {
+			forceA = true
+		}
+	}
+	if !forceA {
+		return false
+	}
+
+	changed := false
+	rewrite := func(s string) string {
+		n := rewritePeriOralViemCapToTham(s)
+		if n != s {
+			changed = true
+		}
+		return n
+	}
+	a.Overview = rewrite(a.Overview)
+	a.AdditionalObservations = rewrite(a.AdditionalObservations)
+	a.PhotoNotes = rewrite(a.PhotoNotes)
+	a.SkinTypeNote = rewrite(a.SkinTypeNote)
+	for i := range a.AttentionAreas {
+		a.AttentionAreas[i].Note = rewrite(a.AttentionAreas[i].Note)
+		c := strings.ToLower(strings.TrimSpace(a.AttentionAreas[i].Concern))
+		r := strings.ToLower(strings.TrimSpace(a.AttentionAreas[i].Region))
+		if (r == "chin" || r == "other" || r == "cheeks") && (c == "irritation" || c == "acne" || c == "pustules" || c == "papules") {
+			note := strings.ToLower(a.AttentionAreas[i].Note)
+			if strings.Contains(note, "thâm") || strings.Contains(note, "sắc tố") || strings.Contains(note, "mép") || strings.Contains(note, "khóe") {
+				a.AttentionAreas[i].Concern = "pigmentation"
+				changed = true
+			}
+		}
+	}
+
+	filteredTips := make([]string, 0, len(a.SoothingTips))
+	for _, tip := range a.SoothingTips {
+		tl := strings.ToLower(tip)
+		if tipLooksInflamedOnly(tip) || strings.Contains(tl, "không nặn") || strings.Contains(tl, "không bóc") ||
+			strings.Contains(tl, "mụn có mủ") || strings.Contains(tl, "viêm cấp") {
+			changed = true
+			continue
+		}
+		filteredTips = append(filteredTips, tip)
+	}
+	a.SoothingTips = filteredTips
+	spf := "Chống nắng đều mỗi ngày trên vùng thâm quanh miệng–cằm."
+	gentle := "Giữ routine dịu, đừng chà mạnh chỗ thâm."
+	if locale == "en" {
+		spf = "Wear sunscreen daily on the darkened areas around the mouth/chin."
+		gentle = "Keep the routine gentle — don't scrub the marks."
+	}
+	if !containsFold(a.SoothingTips, "chống nắng") && !containsFold(a.SoothingTips, "sunscreen") {
+		a.SoothingTips = append([]string{spf}, a.SoothingTips...)
+		changed = true
+	}
+	if !containsFold(a.SoothingTips, "dịu") && !containsFold(a.SoothingTips, "gentle") && !containsFold(a.SoothingTips, "chà") {
+		a.SoothingTips = append(a.SoothingTips, gentle)
+		changed = true
+	}
+	if len(a.SoothingTips) > 3 {
+		a.SoothingTips = a.SoothingTips[:3]
+	}
+
+	causes := make([]string, 0, len(a.PossibleCauses))
+	for _, c := range a.PossibleCauses {
+		cl := strings.ToLower(c)
+		if strings.Contains(cl, "kích ứng tại chỗ quanh mép") || (strings.Contains(cl, "kích ứng") && strings.Contains(cl, "mép")) {
+			changed = true
+			continue
+		}
+		causes = append(causes, c)
+	}
+	a.PossibleCauses = causes
+	pigCause := "Do thâm sau mụn hoặc nắng/ma sát cục bộ quanh miệng."
+	if locale == "en" {
+		pigCause = "Post-acne marks or local sun/friction around the mouth."
+	}
+	if len(a.PossibleCauses) == 0 || (!containsFold(a.PossibleCauses, "thâm sau") && !containsFold(a.PossibleCauses, "post-acne") && !containsFold(a.PossibleCauses, "nắng")) {
+		a.PossibleCauses = append([]string{pigCause}, a.PossibleCauses...)
+		if len(a.PossibleCauses) > 2 {
+			a.PossibleCauses = a.PossibleCauses[:2]
+		}
+		changed = true
+	}
+	return changed
+}
+
 // AdminSkinPigmentPrimary reports pigment/dark-spot dominant reviews (little acute inflammation).
 func AdminSkinPigmentPrimary(a *dto.AdminSkinReviewAnalysis) bool {
 	if a == nil {
@@ -281,6 +481,9 @@ func AlignAdminSkinAnalysisWithQuestion(a *dto.AdminSkinReviewAnalysis, question
 		changed = true
 	}
 	if trimOverviewCheekOverlap(a) {
+		changed = true
+	}
+	if alignPeriOralThamVsAcute(a, q, locale) {
 		changed = true
 	}
 

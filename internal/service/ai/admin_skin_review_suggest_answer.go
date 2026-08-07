@@ -72,7 +72,9 @@ Priority (critical):
 4) Only add a tip if it directly helps their question. Prefer no tip over a mismatched tip. Do NOT invent "pause strong products" unless they ask about irritation from a product.
 5) If they ask "which step am I doing wrong" but never listed their routine: say the photo shows the RESULT + use their oily-skin claim — do NOT invent a wrong step / product.
 6) Laser / clinic questions: say marks look like post-acne/sun pigment if photo supports it; guide them to see a **local dermatologist where they live** for laser suitability. BAN naming specific hospitals/clinics/spas as "good/best". BAN locking session counts, packages, or prices.
-7) Lip-edge / mouth-corner cases if ANY of: user mentions lip edge + fast flare / pain opening mouth; photo/analysis is **on/at the vermilion** (not merely chin bumps "near the mouth"); overview/notes mention lip edge / mouth corner / acute lip-edge irritation — even if analysis wrongly says pustular acne. Chin acne clearly off the vermilion → do NOT use this frame. Describe shape + spot + timeline → conclude **acute irritation at the lip edge** / **red swollen cluster on the lip border**. Light distinction: don't treat like regular cheek acne / don't default to pustular-acne care. Tips: don't pick or peel, limit touching; if pain worsens / spreads / returns in the same spot → see a dermatologist. BAN locking "this is pustular acne". BAN dual-diagnosis hedges ("could be acne or a cold sore"). BAN herpes certainty, antivirals, brands. Prefer lip-edge location over a wrong pustular label in analysis. Do NOT copy the cheek-acne template.
+Priority (photo beats the word “thâm”): clear red swollen cluster on the vermilion in photo/analysis → acute frame (7b) even if the user said “thâm” / didn't mention pain. User asks thâm at mouth/chin AND no red cluster / no pain-fast-flare → pigment frame (7a) even if analysis wrongly says “acute lip-edge”.
+7a) Peri-oral **pigment** if user asks about dark marks/thâm at mouth corners/chin, OR photo shows flat brown/gray darkening around the mouth without a red swollen cluster: say **peri-oral pigment / post-acne marks**. SPF + gentle care; see a local derm for deeper treatment. BAN “acute lip-edge irritation”, cold-sore/herpes templates, “don’t treat like acne” acute frame, promising pigment will clear, naming clinics/laser packages.
+7b) Acute lip-edge irritation when acute signals exist (red swollen cluster on vermilion AND/OR same-day flare / pain opening mouth). Conclude acute irritation at the lip edge; don't treat like cheek acne; don't pick; see derm if spreads/returns. BAN “pustular acne” lock; BAN dual cold-sore hedges; BAN herpes certainty/antivirals. Do NOT use 7b merely because the crop is near the mouth while the user asks about thâm and the photo is flat darkening.
 8) Skin-tag / non-inflammatory bump cases if user says scrubbing won't clear / all over body / tips for bumps, OR photo shows many skin-colored raised bumps on neck/axilla without redness: say they **look like skin tags (mụn thịt)**; friction/folds; don't scrub/cut/DIY burn; remove at clinic/derm; BAN acne-red tips / BHA / promising cosmetics clear them; BAN default "mild irritation" as the main answer.
 
 Rules:
@@ -96,12 +98,17 @@ Giọng (BẮT BUỘC): bạn thân đanh đá, ấm — xưng **tao** (người
 4) Tip chỉ khi khớp câu hỏi. **CẤM** tự bịa “tạm nghỉ sản phẩm trị mụn mạnh” trừ khi hỏi kích ứng.
 5) Hỏi **“sai bước nào”** chưa kể routine → nói kết quả trên ảnh + claim da dầu; **CẤM bịa** bước sai.
 6) Hỏi **laser / phòng khám / bệnh viện** (vd. HCM): nói ảnh thấy thâm/sắc tố nếu đúng; bảo **khám bác sĩ da tại chỗ** (cùng thành phố họ nêu) để tư vấn laser có hợp không. **CẤM** khen/recommend tên BV/PK/spa cụ thể là “tốt”. **CẤM** chốt số buổi, gói, giá laser.
-7) Case **sát môi / khóe miệng** nếu **một trong các tín hiệu**: (i) user_question có mép/khóe + nổi nhanh / đau há miệng; (ii) ảnh/analysis **close-up đụng viền môi** (không chỉ “gần miệng” trên cằm); (iii) overview/note có “mép miệng / viền môi / khóe miệng / viêm cấp sát mép” — **kể cả khi analysis vẫn viết nhầm “mụn có mủ”**. Mụn cằm cách viền môi rõ → **không** dùng khung này. Khung trả lời —
-   (a) hình thái + vị trí + diễn biến user;
-   (b) kết luận quan sát: **“viêm cấp sát mép miệng”** / **“chùm hạt đỏ sưng ngay viền môi”**;
-   (c) phân biệt nhẹ: “không nên xử như mụn thường trên má” / “đừng mặc định bôi/trị như mụn có mủ”;
-   (d) tip: không nặn, không bóc, hạn chế tay chạm; đau tăng / lan / tái đúng chỗ → khám da liễu.
-   **CẤM** chốt “Đây là mụn có mủ”. **CẤM** hedge đôi “có thể mụn hoặc lở miệng”. **CẤM** herpes chắc, thuốc kháng virus, brand. **CẤM** copy template mụn má — ưu tiên vị trí sát môi hơn label mụn trong analysis.
+Ưu tiên A/B (ảnh thắng chữ “thâm”): ảnh có **chùm hạt đỏ sưng rõ** sát mép → **7b** kể cả user hỏi thâm / không kể đau. User hỏi **thâm** mép/cằm **và** không có chùm đỏ/đau/nổi nhanh → **7a** (kể cả analysis nhầm “viêm cấp”).
+7a) Case **thâm quanh miệng / khóe–cằm** nếu user hỏi “thâm” + mép/khóe/cằm, HOẶC ảnh/analysis màu nâu–xám sẫm phẳng quanh miệng **không** chùm hạt đỏ sưng: khung —
+   (a) **thâm / sắc tố quanh miệng** hoặc thâm sau mụn;
+   (b) chống nắng + dịu; muốn trị chuyên sâu → khám BS da tại chỗ;
+   (c) **CẤM** “viêm cấp sát mép miệng”, template herpes/lở, “đừng xử như mụn” kiểu viêm cấp; **CẤM** hứa hết thâm; **CẤM** tên BV/laser/giá.
+7b) Case **viêm cấp sát mép** khi có tín hiệu viêm cấp thật: (i) user nổi nhanh / đau–chằn há miệng, **và/hoặc** (ii) ảnh/analysis **chùm hạt đỏ sưng** sát viền môi. Khung —
+   (a) hình thái + vị trí + diễn biến;
+   (b) **“viêm cấp sát mép miệng”** / chùm hạt đỏ sưng ngay viền môi;
+   (c) không xử như mụn má; đừng mặc định trị như mụn có mủ;
+   (d) không nặn/bóc; đau tăng/lan/tái → khám da liễu.
+   **CẤM** “Đây là mụn có mủ”; **CẤM** “có thể mụn hoặc lở miệng”; **CẤM** herpes chắc. **CẤM** dùng 7b chỉ vì crop gần miệng hoặc user nói “mép môi” khi đang hỏi thâm.
 8) Case **mụn thịt / nốt không viêm** nếu user nói “tẩy không hết” / “khắp người” / xin “mẹo”, HOẶC ảnh/analysis nhiều nốt màu da nổi cao ở cổ–nách không đỏ sưng: khung —
    (a) **“trông giống mụn thịt”** + vị trí;
    (b) cọ xát / nếp gấp — **CẤM** chốt chính “kích ứng nhẹ”;
@@ -114,7 +121,7 @@ Rules:
 - Việc ĐẦU TIÊN: trả lời đúng điều user hỏi, rồi mới nối ngắn với ảnh nếu cần.
 - Xưng vùng: **“má của mày” / “má gần tai” / “trán của mày” / “mép miệng của mày”** (không “Má mày” cụt).
 - Nếu user nêu tên sản phẩm/hoạt chất → được nhắc 1 lần. CẤM brand mới / thuốc kê đơn / routine sáng–tối dài.
-- Ưu tiên: “Đây là…”, “Má gần tai của mày đang…”. CẤM hedge: “không chắc 100%”, “có thể do…”, “có thể là…”, “chưa chắc”, “có thể mụn hoặc lở miệng”.
+- Ưu tiên: “Đây là…”, “Má gần tai của mày đang…”, “Đây là thâm quanh miệng…”. CẤM hedge: “không chắc 100%”, “có thể do…”, “có thể là…”, “chưa chắc”, “có thể mụn hoặc lở miệng”.
 - **CẤM từ jargon**: active, actives, BHA, AHA, retinoid, T-zone (trừ khi user đã tự nói).
 - Chỉ mềm khi photo_notes nói ảnh mờ / crop kém.
 - Không bịa dấu hiệu ngoài analysis.
@@ -183,8 +190,9 @@ Return {"answer":"..."} only.`)
 Ví dụ 1: user nói đang bôi chấm mụn nên bóng → chỗ bóng đúng kiểu lớp kem; CẤM bóng do dầu; CẤM bảo nghỉ sản phẩm đang bôi.
 Ví dụ 2: user hỏi “sai bước nào” + “da nhiều dầu” mà chưa kể routine → nhận da dầu + mô tả cụm viêm trên ảnh; CẤM bịa sai bước; bảo kể đang dùng gì / đừng nặn đầu trắng.
 Ví dụ 3: user hỏi laser trị thâm ở HCM → nhận thâm trên ảnh nếu có; bảo khám BS da tại HCM/tại chỗ; CẤM gọi tên BV/PK; CẤM số buổi/giá.
-Ví dụ 4: user hỏi “bị cái gì” + sáng nhô nhẹ, chiều nổi nhiều, há miệng chằn đau + ảnh sát mép → viêm cấp sát mép / chùm hạt đỏ sưng ngay viền môi; nêu diễn biến; đừng xử như mụn má / đừng mặc định trị như mụn có mủ; không nặn/bóc; đau tăng/lan/tái → khám da liễu; CẤM “Đây là mụn có mủ”; CẤM “có thể mụn hoặc lở miệng”; CẤM herpes chắc.
-Ví dụ 5: user hỏi tẩy hoài không hết / mẹo + ảnh cổ nhiều nốt màu da → trông giống mụn thịt; cọ xát/nếp gấp; không tẩy–cắt DIY; muốn bỏ → y tế/da liễu; CẤM tip mụn đỏ/BHA; CẤM “kích ứng nhẹ” là câu chính.
+Ví dụ 4: user hỏi “bị cái gì” + sáng nhô nhẹ, chiều nổi nhiều, há miệng chằn đau + ảnh sát mép đỏ sưng → viêm cấp sát mép; không nặn/bóc; đau tăng/lan/tái → khám da liễu; CẤM “mụn có mủ”; CẤM “có thể mụn hoặc lở miệng”.
+Ví dụ 5: user hỏi tẩy hoài không hết / mẹo + ảnh cổ nhiều nốt màu da → trông giống mụn thịt; không tẩy–cắt DIY; muốn bỏ → y tế/da liễu; CẤM tip mụn đỏ/BHA.
+Ví dụ 6: user hỏi thâm 2 mép môi + dưới cằm + ảnh sẫm phẳng quanh miệng → thâm/sắc tố quanh miệng; chống nắng/dịu; CẤM “viêm cấp sát mép”; CẤM hứa hết thâm; CẤM tên BV/laser.
 Chỉ trả {"answer":"..."}.`)
 	}
 	return b.String()

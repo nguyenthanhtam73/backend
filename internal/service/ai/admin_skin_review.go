@@ -208,15 +208,15 @@ func adminSkinAllProblemNotesThin(a *dto.AdminSkinReviewAnalysis) bool {
 }
 
 func adminSkinReviewUserText(locale string, compact bool, userQuestion string) string {
-	langHead := "**Output locale: Vietnamese (vi).** Xưng tao/mày — thẳng, đanh đá, chanh chua, tự tin trên dấu hiệu rõ, không tục, không nịnh, không mình/bạn. Overview 4–6 câu chỗ nổi bật; mỗi ý thâm/bóng/nốt chỉ nêu kỹ 1 lần — additional CẤM copy overview/note má. Ảnh rõ → nói thẳng; gọi tên nhóm (mụn viêm / có mủ / bọc / cồi / thâm / viêm cấp sát mép / mụn thịt) khi đủ dấu. Chùm đỏ sát mép → viêm cấp sát mép — CẤM mụn có mủ / hedge đôi / herpes chắc. Nốt màu da nổi cao cổ–nách không đỏ → trông giống mụn thịt — CẤM default kích ứng nhẹ; causes cọ xát/nếp gấp. Ảnh cổ → region neck; mặt not_visible 1 câu ngắn; photo_notes “ảnh vùng cổ”. Close-up mặt: chỉ vùng thấy; trái/phải theo tai. Tips khớp case; CẤM jargon “active”; CẤM tự cắt/đốt tại nhà."
+	langHead := "**Output locale: Vietnamese (vi).** Xưng tao/mày — thẳng, đanh đá, chanh chua, tự tin trên dấu hiệu rõ, không tục, không nịnh, không mình/bạn. Overview 4–6 câu chỗ nổi bật; mỗi ý thâm/bóng/nốt chỉ nêu kỹ 1 lần. Ảnh rõ → nói thẳng; nhóm: mụn viêm / có mủ / bọc / cồi / thâm / thâm quanh miệng / viêm cấp sát mép / mụn thịt. Thâm nâu phẳng quanh khóe–cằm hoặc user hỏi thâm mép → thâm/sắc tố — CẤM “viêm cấp sát mép”. Chỉ khi đỏ sưng/chùm hạt + đau/nổi nhanh → viêm cấp sát mép (CẤM mụn có mủ / hedge đôi). Nốt màu da nổi cao cổ–nách → mụn thịt. Ảnh cổ → region neck. Tips khớp case; CẤM jargon “active”; CẤM tự cắt/đốt tại nhà."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Best-friend tart voice (I/you), confident on clear photo facts — no fluff, no scolding insults, no hedge spam when signs are clear. Name morphology groups when clear (inflammatory bumps / pustules / cysts / comedones / acute lip-edge irritation / skin tags). Red swollen cluster on/at the vermilion → acute irritation at the lip edge — BAN locking “pustular acne”; BAN dual hedges; BAN herpes certainty. Skin-colored raised bumps on neck/axilla without redness → look like skin tags — BAN defaulting to mild irritation; causes friction/skin folds. Neck/body photo → region neck|other; face regions not_visible 1 short each; photo_notes say neck/body crop. Close-up face: visible only; laterality via ear landmark. possible_causes 1–2 direct; soothing_tips 2–3 matching case (skin tags: no DIY cut/scrub; see clinic/derm); no brands/meds/AM-PM."
+		langHead = "**Output locale: English (en).** Best-friend tart voice (I/you), confident on clear photo facts. Morphology: inflammatory / pustules / comedones / peri-oral pigment / acute lip-edge irritation / skin tags. Flat brown darkening around mouth corners/chin or user asks about dark marks there → peri-oral pigment — BAN “acute lip-edge irritation”. Only red swollen clustered lip-edge + pain/fast flare → acute lip-edge frame. Neck skin tags → look like skin tags. Neck/body → region neck|other. Tips match case; no brands/meds/AM-PM/DIY cut."
 	}
 	if compact {
 		if locale == "en" {
-			langHead = "**Output locale: English (en).** Short retry. Tart best-friend voice, confident on clear facts. Observations-first. Lip-edge → acute lip-edge irritation. Neck skin-tag pattern → “look like skin tags”, BAN irritation default. Neck photo → region neck. possible_causes 1–2; soothing_tips 2–3. Close-up: visible only; others not_visible 1 sentence. No hedge spam."
+			langHead = "**Output locale: English (en).** Short retry. Peri-oral flat brown / “dark marks” Q → pigment (BAN acute lip-edge). Acute red clustered lip + pain/fast flare → acute lip-edge. Neck tags → skin tags. possible_causes 1–2; soothing_tips 2–3. No hedge spam."
 		} else {
-			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Xưng tao/mày, đanh đá không tục, tự tin trên dấu rõ. Observations-first. Sát mép → viêm cấp sát mép. Nốt màu da nổi cao cổ–nách → mụn thịt; CẤM default kích ứng nhẹ. Ảnh cổ → region neck; mặt not_visible 1 câu. CẤM nhồi hedge. possible_causes 1–2; soothing_tips 2–3 khớp case. Close-up mặt: chỉ vùng thấy."
+			langHead = "**Output locale: Vietnamese (vi).** Retry rút gọn. Thâm nâu phẳng quanh khóe–cằm / hỏi thâm mép → thâm (CẤM viêm cấp sát mép). Chỉ đỏ sưng/chùm hạt + đau/nổi nhanh → viêm cấp sát mép. Cổ nốt màu da → mụn thịt. Tips khớp case. CẤM nhồi hedge."
 		}
 	}
 	var b strings.Builder
@@ -412,8 +412,9 @@ func expandShortAdminSkinProblemNotes(
 		"(problem concern: 5–8; concern=none: 3–4). Keep tao/mày voice, confident on clear facts. " +
 		"ONLY expand ideas already present in each note — do NOT invent new spot counts, locations, colors, marks, scars, or disease names. " +
 		"FIRST sentence of a problem note should stay/get confident: \"Má của mày đang…\" / \"Đây là…\" / \"Trông đúng kiểu…\". " +
-		"Morphology: keep mụn viêm / mụn bọc / mụn cồi / thâm when already present on normal face skin. " +
-		"If the note mentions sát mép / khóe miệng / viền môi / mép miệng (on/at vermilion): use/keep “viêm cấp sát mép miệng” — REPLACE any “mụn có mủ” / pustular-acne lock in that note; do NOT preserve “mụn có mủ” just because it was in the thin draft. " +
+		"Morphology: keep mụn viêm / mụn bọc / mụn cồi / thâm / pigmentation wording already present. " +
+		"Peri-oral split: if the note is about thâm/sắc tố/nâu sẫm phẳng quanh khóe–cằm (no red swollen cluster), KEEP thâm/pigment wording — do NOT rewrite into “viêm cấp sát mép miệng”. " +
+		"Only if the note already describes đỏ sưng / chùm hạt / đau há miệng cấp at the vermilion: keep “viêm cấp sát mép miệng” and REPLACE “mụn có mủ” locks. " +
 		"Do NOT add hedge spam: \"không chắc 100%…\", \"chưa chắc\", \"trên ảnh nghi…\", \"đôi khi liên quan…\", \"có thể là…\", \"có thể mụn hoặc lở miệng\". " +
 		"If the note mentions thâm/marks, NEVER rewrite to \"không thấy thâm\" / \"không thấy thâm rõ\". " +
 		"Do not add \"chưa thấy X\" unless the original note already said that. No products, brands, routines, hard disease names. Locale: " + lang + ".\n\n" +
@@ -428,7 +429,7 @@ func expandShortAdminSkinProblemNotes(
 		"messages": []map[string]any{
 			{
 				"role":    "system",
-				"content": "You thicken DaDiary Admin Skin Review notes in Vietnamese best-friend voice (tao/mày), tart but not vulgar, confident on clear photo facts. Only elaborate ideas already in the note. Never invent new findings. Never add hedge spam. If a note is on/at the lip edge (mép/viền môi/khóe), prefer “viêm cấp sát mép miệng” and strip “mụn có mủ” locks. If the note already mentions thâm/marks, never rewrite to “không thấy thâm”. Never name brands or medicines.",
+				"content": "You thicken DaDiary Admin Skin Review notes in Vietnamese best-friend voice (tao/mày), tart but not vulgar, confident on clear photo facts. Only elaborate ideas already in the note. Never invent new findings. Never add hedge spam. Peri-oral thâm/flat brown darkening stays thâm — never rewrite to viêm cấp sát mép. Only acute red clustered lip-edge notes keep viêm cấp sát mép (and strip mụn có mủ). If the note already mentions thâm/marks, never rewrite to “không thấy thâm”. Never name brands or medicines.",
 			},
 			{"role": "user", "content": user},
 		},
