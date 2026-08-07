@@ -697,9 +697,9 @@ func AlignAdminSkinAnalysisWithQuestion(a *dto.AdminSkinReviewAnalysis, question
 		}
 	}
 	if laserQ {
-		laserTip := "Muốn laser/trị thâm thì khám bác sĩ da tại chỗ để tư vấn — đừng chốt số buổi hay giá từ ảnh."
+		laserTip := "Muốn laser/trị thâm thì khám bác sĩ da tại chỗ — họ xem da thật rồi mới tư vấn số buổi và chi phí."
 		if locale == "en" {
-			laserTip = "For laser/pigment treatment, see a local dermatologist — don't lock sessions or prices from a photo."
+			laserTip = "For laser/pigment treatment, see a local dermatologist — session count and cost need an in-person look, not just a photo."
 		}
 		if !containsFold(a.SoothingTips, "laser") && !containsFold(a.SoothingTips, "bác sĩ da") && !containsFold(a.SoothingTips, "dermatologist") {
 			a.SoothingTips = append(a.SoothingTips, laserTip)
@@ -710,6 +710,43 @@ func AlignAdminSkinAnalysisWithQuestion(a *dto.AdminSkinReviewAnalysis, question
 	return finalizeAdminSkinAlign(a, pigmentPrimary, locale, changed)
 }
 
+// rewriteAwkwardShoppingTip turns terse “đừng chốt laser/giá từ ảnh” into plain buddy wording.
+func rewriteAwkwardShoppingTip(tip string) string {
+	t := strings.TrimSpace(tip)
+	if t == "" {
+		return tip
+	}
+	repls := []struct{ old, neu string }{
+		{
+			"Muốn trị thâm chuyên sâu thì khám bác sĩ da tại chỗ — đừng chốt laser/giá từ ảnh.",
+			"Muốn trị thâm chuyên sâu thì khám bác sĩ da tại chỗ để họ xem da thật rồi tư vấn.",
+		},
+		{
+			"đừng chốt laser/giá từ ảnh",
+			"họ xem da thật rồi mới tư vấn",
+		},
+		{
+			"đừng chốt số buổi hay giá từ ảnh",
+			"họ xem da thật rồi mới tư vấn số buổi và chi phí",
+		},
+		{
+			"đừng chốt số buổi hoặc giá từ ảnh",
+			"họ xem da thật rồi mới tư vấn số buổi và chi phí",
+		},
+		{
+			"don't lock sessions or prices from a photo",
+			"session count and cost need an in-person look, not just a photo",
+		},
+	}
+	out := tip
+	for _, r := range repls {
+		if strings.Contains(out, r.old) {
+			out = strings.ReplaceAll(out, r.old, r.neu)
+		}
+	}
+	return out
+}
+
 func finalizeAdminSkinAlign(
 	a *dto.AdminSkinReviewAnalysis,
 	pigmentPrimary bool,
@@ -718,6 +755,12 @@ func finalizeAdminSkinAlign(
 ) bool {
 	if a == nil {
 		return changed
+	}
+	for i := range a.SoothingTips {
+		if n := rewriteAwkwardShoppingTip(a.SoothingTips[i]); n != a.SoothingTips[i] {
+			a.SoothingTips[i] = n
+			changed = true
+		}
 	}
 	// Keep tips 2–3, causes 1–2.
 	if len(a.SoothingTips) > 3 {

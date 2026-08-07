@@ -288,7 +288,7 @@ Lặp “không chắc 100%” / hedge dày trên ảnh rõ = FAIL.
   "soothing_tips": [
     "Chống nắng đều mỗi ngày trên vùng thâm.",
     "Giữ routine dịu, đừng chà mạnh chỗ đốm.",
-    "Muốn laser/trị thâm chuyên sâu thì khám bác sĩ da tại chỗ để tư vấn — đừng chốt số buổi hay giá từ ảnh."
+    "Muốn laser/trị thâm chuyên sâu thì khám bác sĩ da tại chỗ — họ xem da thật rồi mới tư vấn số buổi và chi phí."
   ],
   "non_diagnostic": "Chỉ quan sát từ phần mặt thấy trên ảnh thôi, không thay khám bác sĩ hay chẩn đoán y khoa."
 }
@@ -344,7 +344,7 @@ CONTEXT câu hỏi nếu có: thâm 2 mép môi / dưới cằm.
   "soothing_tips": [
     "Chống nắng đều mỗi ngày trên vùng thâm quanh miệng–cằm.",
     "Giữ routine dịu, đừng chà mạnh chỗ thâm.",
-    "Muốn trị thâm chuyên sâu thì khám bác sĩ da tại chỗ — đừng chốt laser/giá từ ảnh."
+    "Muốn trị thâm chuyên sâu thì khám bác sĩ da tại chỗ để họ xem da thật rồi tư vấn."
   ],
   "non_diagnostic": "Chỉ quan sát từ phần mặt thấy trên ảnh thôi, không thay khám bác sĩ hay chẩn đoán y khoa."
 }

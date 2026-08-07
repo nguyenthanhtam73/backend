@@ -98,6 +98,18 @@ func TestAdminSkinReviewSuggestAnswerUserMessage_OmitsTipsAndSoftens(t *testing.
 	}
 }
 
+func TestRewriteAwkwardShoppingTip(t *testing.T) {
+	t.Parallel()
+	in := "Muốn trị thâm chuyên sâu thì khám bác sĩ da tại chỗ — đừng chốt laser/giá từ ảnh."
+	out := rewriteAwkwardShoppingTip(in)
+	if strings.Contains(out, "chốt laser") || strings.Contains(out, "giá từ ảnh") {
+		t.Fatalf("awkward shopping tip still present: %q", out)
+	}
+	if !strings.Contains(out, "xem da thật") {
+		t.Fatalf("expected plain wording, got %q", out)
+	}
+}
+
 func TestRewritePeriOralViemCapToTham_DoesNotMangleDenial(t *testing.T) {
 	t.Parallel()
 	in := "Đây là thâm/sắc tố quanh miệng — đúng kiểu thâm sau mụn. Không gọi viêm cấp sát mép khi không có sưng đau cấp. Thâm thì có."
