@@ -226,8 +226,33 @@ func analysisLooksWrongAcuteLipTemplate(a *dto.AdminSkinReviewAnalysis) bool {
 	if !strings.Contains(blob, "viêm cấp sát mép") && !strings.Contains(blob, "viêm cấp sát mép miệng") {
 		return false
 	}
+	// Deny / meta lines ("không gọi viêm cấp…", "không phải viêm cấp…") are not positive labels.
+	if !hasAffirmativeViemCapLabel(blob) {
+		return false
+	}
 	// Template-only / weak: has viêm cấp label but not a strong red cluster description.
 	return !analysisHasStrongAcuteLipCluster(a)
+}
+
+// hasAffirmativeViemCapLabel is true when prose claims acute lip-edge, not when it denies it.
+func hasAffirmativeViemCapLabel(blob string) bool {
+	if !strings.Contains(blob, "viêm cấp sát mép") {
+		return false
+	}
+	// Strip common denial prefixes so leftover "viêm cấp sát mép" still counts if used affirmatively elsewhere.
+	cleaned := blob
+	for _, denial := range []string{
+		"không gọi viêm cấp sát mép miệng",
+		"không gọi viêm cấp sát mép",
+		"không phải viêm cấp sát mép miệng",
+		"không phải viêm cấp sát mép",
+		"chứ không phải viêm cấp sát mép",
+		"không phải ổ viêm cấp sát mép",
+		"cấm viêm cấp sát mép",
+	} {
+		cleaned = strings.ReplaceAll(cleaned, denial, " ")
+	}
+	return strings.Contains(cleaned, "viêm cấp sát mép")
 }
 
 func rewritePeriOralViemCapToTham(s string) string {
@@ -235,6 +260,24 @@ func rewritePeriOralViemCapToTham(s string) string {
 		return s
 	}
 	out := s
+	// Handle denials / meta first so we never produce “Không gọi thâm/sắc tố…”.
+	negRepls := []struct{ old, neu string }{
+		{"Không gọi viêm cấp sát mép miệng khi không có sưng đau cấp.", "Không phải ổ viêm đỏ sưng cấp."},
+		{"Không gọi viêm cấp sát mép khi không có sưng đau cấp.", "Không phải ổ viêm đỏ sưng cấp."},
+		{"không gọi viêm cấp sát mép miệng khi không có sưng đau cấp.", "không phải ổ viêm đỏ sưng cấp."},
+		{"không gọi viêm cấp sát mép khi không có sưng đau cấp.", "không phải ổ viêm đỏ sưng cấp."},
+		{"Không gọi viêm cấp sát mép miệng", "Không phải ổ viêm đỏ sưng cấp"},
+		{"Không gọi viêm cấp sát mép", "Không phải ổ viêm đỏ sưng cấp"},
+		{"không gọi viêm cấp sát mép miệng", "không phải ổ viêm đỏ sưng cấp"},
+		{"không gọi viêm cấp sát mép", "không phải ổ viêm đỏ sưng cấp"},
+		{"không phải viêm cấp sát mép miệng", "không phải ổ viêm đỏ sưng cấp"},
+		{"không phải viêm cấp sát mép", "không phải ổ viêm đỏ sưng cấp"},
+		{"Không phải viêm cấp sát mép miệng", "Không phải ổ viêm đỏ sưng cấp"},
+		{"Không phải viêm cấp sát mép", "Không phải ổ viêm đỏ sưng cấp"},
+	}
+	for _, r := range negRepls {
+		out = strings.ReplaceAll(out, r.old, r.neu)
+	}
 	repls := []struct{ old, neu string }{
 		{"viêm cấp sát mép miệng", "thâm/sắc tố quanh miệng"},
 		{"Viêm cấp sát mép miệng", "Thâm/sắc tố quanh miệng"},
@@ -246,6 +289,16 @@ func rewritePeriOralViemCapToTham(s string) string {
 		{"đừng mặc định bôi/trị như mụn có mủ", "đừng kỳ vọng hết thâm chỉ sau vài ngày tẩy mạnh"},
 	}
 	for _, r := range repls {
+		out = strings.ReplaceAll(out, r.old, r.neu)
+	}
+	// Repair already-mangled meta lines from older align runs / copied few-shots.
+	broken := []struct{ old, neu string }{
+		{"Không gọi thâm/sắc tố quanh miệng khi không có sưng đau cấp.", "Không phải ổ viêm đỏ sưng cấp."},
+		{"không gọi thâm/sắc tố quanh miệng khi không có sưng đau cấp.", "không phải ổ viêm đỏ sưng cấp."},
+		{"Không gọi thâm/sắc tố quanh miệng", "Không phải ổ viêm đỏ sưng cấp"},
+		{"không gọi thâm/sắc tố quanh miệng", "không phải ổ viêm đỏ sưng cấp"},
+	}
+	for _, r := range broken {
 		out = strings.ReplaceAll(out, r.old, r.neu)
 	}
 	return out
@@ -268,15 +321,38 @@ func alignPeriOralThamVsAcute(a *dto.AdminSkinReviewAnalysis, question, locale s
 	wrongViemCap := analysisLooksWrongAcuteLipTemplate(a)
 	// Only rewrite when peri-oral context is present — don't strip inflamed tips from unrelated chin acne.
 	asksTham := questionAsksPeriOralTham(q)
-	mislabelHint := wrongViemCap || strings.Contains(blob, "viêm cấp") || strings.Contains(blob, "kích ứng")
+	affirmativeViem := hasAffirmativeViemCapLabel(blob)
+	// Denial-only “không phải/không gọi viêm cấp…” must NOT trigger a rewrite pass.
+	mislabelHint := wrongViemCap || affirmativeViem ||
+		(asksTham && strings.Contains(blob, "kích ứng") && !strings.Contains(blob, "thâm") && !strings.Contains(blob, "sắc tố"))
 	forceA := !questionHasAcuteLipSignals(q) && periOralBlob && (wrongViemCap || (asksTham && mislabelHint))
 	if !forceA && wrongViemCap && !questionHasAcuteLipSignals(q) {
 		if strings.Contains(blob, "thâm") || strings.Contains(blob, "nâu") || strings.Contains(blob, "sẫm") {
 			forceA = true
 		}
 	}
-	if !forceA {
+	// Always repair mangled “Không gọi thâm…” lines left by older align / copied few-shots.
+	needsMangleRepair := strings.Contains(blob, "không gọi thâm") || strings.Contains(blob, "không gọi viêm cấp sát mép")
+	if !forceA && !needsMangleRepair {
 		return false
+	}
+	if needsMangleRepair && !forceA {
+		changed := false
+		repair := func(s string) string {
+			n := rewritePeriOralViemCapToTham(s)
+			if n != s {
+				changed = true
+			}
+			return n
+		}
+		a.Overview = repair(a.Overview)
+		a.AdditionalObservations = repair(a.AdditionalObservations)
+		a.PhotoNotes = repair(a.PhotoNotes)
+		a.SkinTypeNote = repair(a.SkinTypeNote)
+		for i := range a.AttentionAreas {
+			a.AttentionAreas[i].Note = repair(a.AttentionAreas[i].Note)
+		}
+		return changed
 	}
 
 	changed := false

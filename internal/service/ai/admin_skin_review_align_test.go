@@ -98,6 +98,48 @@ func TestAdminSkinReviewSuggestAnswerUserMessage_OmitsTipsAndSoftens(t *testing.
 	}
 }
 
+func TestRewritePeriOralViemCapToTham_DoesNotMangleDenial(t *testing.T) {
+	t.Parallel()
+	in := "Đây là thâm/sắc tố quanh miệng — đúng kiểu thâm sau mụn. Không gọi viêm cấp sát mép khi không có sưng đau cấp. Thâm thì có."
+	out := rewritePeriOralViemCapToTham(in)
+	if strings.Contains(out, "Không gọi thâm") || strings.Contains(out, "không gọi thâm") {
+		t.Fatalf("denial mangled into “không gọi thâm”: %q", out)
+	}
+	if strings.Contains(out, "Không gọi viêm cấp") {
+		t.Fatalf("meta “không gọi viêm cấp” should be rewritten to plain denial: %q", out)
+	}
+	if !strings.Contains(out, "không phải ổ viêm đỏ sưng cấp") && !strings.Contains(out, "Không phải ổ viêm đỏ sưng cấp") {
+		t.Fatalf("expected plain denial, got %q", out)
+	}
+
+	broken := "Đây là thâm/sắc tố quanh miệng. Không gọi thâm/sắc tố quanh miệng khi không có sưng đau cấp. Thâm thì có."
+	fixed := rewritePeriOralViemCapToTham(broken)
+	if strings.Contains(fixed, "Không gọi thâm") {
+		t.Fatalf("should repair mangled line: %q", fixed)
+	}
+}
+
+func TestAlignPeriOralThamVsAcute_SkipsPigmentFewShot(t *testing.T) {
+	t.Parallel()
+	a := &dto.AdminSkinReviewAnalysis{
+		Overview: "Đây là thâm/sắc tố quanh miệng, không phải viêm cấp sát mép.",
+		AttentionAreas: []dto.AdminSkinAttentionArea{
+			{Region: "chin", Concern: "pigmentation", Severity: "mild", Note: "Thâm nâu–xám. Không gọi viêm cấp sát mép khi không có sưng đau cấp."},
+		},
+	}
+	before := a.AttentionAreas[0].Note
+	if AlignAdminSkinAnalysisWithQuestion(a, "thâm 2 mép môi và dưới cằm", "vi") {
+		// May still rewrite denial wording for clarity, but must not flip concern or invent acute tips removal wrongly.
+	}
+	if a.AttentionAreas[0].Concern != "pigmentation" {
+		t.Fatalf("pigment concern must stay, got %q", a.AttentionAreas[0].Concern)
+	}
+	note := a.AttentionAreas[0].Note
+	if strings.Contains(note, "Không gọi thâm") {
+		t.Fatalf("mangled denial: before=%q after=%q", before, note)
+	}
+}
+
 func TestAlignPeriOralThamVsAcute_WrongViemCapToPigment(t *testing.T) {
 	t.Parallel()
 	a := &dto.AdminSkinReviewAnalysis{

@@ -325,7 +325,7 @@ Chỉ dùng khi có đỏ sưng / chùm hạt + lên nhanh hoặc đau há miệ
 CONTEXT câu hỏi nếu có: thâm 2 mép môi / dưới cằm.
 **MATCH THIS PHOTO** — CẤM copy nguyên câu. **CẤM** nhét “viêm cấp sát mép”.
 {
-  "overview": "Khóe miệng và dưới cằm của mày đang thâm nâu–xám hơn nền da. Mảng sẫm nằm quanh mép–cằm, bề mặt khá phẳng, không chùm hạt đỏ sưng cấp. Đây là thâm/sắc tố quanh miệng, không phải viêm cấp sát mép. Phần trên mặt ít hoặc không thấy trên ảnh.",
+  "overview": "Khóe miệng và dưới cằm của mày đang thâm nâu–xám hơn nền da. Mảng sẫm nằm quanh mép–cằm, bề mặt khá phẳng, không chùm hạt đỏ sưng cấp. Đây là thâm/sắc tố quanh miệng, không phải ổ viêm đỏ sưng cấp. Phần trên mặt ít hoặc không thấy trên ảnh.",
   "skin_type": "unclear",
   "skin_type_severity": "mild",
   "skin_type_note": "Chỉ thấy quanh miệng–cằm — chưa đủ chốt loại da cả mặt. Từ màu sẫm phẳng thì đây đúng kiểu thâm cục bộ.",
@@ -333,7 +333,7 @@ CONTEXT câu hỏi nếu có: thâm 2 mép môi / dưới cằm.
     {"region":"forehead","concern":"not_visible","severity":"mild","note":"Không thấy trán trên ảnh — chụp đủ mặt mới nhận xét được."},
     {"region":"nose","concern":"not_visible","severity":"mild","note":"Không thấy mũi trên ảnh — chụp đủ mặt mới nhận xét được."},
     {"region":"cheeks","concern":"not_visible","severity":"mild","note":"Không thấy má trên ảnh — chụp đủ mặt mới nhận xét được."},
-    {"region":"chin","concern":"pigmentation","severity":"mild","note":"Dưới cằm và quanh khóe miệng của mày đang có mảng thâm nâu–xám sẫm hơn nền. Bề mặt tương đối phẳng, không chùm hạt đỏ sưng. Đây là thâm/sắc tố quanh miệng — đúng kiểu thâm sau mụn hoặc nắng/ma sát cục bộ. Không gọi viêm cấp sát mép khi không có sưng đau cấp. Thâm thì có, rõ quanh mép–cằm."}
+    {"region":"chin","concern":"pigmentation","severity":"mild","note":"Dưới cằm và quanh khóe miệng của mày đang có mảng thâm nâu–xám sẫm hơn nền. Bề mặt tương đối phẳng, không chùm hạt đỏ sưng. Đây là thâm/sắc tố quanh miệng — đúng kiểu thâm sau mụn hoặc nắng/ma sát cục bộ. Không phải ổ viêm đỏ sưng cấp. Thâm thì có, rõ quanh mép–cằm."}
   ],
   "additional_observations": "Crop quanh miệng–cằm. Ánh sáng làm màu sẫm đọc rõ hơn nền. Không suy ra mụn viêm mặt từ khung này.",
   "photo_notes": "Ảnh quanh khóe miệng–cằm. Đủ sáng để đọc thâm nâu–xám; không thấy chùm hạt đỏ sưng cấp.",
