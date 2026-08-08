@@ -27,6 +27,34 @@ func TestAdminSkinReviewPrompt_SkinTagAndNeck(t *testing.T) {
 	}
 }
 
+func TestAdminSkinReviewPrompt_NeckCrease(t *testing.T) {
+	t.Parallel()
+	p := AdminSkinReviewSystemPrompt()
+	for _, needle := range []string{
+		"Case 1g",
+		"nếp gấp / nếp ngang cổ",
+		"ảnh vùng cổ — không có mặt",
+		"CẤM spam",
+		"u tuyến giáp",
+		"Giảm cúi điện thoại lâu",
+	} {
+		if !strings.Contains(p, needle) {
+			t.Fatalf("prompt missing neck-crease needle %q", needle)
+		}
+	}
+	if !strings.Contains(AdminSkinReviewJSONSchemaBlock, "nếp gấp") {
+		t.Fatal("schema must mention neck creases")
+	}
+	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
+	if !strings.Contains(sys, "nếp gấp / nếp ngang cổ") {
+		t.Fatal("suggest system prompt missing neck-crease frame")
+	}
+	msg := adminSkinReviewSuggestAnswerUserMessage("Em 22 tuổi cổ như thế này tips cải thiện ạ", nil, "vi")
+	if !strings.Contains(msg, "Ví dụ 7") {
+		t.Fatal("suggest user message missing neck-crease example 7")
+	}
+}
+
 func TestSuggestAnswerPrompt_SkinTagExample(t *testing.T) {
 	t.Parallel()
 	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
