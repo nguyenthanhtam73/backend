@@ -140,7 +140,12 @@ func runSkinCheckCoachAfterVision(
 			parsed = retryOut
 		}
 	}
-	parsed.ProductSuggestions = FinalizeProductSuggestions(parsed.ProductSuggestions, fullCtx)
+	parsed.ProductSuggestions, parsed.ProductGuidance, parsed.CarePhase = FinalizeCoachCommerce(
+		parsed.ProductSuggestions,
+		fullCtx,
+		localeFromUserContext(fullCtx),
+		visionRaw,
+	)
 
 	ver := fmt.Sprintf(
 		"pipeline=hybrid|vision=%s(%s)|coach=%s(%s%s)",

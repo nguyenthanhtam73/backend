@@ -4,17 +4,12 @@
     "product_name": "Sữa rửa mặt tạo bọt",
     "brand": "CeraVe",
     "category": "cleanser",
-    "skin_types": [
-      "oily",
-      "combination",
-      "normal"
-    ],
-    "concerns": [
-      "acne",
-      "oily",
-      "clogged_pores",
-      "large_pores"
-    ],
+    "step": "cleanse",
+    "skin_types": ["oily", "combination", "normal"],
+    "concerns": ["acne", "oily", "clogged_pores", "large_pores"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Rửa sạch dầu và bụi nhẹ — phù hợp da đang quan tâm {concern}.",
     "price_range": "466k",
     "affiliate_link": "https://s.shopee.vn/70HPIj8Km4"
   },
@@ -23,17 +18,12 @@
     "product_name": "Sữa rửa mặt dưỡng ẩm",
     "brand": "CeraVe",
     "category": "cleanser",
-    "skin_types": [
-      "dry",
-      "normal",
-      "sensitive"
-    ],
-    "concerns": [
-      "dry",
-      "dehydrated",
-      "weak_barrier",
-      "sensitive"
-    ],
+    "step": "cleanse",
+    "skin_types": ["dry", "normal", "sensitive"],
+    "concerns": ["dry", "dehydrated", "weak_barrier", "sensitive", "redness", "irritated"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Rửa dịu, ít làm căng — hợp khi da đang cần làm dịu / {concern}.",
     "price_range": "395k",
     "affiliate_link": "https://s.shopee.vn/2qRqPmwzpY"
   },
@@ -42,19 +32,12 @@
     "product_name": "Toner diếp cá làm dịu da",
     "brand": "Anua",
     "category": "toner",
-    "skin_types": [
-      "oily",
-      "combination",
-      "sensitive",
-      "normal"
-    ],
-    "concerns": [
-      "acne",
-      "redness",
-      "sensitive",
-      "weak_barrier",
-      "irritated"
-    ],
+    "step": "soothe",
+    "skin_types": ["oily", "combination", "sensitive", "normal"],
+    "concerns": ["acne", "redness", "sensitive", "weak_barrier", "irritated"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Lớp làm dịu nhẹ sau rửa — hỗ trợ vùng đang {concern}.",
     "price_range": "410k-524k",
     "affiliate_link": "https://s.shopee.vn/6AiINzImYf"
   },
@@ -63,17 +46,12 @@
     "product_name": "Tinh chất chống nắng Biore UV Aqua Rich SPF50+",
     "brand": "Biore",
     "category": "spf",
-    "skin_types": [
-      "oily",
-      "combination",
-      "normal"
-    ],
-    "concerns": [
-      "oily",
-      "recent_sun_exposure",
-      "hyperpigmentation",
-      "dull"
-    ],
+    "step": "spf",
+    "skin_types": ["oily", "combination", "normal"],
+    "concerns": ["oily", "recent_sun_exposure", "hyperpigmentation", "dull", "acne", "pih"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Kem chống nắng mỗi sáng — bảo vệ da khi đang xử lý {concern}.",
     "price_range": "171k",
     "affiliate_link": "https://s.shopee.vn/1BJcMMK4au"
   },
@@ -82,18 +60,12 @@
     "product_name": "Kem chống nắng Relief Sun SPF50+",
     "brand": "Beauty of Joseon",
     "category": "spf",
-    "skin_types": [
-      "normal",
-      "combination",
-      "dry",
-      "sensitive"
-    ],
-    "concerns": [
-      "hyperpigmentation",
-      "sensitive",
-      "recent_sun_exposure",
-      "dull"
-    ],
+    "step": "spf",
+    "skin_types": ["normal", "combination", "dry", "sensitive"],
+    "concerns": ["hyperpigmentation", "sensitive", "recent_sun_exposure", "dull", "redness", "weak_barrier"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "SPF dịu hơn cho da nhạy — giữ nền ổn khi đang {concern}.",
     "price_range": "351k-381k",
     "affiliate_link": "https://s.shopee.vn/7pqWIkqv8j"
   },
@@ -102,19 +74,12 @@
     "product_name": "Toner Supple Preparation Unscented",
     "brand": "Klairs",
     "category": "toner",
-    "skin_types": [
-      "dry",
-      "normal",
-      "sensitive",
-      "combination"
-    ],
-    "concerns": [
-      "dry",
-      "dehydrated",
-      "sensitive",
-      "redness",
-      "weak_barrier"
-    ],
+    "step": "soothe",
+    "skin_types": ["dry", "normal", "sensitive", "combination"],
+    "concerns": ["dry", "dehydrated", "sensitive", "redness", "weak_barrier"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Toner không mùi, cấp ẩm nhẹ — hỗ trợ da đang {concern}.",
     "price_range": "99k-315k",
     "affiliate_link": "https://s.shopee.vn/20sjM9NQkT"
   },
@@ -123,17 +88,12 @@
     "product_name": "Toner AHA BHA PHA 30 Days Miracle",
     "brand": "Some By Mi",
     "category": "toner",
-    "skin_types": [
-      "oily",
-      "combination"
-    ],
-    "concerns": [
-      "acne",
-      "breakout",
-      "clogged_pores",
-      "oily",
-      "large_pores"
-    ],
+    "step": "treat",
+    "skin_types": ["oily", "combination"],
+    "concerns": ["acne", "breakout", "clogged_pores", "oily", "large_pores"],
+    "phases": ["can_add_active"],
+    "active_kind": "bha",
+    "reason_template": "1 hoạt chất BHA khi da ổn định — nhắm {concern}, không stack thêm acid khác.",
     "price_range": "314k-390k",
     "affiliate_link": "https://s.shopee.vn/9KfK5f8jH1"
   },
@@ -142,17 +102,12 @@
     "product_name": "Nước dưỡng Hyaluronic Acid Gokujyun",
     "brand": "Hada Labo",
     "category": "toner",
-    "skin_types": [
-      "dry",
-      "normal",
-      "combination",
-      "dehydrated"
-    ],
-    "concerns": [
-      "dry",
-      "dehydrated",
-      "weak_barrier"
-    ],
+    "step": "soothe",
+    "skin_types": ["dry", "normal", "combination", "dehydrated"],
+    "concerns": ["dry", "dehydrated", "weak_barrier"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Cấp ẩm mỏng trước kem dưỡng — hỗ trợ da đang {concern}.",
     "price_range": "268k-524k",
     "affiliate_link": "https://s.shopee.vn/9UykI17ujY"
   },
@@ -161,19 +116,12 @@
     "product_name": "Serum Niacinamide 10% + Zinc 1%",
     "brand": "The Ordinary",
     "category": "serum",
-    "skin_types": [
-      "oily",
-      "combination",
-      "normal"
-    ],
-    "concerns": [
-      "acne",
-      "breakout",
-      "clogged_pores",
-      "large_pores",
-      "oily",
-      "dull"
-    ],
+    "step": "treat",
+    "skin_types": ["oily", "combination", "normal"],
+    "concerns": ["acne", "breakout", "clogged_pores", "large_pores", "oily", "dull"],
+    "phases": ["can_add_active"],
+    "active_kind": "other",
+    "reason_template": "Serum hỗ trợ dầu/{concern} — chỉ thêm khi phase can_add_active, không stack BHA cùng lúc.",
     "price_range": "186k-395k",
     "affiliate_link": "https://s.shopee.vn/5VSbWhy8zA"
   },
@@ -182,17 +130,12 @@
     "product_name": "Serum Hyaluronic Acid 2% + B5",
     "brand": "The Ordinary",
     "category": "serum",
-    "skin_types": [
-      "dry",
-      "normal",
-      "combination",
-      "dehydrated"
-    ],
-    "concerns": [
-      "dry",
-      "dehydrated",
-      "weak_barrier"
-    ],
+    "step": "soothe",
+    "skin_types": ["dry", "normal", "combination", "dehydrated"],
+    "concerns": ["dry", "dehydrated", "weak_barrier"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Serum cấp ẩm — giúp da đỡ khô khi đang {concern}.",
     "price_range": "204k-439k",
     "affiliate_link": "https://s.shopee.vn/809wVLfzSU"
   },
@@ -201,20 +144,12 @@
     "product_name": "Tinh chất ốc sên Advanced Snail 96 Mucin",
     "brand": "COSRX",
     "category": "serum",
-    "skin_types": [
-      "dry",
-      "normal",
-      "sensitive",
-      "combination"
-    ],
-    "concerns": [
-      "dry",
-      "dehydrated",
-      "weak_barrier",
-      "redness",
-      "sensitive",
-      "irritated"
-    ],
+    "step": "soothe",
+    "skin_types": ["dry", "normal", "sensitive", "combination"],
+    "concerns": ["dry", "dehydrated", "weak_barrier", "redness", "sensitive", "irritated"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Tinh chất phục hồi nhẹ — hỗ trợ da đang {concern}.",
     "price_range": "422k",
     "affiliate_link": "https://s.shopee.vn/110CAVZWKG"
   },
@@ -223,17 +158,12 @@
     "product_name": "Tinh chất Melano CC Vitamin C Premium",
     "brand": "Rohto Melano CC",
     "category": "serum",
-    "skin_types": [
-      "normal",
-      "combination",
-      "oily"
-    ],
-    "concerns": [
-      "hyperpigmentation",
-      "pih",
-      "post_acne_marks",
-      "dull"
-    ],
+    "step": "treat",
+    "skin_types": ["normal", "combination", "oily"],
+    "concerns": ["hyperpigmentation", "pih", "post_acne_marks", "dull"],
+    "phases": ["can_add_active"],
+    "active_kind": "other",
+    "reason_template": "Vitamin C hỗ trợ thâm/{concern} — chỉ khi da không đang flare nặng.",
     "price_range": "269k-329k",
     "affiliate_link": "https://s.shopee.vn/4Va4KzPJbs"
   },
@@ -242,18 +172,12 @@
     "product_name": "Serum giảm thâm Dark Spot Correcting Glow",
     "brand": "Axis-Y",
     "category": "serum",
-    "skin_types": [
-      "normal",
-      "combination",
-      "oily",
-      "sensitive"
-    ],
-    "concerns": [
-      "hyperpigmentation",
-      "pih",
-      "post_acne_marks",
-      "dull"
-    ],
+    "step": "treat",
+    "skin_types": ["normal", "combination", "oily", "sensitive"],
+    "concerns": ["hyperpigmentation", "pih", "post_acne_marks", "dull"],
+    "phases": ["can_add_active"],
+    "active_kind": "other",
+    "reason_template": "Serum thâm — phù hợp mục tiêu {concern} khi da đủ ổn để thêm 1 treat.",
     "price_range": "170k-459k",
     "affiliate_link": "https://s.shopee.vn/qglyJ74BF"
   },
@@ -262,19 +186,12 @@
     "product_name": "Tinh chất rau má Madagascar Centella Ampoule",
     "brand": "SKIN1004",
     "category": "serum",
-    "skin_types": [
-      "sensitive",
-      "dry",
-      "normal",
-      "combination"
-    ],
-    "concerns": [
-      "sensitive",
-      "redness",
-      "weak_barrier",
-      "irritated",
-      "stinging"
-    ],
+    "step": "soothe",
+    "skin_types": ["sensitive", "dry", "normal", "combination"],
+    "concerns": ["sensitive", "redness", "weak_barrier", "irritated", "stinging"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Rau má làm dịu — ưu tiên khi da đang {concern}.",
     "price_range": "505k",
     "affiliate_link": "https://s.shopee.vn/1Ld2dpmuQ4"
   },
@@ -283,16 +200,12 @@
     "product_name": "Kem dưỡng ẩm Hydro Boost Water Gel",
     "brand": "Neutrogena",
     "category": "moisturizer",
-    "skin_types": [
-      "oily",
-      "combination",
-      "normal"
-    ],
-    "concerns": [
-      "dry",
-      "dehydrated",
-      "oily"
-    ],
+    "step": "moisturize",
+    "skin_types": ["oily", "combination", "normal"],
+    "concerns": ["dry", "dehydrated", "oily", "acne"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Kem dưỡng nhẹ — giữ ẩm mà không nặng mặt khi đang {concern}.",
     "price_range": "131k",
     "affiliate_link": "https://s.shopee.vn/6AiIKBTlMf"
   },
@@ -301,19 +214,12 @@
     "product_name": "Kem phục hồi Cicaplast Baume B5+",
     "brand": "La Roche-Posay",
     "category": "moisturizer",
-    "skin_types": [
-      "dry",
-      "normal",
-      "sensitive",
-      "combination"
-    ],
-    "concerns": [
-      "weak_barrier",
-      "irritated",
-      "redness",
-      "sensitive",
-      "stinging"
-    ],
+    "step": "moisturize",
+    "skin_types": ["dry", "normal", "sensitive", "combination"],
+    "concerns": ["weak_barrier", "irritated", "redness", "sensitive", "stinging", "acne"],
+    "phases": ["calm_first", "can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Kem phục hồi barrier — ưu tiên khi da đang đỏ / {concern}.",
     "price_range": "384k",
     "affiliate_link": "https://s.shopee.vn/7VDg438uB9"
   },
@@ -322,17 +228,14 @@
     "product_name": "Miếng dán mụn Acne Pimple Master Patch",
     "brand": "COSRX",
     "category": "treatment",
-    "skin_types": [
-      "oily",
-      "combination",
-      "normal"
-    ],
-    "concerns": [
-      "acne",
-      "breakout",
-      "clogged_pores"
-    ],
+    "step": "treat",
+    "skin_types": ["oily", "combination", "normal"],
+    "concerns": ["acne", "breakout", "clogged_pores"],
+    "phases": ["can_add_active"],
+    "active_kind": "none",
+    "reason_template": "Miếng dán bảo vệ nốt — hỗ trợ {concern} mà không thêm acid mạnh.",
     "price_range": "98k",
     "affiliate_link": "https://s.shopee.vn/BR5BEJ1xB"
   }
 ]
+

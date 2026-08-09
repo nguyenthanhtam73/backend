@@ -145,7 +145,11 @@ func (h *RoutineHandler) SuggestStatus(c *fiber.Ctx) error {
 	if !ok {
 		return response.Error(c, fiber.StatusNotFound, "not_found", "suggest job not found or expired")
 	}
-	stripSuggestAds(c.UserContext(), h.premium, uid, &res)
+	locale := ""
+	if res.Suggestion != nil {
+		locale = res.Suggestion.Locale
+	}
+	stripSuggestAds(c.UserContext(), h.premium, uid, &res, locale)
 	return response.JSON(c, fiber.StatusOK, res)
 }
 

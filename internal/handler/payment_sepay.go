@@ -2,6 +2,7 @@ package handler
 
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
@@ -61,6 +62,16 @@ func (h *PaymentSePayHandler) Webhook(c *fiber.Ctx) error {
 
 	secret := c.Get("X-Secret-Key")
 	raw := c.Body() // Fiber keeps raw body — required for future HMAC verification
+	secretTrim := strings.TrimSpace(secret)
+	// Safe diagnostics only — never log secret material.
+	slog.Info("payment: sepay webhook received",
+		"body_bytes", len(raw),
+		"content_type", c.Get("Content-Type"),
+		"secret_header_present", secretTrim != "",
+		"secret_header_len", len(secretTrim),
+		"secret_prefix_live", strings.HasPrefix(secretTrim, "spsk_live_"),
+		"secret_prefix_test", strings.HasPrefix(secretTrim, "spsk_test_"),
+	)
 
 	if err := h.svc.HandleSePayWebhook(c.UserContext(), secret, raw); err != nil {
 		status, code, msg := paymentuc.MapError(err)
@@ -71,12 +82,16 @@ func (h *PaymentSePayHandler) Webhook(c *fiber.Ctx) error {
 				"status", status,
 				"code", code,
 				"message", msg,
+				"body_bytes", len(raw),
+				"secret_header_present", secretTrim != "",
+				"secret_header_len", len(secretTrim),
 			)
 		} else {
 			slog.Warn("payment: sepay webhook rejected",
 				"status", status,
 				"code", code,
 				"message", msg,
+				"body_bytes", len(raw),
 			)
 		}
 		// 401/409 → tell SePay not to treat as success; 404 may be probe — still fail closed.

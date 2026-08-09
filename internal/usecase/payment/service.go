@@ -228,9 +228,18 @@ func (s *Service) HandleSePayWebhook(
 	if err := s.ready(); err != nil {
 		return s.webhookFail(ctx, "service_unavailable", err, nil, true)
 	}
+	gotSecret := strings.TrimSpace(secretHeader)
+	wantSecret := strings.TrimSpace(s.cfg.SePay.SecretKey)
 	if !VerifyIPNSecretKey(secretHeader, s.cfg.SePay.SecretKey) {
 		return s.webhookFail(ctx, "signature_invalid", ErrUnauthorizedIPN, map[string]any{
-			"body_bytes": len(rawBody),
+			"body_bytes":             len(rawBody),
+			"secret_header_present":  gotSecret != "",
+			"secret_header_len":      len(gotSecret),
+			"expected_secret_len":    len(wantSecret),
+			"secret_len_match":       len(gotSecret) == len(wantSecret) && gotSecret != "",
+			"secret_prefix_live":     strings.HasPrefix(gotSecret, "spsk_live_"),
+			"secret_prefix_test":     strings.HasPrefix(gotSecret, "spsk_test_"),
+			"configured_prefix_live": strings.HasPrefix(wantSecret, "spsk_live_"),
 		}, true)
 	}
 

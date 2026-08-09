@@ -89,6 +89,8 @@ type SkinCoachDetail struct {
 	SafetyReminders    []string                   `json:"safety_reminders,omitempty"`
 	MedicalDisclaimer  string                     `json:"medical_disclaimer,omitempty"`
 	ProductSuggestions []ProductSuggestion        `json:"product_suggestions,omitempty"`
+	ProductGuidance    []ProductGuidanceItem      `json:"product_guidance,omitempty"`
+	CarePhase          string                     `json:"care_phase,omitempty"`
 	ErrorMessage       string                     `json:"error_message,omitempty"`
 }
 
@@ -216,6 +218,10 @@ func buildCoachDetailFromDomain(a *domain.SkinAnalysis) *SkinCoachDetail {
 			if g != nil {
 				d.SkinScoreGauges = g
 			}
+			if v, ok := scores["care_phase"].(string); ok {
+				d.CarePhase = v
+			}
+			d.ProductGuidance = extractProductGuidance(scores)
 		}
 	}
 	// Older analyses: synthesize checklist from improvements so FE still shows "Gợi ý chăm sóc".
@@ -264,6 +270,25 @@ func careSuggestionsFromImprovements(imps []CoachImprovementItem) []CoachCareSug
 		}
 	}
 	return out
+}
+
+func extractProductGuidance(scores map[string]any) []ProductGuidanceItem {
+	if scores == nil {
+		return nil
+	}
+	raw, ok := scores["product_guidance"]
+	if !ok || raw == nil {
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var list []ProductGuidanceItem
+	if err := json.Unmarshal(b, &list); err != nil {
+		return nil
+	}
+	return list
 }
 
 func extractCareSuggestions(scores map[string]any) []CoachCareSuggestionItem {

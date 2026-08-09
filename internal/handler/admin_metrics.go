@@ -52,3 +52,25 @@ func (h *AdminMetricsHandler) Payment(c *fiber.Ctx) error {
 	}
 	return response.JSON(c, fiber.StatusOK, out)
 }
+
+// Affiliate handles GET /api/v1/admin/metrics/affiliate
+// Query: limit (default 50).
+func (h *AdminMetricsHandler) Affiliate(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin metrics unavailable")
+	}
+	limit := 50
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	out, err := h.svc.AffiliateMetrics(c.UserContext(), limit)
+	if err != nil {
+		if errors.Is(err, adminmetricsuc.ErrUnavailable) {
+			return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", err.Error())
+		}
+		return response.Error(c, fiber.StatusInternalServerError, "metrics_error", "could not load affiliate metrics")
+	}
+	return response.JSON(c, fiber.StatusOK, out)
+}

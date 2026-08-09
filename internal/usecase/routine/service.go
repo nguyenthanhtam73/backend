@@ -420,6 +420,8 @@ func (s *Service) generateSuggestion(ctx context.Context, userID uuid.UUID, req 
 		SafetyNotes:        res.SafetyNotes,
 		ClosingReminder:    res.ClosingReminder,
 		ProductSuggestions: res.ProductSuggestions,
+		ProductGuidance:    res.ProductGuidance,
+		CarePhase:          res.CarePhase,
 		SkillMode:          skillMode,
 		Locale:             strings.ToLower(strings.TrimSpace(req.Locale)),
 		Source:             "ai_suggested",

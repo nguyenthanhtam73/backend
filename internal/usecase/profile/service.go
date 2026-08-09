@@ -15,6 +15,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	"github.com/google/uuid"
 )
 
@@ -40,6 +41,7 @@ type Service struct {
 	users       *repository.GormUserRepository
 	cache       *ai.MemoryCache
 	previewJobs PreviewJobStore // guest preview jobs (DB); required for preview-complete
+	premium     *premiumuc.Service
 }
 
 // NewService wires dependencies. Pass nil for any of the optional history
@@ -78,6 +80,37 @@ func (s *Service) AttachUsers(users *repository.GormUserRepository) {
 	}
 }
 
+// AttachPremium wires FeatureNoAds checks so commerce can be stripped before persist.
+func (s *Service) AttachPremium(premium *premiumuc.Service) {
+	if s != nil {
+		s.premium = premium
+	}
+}
+
+func (s *Service) userHasNoAds(ctx context.Context, userID uuid.UUID) bool {
+	if s == nil || s.premium == nil || userID == uuid.Nil {
+		return false
+	}
+	ok, _, err := s.premium.CanUseFeature(ctx, userID, domain.FeatureNoAds)
+	return err == nil && ok
+}
+
+func stripStarterCommerce(starter *ai.StarterRoutine, locale string) {
+	if starter == nil {
+		return
+	}
+	starter.ProductSuggestions = nil
+	starter.ProductGuidance = ai.StripAffiliateFromProductGuidance(starter.ProductGuidance, locale)
+}
+
+func stripSkinAnalysisCommerce(a *dto.OnboardingSkinAnalyzeResponse, locale string) {
+	if a == nil {
+		return
+	}
+	a.ProductSuggestions = nil
+	a.ProductGuidance = ai.StripAffiliateFromProductGuidance(a.ProductGuidance, locale)
+}
+
 // GetSkin returns the user's skin profile or a minimal empty projection.
 func (s *Service) GetSkin(ctx context.Context, userID uuid.UUID) (dto.SkinProfileResponse, error) {
 	var zero dto.SkinProfileResponse
@@ -96,8 +129,13 @@ func (s *Service) GetSkin(ctx context.Context, userID uuid.UUID) (dto.SkinProfil
 		}, nil
 	}
 	res := dto.SkinProfileFromDomain(p)
-	res.OnboardingSnapshot = s.enrichStarterAffiliateSnapshot(ctx, userID, res.OnboardingSnapshot)
 	return res, nil
+}
+
+// EnrichStarterAffiliateSnapshot injects catalog picks into starter_routine when missing.
+// Callers with FeatureNoAds must skip this and strip commerce instead.
+func (s *Service) EnrichStarterAffiliateSnapshot(ctx context.Context, userID uuid.UUID, snap json.RawMessage) json.RawMessage {
+	return s.enrichStarterAffiliateSnapshot(ctx, userID, snap)
 }
 
 // PutSkin applies a partial manual update (does not call AI).
@@ -213,6 +251,14 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	// skip the background AI overwrite so /routine + review stay in sync.
 	starter := quickStarterFromOnboarding(req, loc)
 	userEditedStarter := applyClientStarterSteps(&starter, req)
+	// Persist-time strip for Premium — response strip alone is not enough.
+	if s.userHasNoAds(ctx, userID) {
+		stripStarterCommerce(&starter, loc)
+		if req.SkinAnalysis != nil {
+			stripSkinAnalysisCommerce(req.SkinAnalysis, loc)
+			snap["skin_analysis"] = req.SkinAnalysis
+		}
+	}
 	snap["starter_routine"] = starter
 	if userEditedStarter {
 		snap["starter_routine_pending"] = false
@@ -396,6 +442,13 @@ func (s *Service) patchProfileStarterRoutine(ctx context.Context, userID uuid.UU
 		}
 	} else {
 		snap = map[string]any{}
+	}
+	loc := onboardingLocale("")
+	if v, ok := snap["locale"].(string); ok {
+		loc = onboardingLocale(v)
+	}
+	if s.userHasNoAds(ctx, userID) {
+		stripStarterCommerce(&starter, loc)
 	}
 	snap["starter_routine"] = starter
 	delete(snap, "starter_routine_pending")

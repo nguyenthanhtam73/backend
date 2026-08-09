@@ -24,6 +24,7 @@ func starterRoutineResponseFromAI(s ai.StarterRoutine) dto.StarterRoutineRespons
 		Rationale:          s.Rationale,
 		ClosingReminder:    s.ClosingReminder,
 		ProductSuggestions: s.ProductSuggestions,
+		ProductGuidance:    s.ProductGuidance,
 	}
 }
 
@@ -51,8 +52,8 @@ func sanitizeClientStarterSteps(steps []string) []string {
 	return out
 }
 
-// applyClientStarterSteps overlays optional AM/PM steps from the client onto
-// the quick scaffold. Returns true when the client provided at least one step.
+// applyClientStarterSteps overlays user-edited AM/PM steps onto the scaffold.
+// Returns true when the client sent at least one non-empty period.
 func applyClientStarterSteps(starter *ai.StarterRoutine, req dto.OnboardingCompleteRequest) bool {
 	if starter == nil {
 		return false
@@ -74,8 +75,8 @@ func applyClientStarterSteps(starter *ai.StarterRoutine, req dto.OnboardingCompl
 // quickStarterFromOnboarding builds an immediate AM/PM scaffold from form
 // answers so CompleteOnboarding can respond without waiting on the LLM.
 func quickStarterFromOnboarding(req dto.OnboardingCompleteRequest, locale string) ai.StarterRoutine {
-	bullets := buildStarterPackBullets(req)
 	isEn := locale == "en"
+	bullets := buildStarterPackBullets(req, locale)
 
 	morning := []string{
 		ternary(isEn,
@@ -105,27 +106,21 @@ func quickStarterFromOnboarding(req dto.OnboardingCompleteRequest, locale string
 			"Chỉ thêm 1 hoạt chất khi da đã êm — chưa cần dùng mỗi tối ngay.",
 		),
 	}
-	if len(bullets) > 0 {
-		morning = bullets[:minInt(3, len(bullets))]
-		if len(bullets) > 3 {
-			evening = bullets[3:minInt(6, len(bullets))]
-		}
-	}
 
 	var encouragement, weekNotes, safetyNotes, closing string
 	if isEn {
 		encouragement = "You finished getting-to-know-your-skin — nice work taking that first step."
-		weekNotes = ""
+		weekNotes = strings.Join(bullets, "\n")
 		safetyNotes = "General skincare guidance only — not a substitute for medical advice."
 		closing = "Track gently day by day — see a dermatologist when something worries you."
 	} else {
 		encouragement = "Bạn vừa hoàn thành phần làm quen với da — bước đầu rất đáng khen."
-		weekNotes = ""
+		weekNotes = strings.Join(bullets, "\n")
 		safetyNotes = "Chỉ là gợi ý chăm sóc da chung — không thay thế tư vấn y tế."
 		closing = "Theo dõi nhẹ nhàng từng ngày — hỏi bác sĩ da liễu khi bạn lo lắng."
 	}
 
-	return ai.StarterRoutine{
+	out := ai.StarterRoutine{
 		Morning:         morning,
 		Evening:         evening,
 		WeekNotes:       weekNotes,
@@ -134,50 +129,79 @@ func quickStarterFromOnboarding(req dto.OnboardingCompleteRequest, locale string
 		Rationale:       "",
 		ClosingReminder: closing,
 	}
+	// Keep Step-1 analyze commerce so welcome matches the funnel (≤2 CTAs).
+	if req.SkinAnalysis != nil {
+		out.ProductGuidance = req.SkinAnalysis.ProductGuidance
+		out.ProductSuggestions = req.SkinAnalysis.ProductSuggestions
+	}
+	return out
 }
 
-func buildStarterPackBullets(req dto.OnboardingCompleteRequest) []string {
+func buildStarterPackBullets(req dto.OnboardingCompleteRequest, locale string) []string {
 	skill := strings.ToLower(strings.TrimSpace(req.SkillLevel))
+	en := strings.EqualFold(locale, "en")
 	lines := make([]string, 0, 4)
 
 	switch skill {
 	case "beginner":
-		lines = append(lines,
-			"Rửa mặt dịu — nền an toàn mỗi sáng trước kem dưỡng và kem chống nắng.",
-			"Kem chống nắng buổi sáng — kể cả ở nhà gần cửa sổ.",
-			"Mỗi tuần chỉ thêm tối đa 1 sản phẩm mới — thử ít ở vùng nhỏ trước.",
-		)
+		if en {
+			lines = append(lines,
+				"Gentle cleanse — a safe base before moisturizer and sunscreen.",
+				"Morning sunscreen — even near windows at home.",
+				"Add at most one new product per week — patch-test a small area first.",
+			)
+		} else {
+			lines = append(lines,
+				"Rửa mặt dịu — nền an toàn mỗi sáng trước kem dưỡng và kem chống nắng.",
+				"Kem chống nắng buổi sáng — kể cả ở nhà gần cửa sổ.",
+				"Mỗi tuần chỉ thêm tối đa 1 sản phẩm mới — thử ít ở vùng nhỏ trước.",
+			)
+		}
 	case "intermediate":
-		lines = append(lines,
-			"Nếu dùng dung dịch tẩy da chết nhẹ vào tối — luôn kèm kem dưỡng khi da căng.",
-			"Ghi routine 5–7 ngày để nhìn da thay đổi, không đổi nhiều sản phẩm cùng lúc.",
-		)
+		if en {
+			lines = append(lines,
+				"If you use a mild exfoliant at night — always follow with moisturizer when skin feels tight.",
+				"Journal 5–7 days to see change; don’t swap many products at once.",
+			)
+		} else {
+			lines = append(lines,
+				"Nếu dùng dung dịch tẩy da chết nhẹ vào tối — luôn kèm kem dưỡng khi da căng.",
+				"Ghi routine 5–7 ngày để nhìn da thay đổi, không đổi nhiều sản phẩm cùng lúc.",
+			)
+		}
 	case "advanced":
-		lines = append(lines,
-			"Xếp lớp sản phẩm có chủ đích; đi chậm với acid/retinol và ghi cảm giác da hôm sau.",
-			"So ảnh cùng ánh sáng/góc trước khi kết luận da đang khá hơn.",
-		)
+		if en {
+			lines = append(lines,
+				"Layer with intent; go slow with acids/retinol and note how skin feels next day.",
+				"Compare photos in the same light/angle before deciding skin is improving.",
+			)
+		} else {
+			lines = append(lines,
+				"Xếp lớp sản phẩm có chủ đích; đi chậm với acid/retinol và ghi cảm giác da hôm sau.",
+				"So ảnh cùng ánh sáng/góc trước khi kết luận da đang khá hơn.",
+			)
+		}
 	}
 
 	goal := strings.TrimSpace(req.Goal)
 	if goal != "" && goal != "unsure" {
-		goalLabel := mapQuickGoalLabel(goal)
-		lines = append(lines, fmt.Sprintf(
-			"Mục tiêu: %s — ưu tiên giải thích “vì sao” trước “dùng gì”.",
-			goalLabel,
-		))
+		goalLabel := mapQuickGoalLabel(goal, locale)
+		if en {
+			lines = append(lines, fmt.Sprintf(
+				"Goal: %s — prioritize “why” before “what to buy”.",
+				goalLabel,
+			))
+		} else {
+			lines = append(lines, fmt.Sprintf(
+				"Mục tiêu: %s — ưu tiên giải thích “vì sao” trước “dùng gì”.",
+				goalLabel,
+			))
+		}
 	}
 	if len(lines) > 6 {
 		lines = lines[:6]
 	}
 	return lines
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func ternary(cond bool, a, b string) string {
@@ -187,15 +211,28 @@ func ternary(cond bool, a, b string) string {
 	return b
 }
 
-func mapQuickGoalLabel(goal string) string {
+func mapQuickGoalLabel(goal, locale string) string {
+	en := strings.EqualFold(locale, "en")
 	switch strings.ToLower(strings.TrimSpace(goal)) {
 	case "glow":
+		if en {
+			return "healthy glow"
+		}
 		return "da sáng khoẻ"
 	case "clear_acne":
+		if en {
+			return "clearer skin"
+		}
 		return "giảm mụn"
 	case "barrier":
+		if en {
+			return "soothe easily irritated skin"
+		}
 		return "làm dịu / da dễ kích ứng"
 	case "anti_aging":
+		if en {
+			return "plump / gentle anti-aging"
+		}
 		return "căng ẩm / chống lão hoá nhẹ"
 	default:
 		return goal

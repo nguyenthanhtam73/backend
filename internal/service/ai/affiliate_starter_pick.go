@@ -83,6 +83,51 @@ func PickStarterAffiliateSuggestions(onboardingJSON []byte, locale string) []dto
 	}}
 }
 
+// StripAffiliateFromOnboardingSnapshot clears affiliate commerce in starter_routine and
+// skin_analysis for Premium no_ads responses (keeps generic guidance roles).
+func StripAffiliateFromOnboardingSnapshot(snapshot []byte, locale string) []byte {
+	if len(snapshot) == 0 {
+		return snapshot
+	}
+	var snap map[string]any
+	if err := json.Unmarshal(snapshot, &snap); err != nil || snap == nil {
+		return snapshot
+	}
+	changed := false
+	if srRaw, ok := snap["starter_routine"]; ok && srRaw != nil {
+		srBytes, err := json.Marshal(srRaw)
+		if err == nil {
+			var sr StarterRoutine
+			if json.Unmarshal(srBytes, &sr) == nil {
+				sr.ProductSuggestions = nil
+				sr.ProductGuidance = StripAffiliateFromProductGuidance(sr.ProductGuidance, locale)
+				snap["starter_routine"] = sr
+				changed = true
+			}
+		}
+	}
+	if saRaw, ok := snap["skin_analysis"]; ok && saRaw != nil {
+		saBytes, err := json.Marshal(saRaw)
+		if err == nil {
+			var sa dto.OnboardingSkinAnalyzeResponse
+			if json.Unmarshal(saBytes, &sa) == nil {
+				sa.ProductSuggestions = nil
+				sa.ProductGuidance = StripAffiliateFromProductGuidance(sa.ProductGuidance, locale)
+				snap["skin_analysis"] = sa
+				changed = true
+			}
+		}
+	}
+	if !changed {
+		return snapshot
+	}
+	out, err := json.Marshal(snap)
+	if err != nil {
+		return snapshot
+	}
+	return out
+}
+
 // EnrichOnboardingSnapshotStarterAffiliate injects catalog picks into starter_routine when missing.
 func EnrichOnboardingSnapshotStarterAffiliate(snapshot []byte, locale string, owned []OwnedWardrobeItem) []byte {
 	if len(snapshot) == 0 {

@@ -16,15 +16,16 @@ import (
 
 // StarterRoutine is the AM/PM scaffold and supportive coach copy returned to clients (API keys stable).
 type StarterRoutine struct {
-	Morning            []string                `json:"morning"`
-	Evening            []string                `json:"evening"`
-	WeekNotes          string                  `json:"week_notes"`
-	SafetyNotes        string                  `json:"safety_notes"`
-	Encouragement      string                  `json:"encouragement"`
-	SkinReadback       string                  `json:"skin_readback"`
-	Rationale          string                  `json:"rationale"`
-	ClosingReminder    string                  `json:"closing_reminder"`
-	ProductSuggestions []dto.ProductSuggestion `json:"product_suggestions"`
+	Morning            []string                   `json:"morning"`
+	Evening            []string                   `json:"evening"`
+	WeekNotes          string                     `json:"week_notes"`
+	SafetyNotes        string                     `json:"safety_notes"`
+	Encouragement      string                     `json:"encouragement"`
+	SkinReadback       string                     `json:"skin_readback"`
+	Rationale          string                     `json:"rationale"`
+	ClosingReminder    string                     `json:"closing_reminder"`
+	ProductSuggestions []dto.ProductSuggestion    `json:"product_suggestions"`
+	ProductGuidance    []dto.ProductGuidanceItem  `json:"product_guidance,omitempty"`
 }
 
 // starterUserMessage shapes the user turn for Claude / OpenAI JSON.
@@ -101,7 +102,6 @@ func normalizeStarterRoutine(s *StarterRoutine) {
 	}
 	s.Rationale = ""
 	s.WeekNotes = ""
-	s.ProductSuggestions = SanitizeProductSuggestions(s.ProductSuggestions)
 }
 
 // GenerateStarterRoutine uses Anthropic when configured; otherwise OpenAI JSON chat (Model field).
@@ -145,10 +145,127 @@ func GenerateStarterRoutine(ctx context.Context, cfg *config.Config, onboardingJ
 		return zero, fmt.Errorf("ai starter: parse json: %w", err)
 	}
 	normalizeStarterRoutine(&out)
-	out.ProductSuggestions = FinalizeProductSuggestions(out.ProductSuggestions, userMemory)
+	attachStarterCommerce(&out, onboardingJSON, locale, userMemory)
+	return out, nil
+}
+
+// attachStarterCommerce prefers Step-1 analyze product_guidance (funnel-stable ≤2 CTAs).
+// Falls back to sanitized LLM/catalog picks mapped into the same guidance shape.
+func attachStarterCommerce(out *StarterRoutine, onboardingJSON []byte, locale, userMemory string) {
+	if out == nil {
+		return
+	}
+	if g, phase := productGuidanceFromOnboardingJSON(onboardingJSON); len(g) > 0 {
+		picks := suggestionsFromGuidance(g)
+		picks = FinalizeProductSuggestionsLocale(picks, userMemory, locale)
+		if phase == "" {
+			phase = InferCarePhaseFromUserContext(string(onboardingJSON) + "\n" + userMemory)
+		}
+		out.ProductSuggestions = picks
+		out.ProductGuidance = mergeGuidancePicks(g, picks, phase, locale)
+		return
+	}
+	out.ProductSuggestions = FinalizeProductSuggestionsLocale(out.ProductSuggestions, userMemory, locale)
 	if len(out.ProductSuggestions) == 0 {
 		picks := PickStarterAffiliateSuggestions(onboardingJSON, locale)
-		out.ProductSuggestions = FinalizeProductSuggestions(picks, userMemory)
+		out.ProductSuggestions = FinalizeProductSuggestionsLocale(picks, userMemory, locale)
 	}
-	return out, nil
+	phase := InferCarePhaseFromUserContext(string(onboardingJSON) + "\n" + userMemory)
+	out.ProductGuidance = ProductSuggestionsToGuidance(out.ProductSuggestions, phase, locale)
+}
+
+func productGuidanceFromOnboardingJSON(raw []byte) ([]dto.ProductGuidanceItem, string) {
+	if len(raw) == 0 {
+		return nil, ""
+	}
+	var snap struct {
+		SkinAnalysis *struct {
+			ProductGuidance []dto.ProductGuidanceItem `json:"product_guidance"`
+			Phase           string                    `json:"phase"`
+		} `json:"skin_analysis"`
+	}
+	if err := json.Unmarshal(raw, &snap); err != nil || snap.SkinAnalysis == nil {
+		return nil, ""
+	}
+	return snap.SkinAnalysis.ProductGuidance, strings.TrimSpace(snap.SkinAnalysis.Phase)
+}
+
+func suggestionsFromGuidance(items []dto.ProductGuidanceItem) []dto.ProductSuggestion {
+	out := make([]dto.ProductSuggestion, 0, len(items))
+	for _, g := range items {
+		if strings.TrimSpace(g.AffiliateLink) == "" || strings.TrimSpace(g.ProductName) == "" {
+			continue
+		}
+		out = append(out, dto.ProductSuggestion{
+			ProductName:   g.ProductName,
+			Brand:         g.Brand,
+			Reason:        g.Why,
+			AffiliateLink: g.AffiliateLink,
+			PriceRange:    g.PriceRange,
+			Priority:      "high",
+			ProductID:     g.AffiliateProductID,
+			Step:          g.Step,
+			Benefits:      append([]string(nil), g.Benefits...),
+			HowToUse:      g.HowToUse,
+			Caution:       g.Caution,
+		})
+	}
+	return out
+}
+
+// mergeGuidancePicks keeps Step-1 role cards; commerce fields only for sanitized picks (≤2).
+func mergeGuidancePicks(
+	templates []dto.ProductGuidanceItem,
+	picks []dto.ProductSuggestion,
+	phase, locale string,
+) []dto.ProductGuidanceItem {
+	byID := make(map[string]dto.ProductSuggestion, len(picks))
+	byLink := make(map[string]dto.ProductSuggestion, len(picks))
+	for _, p := range picks {
+		if id := strings.TrimSpace(p.ProductID); id != "" {
+			byID[id] = p
+		}
+		if link := normalizeAffiliateLink(p.AffiliateLink); link != "" {
+			byLink[link] = p
+		}
+	}
+	out := make([]dto.ProductGuidanceItem, 0, len(templates))
+	used := 0
+	for _, tmpl := range templates {
+		item := tmpl
+		item.Phase = phase
+		item.AffiliateProductID = ""
+		item.ProductName = ""
+		item.Brand = ""
+		item.AffiliateLink = ""
+		item.PriceRange = ""
+		if item.NameOrCategory == "" {
+			item.NameOrCategory = genericRoleLabel(item.Step, item.Category, locale)
+		}
+		if used < maxProductSuggestions {
+			var pick dto.ProductSuggestion
+			ok := false
+			if p, hit := byID[strings.TrimSpace(tmpl.AffiliateProductID)]; hit {
+				pick, ok = p, true
+			} else if p, hit := byLink[normalizeAffiliateLink(tmpl.AffiliateLink)]; hit {
+				pick, ok = p, true
+			}
+			if ok {
+				used++
+				item.AffiliateProductID = pick.ProductID
+				item.ProductName = pick.ProductName
+				item.Brand = pick.Brand
+				item.AffiliateLink = pick.AffiliateLink
+				item.PriceRange = pick.PriceRange
+				if strings.TrimSpace(item.Why) == "" {
+					item.Why = pick.Reason
+				}
+			}
+		}
+		out = append(out, item)
+	}
+	if len(out) == 0 {
+		return ProductSuggestionsToGuidance(picks, phase, locale)
+	}
+	return out
 }

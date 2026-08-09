@@ -34,6 +34,8 @@ type CoachStructuredOutput struct {
 	SkinScores          map[string]any          `json:"skin_scores"`
 	ConcernAlignment    string                  `json:"concern_alignment"`
 	MedicalDisclaimer   string                  `json:"medical_disclaimer"`
-	SummaryNotes        string                  `json:"summary_notes"`
-	ProductSuggestions  []dto.ProductSuggestion `json:"product_suggestions"`
+	SummaryNotes        string                     `json:"summary_notes"`
+	ProductSuggestions  []dto.ProductSuggestion    `json:"product_suggestions"`
+	ProductGuidance     []dto.ProductGuidanceItem  `json:"product_guidance,omitempty"`
+	CarePhase           string                     `json:"care_phase,omitempty"` // calm_first | can_add_active
 }

@@ -47,7 +47,9 @@ type SuggestedRoutine struct {
 	WeekNotes          string                  `json:"week_notes"`
 	SafetyNotes        string                  `json:"safety_notes"`
 	ClosingReminder    string                  `json:"closing_reminder"`
-	ProductSuggestions []dto.ProductSuggestion `json:"product_suggestions"`
+	ProductSuggestions []dto.ProductSuggestion   `json:"product_suggestions"`
+	ProductGuidance    []dto.ProductGuidanceItem `json:"product_guidance,omitempty"`
+	CarePhase          string                    `json:"care_phase,omitempty"`
 }
 
 // GenerateSuggestedRoutine calls Anthropic (preferred) or OpenAI to produce
@@ -87,7 +89,7 @@ func GenerateSuggestedRoutine(ctx context.Context, cfg *config.Config, in Sugges
 	)
 	out, err := parseSuggestedRoutine(result.Text)
 	if err == nil {
-		out.ProductSuggestions = FinalizeProductSuggestions(out.ProductSuggestions, in.UserMemory)
+		out.ProductSuggestions, out.ProductGuidance, out.CarePhase = FinalizeCoachCommerce(out.ProductSuggestions, in.UserMemory, locale, "")
 		LogSuggestedRoutineOutput("", out)
 	}
 	return out, err

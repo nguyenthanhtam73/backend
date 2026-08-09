@@ -21,11 +21,11 @@ type OnboardingSkinAnalyzeResponse struct {
 	Concerns         []string `json:"concerns"`           // stable ids, see onboarding concern vocabulary
 	SuggestedGoal    string   `json:"suggested_goal"`     // glow|clear_acne|barrier|anti_aging|unsure
 	BarrierSignal    string   `json:"barrier_signal"`     // possibly_compromised|likely_ok|unclear
-	Confidence          float64  `json:"confidence"`           // 0–1 model self-rated
-	VisualObservations  []string `json:"visual_observations"`  // derived bullets for coach + UI
-	CoachingNotes       string   `json:"coaching_notes"`       // coach pass: structured buddy readback + tips
-	NonDiagnostic    string   `json:"non_diagnostic"`     // mandatory disclaimer line
-	PhotoQuality     struct {
+	Confidence       float64  `json:"confidence"`         // 0–1 model self-rated
+	VisualObservations []string `json:"visual_observations"` // derived bullets for coach + UI
+	CoachingNotes      string   `json:"coaching_notes"`      // coach pass: structured buddy readback + tips
+	NonDiagnostic      string   `json:"non_diagnostic"`      // mandatory disclaimer line
+	PhotoQuality       struct {
 		Sufficient bool     `json:"sufficient"`
 		Tips       []string `json:"tips"`
 	} `json:"photo_quality"`
@@ -33,5 +33,16 @@ type OnboardingSkinAnalyzeResponse struct {
 	DetailedObservations string                      `json:"detailed_observations,omitempty"`
 	MainConcerns         []string                    `json:"main_concerns,omitempty"` // raw labels from vision (often Vietnamese)
 	SkinTone             string                      `json:"skin_tone,omitempty"`
-	ModelUsed string `json:"model_used"` // vision model id for transparency
+	ModelUsed            string                      `json:"model_used"` // vision model id for transparency
+
+	// Structured photo readback (vision + server normalize).
+	SeverityLevel  string   `json:"severity_level"`            // mild|moderate|dense
+	PrimaryRegions []string `json:"primary_regions"`           // cheeks|t_zone|perioral|forehead|chin|jaw|nose|…
+	ConcernTypes   []string `json:"concern_types"`             // inflammatory_acne|comedones|pih|redness_irritation|…
+	Phase          string   `json:"phase"`                     // calm_first|can_add_active
+	Summary        string   `json:"summary"`                   // photo-specific; must not downplay dense flares
+
+	// Product guidance (generic always; affiliate fields only when catalog matches).
+	ProductGuidance    []ProductGuidanceItem `json:"product_guidance,omitempty"`
+	ProductSuggestions []ProductSuggestion   `json:"product_suggestions,omitempty"`
 }

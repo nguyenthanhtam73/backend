@@ -114,9 +114,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		wardrobeScanRateWindow,
 	)
 
+	var onboardingAnalyzeH *OnboardingAnalyzeHandler
 	if cfg != nil {
-		oh := NewOnboardingAnalyzeHandler(cfg)
-		api.Post("/onboarding/analyze-skin", jwtOptional, onboardingAnalyzeLimit, oh.AnalyzeSkin)
+		onboardingAnalyzeH = NewOnboardingAnalyzeHandler(cfg)
+		api.Post("/onboarding/analyze-skin", jwtOptional, onboardingAnalyzeLimit, onboardingAnalyzeH.AnalyzeSkin)
 	}
 
 	if cfg != nil && db != nil {
@@ -138,6 +139,9 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		userRepo := repository.NewUserRepository(db)
 		userUsageRepo := repository.NewUserUsageRepository(db)
 		premiumSvc := premiumuc.NewService(userRepo, userUsageRepo)
+		if onboardingAnalyzeH != nil {
+			onboardingAnalyzeH.AttachPremium(premiumSvc)
+		}
 		usageSvc := usageuc.NewWithGates(premiumSvc)
 		usageSvc.AttachShelfCounter(wardRepo)
 		usageH := NewMeUsageHandler(usageSvc)
@@ -177,6 +181,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		profSvc := profileuc.NewService(cfg, profRepo, repo, fbRepo, routineRepo, wardRepo, memCache)
 		profSvc.AttachPreviewJobs(repository.NewOnboardingPreviewJobRepository(db))
 		profSvc.AttachUsers(userRepo)
+		profSvc.AttachPremium(premiumSvc)
 		authH.AttachOnboardingStatus(profSvc)
 		ph := NewProfileHandler(profSvc, cfg, store, premiumSvc)
 		api.Get("/profile/skin", jwt, ph.GetSkin)
@@ -291,8 +296,11 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// Payment / subscription monitoring dashboard (admin-only).
 		payOrders := repository.NewPaymentOrderRepository(db)
 		payOps := repository.NewPaymentOpsEventRepository(db)
-		adminMetricsH := NewAdminMetricsHandler(adminmetricsuc.NewService(payOrders, userRepo, payOps))
+		adminMetricsH := NewAdminMetricsHandler(
+			adminmetricsuc.NewService(payOrders, userRepo, payOps).WithAffiliate(affiliateRepo),
+		)
 		api.Get("/admin/metrics/payment", jwt, admin, adminMetricsH.Payment)
+		api.Get("/admin/metrics/affiliate", jwt, admin, adminMetricsH.Affiliate)
 
 		// Admin Skin Review — deep observations-only AI (bypasses Free quota;
 		// no AILimiter — gated by RequireSkinReview: full admin OR skin-review list).

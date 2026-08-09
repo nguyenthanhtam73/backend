@@ -11,6 +11,7 @@ import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/service/ai"
+	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
 )
@@ -19,9 +20,10 @@ import (
 type OnboardingAnalyzeHandler struct {
 	cfg        *config.Config
 	httpClient *http.Client
+	premium    *premiumuc.Service // optional — strips affiliate when FeatureNoAds
 }
 
-// NewOnboardingAnalyzeHandler constructs the handler.
+// NewOnboardingAnalyzeHandler constructs the handler. premium may be nil.
 func NewOnboardingAnalyzeHandler(cfg *config.Config) *OnboardingAnalyzeHandler {
 	return &OnboardingAnalyzeHandler{
 		cfg: cfg,
@@ -31,13 +33,19 @@ func NewOnboardingAnalyzeHandler(cfg *config.Config) *OnboardingAnalyzeHandler {
 	}
 }
 
+// AttachPremium wires the premium gate after construction (router boot order).
+func (h *OnboardingAnalyzeHandler) AttachPremium(premium *premiumuc.Service) {
+	if h == nil {
+		return
+	}
+	h.premium = premium
+}
+
 // AnalyzeSkin handles POST /api/v1/onboarding/analyze-skin (2–3 images, multipart field "images").
 func (h *OnboardingAnalyzeHandler) AnalyzeSkin(c *fiber.Ctx) error {
 	if h == nil || h.cfg == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "configuration missing")
 	}
-	_ = middleware.UserIDFromLocals(c) // optional: guests may analyze during onboarding trial
-
 	form, err := c.MultipartForm()
 	if err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_multipart", "expected multipart form data")
@@ -74,7 +82,8 @@ func (h *OnboardingAnalyzeHandler) AnalyzeSkin(c *fiber.Ctx) error {
 		imgs = append(imgs, ai.ImageBytes{Data: data})
 	}
 
-	out, err := ai.OnboardingSkinAnalyze(c.UserContext(), h.cfg, h.httpClient, imgs, firstFormLocale(form))
+	locale := firstFormLocale(form)
+	out, err := ai.OnboardingSkinAnalyze(c.UserContext(), h.cfg, h.httpClient, imgs, locale)
 	if err != nil {
 		// Surface model/parse issues without leaking stack traces.
 		msg := err.Error()
@@ -83,6 +92,8 @@ func (h *OnboardingAnalyzeHandler) AnalyzeSkin(c *fiber.Ctx) error {
 		}
 		return response.Error(c, fiber.StatusUnprocessableEntity, "analysis_failed", msg)
 	}
+	uid := middleware.UserIDFromLocals(c)
+	stripOnboardingAnalyzeAds(c.UserContext(), h.premium, uid, out, locale)
 	return response.JSON(c, fiber.StatusOK, out)
 }
 

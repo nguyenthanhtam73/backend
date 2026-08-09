@@ -11,6 +11,7 @@ import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
+	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/dadiary/backend/internal/storage"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
@@ -51,6 +52,15 @@ func (h *ProfileHandler) GetSkin(c *fiber.Ctx) error {
 	res, err := h.svc.GetSkin(c.UserContext(), uid)
 	if err != nil {
 		return response.Error(c, fiber.StatusInternalServerError, "profile_error", err.Error())
+	}
+	loc := ""
+	if len(res.OnboardingSnapshot) > 0 {
+		loc = ai.LocaleFromOnboardingSnapshot(res.OnboardingSnapshot)
+	}
+	if userHasNoAds(c.UserContext(), h.premium, uid) {
+		stripOnboardingSnapshotAdsIfEntitled(c.UserContext(), h.premium, uid, &res.OnboardingSnapshot, loc)
+	} else {
+		res.OnboardingSnapshot = h.svc.EnrichStarterAffiliateSnapshot(c.UserContext(), uid, res.OnboardingSnapshot)
 	}
 	return response.JSON(c, fiber.StatusOK, res)
 }
@@ -121,8 +131,19 @@ func (h *ProfileHandler) CompleteOnboarding(c *fiber.Ctx) error {
 	if err != nil {
 		return mapProfileError(c, err)
 	}
-	stripAdsIfEntitled(c.UserContext(), h.premium, uid, &res.StarterRoutine.ProductSuggestions)
+	loc := onboardingLocaleFromRequest(body.Locale)
+	stripStarterRoutineAdsIfEntitled(c.UserContext(), h.premium, uid, &res.StarterRoutine, loc)
+	stripOnboardingSnapshotAdsIfEntitled(c.UserContext(), h.premium, uid, &res.Profile.OnboardingSnapshot, loc)
 	return response.JSON(c, fiber.StatusOK, res)
+}
+
+func onboardingLocaleFromRequest(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "en":
+		return "en"
+	default:
+		return "vi"
+	}
 }
 
 func (h *ProfileHandler) saveOnboardingPhotos(ctx context.Context, userID uuid.UUID, files []*multipart.FileHeader) ([]string, error) {

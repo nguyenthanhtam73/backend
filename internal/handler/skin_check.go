@@ -168,7 +168,7 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return mapSkinCheckError(c, err)
 	}
-	stripSkinCheckAds(c.UserContext(), h.premium, userID, &res)
+	stripSkinCheckAds(c.UserContext(), h.premium, userID, &res, uiLocaleFromClimateJSON(climateJSON))
 	return response.JSON(c, fiber.StatusCreated, res)
 }
 
@@ -202,7 +202,7 @@ func (h *SkinCheckHandler) Get(c *fiber.Ctx) error {
 
 	publicURLs := buildPublicImageURLs(check.ImageURLs)
 	res := mapSkinCheckResponse(check, publicURLs)
-	stripSkinCheckAds(c.UserContext(), h.premium, userID, &res)
+	stripSkinCheckAds(c.UserContext(), h.premium, userID, &res, uiLocaleFromClimateJSON(check.ClimateContext))
 	return response.JSON(c, fiber.StatusOK, res)
 }
 

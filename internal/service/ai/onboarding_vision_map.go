@@ -15,6 +15,11 @@ type onboardingVisionRaw struct {
 	SkinTone             string                         `json:"skin_tone"`
 	Undertone            string                         `json:"undertone"`
 	PhotoQuality         string                         `json:"photo_quality"`
+	SeverityLevel        string                         `json:"severity_level"`
+	PrimaryRegions       []string                       `json:"primary_regions"`
+	ConcernTypes         []string                       `json:"concern_types"`
+	Phase                string                         `json:"phase"`
+	Summary              string                         `json:"summary"`
 }
 
 // ---------------------------------------------------------------------------
@@ -26,7 +31,7 @@ func mapOnboardingVisionRaw(raw onboardingVisionRaw, locale string) dto.Onboardi
 	concerns := mapOnboardingConcerns(raw.MainConcerns, obs)
 	sufficient, confidence, tips := mapOnboardingPhotoQuality(raw.PhotoQuality, locale)
 
-	return dto.OnboardingSkinAnalyzeResponse{
+	out := dto.OnboardingSkinAnalyzeResponse{
 		SkinTypeGuess:        mapOnboardingSkinType(obs.OverallSkinType),
 		UndertoneGuess:       mapOnboardingUndertoneGuess(raw.Undertone, raw.SkinTone),
 		Concerns:             concerns,
@@ -44,6 +49,26 @@ func mapOnboardingVisionRaw(raw onboardingVisionRaw, locale string) dto.Onboardi
 		MainConcerns:         append([]string(nil), raw.MainConcerns...),
 		SkinTone:             strings.TrimSpace(raw.SkinTone),
 	}
+	applyStructuredOnboardingFields(
+		&out,
+		raw.SeverityLevel,
+		raw.PrimaryRegions,
+		raw.ConcernTypes,
+		raw.Phase,
+		raw.Summary,
+		locale,
+	)
+	guidance, suggestions := BuildOnboardingProductGuidance(
+		out.Phase,
+		out.SeverityLevel,
+		out.SkinTypeGuess,
+		out.Concerns,
+		out.ConcernTypes,
+		locale,
+	)
+	out.ProductGuidance = guidance
+	out.ProductSuggestions = suggestions
+	return out
 }
 
 // ---------------------------------------------------------------------------

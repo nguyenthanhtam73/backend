@@ -273,6 +273,12 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	if care := ai.NormalizeCareSuggestions(parsed); len(care) > 0 {
 		labels["care_suggestions"] = care
 	}
+	if len(parsed.ProductGuidance) > 0 {
+		labels["product_guidance"] = parsed.ProductGuidance
+	}
+	if phase := strings.TrimSpace(parsed.CarePhase); phase != "" {
+		labels["care_phase"] = phase
+	}
 	ss, _ := json.Marshal(labels)
 
 	str, _ := json.Marshal(parsed.Strengths)

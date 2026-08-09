@@ -91,11 +91,12 @@ func GenerateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 	if err != nil {
 		return nil, err
 	}
-	out.ProductSuggestions = FinalizeProductSuggestions(out.ProductSuggestions, u)
+	locale := localeFromUserContext(u)
+	out.ProductSuggestions, out.ProductGuidance, out.CarePhase = FinalizeCoachCommerce(out.ProductSuggestions, u, locale, "")
 	if needsAdherenceRetry(u, out) {
 		retryBody := textBody + "\n\nVALIDATION FAILED: your JSON did not mention routine adherence in strengths or summary_notes. Regenerate the FULL JSON — include one sentence about routine ticks/effort per COACH_ACTION.\n"
 		if retryOut, retryErr := callDailyFeedbackLLM(ctx, cfg, client, system, retryBody); retryErr == nil && retryOut != nil {
-			retryOut.ProductSuggestions = FinalizeProductSuggestions(retryOut.ProductSuggestions, u)
+			retryOut.ProductSuggestions, retryOut.ProductGuidance, retryOut.CarePhase = FinalizeCoachCommerce(retryOut.ProductSuggestions, u, locale, "")
 			out = retryOut
 		}
 	}
