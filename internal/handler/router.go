@@ -118,6 +118,8 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 	if cfg != nil {
 		onboardingAnalyzeH = NewOnboardingAnalyzeHandler(cfg)
 		api.Post("/onboarding/analyze-skin", jwtOptional, onboardingAnalyzeLimit, onboardingAnalyzeH.AnalyzeSkin)
+		// No model call — catalog matching only, so it skips the AI limiter.
+		api.Post("/onboarding/product-guidance", jwtOptional, onboardingAnalyzeH.ProductGuidance)
 	}
 
 	if cfg != nil && db != nil {

@@ -71,6 +71,22 @@ func stripOnboardingAnalyzeAds(
 	res.ProductGuidance = ai.StripAffiliateFromProductGuidance(res.ProductGuidance, locale)
 }
 
+// stripOnboardingGuidanceAds clears affiliate commerce on the no-photo guidance
+// endpoint for Premium no_ads, keeping the generic role copy.
+func stripOnboardingGuidanceAds(
+	ctx context.Context,
+	gates *premiumuc.Service,
+	userID uuid.UUID,
+	res *dto.OnboardingProductGuidanceResponse,
+	locale string,
+) {
+	if res == nil || !userHasNoAds(ctx, gates, userID) {
+		return
+	}
+	res.ProductSuggestions = nil
+	res.ProductGuidance = ai.StripAffiliateFromProductGuidance(res.ProductGuidance, locale)
+}
+
 func stripSkinCheckAds(
 	ctx context.Context,
 	gates *premiumuc.Service,

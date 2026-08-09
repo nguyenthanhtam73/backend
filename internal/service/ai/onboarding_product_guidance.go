@@ -17,6 +17,7 @@ var calmFirstBannedCatalogIDs = map[string]struct{}{
 // BuildOnboardingProductGuidance builds hybrid product guidance for analyze-skin.
 // Always returns generic role cards; affiliate fields only when a catalog row matches
 // category + phase + concerns (links rewritten from catalog).
+// primaryRegions (e.g. cheeks) personalizes why/caution copy — optional.
 func BuildOnboardingProductGuidance(
 	phase string,
 	severity string,
@@ -24,6 +25,7 @@ func BuildOnboardingProductGuidance(
 	concerns []string,
 	concernTypes []string,
 	locale string,
+	primaryRegions ...string,
 ) ([]dto.ProductGuidanceItem, []dto.ProductSuggestion) {
 	if phase != PhaseCalmFirst && phase != PhaseCanAddActive {
 		phase = PhaseCalmFirst
@@ -31,7 +33,430 @@ func BuildOnboardingProductGuidance(
 	if severity == SeverityDense {
 		phase = PhaseCalmFirst
 	}
-	templates := guidanceTemplates(phase, locale)
+	regions := primaryRegions
+	if len(regions) == 1 && strings.Contains(regions[0], ",") {
+		// Defensive: allow a single comma-joined arg from older call sites.
+		regions = splitCSV(regions[0])
+	}
+	guidance, suggestions := attachCatalogToTemplates(
+		guidanceTemplates(phase, locale),
+		phase, skinType, concerns, concernTypes, locale,
+	)
+	guidance = enrichGuidanceCopy(guidance, phase, severity, concerns, concernTypes, regions, locale)
+	return guidance, suggestions
+}
+
+func splitCSV(s string) []string {
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// enrichGuidanceCopy ensures why/benefits/how/caution are filled and why references
+// the user's phase / severity / regions / concerns (not a bare "use a cleanser").
+func enrichGuidanceCopy(
+	items []dto.ProductGuidanceItem,
+	phase, severity string,
+	concerns, concernTypes, regions []string,
+	locale string,
+) []dto.ProductGuidanceItem {
+	if len(items) == 0 {
+		return items
+	}
+	en := strings.EqualFold(locale, "en")
+	ctx := guidanceUserContext(en, phase, severity, concerns, concernTypes, regions)
+	out := make([]dto.ProductGuidanceItem, len(items))
+	for i, it := range items {
+		it.Phase = phase
+		if strings.TrimSpace(it.Why) == "" || isGenericWhy(it.Why, en) {
+			it.Why = defaultWhyForStep(it.Step, phase, ctx, en)
+		} else if ctx != "" && !strings.Contains(strings.ToLower(it.Why), strings.ToLower(ctxSnippet(ctx, en))) {
+			// Prefixed context when template why is OK but not user-specific enough.
+			it.Why = prependContext(it.Why, ctx, en)
+		}
+		it.Benefits = ensureBenefits(it.Step, it.Benefits, phase, en)
+		if strings.TrimSpace(it.HowToUse) == "" {
+			it.HowToUse = defaultHowForStep(it.Step, en)
+		}
+		if strings.TrimSpace(it.Caution) == "" {
+			it.Caution = defaultCautionForStep(it.Step, phase, en)
+		}
+		out[i] = it
+	}
+	return out
+}
+
+func guidanceUserContext(
+	en bool,
+	phase, severity string,
+	concerns, concernTypes, regions []string,
+) string {
+	region := regionLabel(regions, en)
+	sev := severityLabel(severity, en)
+	concern := primaryConcernLabel(concerns, concernTypes, en)
+
+	parts := make([]string, 0, 3)
+	if region != "" {
+		if en {
+			parts = append(parts, region)
+		} else {
+			parts = append(parts, "vùng "+region)
+		}
+	}
+	if sev != "" {
+		parts = append(parts, sev)
+	}
+	if concern != "" {
+		parts = append(parts, concern)
+	}
+	// Photo-backed calm_first only: skip when severity/regions are empty so
+	// manual (no-photo) enrich does not invent “needs calming” from a flare.
+	if len(parts) == 0 {
+		if phase == PhaseCalmFirst && (strings.TrimSpace(severity) != "" || len(regions) > 0) {
+			if en {
+				return "skin that needs calming first"
+			}
+			return "da đang cần làm dịu trước"
+		}
+		return ""
+	}
+	if en {
+		return strings.Join(parts, ", ")
+	}
+	return strings.Join(parts, ", ")
+}
+
+func ctxSnippet(ctx string, en bool) string {
+	// First token for contains-check (avoid double-prefix).
+	if ctx == "" {
+		return ""
+	}
+	if i := strings.IndexAny(ctx, ","); i > 0 {
+		return strings.TrimSpace(ctx[:i])
+	}
+	return ctx
+}
+
+func prependContext(why, ctx string, en bool) string {
+	why = strings.TrimSpace(why)
+	ctx = strings.TrimSpace(ctx)
+	if ctx == "" || why == "" {
+		return why
+	}
+	low := strings.ToLower(why)
+	if strings.Contains(low, strings.ToLower(ctxSnippet(ctx, en))) {
+		return why
+	}
+	if en {
+		return "For " + ctx + ": " + why
+	}
+	return "Với " + ctx + ": " + why
+}
+
+func isGenericWhy(why string, en bool) bool {
+	w := strings.ToLower(strings.TrimSpace(why))
+	if w == "" {
+		return true
+	}
+	generics := []string{
+		"nên dùng sữa rửa mặt", "use a cleanser", "good cleanser",
+		"nên dưỡng ẩm", "use moisturizer", "use sunscreen",
+	}
+	for _, g := range generics {
+		if w == g || strings.HasPrefix(w, g) {
+			return true
+		}
+	}
+	_ = en
+	return false
+}
+
+func regionLabel(regions []string, en bool) string {
+	if len(regions) == 0 {
+		return ""
+	}
+	mapEN := map[string]string{
+		"cheeks": "cheeks", "t_zone": "T-zone", "forehead": "forehead",
+		"chin": "chin", "nose": "nose", "jaw": "jaw",
+	}
+	mapVI := map[string]string{
+		"cheeks": "má", "t_zone": "chữ T", "forehead": "trán",
+		"chin": "cằm", "nose": "mũi", "jaw": "hàm",
+	}
+	labels := make([]string, 0, 2)
+	for _, r := range regions {
+		if len(labels) >= 2 {
+			break
+		}
+		key := normLower(r)
+		if en {
+			if v, ok := mapEN[key]; ok {
+				labels = append(labels, v)
+			}
+		} else if v, ok := mapVI[key]; ok {
+			labels = append(labels, v)
+		}
+	}
+	sep := " và "
+	if en {
+		sep = " & "
+	}
+	return strings.Join(labels, sep)
+}
+
+func severityLabel(severity string, en bool) string {
+	switch normLower(severity) {
+	case SeverityDense:
+		if en {
+			return "dense inflammation"
+		}
+		return "viêm dày / đỏ rõ"
+	case SeverityModerate:
+		if en {
+			return "moderate breakouts"
+		}
+		return "mức vừa"
+	case SeverityMild:
+		if en {
+			return "mild congestion"
+		}
+		return "mức nhẹ"
+	}
+	return ""
+}
+
+func primaryConcernLabel(concerns, concernTypes []string, en bool) string {
+	for _, ct := range concernTypes {
+		switch normLower(ct) {
+		case "inflammatory_acne":
+			if en {
+				return "inflammatory breakouts"
+			}
+			return "mụn viêm"
+		case "redness_irritation", "redness":
+			if en {
+				return "redness / irritation"
+			}
+			return "đỏ / kích ứng"
+		case "comedones":
+			if en {
+				return "clogged pores"
+			}
+			return "tắc nghẽn"
+		}
+	}
+	for _, c := range concerns {
+		switch normLower(c) {
+		case "acne":
+			if en {
+				return "acne-prone skin"
+			}
+			return "da dễ mụn"
+		case "redness", "irritated":
+			if en {
+				return "easily flushed skin"
+			}
+			return "da dễ đỏ"
+		}
+	}
+	return ""
+}
+
+func defaultWhyForStep(step, phase, ctx string, en bool) string {
+	if ctx == "" {
+		if en {
+			ctx = "your current skin phase"
+		} else {
+			ctx = "giai đoạn da hiện tại"
+		}
+	}
+	switch normLower(step) {
+	case "cleanse":
+		if phase == PhaseCalmFirst {
+			if en {
+				return "For " + ctx + " — cleanse gently so you don’t strip or scrub inflamed spots."
+			}
+			return "Với " + ctx + " — rửa dịu, không chà / không đẩy acid lên vùng đang sưng."
+		}
+		if en {
+			return "For " + ctx + " — clear oil and sunscreen without stripping the barrier."
+		}
+		return "Với " + ctx + " — làm sạch dầu và kem chống nắng mà không làm da căng."
+	case "soothe":
+		if en {
+			return "For " + ctx + " — a calm layer helps redness settle before any actives."
+		}
+		return "Với " + ctx + " — lớp làm dịu giúp đỏ/căng dịu lại trước khi nghĩ tới hoạt chất."
+	case "moisturize":
+		if phase == PhaseCalmFirst {
+			if en {
+				return "For " + ctx + " — repair comfort first; strong treat can wait."
+			}
+			return "Với " + ctx + " — ưu tiên phục hồi / êm da trước, chưa treat mạnh."
+		}
+		if en {
+			return "For " + ctx + " — moisturizer keeps comfort around any single active."
+		}
+		return "Với " + ctx + " — dưỡng ẩm giữ da êm quanh hoạt chất (nếu có)."
+	case "spf":
+		if en {
+			return "For " + ctx + " — daily SPF protects healing skin and limits new dark marks."
+		}
+		return "Với " + ctx + " — SPF mỗi sáng bảo vệ da đang phục hồi và giảm thâm mới."
+	case "treat":
+		if en {
+			return "For " + ctx + " — at most one active (BHA or retinoid), never stacked the same night."
+		}
+		return "Với " + ctx + " — tối đa 1 hoạt chất (BHA hoặc retinoid), không stack cùng đêm."
+	}
+	if en {
+		return "Fits " + ctx + " for this care step."
+	}
+	return "Phù hợp " + ctx + " cho bước chăm sóc này."
+}
+
+func ensureBenefits(step string, benefits []string, phase string, en bool) []string {
+	clean := make([]string, 0, 4)
+	for _, b := range benefits {
+		b = strings.TrimSpace(b)
+		if b != "" {
+			clean = append(clean, b)
+		}
+	}
+	if len(clean) >= 2 {
+		if len(clean) > 4 {
+			return clean[:4]
+		}
+		return clean
+	}
+	defs := guidanceDefaultBenefits(step, phase, en)
+	for _, d := range defs {
+		if len(clean) >= 4 {
+			break
+		}
+		dup := false
+		for _, c := range clean {
+			if strings.EqualFold(c, d) {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			clean = append(clean, d)
+		}
+	}
+	return clean
+}
+
+func guidanceDefaultBenefits(step, phase string, en bool) []string {
+	switch normLower(step) {
+	case "cleanse":
+		if en {
+			return []string{"Removes dirt and sunscreen gently", "Less sting on reactive skin", "Does not scrub inflamed spots"}
+		}
+		return []string{"Làm sạch nhẹ bẩn / kem chống nắng", "Ít châm trên da đang kích", "Không chà vùng sưng"}
+	case "soothe":
+		if en {
+			return []string{"Calms redness", "Light hydration", "Preps for moisturizer"}
+		}
+		return []string{"Làm dịu cảm giác đỏ", "Cấp ẩm nhẹ", "Chuẩn bị cho kem dưỡng"}
+	case "moisturize":
+		if phase == PhaseCalmFirst {
+			if en {
+				return []string{"Supports barrier repair", "Reduces tight / dry feel", "Comfort on inflamed zones"}
+			}
+			return []string{"Hỗ trợ phục hồi barrier", "Giảm khô căng", "Êm vùng đang viêm"}
+		}
+		if en {
+			return []string{"Supports the barrier", "Makes actives easier to tolerate", "Overnight comfort"}
+		}
+		return []string{"Hỗ trợ barrier", "Dễ chịu hơn khi có treat", "Êm da qua đêm"}
+	case "spf":
+		if en {
+			return []string{"Daily UV protection", "Helps prevent new dark marks", "Shields healing skin"}
+		}
+		return []string{"Chống nắng mỗi ngày", "Giảm nguy cơ thâm mới", "Bảo vệ da đang phục hồi"}
+	case "treat":
+		if en {
+			return []string{"Targets clogged pores gradually", "One change at a time", "Optional — skip if skin stings"}
+		}
+		return []string{"Nhắm tắc nghẽn dần", "Đổi một thứ một lúc", "Tuỳ chọn — bỏ nếu da rát"}
+	}
+	if en {
+		return []string{"Supports this care step", "Fits your current phase"}
+	}
+	return []string{"Hỗ trợ bước chăm sóc này", "Phù hợp giai đoạn da hiện tại"}
+}
+
+func defaultHowForStep(step string, en bool) string {
+	switch normLower(step) {
+	case "cleanse":
+		if en {
+			return "Lukewarm water, ~30 seconds, soft press — morning and evening."
+		}
+		return "Nước ấm, khoảng 30 giây, miết nhẹ — sáng và tối."
+	case "soothe":
+		if en {
+			return "Pat a thin layer; skip if it stings."
+		}
+		return "Vỗ lớp mỏng; bỏ qua nếu đang châm."
+	case "moisturize":
+		if en {
+			return "Apply while skin is slightly damp; cover red or dry zones well."
+		}
+		return "Thoa khi da còn hơi ẩm; đủ trên vùng đỏ / khô."
+	case "spf":
+		if en {
+			return "Every morning as the last step — including near windows indoors."
+		}
+		return "Mỗi sáng, bước cuối — kể cả khi ở nhà gần cửa sổ."
+	case "treat":
+		if en {
+			return "2–3 nights/week on a small area; moisturize after. Never stack with another strong active the same night."
+		}
+		return "2–3 đêm/tuần, vùng nhỏ; dưỡng ẩm sau. Không stack hoạt chất mạnh cùng đêm."
+	}
+	if en {
+		return "Use gently as directed for this step."
+	}
+	return "Dùng nhẹ theo hướng dẫn cho bước này."
+}
+
+func defaultCautionForStep(step, phase string, en bool) string {
+	if phase == PhaseCalmFirst {
+		if en {
+			return "Calm first: no BHA/retinoid push this week. Don’t pick or squeeze. Not a prescription."
+		}
+		return "Làm dịu trước: tuần này chưa đẩy BHA/retinoid. Không nặn / không cậy. Không phải kê đơn."
+	}
+	if normLower(step) == "treat" {
+		if en {
+			return "At most one active per night. Stop if stinging or swelling increases. Not a prescription."
+		}
+		return "Tối đa 1 hoạt chất mỗi đêm. Ngưng nếu càng đỏ/sưng. Không phải kê đơn."
+	}
+	if en {
+		return "Introduce only one new product per week. Stop if irritation rises."
+	}
+	return "Mỗi tuần chỉ thêm 1 sản phẩm mới. Ngưng nếu càng kích ứng."
+}
+
+// attachCatalogToTemplates fills commerce fields on role cards from the catalog,
+// capped at maxProductSuggestions CTAs. Templates that win no match stay text-only.
+func attachCatalogToTemplates(
+	templates []guidanceTemplate,
+	phase string,
+	skinType string,
+	concerns []string,
+	concernTypes []string,
+	locale string,
+) ([]dto.ProductGuidanceItem, []dto.ProductSuggestion) {
 	rows, _ := loadAffiliateCatalog()
 
 	out := make([]dto.ProductGuidanceItem, 0, len(templates))
@@ -176,21 +601,23 @@ func guidanceTemplates(phase, locale string) []guidanceTemplate {
 			{
 				Step: "soothe", Category: "toner", NameOrCategory: "Soothing hydrating layer",
 				Why: "A calm layer helps redness and tightness settle before any actives.",
-				Benefits: []string{"Comfort on irritated areas", "Preps skin for moisturizer"},
+				Benefits: []string{"Comfort on irritated areas", "Light hydration", "Preps skin for moisturizer"},
 				HowToUse: "Pat gently; skip if it stings.",
+				Caution:  "Calm first — no BHA/retinoid yet. Don’t pick.",
 			},
 			{
 				Step: "moisturize", Category: "moisturizer", NameOrCategory: "Barrier-support moisturizer",
 				Why: "Dense or angry-looking spots need comfort and repair signals first.",
-				Benefits: []string{"Reduces tight, dry feel", "Supports recovery"},
+				Benefits: []string{"Reduces tight, dry feel", "Supports barrier repair", "Comfort on inflamed zones"},
 				HowToUse: "Generous on red / dry zones; keep formula simple.",
-				Caution:  "Avoid stacking new strong actives this week.",
+				Caution:  "Avoid stacking new strong actives this week. Don’t pick or squeeze.",
 			},
 			{
 				Step: "spf", Category: "spf", NameOrCategory: "Gentle morning sunscreen",
 				Why: "Protection while skin is reactive — especially on cheeks and healing areas.",
-				Benefits: []string{"Shields inflamed skin", "Helps limit new dark marks"},
+				Benefits: []string{"Shields inflamed skin", "Helps limit new dark marks", "Daily UV defense"},
 				HowToUse: "Every morning; mineral options if chemical filters sting.",
+				Caution:  "Keep SPF even when inflamed — skip strong actives, not sun protection.",
 			},
 		}
 	}
@@ -205,21 +632,23 @@ func guidanceTemplates(phase, locale string) []guidanceTemplate {
 		{
 			Step: "soothe", Category: "toner", NameOrCategory: "Lớp làm dịu / cấp ẩm nhẹ",
 			Why: "Giúp vùng đỏ và căng dịu lại trước khi nghĩ tới hoạt chất.",
-			Benefits: []string{"Êm vùng đang kích", "Chuẩn bị cho kem dưỡng"},
+			Benefits: []string{"Êm vùng đang kích", "Cấp ẩm nhẹ", "Chuẩn bị cho kem dưỡng"},
 			HowToUse: "Vỗ nhẹ; bỏ qua nếu đang châm.",
+			Caution:  "Làm dịu trước — chưa BHA/retinoid. Không nặn.",
 		},
 		{
 			Step: "moisturize", Category: "moisturizer", NameOrCategory: "Kem dưỡng hỗ trợ barrier",
 			Why: "Mụn viêm dày / da “nóng” cần lớp phục hồi trước, chưa phải treat mạnh.",
-			Benefits: []string{"Giảm khô căng", "Hỗ trợ da ổn lại"},
+			Benefits: []string{"Giảm khô căng", "Hỗ trợ barrier", "Êm vùng đang viêm"},
 			HowToUse: "Thoa đủ trên vùng đỏ / khô; công thức ngắn.",
-			Caution:  "Tuần này chưa stack hoạt chất mạnh.",
+			Caution:  "Tuần này chưa stack hoạt chất mạnh. Không nặn.",
 		},
 		{
 			Step: "spf", Category: "spf", NameOrCategory: "Kem chống nắng dịu buổi sáng",
 			Why: "Bảo vệ khi da đang nhạy — đặc biệt má và vùng vừa viêm.",
-			Benefits: []string{"Che nắng cho da đang kích", "Giảm nguy cơ thâm mới"},
+			Benefits: []string{"Che nắng cho da đang kích", "Giảm nguy cơ thâm mới", "Bảo vệ da phục hồi"},
 			HowToUse: "Mỗi sáng; ưu tiên loại dịu nếu da dễ châm.",
+			Caution:  "Vẫn cần SPF khi da viêm — bỏ qua active mạnh, không bỏ nắng.",
 		},
 	}
 }
@@ -267,6 +696,13 @@ func matchGuidanceCatalog(
 		if len(r.Phases) > 0 && !phaseAllowedOnEntry(r.Phases, phase) {
 			continue
 		}
+		// Treat CTAs must be BHA/BP actives — never a random toner/serum SKU.
+		if normLower(step) == "treat" {
+			ak := normLower(r.ActiveKind)
+			if ak != "bha" && ak != "bp" {
+				continue
+			}
+		}
 		score := 1
 		if rStep == normLower(step) {
 			score += 2
@@ -275,7 +711,6 @@ func matchGuidanceCatalog(
 			score += 2
 		}
 		score += concernOverlapScore(r.Concerns, concernSet)
-		// Prefer non-actives slightly in calm_first already enforced; in can_add_active prefer matching active_kind for treat
 		if step == "treat" && (normLower(r.ActiveKind) == "bha" || normLower(r.ActiveKind) == "bp") {
 			score += 1
 		}
@@ -383,6 +818,13 @@ func guidanceConcernSet(concerns, concernTypes []string) map[string]struct{} {
 		case "large_pores":
 			set["large_pores"] = struct{}{}
 			set["oily"] = struct{}{}
+		case "dullness":
+			set["dull"] = struct{}{}
+			set["dehydrated"] = struct{}{}
+		case "uneven_texture":
+			set["texture"] = struct{}{}
+			set["dull"] = struct{}{}
+			set["clogged_pores"] = struct{}{}
 		}
 	}
 	for _, ct := range concernTypes {

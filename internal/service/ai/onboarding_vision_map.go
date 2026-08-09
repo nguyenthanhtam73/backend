@@ -65,6 +65,7 @@ func mapOnboardingVisionRaw(raw onboardingVisionRaw, locale string) dto.Onboardi
 		out.Concerns,
 		out.ConcernTypes,
 		locale,
+		out.PrimaryRegions...,
 	)
 	out.ProductGuidance = guidance
 	out.ProductSuggestions = suggestions

@@ -83,6 +83,41 @@ func TestFilterSuggestionsDropsTreatOnCalmFirst(t *testing.T) {
 	}
 }
 
+func TestEnrichGuidanceHasWhyBenefitsCaution(t *testing.T) {
+	guidance, _ := BuildOnboardingProductGuidance(
+		PhaseCalmFirst, SeverityDense, "combo",
+		[]string{"acne", "redness"},
+		[]string{"inflammatory_acne"},
+		"vi",
+		"cheeks",
+	)
+	if len(guidance) == 0 {
+		t.Fatal("expected guidance cards")
+	}
+	for _, g := range guidance {
+		if g.Step == "treat" {
+			t.Fatal("calm_first must not include treat")
+		}
+		if strings.TrimSpace(g.Why) == "" {
+			t.Fatalf("step %s missing why", g.Step)
+		}
+		if !strings.Contains(strings.ToLower(g.Why), "má") &&
+			!strings.Contains(strings.ToLower(g.Why), "viêm") &&
+			!strings.Contains(strings.ToLower(g.Why), "mụn") {
+			t.Fatalf("step %s why should reference user context: %q", g.Step, g.Why)
+		}
+		if len(g.Benefits) < 2 {
+			t.Fatalf("step %s needs ≥2 benefits, got %v", g.Step, g.Benefits)
+		}
+		if strings.TrimSpace(g.HowToUse) == "" {
+			t.Fatalf("step %s missing how_to_use", g.Step)
+		}
+		if strings.TrimSpace(g.Caution) == "" {
+			t.Fatalf("step %s missing caution", g.Step)
+		}
+	}
+}
+
 func TestDenseGuidanceHasSPFNotBHA(t *testing.T) {
 	guidance, picks := BuildOnboardingProductGuidance(
 		PhaseCalmFirst, SeverityDense, "combo",
@@ -150,6 +185,63 @@ func TestInferCarePhaseTightTokens(t *testing.T) {
 	ctxTodayThenMemory := "TODAY_CHECK_IN:\nfeeling fine\n## USER_MEMORY\nTags / concerns: redness"
 	if InferCarePhaseFromUserContext(ctxTodayThenMemory) != PhaseCanAddActive {
 		t.Fatal("profile redness after today block must not force calm_first")
+	}
+}
+
+func TestManualEnrichSkipsCalmFallback(t *testing.T) {
+	guidance, _ := BuildManualProductGuidance("glow", "combo", nil, "vi")
+	if len(guidance) == 0 {
+		t.Fatal("expected manual guidance")
+	}
+	for _, g := range guidance {
+		if strings.Contains(g.Why, "đang cần làm dịu") {
+			t.Fatalf("manual enrich must not invent calm flare context: %q", g.Why)
+		}
+		if g.Step == "treat" {
+			t.Fatal("manual guidance must not include treat")
+		}
+	}
+}
+
+func TestTreatCatalogMatchRequiresBHAorBP(t *testing.T) {
+	rows, err := loadAffiliateCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Inject a non-active treat-step SKU that would otherwise win on category.
+	fake := affiliateCatalogEntry{
+		ID:       "fake-toner-as-treat",
+		Category: "toner",
+		Step:     "treat",
+		Phases:   []string{PhaseCanAddActive},
+		// ActiveKind intentionally empty — must not match treat.
+	}
+	used := map[string]struct{}{}
+	_, ok := matchGuidanceCatalog(
+		append([]affiliateCatalogEntry{fake}, rows...),
+		"treat", "treatment", PhaseCanAddActive, "oily",
+		[]string{"acne"}, []string{"inflammatory_acne"}, used,
+	)
+	if ok {
+		// If a real BHA/BP treat exists it may still match — verify ActiveKind.
+		match, ok2 := matchGuidanceCatalog(
+			rows, "treat", "treatment", PhaseCanAddActive, "oily",
+			[]string{"acne"}, []string{"inflammatory_acne"}, used,
+		)
+		if ok2 {
+			ak := normLower(match.ActiveKind)
+			if ak != "bha" && ak != "bp" {
+				t.Fatalf("treat match must be bha|bp, got %q id=%s", match.ActiveKind, match.ID)
+			}
+		}
+	}
+	// Explicitly: fake without active_kind must never win when alone.
+	onlyFake := []affiliateCatalogEntry{fake}
+	if _, ok := matchGuidanceCatalog(
+		onlyFake, "treat", "treatment", PhaseCanAddActive, "oily",
+		[]string{"acne"}, []string{"inflammatory_acne"}, map[string]struct{}{},
+	); ok {
+		t.Fatal("treat without active_kind bha|bp must not match")
 	}
 }
 
