@@ -27,6 +27,50 @@ func starterRoutineResponseFromAI(s ai.StarterRoutine) dto.StarterRoutineRespons
 	}
 }
 
+const maxClientStarterSteps = 12
+
+// sanitizeClientStarterSteps trims empty lines and caps list length.
+func sanitizeClientStarterSteps(steps []string) []string {
+	if len(steps) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(steps))
+	for _, raw := range steps {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+		if len(out) >= maxClientStarterSteps {
+			break
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// applyClientStarterSteps overlays optional AM/PM steps from the client onto
+// the quick scaffold. Returns true when the client provided at least one step.
+func applyClientStarterSteps(starter *ai.StarterRoutine, req dto.OnboardingCompleteRequest) bool {
+	if starter == nil {
+		return false
+	}
+	morning := sanitizeClientStarterSteps(req.Morning)
+	evening := sanitizeClientStarterSteps(req.Evening)
+	if len(morning) == 0 && len(evening) == 0 {
+		return false
+	}
+	if len(morning) > 0 {
+		starter.Morning = morning
+	}
+	if len(evening) > 0 {
+		starter.Evening = evening
+	}
+	return true
+}
+
 // quickStarterFromOnboarding builds an immediate AM/PM scaffold from form
 // answers so CompleteOnboarding can respond without waiting on the LLM.
 func quickStarterFromOnboarding(req dto.OnboardingCompleteRequest, locale string) ai.StarterRoutine {

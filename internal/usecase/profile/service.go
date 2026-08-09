@@ -37,6 +37,7 @@ type Service struct {
 	feedback    *repository.GormAIFeedbackRepository
 	routines    *repository.GormRoutineEntryRepository
 	wardrobe    *repository.GormSkincareProductRepository
+	users       *repository.GormUserRepository
 	cache       *ai.MemoryCache
 	previewJobs PreviewJobStore // guest preview jobs (DB); required for preview-complete
 }
@@ -67,6 +68,13 @@ func NewService(
 func (s *Service) AttachPreviewJobs(jobs PreviewJobStore) {
 	if s != nil {
 		s.previewJobs = jobs
+	}
+}
+
+// AttachUsers wires user updates (onboarding_skipped flag).
+func (s *Service) AttachUsers(users *repository.GormUserRepository) {
+	if s != nil {
+		s.users = users
 	}
 }
 
@@ -200,9 +208,18 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	// generate the personalized routine in the background. The client shows
 	// the scaffold immediately and polls GET /profile/skin until the AI
 	// routine replaces it (starter_routine_pending flips to false).
+	//
+	// When the client sends edited morning/evening steps, prefer those and
+	// skip the background AI overwrite so /routine + review stay in sync.
 	starter := quickStarterFromOnboarding(req, loc)
+	userEditedStarter := applyClientStarterSteps(&starter, req)
 	snap["starter_routine"] = starter
-	snap["starter_routine_pending"] = true
+	if userEditedStarter {
+		snap["starter_routine_pending"] = false
+		snap["starter_user_edited"] = true
+	} else {
+		snap["starter_routine_pending"] = true
+	}
 
 	var photoJSON json.RawMessage
 	if len(photoRels) > 0 {
@@ -241,6 +258,15 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	if err := s.prof.UpsertForUser(ctx, prof); err != nil {
 		return zero, err
 	}
+	// Completing onboarding supersedes a prior “enter app” skip.
+	if s.users != nil {
+		if err := s.users.SetOnboardingSkipped(ctx, userID, false); err != nil {
+			slog.Warn("onboarding: clear onboarding_skipped failed",
+				"user_id", userID,
+				"err", err,
+			)
+		}
+	}
 	// Onboarding completion materially changes the SkinProfile (and may
 	// rewrite the starter routine inside the onboarding snapshot). Bust
 	// the cache so the very next AI call after onboarding sees the new
@@ -250,12 +276,15 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	// Profile is persisted — safe to kick off the background AI refresh now
 	// without racing the initial upsert. Memory is built inside the goroutine
 	// so the HTTP response is not blocked on multiple DB reads.
-	s.enqueueStarterRoutineRefresh(userID, snapJSON, loc)
+	// Skip when the user already locked in edited AM/PM steps.
+	if !userEditedStarter {
+		s.enqueueStarterRoutineRefresh(userID, snapJSON, loc)
+	}
 
 	out := dto.OnboardingCompleteResponse{
 		Profile:               dto.SkinProfileFromDomain(prof),
 		StarterRoutine:        starterRoutineResponseFromAI(starter),
-		StarterRoutinePending: true,
+		StarterRoutinePending: !userEditedStarter,
 	}
 	return out, nil
 }
@@ -402,6 +431,15 @@ func (s *Service) DeleteOnboarding(ctx context.Context, userID uuid.UUID) (dto.D
 	if err := s.prof.DeleteByUserID(ctx, userID); err != nil {
 		return zero, err
 	}
+	// Reset must not leave a stale enter-app skip (e.g. clear-on-complete failed).
+	if s.users != nil {
+		if err := s.users.SetOnboardingSkipped(ctx, userID, false); err != nil {
+			slog.Warn("onboarding: clear onboarding_skipped on delete failed",
+				"user_id", userID,
+				"err", err,
+			)
+		}
+	}
 	s.cache.Bust(userID)
 	return dto.DeleteOnboardingResponse{
 		DeletedAt: time.Now().UTC().Format(time.RFC3339),
@@ -474,7 +512,18 @@ func (s *Service) PreviewOnboardingComplete(ctx context.Context, req dto.Onboard
 
 	loc := onboardingLocale(req.Locale)
 	quick := quickStarterFromOnboarding(req, loc)
+	userEditedStarter := applyClientStarterSteps(&quick, req)
 	quickDTO := starterRoutineResponseFromAI(quick)
+
+	// Guest edited AM/PM in the wizard — return that snapshot immediately and
+	// skip the background AI job so poll cannot overwrite their edits.
+	if userEditedStarter {
+		return dto.OnboardingPreviewResponse{
+			StarterRoutine:        quickDTO,
+			StarterRoutinePending: false,
+		}, nil
+	}
+
 	jobID, accessToken, err := s.createPreviewJob(ctx, quickDTO)
 	if err != nil {
 		return zero, err
@@ -499,6 +548,34 @@ func (s *Service) PreviewOnboardingComplete(ctx context.Context, req dto.Onboard
 		PreviewJobID:          jobID.String(),
 		PreviewAccessToken:    accessToken,
 	}, nil
+}
+
+// IsOnboardingComplete reports whether the user has a persisted onboarding
+// skin profile (used by GET /me and login redirects).
+func (s *Service) IsOnboardingComplete(ctx context.Context, userID uuid.UUID) (bool, error) {
+	if s == nil || s.prof == nil {
+		return false, fmt.Errorf("%w", ErrUnavailable)
+	}
+	if userID == uuid.Nil {
+		return false, fmt.Errorf("%w: user id required", ErrInvalidInput)
+	}
+	p, err := s.prof.GetByUserID(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return hasOnboardingData(p), nil
+}
+
+// SkipOnboarding marks the auth user as having chosen “enter app” without
+// finishing the wizard. Survives across devices via users.onboarding_skipped.
+func (s *Service) SkipOnboarding(ctx context.Context, userID uuid.UUID) error {
+	if s == nil || s.users == nil {
+		return fmt.Errorf("%w", ErrUnavailable)
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("%w: user id required", ErrInvalidInput)
+	}
+	return s.users.SetOnboardingSkipped(ctx, userID, true)
 }
 
 // hasMeaningfulHistory returns true when BuildUserMemoryContext produced any

@@ -69,6 +69,9 @@ type User struct {
 	CanceledAt *time.Time `json:"canceled_at,omitempty"`
 	// SubscriptionStatus is the billing lifecycle (none/trialing/active/canceled/past_due/expired).
 	SubscriptionStatus SubscriptionStatus `gorm:"size:16;not null;default:none;index" json:"subscription_status"`
+	// OnboardingSkipped is true when the user chose “enter app” without finishing onboarding.
+	// Cleared when they complete onboarding. Survives across devices via /me.
+	OnboardingSkipped bool `gorm:"not null;default:false" json:"onboarding_skipped"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

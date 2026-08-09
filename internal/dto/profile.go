@@ -26,6 +26,11 @@ type OnboardingCompleteRequest struct {
 	// SkinAnalysis is the vision + coach output from POST /onboarding/analyze-skin.
 	// When present, starter-routine generation should ground routine steps and skin_readback on photo observations.
 	SkinAnalysis *OnboardingSkinAnalyzeResponse `json:"skin_analysis,omitempty"`
+	// Morning / Evening are optional client-edited starter steps from onboarding step 2.
+	// When either list has at least one non-empty step, the server persists them and
+	// skips the background AI starter refresh (backward compatible when omitted).
+	Morning []string `json:"morning,omitempty"`
+	Evening []string `json:"evening,omitempty"`
 }
 
 // SkinProfileResponse is the public API shape for GET /profile/skin.

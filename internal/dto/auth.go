@@ -68,8 +68,14 @@ type UserPublic struct {
 
 	IsAdmin bool `json:"is_admin,omitempty"`
 	// CanSkinReview is true for full admins or DADIARY_SKIN_REVIEW_EMAILS operators.
-	CanSkinReview bool   `json:"can_skin_review,omitempty"`
-	CreatedAt     string `json:"created_at"`
+	CanSkinReview bool `json:"can_skin_review,omitempty"`
+	// OnboardingCompleted is true when the user has a persisted skin profile /
+	// onboarding snapshot (enriched by AuthHandler when a profile reader is wired).
+	OnboardingCompleted bool `json:"onboarding_completed"`
+	// OnboardingSkipped is true when the user entered the app without finishing
+	// onboarding (from users.onboarding_skipped).
+	OnboardingSkipped bool   `json:"onboarding_skipped"`
+	CreatedAt         string `json:"created_at"`
 }
 
 // SubscriptionSnapshot is a minimal view applied onto UserPublic (from SubscriptionService).
@@ -116,6 +122,7 @@ func UserFromDomainWithAdmin(u *domain.User, isAdmin bool) UserPublic {
 		CancelAtPeriodEnd:  u.CanceledAt != nil && domain.EffectivePlanTierWithGrace(u, now, grace).IsPaidPlan(),
 		EligibleForTrial:   domain.EligibleForTrial(u, now, grace),
 		IsAdmin:            isAdmin,
+		OnboardingSkipped:  u.OnboardingSkipped,
 		CreatedAt:          u.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 	if u.PlanExpiresAt != nil {

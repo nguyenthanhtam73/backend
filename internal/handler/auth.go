@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"strings"
 
@@ -17,6 +18,11 @@ import (
 	"github.com/dadiary/backend/pkg/response"
 )
 
+// onboardingStatusReader reports whether a user finished onboarding (skin profile).
+type onboardingStatusReader interface {
+	IsOnboardingComplete(ctx context.Context, userID uuid.UUID) (bool, error)
+}
+
 // AuthHandler is the HTTP adapter for AuthUsecase (register / login / logout / refresh / me).
 type AuthHandler struct {
 	auth            *authuc.Usecase
@@ -24,6 +30,8 @@ type AuthHandler struct {
 	cfg             *config.Config
 	// Optional: enriches GET /me with configured grace / trial windows.
 	subs *subscriptionuc.Service
+	// Optional: sets UserPublic.OnboardingCompleted from skin profile.
+	onboarding onboardingStatusReader
 }
 
 // NewAuthHandler constructs an AuthHandler.
@@ -41,6 +49,32 @@ func (h *AuthHandler) AttachSubscription(subs *subscriptionuc.Service) {
 		return
 	}
 	h.subs = subs
+}
+
+// AttachOnboardingStatus enables onboarding_completed on /me, login, register, refresh.
+func (h *AuthHandler) AttachOnboardingStatus(reader onboardingStatusReader) {
+	if h == nil {
+		return
+	}
+	h.onboarding = reader
+}
+
+func (h *AuthHandler) enrichOnboardingStatus(ctx context.Context, pub *dto.UserPublic) {
+	if h == nil || h.onboarding == nil || pub == nil {
+		return
+	}
+	uid, err := uuid.Parse(strings.TrimSpace(pub.ID))
+	if err != nil || uid == uuid.Nil {
+		return
+	}
+	ok, err := h.onboarding.IsOnboardingComplete(ctx, uid)
+	if err != nil {
+		// Fail closed for login routing: treat as incomplete rather than
+		// accidentally skipping onboarding when the profile lookup errors.
+		pub.OnboardingCompleted = false
+		return
+	}
+	pub.OnboardingCompleted = ok
 }
 
 // RegisterRoutes attaches public /auth/* and JWT-gated GET /me (+ logout).
@@ -80,6 +114,7 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
+	h.enrichOnboardingStatus(c.UserContext(), &res.User)
 	return response.JSONWithMessage(c, fiber.StatusCreated, fiber.Map{
 		"tokens": res.Tokens,
 		"user":   res.User,
@@ -99,6 +134,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
+	h.enrichOnboardingStatus(c.UserContext(), &res.User)
 	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
 		"tokens": res.Tokens,
 		"user":   res.User,
@@ -118,6 +154,7 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 	if err != nil {
 		return mapAuthError(c, err)
 	}
+	h.enrichOnboardingStatus(c.UserContext(), &res.User)
 	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
 		"tokens": res.Tokens,
 		"user":   res.User,
@@ -180,6 +217,7 @@ func (h *AuthHandler) Me(c *fiber.Ctx) error {
 			})
 		}
 	}
+	h.enrichOnboardingStatus(c.UserContext(), &pub)
 	return response.JSONWithMessage(c, fiber.StatusOK, pub, "ok")
 }
 

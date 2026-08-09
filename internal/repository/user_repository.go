@@ -98,6 +98,21 @@ func (r *GormUserRepository) UsernameExists(ctx context.Context, username string
 	return count > 0, nil
 }
 
+// SetOnboardingSkipped updates users.onboarding_skipped for the given account.
+func (r *GormUserRepository) SetOnboardingSkipped(ctx context.Context, userID uuid.UUID, skipped bool) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	tx := db.WithContext(ctx).Model(&domain.User{}).
+		Where("id = ?", userID).
+		Update("onboarding_skipped", skipped)
+	return tx.Error
+}
+
 // AdminUserSearchFilter controls GET /admin/users pagination + query.
 type AdminUserSearchFilter struct {
 	Query    string

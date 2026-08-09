@@ -176,6 +176,8 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// what the coach already knows about them.
 		profSvc := profileuc.NewService(cfg, profRepo, repo, fbRepo, routineRepo, wardRepo, memCache)
 		profSvc.AttachPreviewJobs(repository.NewOnboardingPreviewJobRepository(db))
+		profSvc.AttachUsers(userRepo)
+		authH.AttachOnboardingStatus(profSvc)
 		ph := NewProfileHandler(profSvc, cfg, store, premiumSvc)
 		api.Get("/profile/skin", jwt, ph.GetSkin)
 		api.Put("/profile/skin", jwt, ph.PutSkin)
@@ -185,6 +187,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			onboardingCompleteLimit,
 			ph.CompleteOnboarding,
 		)
+		api.Post("/profile/onboarding/skip", jwt, ph.SkipOnboarding)
 		api.Delete("/profile/onboarding", jwt, ph.DeleteOnboarding)
 		api.Post(
 			"/onboarding/preview-complete",

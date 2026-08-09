@@ -193,7 +193,8 @@ func mapOnboardingUploadError(c *fiber.Ctx, err error) error {
 	}
 }
 
-// PreviewOnboardingComplete handles POST /onboarding/preview-complete (guest trial, no DB write).
+// PreviewOnboardingComplete handles POST /onboarding/preview-complete (guest trial).
+// Writes a short-lived onboarding_preview_jobs row for AI poll; no skin_profiles write.
 func (h *ProfileHandler) PreviewOnboardingComplete(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "profile service unavailable")
@@ -228,6 +229,24 @@ func (h *ProfileHandler) GetPreviewRoutine(c *fiber.Ctx) error {
 		return response.Error(c, fiber.StatusNotFound, "not_found", "preview job not found or expired")
 	}
 	return response.JSON(c, fiber.StatusOK, res)
+}
+
+// SkipOnboarding handles POST /profile/onboarding/skip.
+// Marks the user as having entered the app without finishing onboarding.
+func (h *ProfileHandler) SkipOnboarding(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "profile service unavailable")
+	}
+	uid := middleware.UserIDFromLocals(c)
+	if uid == uuid.Nil {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
+	}
+	if err := h.svc.SkipOnboarding(c.UserContext(), uid); err != nil {
+		return mapProfileError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, fiber.Map{
+		"onboarding_skipped": true,
+	})
 }
 
 // DeleteOnboarding handles DELETE /profile/onboarding.
