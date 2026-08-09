@@ -94,17 +94,42 @@ func TestEnrichGuidanceHasWhyBenefitsCaution(t *testing.T) {
 	if len(guidance) == 0 {
 		t.Fatal("expected guidance cards")
 	}
+	if len(guidance) > 3 {
+		t.Fatalf("calm_first should fold soothe into moisturize (≤3 cards), got %d", len(guidance))
+	}
+	seenWhy := map[string]struct{}{}
 	for _, g := range guidance {
 		if g.Step == "treat" {
 			t.Fatal("calm_first must not include treat")
 		}
-		if strings.TrimSpace(g.Why) == "" {
+		if g.Step == "soothe" {
+			t.Fatal("calm_first must fold soothe into moisturize")
+		}
+		why := strings.TrimSpace(g.Why)
+		if why == "" {
 			t.Fatalf("step %s missing why", g.Step)
 		}
-		if !strings.Contains(strings.ToLower(g.Why), "má") &&
-			!strings.Contains(strings.ToLower(g.Why), "viêm") &&
-			!strings.Contains(strings.ToLower(g.Why), "mụn") {
-			t.Fatalf("step %s why should reference user context: %q", g.Step, g.Why)
+		low := strings.ToLower(why)
+		if strings.HasPrefix(low, "với vùng") || strings.HasPrefix(low, "với má") {
+			t.Fatalf("step %s why must not repeat region prefix: %q", g.Step, g.Why)
+		}
+		if _, dup := seenWhy[low]; dup {
+			t.Fatalf("duplicate why across cards: %q", g.Why)
+		}
+		seenWhy[low] = struct{}{}
+		switch g.Step {
+		case "cleanse":
+			if !strings.Contains(low, "rửa") && !strings.Contains(low, "chà") {
+				t.Fatalf("cleanse why should mention gentle cleanse: %q", g.Why)
+			}
+		case "moisturize":
+			if !strings.Contains(low, "dịu") && !strings.Contains(low, "barrier") && !strings.Contains(low, "treat") {
+				t.Fatalf("moisturize why should mention soothe/barrier: %q", g.Why)
+			}
+		case "spf":
+			if !strings.Contains(low, "spf") && !strings.Contains(low, "thâm") {
+				t.Fatalf("spf why should mention protection/marks: %q", g.Why)
+			}
 		}
 		if len(g.Benefits) < 2 {
 			t.Fatalf("step %s needs ≥2 benefits, got %v", g.Step, g.Benefits)
