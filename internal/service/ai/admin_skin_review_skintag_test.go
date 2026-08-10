@@ -55,15 +55,37 @@ func TestAdminSkinReviewPrompt_NeckCrease(t *testing.T) {
 	}
 }
 
-func TestSuggestAnswerPrompt_SkinTagExample(t *testing.T) {
+func TestSuggestAnswerPrompt_LargePoresFrame(t *testing.T) {
 	t.Parallel()
 	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
-	if !strings.Contains(sys, "mụn thịt") {
-		t.Fatal("suggest system prompt missing mụn thịt frame")
+	for _, needle := range []string{
+		"lỗ chân lông to",
+		"trông đỡ to",
+		"se khít",
+		"acid nhẹ kiểu BHA",
+		"không se khít hẳn",
+	} {
+		if !strings.Contains(sys, needle) {
+			t.Fatalf("suggest system prompt missing large-pores needle %q", needle)
+		}
 	}
-	msg := adminSkinReviewSuggestAnswerUserMessage("tẩy hoài không hết", nil, "vi")
-	if !strings.Contains(msg, "Ví dụ 5") {
-		t.Fatal("suggest user message missing skin-tag example 5")
+	msg := adminSkinReviewSuggestAnswerUserMessage("làm thế nào để lỗ chân lông bớt to đây cm ơii", nil, "vi")
+	if !strings.Contains(msg, "Ví dụ 8") {
+		t.Fatal("suggest user message missing large-pores example 8")
+	}
+	if !strings.Contains(msg, "không se khít hẳn được") {
+		t.Fatal("example 8 must include accurate se-khít caveat")
+	}
+	en := adminSkinReviewSuggestAnswerSystemPrompt("en")
+	if !strings.Contains(en, "Large pores") {
+		t.Fatal("EN suggest prompt missing Large pores frame")
+	}
+	p := AdminSkinReviewSystemPrompt()
+	if !strings.Contains(p, "lỗ chân lông to / pores") {
+		t.Fatal("analysis prompt missing pores soothing_tips case")
+	}
+	if !strings.Contains(p, "se khít / se lỗ chân lông") {
+		t.Fatal("analysis prompt must ban se-khít wording for pores tips")
 	}
 }
 

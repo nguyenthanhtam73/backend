@@ -180,6 +180,7 @@ Khi ảnh chỉ cổ / nách / thân (không có mắt–mũi–miệng):
 - Case **thâm quanh miệng / khóe–cằm (nhánh A)**: chống nắng + dịu; khám nếu muốn trị chuyên sâu — **CẤM** tip viêm cấp / không nặn / herpes.
 - Case **mụn thịt / nốt không viêm (cổ–nách)**: không tẩy–chà mạnh–tự cắt/nặn; muốn lấy bỏ → cơ sở y tế / da liễu; **CẤM** tip trị mụn đỏ / BHA / hứa hết bằng mỹ phẩm; **CẤM** tự đốt/cắt tại nhà.
 - Case **nếp gấp / nếp ngang cổ**: giảm cúi điện thoại lâu / chỉnh tư thế; chống nắng cả cổ; dưỡng ẩm cổ; massage nhẹ optional; **CẤM** tip “đừng nặn / đỏ sưng”; **CẤM** hứa hết nếp nhanh; **CẤM** dọa u tuyến giáp nếu chỉ thấy nếp da.
+- Case **lỗ chân lông to / pores**: làm sạch đều vùng LCL; dưỡng ẩm đều dù da dầu; đừng nặn LCL; chỉ nói **trông đỡ to / đỡ nổi** khi sạch + da mịn hơn — **CẤM** “se khít / se lỗ chân lông / co LCL thật”; **CẤM** hứa sản phẩm làm LCL nhỏ lại.
 - Case **thâm / sắc tố / đốm nâu** (má hoặc quanh miệng, ít hoặc không viêm cấp): chống nắng đều; dịu da; nếu user hỏi laser/trị liệu → “khám BS da tại chỗ” — **CẤM** tip “đừng nặn ổ sưng” khi không có ổ sưng.
 - Tip khám da: ổ to/đau/kéo dài **hoặc** user muốn laser/trị thâm chuyên sâu **hoặc** (cổ) user hỏi bệnh / sờ cục–cổ to–nuốt vướng–khàn — **không** dọa case thâm nhẹ / nếp cổ thường chỉ để “đi khám”.
 - **Không mặc định** “tạm nghỉ sản phẩm trị mụn/mạnh”. Chỉ khi kích ứng/rát hoặc đỏ kích rõ *và* không phải đang bôi chấm có chủ đích.
@@ -467,7 +468,7 @@ const AdminSkinReviewJSONSchemaBlock = `JSON schema (all keys required). User-fa
   "additional_observations": <string — 3–5 NEW sentences only; BAN rehashing overview/cheek note thâm màu–vị trí or bóng already stated>,
   "photo_notes": <string — neck/body: lead with “ảnh vùng cổ — không có mặt” (+ lighting/angle); face close-up: lighting/angle + visible parts>,
   "possible_causes": [<1–2 real-direction causes e.g. sun / post-acne / oil clog / phone posture for neck creases / friction folds for tags — BAN circular “due to pigmentation”; BAN bare “do kích ứng” for tags/creases; BAN thyroid disease from crease-only photos; omit if weak>],
-  "soothing_tips": [<2–3 tips MATCHING case: inflamed → no picking; pigment → SPF; skin tags → no scrubbing/cutting DIY; neck creases → posture + neck SPF + moisturize, BAN promising creases vanish fast, BAN thyroid scare; laser Q → local derm; NO brands/meds/AM-PM>],
+  "soothing_tips": [<2–3 tips MATCHING case: inflamed → no picking; pigment → SPF; skin tags → no scrubbing/cutting DIY; neck creases → posture + neck SPF + moisturize, BAN promising creases vanish fast, BAN thyroid scare; large pores → cleanse + moisturize, only “look less large when cleaner/smoother”, BAN “se khít / shrink pores for real”; laser Q → local derm; NO brands/meds/AM-PM>],
   "non_diagnostic": <string — 1 short closing sentence only: observation from photos, not a doctor visit / not a medical diagnosis — do NOT paste this into every note>
 }
 
@@ -478,7 +479,7 @@ Hard rules:
 - THÂM: if faint/old marks exist → “thâm rất nhẹ / thâm nông”. BAN “không thấy thâm” unless truly absent.
 - NO REPEAT: each idea once; overview ≠ notes ≠ additional.
 - CAUSES: real direction — BAN circular bare “do thâm”; peri-oral pigment → post-acne/sun; skin tags → friction/folds; neck creases → posture/sun; BAN bare “do kích ứng” for tags/creases.
-- TIPS match case: peri-oral thâm → SPF/calm (BAN viêm-cấp tips); acute lip-edge → no pick; skin tags ≠ acne-BHA; neck creases → posture+SPF+ẩm (BAN đỏ-sưng tips / thyroid scare); BAN DIY cut/burn.
+- TIPS match case: peri-oral thâm → SPF/calm (BAN viêm-cấp tips); acute lip-edge → no pick; skin tags ≠ acne-BHA; neck creases → posture+SPF+ẩm (BAN đỏ-sưng tips / thyroid scare); large pores → cleanse+moisturize, “trông đỡ to” only (BAN se khít); BAN DIY cut/burn.
 - BAN empty phrases: "không thể bỏ qua", "nhìn là biết", "chịu trách nhiệm với da", "đừng bảo không sao", "ồn ào", "party", "drama", "lên tiếng".
 - Enum keys OK in concern/severity/skin_type/region ONLY.
 - BAN "T-zone"/"vùng chữ T" in prose — say trán–mũi–cằm.
