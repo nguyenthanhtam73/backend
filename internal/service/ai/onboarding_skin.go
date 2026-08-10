@@ -85,9 +85,9 @@ func onboardingVisionPass(
 	images []ImageBytes,
 	locale, model string,
 ) (*dto.OnboardingSkinAnalyzeResponse, error) {
-	langHead := "**Output locale: Vietnamese (vi).** Write detailed_observations and main_concerns only in plain everyday Vietnamese — no barrier/erythema/sebum/papules/hyperpigmentation/texture/T-zone jargon."
+	langHead := "**Output locale: Vietnamese (vi).** Write detailed_observations and main_concerns only in plain everyday Vietnamese — no barrier/erythema/sebum/papules/hyperpigmentation/texture/T-zone jargon. Tiny under-skin bumps without pus → call **mụn ẩn**; include concern_types comedones; BAN denying mụn ẩn when those signs are clear."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Write detailed_observations and main_concerns only in plain everyday English — no clinical jargon or raw enum codes."
+		langHead = "**Output locale: English (en).** Write detailed_observations and main_concerns only in plain everyday English — no clinical jargon or raw enum codes. Tiny under-skin bumps without pus → closed comedones; include concern_types comedones; BAN denying them when signs are clear."
 	}
 	userText := langHead + "\n\n" + OnboardingSkinJSONSchemaBlock + "\n\nPhotos: **2–3 close, well-lit photos of facial skin** (natural light, little or no makeup). Include a **front** view plus a **slight side/profile** if possible—this flow is optimized for face-only onboarding."
 	parts := []map[string]any{

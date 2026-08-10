@@ -691,6 +691,7 @@ func guidanceConcernSet(concerns, concernTypes []string) map[string]struct{} {
 		case "inflammatory_acne", "comedones":
 			set["acne"] = struct{}{}
 			set["breakout"] = struct{}{}
+			set["clogged_pores"] = struct{}{}
 		case "redness_irritation":
 			set["redness"] = struct{}{}
 			set["sensitive"] = struct{}{}

@@ -2,6 +2,7 @@ package ai
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/dadiary/backend/internal/dto"
 )
@@ -42,8 +43,10 @@ var regionAliases = map[string]string{
 var concernTypeAliases = map[string]string{
 	"mun viem": "inflammatory_acne", "mụn viêm": "inflammatory_acne",
 	"inflammatory_acne": "inflammatory_acne", "inflammatory acne": "inflammatory_acne",
+	"mun an": "comedones", "mụn ẩn": "comedones", "mun an duoi da": "comedones",
+	"closed comedones": "comedones", "closed_comedones": "comedones", "closed comedone": "comedones",
 	"mun coi": "comedones", "mụn cồi": "comedones", "comedones": "comedones",
-	"whiteheads": "comedones", "blackheads": "comedones",
+	"whiteheads": "comedones", "blackheads": "comedones", "dau den": "comedones", "đầu đen": "comedones",
 	"tham": "pih", "thâm": "pih", "pih": "pih", "post acne marks": "pih",
 	"do kich": "redness_irritation", "đỏ–kích": "redness_irritation",
 	"do-kich": "redness_irritation", "redness_irritation": "redness_irritation",
@@ -243,14 +246,36 @@ func mapConcernTypeLabel(label string) string {
 		return id
 	}
 	raw := normLower(label)
+	// Prefer longer / more specific keys; short keys need whole-token match
+	// so "khỏe" ≠ dryness and "đầu" ≠ oiliness.
+	type scored struct {
+		key string
+		id  string
+	}
+	var hits []scored
 	for k, id := range concernTypeAliases {
-		if strings.Contains(raw, k) {
-			return id
+		if concernAliasKeyMatches(raw, k) || concernAliasKeyMatches(n, k) {
+			hits = append(hits, scored{k, id})
 		}
+	}
+	if len(hits) > 0 {
+		best := hits[0]
+		for _, h := range hits[1:] {
+			if len([]rune(h.key)) > len([]rune(best.key)) {
+				best = h
+			}
+		}
+		return best.id
 	}
 	// Map stable profile concerns → concern_types
 	switch mapOnboardingConcernLabel(label) {
 	case "acne":
+		// Safety: closed-comedone wording must not become inflammatory_acne.
+		if strings.Contains(raw, "ẩn") || strings.Contains(raw, "cồi") || strings.Contains(raw, "coi") ||
+			strings.Contains(raw, "whitehead") || strings.Contains(raw, "blackhead") ||
+			strings.Contains(raw, "closed comedone") || strings.Contains(n, "mun an") {
+			return "comedones"
+		}
 		return "inflammatory_acne"
 	case "hyperpigmentation":
 		return "pih"
@@ -264,6 +289,28 @@ func mapConcernTypeLabel(label string) string {
 		return "texture"
 	}
 	return ""
+}
+
+// concernAliasKeyMatches maps alias keys against a label.
+// Keys ≤4 runes must match a whole whitespace-separated token (avoids "kho"∈"khỏe").
+func concernAliasKeyMatches(label, key string) bool {
+	key = strings.TrimSpace(key)
+	label = strings.TrimSpace(label)
+	if key == "" || label == "" {
+		return false
+	}
+	if label == key {
+		return true
+	}
+	if utf8.RuneCountInString(key) <= 4 {
+		for _, tok := range strings.Fields(label) {
+			if tok == key {
+				return true
+			}
+		}
+		return false
+	}
+	return strings.Contains(label, key)
 }
 
 func inferConcernTypesFromObservations(add func(string), obs dto.OnboardingSkinObservations) {

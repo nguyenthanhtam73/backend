@@ -211,6 +211,8 @@ func (c *concernCollector) ids() []string { return c.out }
 var concernLabelAliases = map[string]string{
 	"mun viem": "acne", "mun": "acne", "mụn viêm": "acne", "mụn": "acne", "acne": "acne",
 	"not do": "acne", "nốt đỏ": "acne", "not sung": "acne", "nốt sưng": "acne",
+	"mun an": "acne", "mụn ẩn": "acne", "closed comedones": "acne", "closed_comedones": "acne",
+	"mun coi": "acne", "mụn cồi": "acne", "whiteheads": "acne", "blackheads": "acne",
 	"tham nam": "hyperpigmentation", "thâm nám": "hyperpigmentation", "tham": "hyperpigmentation",
 	"thâm": "hyperpigmentation", "hyperpigmentation": "hyperpigmentation",
 	"da khong deu mau": "hyperpigmentation", "da không đều màu": "hyperpigmentation",
@@ -234,7 +236,8 @@ var concernLabelSubstrings = []struct {
 	id       string
 	contains []string
 }{
-	{"acne", []string{"mụn", "mun", "nốt đỏ", "nốt sưng"}},
+	// Longer / specific first — "mụn ẩn" before bare "mụn".
+	{"acne", []string{"mụn ẩn", "mun an", "mụn cồi", "mun coi", "closed comedone", "mụn", "mun", "nốt đỏ", "nốt sưng"}},
 	{"hyperpigmentation", []string{"thâm", "tham", "nám", "nam", "không đều màu"}},
 	{"dryness", []string{"da khô", "khô"}},
 	{"large_pores", []string{"chân lông", "chan long", "pore"}},

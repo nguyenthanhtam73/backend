@@ -43,7 +43,7 @@ func starterUserMessage(onboardingJSON []byte, locale, userMemory string) string
 	langLine := "Output language: **friendly, beginner English**. Every user-facing string must be plain and warm. Prefer 'sunscreen' (not bare 'SPF'); say 'skin that gets irritated easily' instead of 'barrier'; each morning/evening step = familiar name + one short why; no % actives unless truly needed and explained simply; no diagnosis, no required brands."
 	if strings.EqualFold(strings.TrimSpace(locale), "vi") {
 		lang = "Vietnamese (Tiếng Việt)"
-		langLine = "Ngôn ngữ đầu ra: **Tiếng Việt đời thường, ấm, rõ**. Không lẫn jargon Anh/y khoa. CẤM: barrier, erythema, sebum, papules, comedone, hyperpigmentation, inflammation, texture, T-zone, 'hàng rào da' (nói 'da dễ đỏ / da yếu hơn bình thường'). Dùng: nốt đỏ, thâm, da bóng, da khô, lỗ chân lông to, kem chống nắng. Mỗi bước morning/evening = tên quen (rửa mặt, kem dưỡng, chống nắng…) + 1 câu vì sao ngắn. Không nhồi % hoạt chất trừ khi thật cần và giải thích dễ hiểu. Không chẩn đoán bệnh, không brand bắt buộc."
+		langLine = "Ngôn ngữ đầu ra: **Tiếng Việt đời thường, ấm, rõ**. Không lẫn jargon Anh/y khoa. CẤM: barrier, erythema, sebum, papules, comedone, hyperpigmentation, inflammation, texture, T-zone, 'hàng rào da' (nói 'da dễ đỏ / da yếu hơn bình thường'). Dùng: nốt đỏ, mụn viêm, mụn ẩn, thâm, da bóng, da khô, lỗ chân lông to, kem chống nắng. Mỗi bước morning/evening = tên quen (rửa mặt, kem dưỡng, chống nắng…) + 1 câu vì sao ngắn. Không nhồi % hoạt chất trừ khi thật cần và giải thích dễ hiểu. Không chẩn đoán bệnh, không brand bắt buộc."
 	}
 
 	memoryBlock := ""
