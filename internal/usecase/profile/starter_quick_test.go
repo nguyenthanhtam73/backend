@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/dadiary/backend/internal/dto"
@@ -80,5 +81,28 @@ func TestApplyClientStarterSteps_OverlaysCoachCopy(t *testing.T) {
 	}
 	if starter.SkinReadback != "Guest readback" {
 		t.Fatalf("skin_readback = %q", starter.SkinReadback)
+	}
+}
+
+func TestApplyClientStarterCopy_CapsLength(t *testing.T) {
+	long := strings.Repeat("à", maxClientCoachCopyLong+50)
+	starter := ai.StarterRoutine{
+		Morning: []string{"am"},
+		Evening: []string{"pm"},
+	}
+	req := dto.OnboardingCompleteRequest{
+		Morning:       []string{"am"},
+		Evening:       []string{"pm"},
+		WeekNotes:     long,
+		Encouragement: strings.Repeat("b", maxClientCoachCopyShort+20),
+	}
+	if !applyClientStarterSteps(&starter, req) {
+		t.Fatal("expected client steps to apply")
+	}
+	if len([]rune(starter.WeekNotes)) != maxClientCoachCopyLong {
+		t.Fatalf("week_notes runes=%d want %d", len([]rune(starter.WeekNotes)), maxClientCoachCopyLong)
+	}
+	if len([]rune(starter.Encouragement)) != maxClientCoachCopyShort {
+		t.Fatalf("encouragement runes=%d want %d", len([]rune(starter.Encouragement)), maxClientCoachCopyShort)
 	}
 }

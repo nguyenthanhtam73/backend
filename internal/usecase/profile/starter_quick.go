@@ -30,6 +30,12 @@ func starterRoutineResponseFromAI(s ai.StarterRoutine) dto.StarterRoutineRespons
 
 const maxClientStarterSteps = 12
 
+// Caps for client-supplied coach copy (guest claim / edited starter).
+const (
+	maxClientCoachCopyShort = 500
+	maxClientCoachCopyLong  = 4000
+)
+
 // sanitizeClientStarterSteps trims empty lines and caps list length.
 func sanitizeClientStarterSteps(steps []string) []string {
 	if len(steps) == 0 {
@@ -73,28 +79,43 @@ func applyClientStarterSteps(starter *ai.StarterRoutine, req dto.OnboardingCompl
 	return true
 }
 
+func sanitizeClientCoachCopy(s string, maxRunes int) string {
+	v := strings.TrimSpace(s)
+	if v == "" {
+		return ""
+	}
+	if maxRunes <= 0 {
+		return v
+	}
+	runes := []rune(v)
+	if len(runes) > maxRunes {
+		return string(runes[:maxRunes])
+	}
+	return v
+}
+
 // applyClientStarterCopy overlays optional personalized coach strings when the
 // client locks AM/PM (guest claim / edited starter). Empty fields leave scaffold.
 func applyClientStarterCopy(starter *ai.StarterRoutine, req dto.OnboardingCompleteRequest) {
 	if starter == nil {
 		return
 	}
-	if v := strings.TrimSpace(req.WeekNotes); v != "" {
+	if v := sanitizeClientCoachCopy(req.WeekNotes, maxClientCoachCopyLong); v != "" {
 		starter.WeekNotes = v
 	}
-	if v := strings.TrimSpace(req.SafetyNotes); v != "" {
+	if v := sanitizeClientCoachCopy(req.SafetyNotes, maxClientCoachCopyLong); v != "" {
 		starter.SafetyNotes = v
 	}
-	if v := strings.TrimSpace(req.Encouragement); v != "" {
+	if v := sanitizeClientCoachCopy(req.Encouragement, maxClientCoachCopyShort); v != "" {
 		starter.Encouragement = v
 	}
-	if v := strings.TrimSpace(req.SkinReadback); v != "" {
+	if v := sanitizeClientCoachCopy(req.SkinReadback, maxClientCoachCopyLong); v != "" {
 		starter.SkinReadback = v
 	}
-	if v := strings.TrimSpace(req.Rationale); v != "" {
+	if v := sanitizeClientCoachCopy(req.Rationale, maxClientCoachCopyLong); v != "" {
 		starter.Rationale = v
 	}
-	if v := strings.TrimSpace(req.ClosingReminder); v != "" {
+	if v := sanitizeClientCoachCopy(req.ClosingReminder, maxClientCoachCopyShort); v != "" {
 		starter.ClosingReminder = v
 	}
 }
