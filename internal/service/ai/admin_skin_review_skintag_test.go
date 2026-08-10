@@ -239,6 +239,45 @@ func TestSuggestAnswerPrompt_SpotCreamShineFrame(t *testing.T) {
 	}
 }
 
+func TestSuggestAnswerPrompt_ThamDoNiaAzelaicFrame(t *testing.T) {
+	t.Parallel()
+	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
+	for _, needle := range []string{
+		"thâm đỏ mãi không đỡ + đã dùng nia / azelaic",
+		"khó hết nhanh",
+		"không phải sai hết",
+		"viêm chưa yên",
+		"thâm tụt",
+		"đừng tự mua thêm nhiều kem trị cùng lúc",
+	} {
+		if !strings.Contains(sys, needle) {
+			t.Fatalf("suggest system prompt missing thâm-đỏ needle %q", needle)
+		}
+	}
+	msg := adminSkinReviewSuggestAnswerUserMessage(
+		"Có ai bị thâm đỏ mà mãi không cải thiện không, e có dùng hoạt chất nia và azelicacid nhưng mà không ăn thua",
+		nil,
+		"vi",
+	)
+	if !strings.Contains(msg, "Ví dụ 13") {
+		t.Fatal("suggest user message missing thâm-đỏ example 13")
+	}
+	if !strings.Contains(msg, "CẤM “viêm chưa yên / thâm tụt / trị mạnh”") {
+		t.Fatal("example 13 must ban hard jargon phrases")
+	}
+	if strings.Contains(msg, "đừng tự trị mạnh tại nhà") {
+		t.Fatal("example 12 must not model khó hiểu 'trị mạnh'")
+	}
+	en := adminSkinReviewSuggestAnswerSystemPrompt("en")
+	if !strings.Contains(en, "Red marks / “thâm đỏ won’t fade”") {
+		t.Fatal("EN suggest prompt missing thâm-đỏ frame")
+	}
+	enMsg := adminSkinReviewSuggestAnswerUserMessage("stubborn red marks, using nia and azelaic", nil, "en")
+	if !strings.Contains(enMsg, "Example thâm đỏ + nia/azelaic") {
+		t.Fatal("EN user message missing thâm-đỏ example")
+	}
+}
+
 func TestAdminSkinReviewPrompt_SpotCreamAndPustuleEnum(t *testing.T) {
 	t.Parallel()
 	p := AdminSkinReviewSystemPrompt()
