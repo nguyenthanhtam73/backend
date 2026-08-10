@@ -153,45 +153,45 @@ func defaultWhyForStep(step, phase string, en bool) string {
 	case "cleanse":
 		if phase == PhaseCalmFirst {
 			if en {
-				return "Cleanse gently — don’t scrub or push acids on inflamed spots."
+				return "Wash gently — don’t scrub or put strong acids on swollen spots."
 			}
-			return "Rửa nhẹ — không chà / không đẩy acid lên vùng đang sưng."
+			return "Rửa nhẹ nhàng — đừng chà mạnh hay bôi acid lên chỗ đang sưng."
 		}
 		if en {
-			return "Clear oil and sunscreen without stripping the barrier."
+			return "Clear oil and sunscreen without leaving skin tight."
 		}
 		return "Làm sạch dầu và kem chống nắng mà không làm da căng."
 	case "soothe":
 		if en {
-			return "Calm redness and tightness before any actives."
+			return "Calm redness and tightness before any strong treatment products."
 		}
-		return "Làm dịu đỏ / căng trước khi nghĩ tới hoạt chất."
+		return "Làm dịu chỗ đỏ và căng trước khi dùng sản phẩm trị mạnh."
 	case "moisturize":
 		if phase == PhaseCalmFirst {
 			if en {
-				return "Soothe redness and support the barrier — strong treat can wait."
+				return "Ease redness and keep skin comfortable — strong treatment can wait."
 			}
-			return "Dịu đỏ, hỗ trợ barrier — chưa treat mạnh."
+			return "Giúp da bớt đỏ và dễ chịu hơn — chưa cần sản phẩm trị mạnh."
 		}
 		if en {
-			return "Moisturizer keeps comfort around any single active."
+			return "Moisturizer keeps skin comfortable if you add one treatment product."
 		}
-		return "Dưỡng ẩm giữ da êm quanh hoạt chất (nếu có)."
+		return "Dưỡng ẩm giúp da êm nếu bạn đang dùng một sản phẩm trị."
 	case "spf":
 		if en {
-			return "Daily SPF protects reactive skin and limits new dark marks."
+			return "Morning sunscreen protects sensitive skin and helps prevent new dark marks."
 		}
-		return "SPF mỗi sáng bảo vệ da đang kích và giảm thâm mới."
+		return "Kem chống nắng mỗi sáng bảo vệ da đang nhạy và hạn chế thâm mới."
 	case "treat":
 		if en {
-			return "At most one active (BHA or retinoid) — never stack the same night."
+			return "Use at most one treatment product at night — never two strong ones together."
 		}
-		return "Tối đa 1 hoạt chất (BHA hoặc retinoid) — không stack cùng đêm."
+		return "Tối đa một sản phẩm trị mỗi đêm — không dùng hai loại mạnh cùng lúc."
 	}
 	if en {
-		return "Fits this care step for your current phase."
+		return "Fits this care step for your skin right now."
 	}
-	return "Phù hợp bước này theo giai đoạn da hiện tại."
+	return "Phù hợp bước này với tình trạng da hiện tại của bạn."
 }
 
 func ensureBenefits(step string, benefits []string, phase string, en bool) []string {
@@ -231,9 +231,9 @@ func guidanceDefaultBenefits(step, phase string, en bool) []string {
 	switch normLower(step) {
 	case "cleanse":
 		if en {
-			return []string{"Removes dirt and sunscreen gently", "Less sting on reactive skin", "Does not scrub inflamed spots"}
+			return []string{"Cleans gently", "Less likely to sting after washing", "Does not scrub swollen spots"}
 		}
-		return []string{"Làm sạch nhẹ bẩn / kem chống nắng", "Ít châm trên da đang kích", "Không chà vùng sưng"}
+		return []string{"Làm sạch nhẹ", "Ít gây rát sau khi rửa", "Không chà lên chỗ đang sưng"}
 	case "soothe":
 		if en {
 			return []string{"Calms redness", "Light hydration", "Preps for moisturizer"}
@@ -242,48 +242,48 @@ func guidanceDefaultBenefits(step, phase string, en bool) []string {
 	case "moisturize":
 		if phase == PhaseCalmFirst {
 			if en {
-				return []string{"Calms redness / tight feel", "Supports barrier repair", "Comfort on inflamed zones"}
+				return []string{"Eases redness", "Helps skin feel less tight", "Comfort on sore spots"}
 			}
-			return []string{"Làm dịu đỏ / căng", "Hỗ trợ phục hồi barrier", "Êm vùng đang viêm"}
+			return []string{"Làm dịu chỗ đang đỏ", "Giúp da đỡ khô căng", "Êm vùng đang sưng"}
 		}
 		if en {
-			return []string{"Supports the barrier", "Makes actives easier to tolerate", "Overnight comfort"}
+			return []string{"Keeps skin comfortable", "Easier to tolerate one treatment", "Overnight comfort"}
 		}
-		return []string{"Hỗ trợ barrier", "Dễ chịu hơn khi có treat", "Êm da qua đêm"}
+		return []string{"Giữ da dễ chịu", "Dễ chịu hơn khi có sản phẩm trị", "Êm da qua đêm"}
 	case "spf":
 		if en {
-			return []string{"Daily UV protection", "Helps prevent new dark marks", "Shields healing skin"}
+			return []string{"Daily sun protection", "Helps prevent new dark marks", "Shields sensitive skin"}
 		}
-		return []string{"Chống nắng mỗi ngày", "Giảm nguy cơ thâm mới", "Bảo vệ da đang phục hồi"}
+		return []string{"Chống nắng mỗi ngày", "Hạn chế thâm mới sau mụn", "Bảo vệ da đang nhạy"}
 	case "treat":
 		if en {
 			return []string{"Targets clogged pores gradually", "One change at a time", "Optional — skip if skin stings"}
 		}
-		return []string{"Nhắm tắc nghẽn dần", "Đổi một thứ một lúc", "Tuỳ chọn — bỏ nếu da rát"}
+		return []string{"Giúp giảm tắc nghẽn dần", "Đổi một thứ một lúc", "Tuỳ chọn — bỏ nếu da rát"}
 	}
 	if en {
-		return []string{"Supports this care step", "Fits your current phase"}
+		return []string{"Supports this care step", "Fits your skin right now"}
 	}
-	return []string{"Hỗ trợ bước chăm sóc này", "Phù hợp giai đoạn da hiện tại"}
+	return []string{"Hỗ trợ bước này", "Phù hợp tình trạng da hiện tại"}
 }
 
 func defaultHowForStep(step string, en bool) string {
 	switch normLower(step) {
 	case "cleanse":
 		if en {
-			return "Lukewarm water, ~30 seconds, soft press — morning and evening."
+			return "Lukewarm water, about 30 seconds, soft press — morning and evening."
 		}
 		return "Nước ấm, khoảng 30 giây, miết nhẹ — sáng và tối."
 	case "soothe":
 		if en {
 			return "Pat a thin layer; skip if it stings."
 		}
-		return "Vỗ lớp mỏng; bỏ qua nếu đang châm."
+		return "Vỗ lớp mỏng; bỏ qua nếu đang rát."
 	case "moisturize":
 		if en {
-			return "Apply while skin is slightly damp; cover red or dry zones well."
+			return "Apply while skin is slightly damp; cover red or dry areas well."
 		}
-		return "Thoa khi da còn hơi ẩm; đủ trên vùng đỏ / khô."
+		return "Thoa khi da còn hơi ẩm; phủ đủ chỗ đỏ hoặc khô."
 	case "spf":
 		if en {
 			return "Every morning as the last step — including near windows indoors."
@@ -291,9 +291,9 @@ func defaultHowForStep(step string, en bool) string {
 		return "Mỗi sáng, bước cuối — kể cả khi ở nhà gần cửa sổ."
 	case "treat":
 		if en {
-			return "2–3 nights/week on a small area; moisturize after. Never stack with another strong active the same night."
+			return "2–3 nights a week on a small area; moisturize after. Don’t use two strong treatments the same night."
 		}
-		return "2–3 đêm/tuần, vùng nhỏ; dưỡng ẩm sau. Không stack hoạt chất mạnh cùng đêm."
+		return "2–3 đêm/tuần, vùng nhỏ; dưỡng ẩm sau. Không dùng hai sản phẩm trị mạnh cùng đêm."
 	}
 	if en {
 		return "Use gently as directed for this step."
@@ -304,20 +304,20 @@ func defaultHowForStep(step string, en bool) string {
 func defaultCautionForStep(step, phase string, en bool) string {
 	if phase == PhaseCalmFirst {
 		if en {
-			return "Calm first: no BHA/retinoid push this week. Don’t pick or squeeze. Not a prescription."
+			return "Focus on calming first: skip strong acne treatments this week. Don’t pick or squeeze. Not a medical prescription."
 		}
-		return "Làm dịu trước: tuần này chưa đẩy BHA/retinoid. Không nặn / không cậy. Không phải kê đơn."
+		return "Ưu tiên làm dịu trước: tuần này chưa dùng sản phẩm trị mụn mạnh. Đừng nặn hay cậy mụn. Đây không phải đơn thuốc."
 	}
 	if normLower(step) == "treat" {
 		if en {
-			return "At most one active per night. Stop if stinging or swelling increases. Not a prescription."
+			return "At most one treatment product per night. Stop if stinging or swelling increases. Not a medical prescription."
 		}
-		return "Tối đa 1 hoạt chất mỗi đêm. Ngưng nếu càng đỏ/sưng. Không phải kê đơn."
+		return "Tối đa một sản phẩm trị mỗi đêm. Ngưng nếu càng đỏ hoặc sưng. Đây không phải đơn thuốc."
 	}
 	if en {
-		return "Introduce only one new product per week. Stop if irritation rises."
+		return "Add only one new product per week. Stop if irritation rises."
 	}
-	return "Mỗi tuần chỉ thêm 1 sản phẩm mới. Ngưng nếu càng kích ứng."
+	return "Mỗi tuần chỉ thêm 1 sản phẩm mới. Ngưng nếu da càng khó chịu."
 }
 
 // attachCatalogToTemplates fills commerce fields on role cards from the catalog,
@@ -465,49 +465,49 @@ func guidanceTemplates(phase, locale string) []guidanceTemplate {
 	if en {
 		return []guidanceTemplate{
 			{
-				Step: "cleanse", Category: "cleanser", NameOrCategory: "Fragrance-free gentle cleanser",
-				Why: "Cleanse gently — don’t scrub or push acids on inflamed spots.",
-				Benefits: []string{"Removes dirt without friction", "Less sting after washing"},
-				HowToUse: "Lukewarm water only; soft press, no scrubbing inflamed spots.",
-				Caution:  "Do not pick or squeeze. No BHA/BP push in this phase.",
+				Step: "cleanse", Category: "cleanser", NameOrCategory: "Gentle fragrance-free cleanser",
+				Why: "Wash gently — don’t scrub or put strong acids on swollen spots.",
+				Benefits: []string{"Cleans gently", "Less likely to sting after washing"},
+				HowToUse: "Lukewarm water; soft press — don’t scrub swollen spots.",
+				Caution:  "Don’t pick or squeeze. Skip strong acne treatments this week.",
 			},
 			{
-				Step: "moisturize", Category: "moisturizer", NameOrCategory: "Soothing barrier moisturizer",
-				Why: "Soothe redness and support the barrier — strong treat can wait.",
-				Benefits: []string{"Calms redness / tight feel", "Supports barrier repair", "Comfort on inflamed zones"},
-				HowToUse: "Pat a thin soothe layer if you use one, then moisturizer on slightly damp skin — generous on red / dry zones.",
-				Caution:  "Calm first — no BHA/retinoid yet. Don’t pick or squeeze.",
+				Step: "moisturize", Category: "moisturizer", NameOrCategory: "Soothing moisturizer",
+				Why: "Ease redness and keep skin comfortable — strong treatment can wait.",
+				Benefits: []string{"Eases redness", "Helps skin feel less tight", "Comfort on sore spots"},
+				HowToUse: "Apply on slightly damp skin — cover red or dry areas well.",
+				Caution:  "Calm first this week. Skip acids or retinol for now. Don’t pick.",
 			},
 			{
 				Step: "spf", Category: "spf", NameOrCategory: "Gentle morning sunscreen",
-				Why: "Daily SPF protects reactive skin and limits new dark marks.",
-				Benefits: []string{"Shields inflamed skin", "Helps limit new dark marks", "Daily UV defense"},
-				HowToUse: "Every morning; mineral options if chemical filters sting.",
-				Caution:  "Keep SPF even when inflamed — skip strong actives, not sun protection.",
+				Why: "Morning sunscreen protects sensitive skin and helps prevent new dark marks.",
+				Benefits: []string{"Daily sun protection", "Helps prevent new dark marks", "Shields sensitive skin"},
+				HowToUse: "Every morning; choose a gentler formula if your skin stings easily.",
+				Caution:  "Keep sunscreen even when skin is inflamed — pause strong treatments, not sun protection.",
 			},
 		}
 	}
 	return []guidanceTemplate{
 		{
 			Step: "cleanse", Category: "cleanser", NameOrCategory: "Sữa rửa mặt dịu, không mùi",
-			Why: "Rửa nhẹ — không chà / không đẩy acid lên vùng đang sưng.",
-			Benefits: []string{"Làm sạch nhẹ", "Ít châm chích sau rửa"},
-			HowToUse: "Nước ấm; miết nhẹ, không nặn / không cậy nốt.",
-			Caution:  "Pha này không đẩy BHA/BP. Không nặn mụn.",
+			Why: "Rửa nhẹ nhàng — đừng chà mạnh hay bôi acid lên chỗ đang sưng.",
+			Benefits: []string{"Làm sạch nhẹ", "Ít gây rát sau khi rửa"},
+			HowToUse: "Nước ấm; miết nhẹ — đừng nặn hay cậy nốt.",
+			Caution:  "Tuần này chưa dùng sản phẩm trị mụn mạnh. Đừng nặn mụn.",
 		},
 		{
-			Step: "moisturize", Category: "moisturizer", NameOrCategory: "Kem dưỡng làm dịu / hỗ trợ barrier",
-			Why: "Dịu đỏ, hỗ trợ barrier — chưa treat mạnh.",
-			Benefits: []string{"Làm dịu đỏ / căng", "Hỗ trợ barrier", "Êm vùng đang viêm"},
-			HowToUse: "Có thể vỗ lớp làm dịu mỏng trước, rồi dưỡng khi da còn hơi ẩm — đủ trên vùng đỏ / khô.",
-			Caution:  "Làm dịu trước — chưa BHA/retinoid. Không nặn.",
+			Step: "moisturize", Category: "moisturizer", NameOrCategory: "Kem dưỡng làm dịu",
+			Why: "Giúp da bớt đỏ và dễ chịu hơn — chưa cần sản phẩm trị mạnh.",
+			Benefits: []string{"Làm dịu chỗ đang đỏ", "Giúp da đỡ khô căng", "Êm vùng đang sưng"},
+			HowToUse: "Thoa khi da còn hơi ẩm — phủ đủ chỗ đỏ hoặc khô.",
+			Caution:  "Ưu tiên làm dịu trước. Tuần này chưa dùng acid hay retinol. Đừng nặn.",
 		},
 		{
 			Step: "spf", Category: "spf", NameOrCategory: "Kem chống nắng dịu buổi sáng",
-			Why: "SPF mỗi sáng bảo vệ da đang kích và giảm thâm mới.",
-			Benefits: []string{"Che nắng cho da đang kích", "Giảm nguy cơ thâm mới", "Bảo vệ da phục hồi"},
-			HowToUse: "Mỗi sáng; ưu tiên loại dịu nếu da dễ châm.",
-			Caution:  "Vẫn cần SPF khi da viêm — bỏ qua active mạnh, không bỏ nắng.",
+			Why: "Kem chống nắng mỗi sáng bảo vệ da đang nhạy và hạn chế thâm mới.",
+			Benefits: []string{"Chống nắng mỗi ngày", "Hạn chế thâm mới sau mụn", "Bảo vệ da đang nhạy"},
+			HowToUse: "Mỗi sáng; chọn loại dịu nếu da hay bị rát.",
+			Caution:  "Da đang viêm vẫn cần chống nắng. Tạm bỏ sản phẩm trị mạnh — đừng bỏ kem chống nắng.",
 		},
 	}
 }

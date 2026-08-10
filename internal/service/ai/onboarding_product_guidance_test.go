@@ -123,12 +123,18 @@ func TestEnrichGuidanceHasWhyBenefitsCaution(t *testing.T) {
 				t.Fatalf("cleanse why should mention gentle cleanse: %q", g.Why)
 			}
 		case "moisturize":
-			if !strings.Contains(low, "dịu") && !strings.Contains(low, "barrier") && !strings.Contains(low, "treat") {
-				t.Fatalf("moisturize why should mention soothe/barrier: %q", g.Why)
+			if !strings.Contains(low, "dịu") && !strings.Contains(low, "đỏ") && !strings.Contains(low, "êm") {
+				t.Fatalf("moisturize why should mention calming comfort: %q", g.Why)
+			}
+			if strings.Contains(low, "barrier") || strings.Contains(low, "treat") {
+				t.Fatalf("moisturize why should stay plain (no barrier/treat jargon): %q", g.Why)
 			}
 		case "spf":
-			if !strings.Contains(low, "spf") && !strings.Contains(low, "thâm") {
-				t.Fatalf("spf why should mention protection/marks: %q", g.Why)
+			if !strings.Contains(low, "chống nắng") && !strings.Contains(low, "thâm") {
+				t.Fatalf("spf why should mention sunscreen/marks in plain words: %q", g.Why)
+			}
+			if strings.Contains(low, "đang kích") || strings.Contains(low, "active") {
+				t.Fatalf("spf why should stay plain: %q", g.Why)
 			}
 		}
 		if len(g.Benefits) < 2 {
