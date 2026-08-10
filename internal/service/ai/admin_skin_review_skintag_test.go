@@ -161,6 +161,51 @@ func TestSuggestAnswerPrompt_ClosedComedonesFrame(t *testing.T) {
 	}
 }
 
+func TestSuggestAnswerPrompt_CureAskAndHedgeBan(t *testing.T) {
+	t.Parallel()
+	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
+	for _, needle := range []string{
+		"xin giải pháp chữa / trị hết / chữa với",
+		"da dầu kiểu này dễ bít tắc thêm",
+		"không phải** thuốc chữa thần kỳ",
+		"CẤM hedge mềm",
+		"có thể làm…",
+	} {
+		if !strings.Contains(sys, needle) {
+			t.Fatalf("suggest system prompt missing cure/hedge needle %q", needle)
+		}
+	}
+	msg := adminSkinReviewSuggestAnswerUserMessage(
+		"Da em tự nhiên dạo này bùng mụn như ảnh mọi người cho em giải pháp chữa với ạ",
+		nil,
+		"vi",
+	)
+	if !strings.Contains(msg, "Ví dụ 12") {
+		t.Fatal("suggest user message missing cure-ask example 12")
+	}
+	if !strings.Contains(msg, "CẤM “có thể làm bùng”") {
+		t.Fatal("example 12 must ban có-thể hedge")
+	}
+	if strings.Contains(msg, "Có thể cân nhắc BHA") {
+		t.Fatal("example 10 must not model Có thể cân nhắc")
+	}
+	en := adminSkinReviewSuggestAnswerSystemPrompt("en")
+	for _, needle := range []string{
+		"Cure / “how do I fix this”",
+		"not** a miracle cure",
+		"BAN soft hedges",
+		"may make … worse",
+	} {
+		if !strings.Contains(en, needle) {
+			t.Fatalf("EN suggest prompt missing cure/hedge needle %q", needle)
+		}
+	}
+	enMsg := adminSkinReviewSuggestAnswerUserMessage("give me a cure for this breakout", nil, "en")
+	if !strings.Contains(enMsg, "Example cure ask") {
+		t.Fatal("EN user message missing cure-ask example")
+	}
+}
+
 func TestAdminSkinReviewPrompt_PeriOralPigmentSplit(t *testing.T) {
 	t.Parallel()
 	p := AdminSkinReviewSystemPrompt()
