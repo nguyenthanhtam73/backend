@@ -278,6 +278,45 @@ func TestSuggestAnswerPrompt_ThamDoNiaAzelaicFrame(t *testing.T) {
 	}
 }
 
+func TestSuggestAnswerPrompt_ScarLaserFrame(t *testing.T) {
+	t.Parallel()
+	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
+	for _, needle := range []string{
+		"mụn sẹo / lõm + hỏi laser / chỗ điều trị",
+		"bề mặt hơi gồ / có chỗ lõm/sẹo",
+		"khó tự hết bằng kem",
+	} {
+		if !strings.Contains(sys, needle) {
+			t.Fatalf("suggest system prompt missing scar/laser needle %q", needle)
+		}
+	}
+	msg := adminSkinReviewSuggestAnswerUserMessage(
+		"Mình bị mụn sẹo như này thì chữa kiểu gì được mn ơi Mình có nên đi laser không ạ?",
+		nil,
+		"vi",
+	)
+	if !strings.Contains(msg, "Ví dụ 14") {
+		t.Fatal("suggest user message missing scar/laser example 14")
+	}
+	if !strings.Contains(msg, "CẤM bỏ sẹo chỉ nói mụn ẩn") {
+		t.Fatal("example 14 must ban answering scars as mụn ẩn only")
+	}
+	if !strings.Contains(msg, "Comment không chỉ tên phòng khám hay số buổi được") {
+		t.Fatal("example 14 must refuse naming clinics/session counts")
+	}
+	if strings.Contains(msg, "đừng tự trị mạnh") {
+		t.Fatal("examples must not model 'trị mạnh'")
+	}
+	en := adminSkinReviewSuggestAnswerSystemPrompt("en")
+	if !strings.Contains(en, "Acne scars / pits + laser") {
+		t.Fatal("EN suggest prompt missing scar/laser frame")
+	}
+	enMsg := adminSkinReviewSuggestAnswerUserMessage("acne scars should I get laser", nil, "en")
+	if !strings.Contains(enMsg, "Example scars + laser") {
+		t.Fatal("EN user message missing scars+laser example")
+	}
+}
+
 func TestAdminSkinReviewPrompt_SpotCreamAndPustuleEnum(t *testing.T) {
 	t.Parallel()
 	p := AdminSkinReviewSystemPrompt()
