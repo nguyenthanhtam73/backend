@@ -113,6 +113,10 @@ func derivePhase(severity string, obs dto.OnboardingSkinObservations) string {
 	if acne == "cystic_acne" || red == "severe" || red == "moderate" {
 		return PhaseCalmFirst
 	}
+	// Tiny bumps (closed comedones) + even mild pink → calm before BHA/actives.
+	if acne == "few_whiteheads" && red == "mild" {
+		return PhaseCalmFirst
+	}
 	if barrierLike(obs) {
 		return PhaseCalmFirst
 	}

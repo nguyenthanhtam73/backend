@@ -123,7 +123,7 @@ func TestNormalizeConcernTypes_MunAn(t *testing.T) {
 func TestOnboardingPrompt_ClosedComedonesFrame(t *testing.T) {
 	t.Parallel()
 	p := OnboardingSkinVisionPrompt()
-	for _, needle := range []string{"mụn ẩn", "closed comedones", "không thấy mụn ẩn", "comedones"} {
+	for _, needle := range []string{"mụn ẩn", "closed comedones", "CẤM phủ nhận", "comedones"} {
 		if !strings.Contains(p, needle) {
 			t.Fatalf("vision prompt missing %q", needle)
 		}
@@ -131,6 +131,32 @@ func TestOnboardingPrompt_ClosedComedonesFrame(t *testing.T) {
 	coach := OnboardingCoachSystemPrompt()
 	if !strings.Contains(coach, "mụn ẩn") {
 		t.Fatal("coach prompt must mention mụn ẩn")
+	}
+}
+
+func TestOnboardingPrompt_RedBumpsCalmFirst(t *testing.T) {
+	t.Parallel()
+	p := OnboardingSkinVisionPrompt()
+	for _, needle := range []string{
+		"Nốt nhỏ + đỏ hồng rõ",
+		"vừa mụn ẩn vừa kích ứng",
+		"đẩy BHA/retinol",
+	} {
+		if !strings.Contains(p, needle) {
+			t.Fatalf("onboarding vision missing %q", needle)
+		}
+	}
+	coach := OnboardingCoachSystemPrompt()
+	if !strings.Contains(coach, "mụn ẩn + kích ứng/viêm nhẹ") {
+		t.Fatal("coach must frame red + tiny bumps as irritation + mụn ẩn")
+	}
+	obs := dto.OnboardingSkinObservations{
+		AcneStatus: "few_whiteheads",
+		Redness:    "mild",
+		Texture:    "bumpy",
+	}
+	if got := derivePhase(SeverityMild, obs); got != PhaseCalmFirst {
+		t.Fatalf("few_whiteheads + mild redness → calm_first, got %q", got)
 	}
 }
 

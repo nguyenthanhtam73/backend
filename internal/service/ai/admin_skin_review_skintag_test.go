@@ -125,31 +125,32 @@ func TestSuggestAnswerPrompt_ClosedComedonesFrame(t *testing.T) {
 	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
 	for _, needle := range []string{
 		"mụn ẩn / closed comedones",
-		"Acknowledge mụn ẩn trước",
-		"BHA nhẹ sau này khi da đỡ viêm",
-		"khám da liễu",
+		"Mụn ẩn thuần",
+		"Nốt nhỏ + đỏ hồng rõ",
+		"có phải kích ứng không",
+		"tránh mọi thứ mạnh",
 	} {
 		if !strings.Contains(sys, needle) {
 			t.Fatalf("suggest system prompt missing closed-comedones needle %q", needle)
 		}
 	}
-	msg := adminSkinReviewSuggestAnswerUserMessage("mày ơi đây có phải mụn ẩn không", nil, "vi")
-	if !strings.Contains(msg, "Ví dụ 10") {
-		t.Fatal("suggest user message missing closed-comedones example 10")
+	msg := adminSkinReviewSuggestAnswerUserMessage("có phải kích ứng không", nil, "vi")
+	if !strings.Contains(msg, "Ví dụ 11") {
+		t.Fatal("suggest user message missing red+bumps example 11")
 	}
-	if !strings.Contains(msg, "Má của mày đang có mụn ẩn") {
-		t.Fatal("example 10 must acknowledge mụn ẩn first")
+	if !strings.Contains(msg, "vừa mụn ẩn vừa đang kích ứng") {
+		t.Fatal("example 11 must acknowledge irritation with closed comedones")
 	}
 	en := adminSkinReviewSuggestAnswerSystemPrompt("en")
-	if !strings.Contains(en, "Closed comedones") {
-		t.Fatal("EN suggest prompt missing Closed comedones frame")
+	if !strings.Contains(en, "Tiny bumps + clear pink redness") {
+		t.Fatal("EN suggest prompt missing red+bumps frame")
 	}
 	p := AdminSkinReviewSystemPrompt()
 	for _, needle := range []string{
 		"Mụn ẩn / closed comedones",
-		"không thấy mụn ẩn",
-		"li ti dưới da",
-		"CẤM phủ nhận",
+		"Nốt nhỏ + đỏ hồng rõ",
+		"không thấy dấu hiệu viêm cấp",
+		"chỉ mụn ẩn suông",
 	} {
 		if !strings.Contains(p, needle) {
 			t.Fatalf("analysis prompt missing closed-comedones needle %q", needle)

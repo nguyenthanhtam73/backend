@@ -85,9 +85,9 @@ func onboardingVisionPass(
 	images []ImageBytes,
 	locale, model string,
 ) (*dto.OnboardingSkinAnalyzeResponse, error) {
-	langHead := "**Output locale: Vietnamese (vi).** Write detailed_observations and main_concerns only in plain everyday Vietnamese — no barrier/erythema/sebum/papules/hyperpigmentation/texture/T-zone jargon. Tiny under-skin bumps without pus → call **mụn ẩn**; include concern_types comedones; BAN denying mụn ẩn when those signs are clear."
+	langHead := "**Output locale: Vietnamese (vi).** Write detailed_observations and main_concerns only in plain everyday Vietnamese — no barrier/erythema/sebum/papules/hyperpigmentation/texture/T-zone jargon. Tiny under-skin bumps with little/no red → **mụn ẩn**; tiny bumps + clear pink redness → mụn ẩn + kích ứng/viêm nhẹ (BAN “chỉ mụn ẩn” / “không viêm”); include comedones (+ redness_irritation when red); BAN denying mụn ẩn when bumps are clear."
 	if locale == "en" {
-		langHead = "**Output locale: English (en).** Write detailed_observations and main_concerns only in plain everyday English — no clinical jargon or raw enum codes. Tiny under-skin bumps without pus → closed comedones; include concern_types comedones; BAN denying them when signs are clear."
+		langHead = "**Output locale: English (en).** Write detailed_observations and main_concerns only in plain everyday English — no clinical jargon or raw enum codes. Tiny under-skin bumps with little/no red → closed comedones; tiny bumps + clear pink redness → closed comedones PLUS mild irritation/inflammation (BAN “comedones only” / “no inflammation”); include concern_types comedones (+ redness_irritation when red)."
 	}
 	userText := langHead + "\n\n" + OnboardingSkinJSONSchemaBlock + "\n\nPhotos: **2–3 close, well-lit photos of facial skin** (natural light, little or no makeup). Include a **front** view plus a **slight side/profile** if possible—this flow is optimized for face-only onboarding."
 	parts := []map[string]any{
