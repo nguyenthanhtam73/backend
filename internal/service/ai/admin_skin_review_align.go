@@ -517,6 +517,84 @@ func tipLooksOilShineCause(cause string) bool {
 		(strings.Contains(cl, "dầu") || strings.Contains(cl, "bít") || strings.Contains(cl, "clog"))
 }
 
+func questionMentionsShine(q string) bool {
+	ql := strings.ToLower(q)
+	return strings.Contains(ql, "bóng") || strings.Contains(ql, "shine") || strings.Contains(ql, "shiny")
+}
+
+func adminSkinLooksSingleRegionFaceCrop(a *dto.AdminSkinReviewAnalysis) bool {
+	if a == nil {
+		return false
+	}
+	blob := strings.ToLower(strings.TrimSpace(a.PhotoNotes + " " + a.Overview + " " + a.SkinTypeNote))
+	for _, n := range []string{
+		"chỉ thấy trán", "chỉ thấy má", "chỉ xét được trán", "chỉ xét được má",
+		"crop chỉ", "close-up", "closeup", "close up", "thiếu mũi", "thiếu trán", "thiếu má",
+	} {
+		if strings.Contains(blob, n) {
+			return true
+		}
+	}
+	visible := 0
+	for _, ar := range a.AttentionAreas {
+		c := strings.ToLower(strings.TrimSpace(ar.Concern))
+		if c == "" || c == "not_visible" {
+			continue
+		}
+		visible++
+	}
+	return visible == 1
+}
+
+func proseDeniesWhiteheads(s string) bool {
+	sl := strings.ToLower(s)
+	needles := []string{
+		"không thấy đầu trắng", "không có đầu trắng", "chưa thấy đầu trắng",
+		"no whitehead", "no whiteheads", "without whiteheads", "no visible white",
+	}
+	for _, n := range needles {
+		if strings.Contains(sl, n) {
+			return true
+		}
+	}
+	return false
+}
+
+func alignPustuleConcernWithProse(a *dto.AdminSkinReviewAnalysis) bool {
+	if a == nil {
+		return false
+	}
+	changed := false
+	for i := range a.AttentionAreas {
+		ar := &a.AttentionAreas[i]
+		if strings.ToLower(strings.TrimSpace(ar.Concern)) != "pustules" {
+			continue
+		}
+		if proseDeniesWhiteheads(ar.Note) || proseDeniesWhiteheads(a.Overview) {
+			ar.Concern = "papules"
+			changed = true
+		}
+	}
+	return changed
+}
+
+var reBongDauVI = regexp.MustCompile(`(?i)bóng\s*dầu(\s+rõ(\s+rệt)?)?`)
+
+func softenOilShineProseForSpotCream(s, locale string) string {
+	if strings.TrimSpace(s) == "" {
+		return s
+	}
+	if locale == "en" {
+		out := s
+		out = strings.ReplaceAll(out, "oily shine", "product-film shine")
+		out = strings.ReplaceAll(out, "Oily shine", "Product-film shine")
+		out = strings.ReplaceAll(out, "clear oily sheen", "product-film sheen")
+		out = strings.ReplaceAll(out, "very oily", "shiny from product")
+		return out
+	}
+	return reBongDauVI.ReplaceAllString(s, "bóng kiểu lớp kem")
+}
+
 // AlignAdminSkinAnalysisWithQuestion softens close-up laterality and rewrites
 // public causes/tips so they don't contradict the user's stated context.
 // Returns true when any field changed.
@@ -526,6 +604,10 @@ func AlignAdminSkinAnalysisWithQuestion(a *dto.AdminSkinReviewAnalysis, question
 	}
 	q := strings.TrimSpace(question)
 	changed := false
+
+	if alignPustuleConcernWithProse(a) {
+		changed = true
+	}
 
 	soften := adminSkinLooksCloseUpCheek(a)
 	if soften {
@@ -606,7 +688,7 @@ func AlignAdminSkinAnalysisWithQuestion(a *dto.AdminSkinReviewAnalysis, question
 
 		causes := make([]string, 0, len(a.PossibleCauses))
 		for _, c := range a.PossibleCauses {
-			if tipLooksOilShineCause(c) && (strings.Contains(strings.ToLower(q), "bóng") || strings.Contains(strings.ToLower(q), "shine")) {
+			if tipLooksOilShineCause(c) && questionMentionsShine(q) {
 				changed = true
 				continue
 			}
@@ -619,7 +701,7 @@ func AlignAdminSkinAnalysisWithQuestion(a *dto.AdminSkinReviewAnalysis, question
 			replacement = "The shine looks like spot-cream film — not oil all over the face."
 		}
 		if !containsFold(a.PossibleCauses, "lớp kem") && !containsFold(a.PossibleCauses, "spot cream") &&
-			(strings.Contains(strings.ToLower(q), "bóng") || strings.Contains(strings.ToLower(q), "shine")) {
+			questionMentionsShine(q) {
 			a.PossibleCauses = append([]string{replacement}, a.PossibleCauses...)
 			if len(a.PossibleCauses) > 2 {
 				a.PossibleCauses = a.PossibleCauses[:2]
@@ -634,6 +716,42 @@ func AlignAdminSkinAnalysisWithQuestion(a *dto.AdminSkinReviewAnalysis, question
 		if !containsFold(a.SoothingTips, "chấm") && !containsFold(a.SoothingTips, "spot") {
 			a.SoothingTips = append([]string{keepTip}, a.SoothingTips...)
 			changed = true
+		}
+
+		// Spot cream + shine: don't lock oily / "bóng dầu" from product film on a crop.
+		if questionMentionsShine(q) {
+			if s := softenOilShineProseForSpotCream(a.Overview, locale); s != a.Overview {
+				a.Overview = s
+				changed = true
+			}
+			if s := softenOilShineProseForSpotCream(a.AdditionalObservations, locale); s != a.AdditionalObservations {
+				a.AdditionalObservations = s
+				changed = true
+			}
+			if s := softenOilShineProseForSpotCream(a.SkinTypeNote, locale); s != a.SkinTypeNote {
+				a.SkinTypeNote = s
+				changed = true
+			}
+			if s := softenOilShineProseForSpotCream(a.PhotoNotes, locale); s != a.PhotoNotes {
+				a.PhotoNotes = s
+				changed = true
+			}
+			for i := range a.AttentionAreas {
+				if s := softenOilShineProseForSpotCream(a.AttentionAreas[i].Note, locale); s != a.AttentionAreas[i].Note {
+					a.AttentionAreas[i].Note = s
+					changed = true
+				}
+			}
+			if !questionClaimsOily(q) && adminSkinLooksSingleRegionFaceCrop(a) &&
+				strings.EqualFold(strings.TrimSpace(a.SkinType), "oily") {
+				a.SkinType = "unclear"
+				if locale == "en" {
+					a.SkinTypeNote = "Only one face region is in frame — not enough to lock full-face skin type. The shine matches spot cream just applied — don't use that shine to call the whole face oily."
+				} else {
+					a.SkinTypeNote = "Chỉ thấy một vùng trên ảnh — tao chưa đủ chốt loại da cả mặt cho mày. Chỗ bóng khớp lớp kem đang bôi — không lấy bóng đó chốt da dầu cả mặt."
+				}
+				changed = true
+			}
 		}
 	}
 

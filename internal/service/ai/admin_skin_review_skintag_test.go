@@ -206,6 +206,60 @@ func TestSuggestAnswerPrompt_CureAskAndHedgeBan(t *testing.T) {
 	}
 }
 
+func TestSuggestAnswerPrompt_SpotCreamShineFrame(t *testing.T) {
+	t.Parallel()
+	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
+	for _, needle := range []string{
+		"bôi chấm mụn / bóng vì kem",
+		"da dầu kiểu này dễ bít tắc thêm",
+		"lớp kem chấm",
+	} {
+		if !strings.Contains(sys, needle) {
+			t.Fatalf("suggest system prompt missing spot-cream needle %q", needle)
+		}
+	}
+	if !strings.Contains(sys, "user KHÔNG giải thích bóng = kem chấm") {
+		t.Fatal("cure frame must carve out spot-cream shine before oily tip")
+	}
+	msg := adminSkinReviewSuggestAnswerUserMessage(
+		"Như này thì xử lý sao ạa, em đang bôi chấm mụn nên nhìn hơi bóng ạ",
+		nil,
+		"vi",
+	)
+	if !strings.Contains(msg, "CẤM “da dầu kiểu này dễ bít tắc”") {
+		t.Fatal("ví dụ 1 must ban oily clog follow-up after cream shine")
+	}
+	en := adminSkinReviewSuggestAnswerSystemPrompt("en")
+	if !strings.Contains(en, "Spot cream / “shiny because I just applied treatment”") {
+		t.Fatal("EN suggest prompt missing spot-cream frame")
+	}
+	enMsg := adminSkinReviewSuggestAnswerUserMessage("I applied spot cream so it looks shiny", nil, "en")
+	if !strings.Contains(enMsg, "Example spot cream") {
+		t.Fatal("EN user message missing spot-cream example")
+	}
+}
+
+func TestAdminSkinReviewPrompt_SpotCreamAndPustuleEnum(t *testing.T) {
+	t.Parallel()
+	p := AdminSkinReviewSystemPrompt()
+	for _, needle := range []string{
+		"User đang bôi chấm mụn / bóng vì kem",
+		"không lấy bóng đó chốt da dầu cả mặt",
+		"Case 1e — Close-up trán + user đang bôi chấm mụn",
+		"Enum khớp prose",
+	} {
+		if !strings.Contains(p, needle) {
+			t.Fatalf("analysis prompt missing spot/pustule needle %q", needle)
+		}
+	}
+	if !strings.Contains(AdminSkinReviewJSONSchemaBlock, "ENUM MATCH") {
+		t.Fatal("schema must mention ENUM MATCH for pustules")
+	}
+	if !strings.Contains(AdminSkinReviewJSONSchemaBlock, "SPOT CREAM") {
+		t.Fatal("schema must mention SPOT CREAM shine rule")
+	}
+}
+
 func TestAdminSkinReviewPrompt_PeriOralPigmentSplit(t *testing.T) {
 	t.Parallel()
 	p := AdminSkinReviewSystemPrompt()

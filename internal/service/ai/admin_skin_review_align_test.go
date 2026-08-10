@@ -25,8 +25,11 @@ func TestSoftenCheekLateralityProse(t *testing.T) {
 func TestAlignAdminSkinAnalysisWithQuestion_SpotProductTips(t *testing.T) {
 	t.Parallel()
 	a := &dto.AdminSkinReviewAnalysis{
-		Overview:   "Má phải của mày đang có cụm mụn viêm.",
-		PhotoNotes: "Ảnh close-up má — thiếu trán, mũi, cằm.",
+		Overview:         "Trán của mày đang bóng dầu rõ rệt, có nhiều nốt mụn viêm đỏ sưng rải rác.",
+		SkinType:         "oily",
+		SkinTypeSeverity: "moderate",
+		SkinTypeNote:     "Trán bóng dầu rõ, cho thấy da mày thuộc loại dầu.",
+		PhotoNotes:       "Ảnh chỉ thấy trán — thiếu mũi, má, cằm.",
 		PossibleCauses: []string{
 			"Do dầu bít tắc làm bóng và kích ứng tại chỗ.",
 			"Do tóc chạm má.",
@@ -37,8 +40,8 @@ func TestAlignAdminSkinAnalysisWithQuestion_SpotProductTips(t *testing.T) {
 			"Nếu ổ to, đau hoặc kéo dài thì nên khám chuyên khoa da.",
 		},
 		AttentionAreas: []dto.AdminSkinAttentionArea{
-			{Region: "cheeks", Concern: "pustules", Severity: "moderate", Note: "Má phải đang sưng."},
-			{Region: "forehead", Concern: "not_visible", Severity: "mild", Note: "Không thấy trán trên ảnh — chụp đủ mặt mới nhận xét được."},
+			{Region: "forehead", Concern: "pustules", Severity: "moderate", Note: "Trán mày đang có nhiều nốt mụn viêm đỏ sưng rải rác. Không thấy đầu trắng. Dầu bóng rõ dưới ánh sáng."},
+			{Region: "cheeks", Concern: "not_visible", Severity: "mild", Note: "Không thấy má trên ảnh — chụp đủ mặt mới nhận xét được."},
 			{Region: "nose", Concern: "not_visible", Severity: "mild", Note: "Không thấy mũi trên ảnh — chụp đủ mặt mới nhận xét được."},
 			{Region: "chin", Concern: "not_visible", Severity: "mild", Note: "Không thấy cằm trên ảnh — chụp đủ mặt mới nhận xét được."},
 		},
@@ -46,9 +49,6 @@ func TestAlignAdminSkinAnalysisWithQuestion_SpotProductTips(t *testing.T) {
 	q := "Như này thì xử lý sao ạa, em đang bôi chấm mụn nên nhìn hơi bóng ạ"
 	if !AlignAdminSkinAnalysisWithQuestion(a, q, "vi") {
 		t.Fatal("expected alignment changes")
-	}
-	if strings.Contains(a.Overview, "Má phải") || strings.Contains(a.Overview, "má phải") {
-		t.Fatalf("close-up laterality not softened: %q", a.Overview)
 	}
 	for _, tip := range a.SoothingTips {
 		if tipLooksPauseStrongProduct(tip) {
@@ -58,6 +58,15 @@ func TestAlignAdminSkinAnalysisWithQuestion_SpotProductTips(t *testing.T) {
 	joinedCauses := strings.ToLower(strings.Join(a.PossibleCauses, " "))
 	if !strings.Contains(joinedCauses, "kem") && !strings.Contains(joinedCauses, "chấm") {
 		t.Fatalf("expected product-film cause, got %#v", a.PossibleCauses)
+	}
+	if strings.Contains(strings.ToLower(a.Overview), "bóng dầu") {
+		t.Fatalf("overview still blames oil shine: %q", a.Overview)
+	}
+	if !strings.EqualFold(a.SkinType, "unclear") {
+		t.Fatalf("spot-cream crop must not lock oily, got %q", a.SkinType)
+	}
+	if a.AttentionAreas[0].Concern != "papules" {
+		t.Fatalf("pustules without whiteheads must become papules, got %q", a.AttentionAreas[0].Concern)
 	}
 }
 
