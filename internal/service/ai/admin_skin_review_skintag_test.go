@@ -120,6 +120,46 @@ func TestSuggestAnswerPrompt_RetinolInflamedFrame(t *testing.T) {
 	}
 }
 
+func TestSuggestAnswerPrompt_ClosedComedonesFrame(t *testing.T) {
+	t.Parallel()
+	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
+	for _, needle := range []string{
+		"mụn ẩn / closed comedones",
+		"Acknowledge mụn ẩn trước",
+		"BHA nhẹ sau này khi da đỡ viêm",
+		"khám da liễu",
+	} {
+		if !strings.Contains(sys, needle) {
+			t.Fatalf("suggest system prompt missing closed-comedones needle %q", needle)
+		}
+	}
+	msg := adminSkinReviewSuggestAnswerUserMessage("mày ơi đây có phải mụn ẩn không", nil, "vi")
+	if !strings.Contains(msg, "Ví dụ 10") {
+		t.Fatal("suggest user message missing closed-comedones example 10")
+	}
+	if !strings.Contains(msg, "Má của mày đang có mụn ẩn") {
+		t.Fatal("example 10 must acknowledge mụn ẩn first")
+	}
+	en := adminSkinReviewSuggestAnswerSystemPrompt("en")
+	if !strings.Contains(en, "Closed comedones") {
+		t.Fatal("EN suggest prompt missing Closed comedones frame")
+	}
+	p := AdminSkinReviewSystemPrompt()
+	for _, needle := range []string{
+		"Mụn ẩn / closed comedones",
+		"không thấy mụn ẩn",
+		"li ti dưới da",
+		"CẤM phủ nhận",
+	} {
+		if !strings.Contains(p, needle) {
+			t.Fatalf("analysis prompt missing closed-comedones needle %q", needle)
+		}
+	}
+	if !strings.Contains(AdminSkinReviewJSONSchemaBlock, "mụn ẩn") {
+		t.Fatal("schema must mention mụn ẩn")
+	}
+}
+
 func TestAdminSkinReviewPrompt_PeriOralPigmentSplit(t *testing.T) {
 	t.Parallel()
 	p := AdminSkinReviewSystemPrompt()
