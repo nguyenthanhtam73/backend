@@ -343,11 +343,12 @@ func attachCatalogToTemplates(
 		// Always keep generic role label — brand names only on commerce fields when linked.
 		if entry, ok := matchGuidanceCatalog(rows, item.Step, item.Category, phase, skinType, concerns, concernTypes, usedIDs); ok {
 			usedIDs[entry.ID] = struct{}{}
+			// Always attach catalog identity so FE can soft-suggest without a CTA.
+			item.AffiliateProductID = entry.ID
+			item.ProductName = entry.ProductName
+			item.Brand = entry.Brand
 			if affiliateSlots < maxProductSuggestions {
 				affiliateSlots++
-				item.AffiliateProductID = entry.ID
-				item.ProductName = entry.ProductName
-				item.Brand = entry.Brand
 				item.AffiliateLink = entry.AffiliateLink
 				item.PriceRange = entry.PriceRange
 				reason := strings.TrimSpace(item.Why)
@@ -368,7 +369,6 @@ func attachCatalogToTemplates(
 					Step:          catalogStep(entry),
 				})
 			}
-			// Else: catalog matched but CTA budget exhausted — keep text-only role card.
 		}
 		out = append(out, item)
 	}

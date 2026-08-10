@@ -7,7 +7,6 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
-	"github.com/dadiary/backend/internal/service/ai"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	"github.com/google/uuid"
 )
@@ -33,26 +32,8 @@ func uiLocaleFromClimateJSON(raw []byte) string {
 	}
 }
 
-// stripAdsIfEntitled clears product_suggestions when the user has FeatureNoAds.
-// Fail-open: if the gate is unavailable or errors, suggestions stay (Free path).
-func stripAdsIfEntitled(
-	ctx context.Context,
-	gates *premiumuc.Service,
-	userID uuid.UUID,
-	suggestions *[]dto.ProductSuggestion,
-) {
-	if gates == nil || suggestions == nil || len(*suggestions) == 0 || userID == uuid.Nil {
-		return
-	}
-	ok, _, err := gates.CanUseFeature(ctx, userID, domain.FeatureNoAds)
-	if err != nil || !ok {
-		return
-	}
-	*suggestions = nil
-}
-
-// stripOnboardingAnalyzeAds clears affiliate commerce fields on analyze-skin for Premium no_ads.
-// Generic product_guidance copy is kept (roles / why / benefits) without Shopee links.
+// stripOnboardingAnalyzeAds previously cleared affiliate fields for Premium no_ads.
+// Product affiliate intros are intentionally kept for Premium (same as Free).
 func stripOnboardingAnalyzeAds(
 	ctx context.Context,
 	gates *premiumuc.Service,
@@ -60,19 +41,15 @@ func stripOnboardingAnalyzeAds(
 	res *dto.OnboardingSkinAnalyzeResponse,
 	locale string,
 ) {
-	if gates == nil || res == nil || userID == uuid.Nil {
-		return
-	}
-	ok, _, err := gates.CanUseFeature(ctx, userID, domain.FeatureNoAds)
-	if err != nil || !ok {
-		return
-	}
-	res.ProductSuggestions = nil
-	res.ProductGuidance = ai.StripAffiliateFromProductGuidance(res.ProductGuidance, locale)
+	_ = ctx
+	_ = gates
+	_ = userID
+	_ = res
+	_ = locale
 }
 
-// stripOnboardingGuidanceAds clears affiliate commerce on the no-photo guidance
-// endpoint for Premium no_ads, keeping the generic role copy.
+// stripOnboardingGuidanceAds previously cleared affiliate fields for Premium no_ads.
+// Product affiliate intros are intentionally kept for Premium (same as Free).
 func stripOnboardingGuidanceAds(
 	ctx context.Context,
 	gates *premiumuc.Service,
@@ -80,11 +57,11 @@ func stripOnboardingGuidanceAds(
 	res *dto.OnboardingProductGuidanceResponse,
 	locale string,
 ) {
-	if res == nil || !userHasNoAds(ctx, gates, userID) {
-		return
-	}
-	res.ProductSuggestions = nil
-	res.ProductGuidance = ai.StripAffiliateFromProductGuidance(res.ProductGuidance, locale)
+	_ = ctx
+	_ = gates
+	_ = userID
+	_ = res
+	_ = locale
 }
 
 func stripSkinCheckAds(
@@ -94,18 +71,12 @@ func stripSkinCheckAds(
 	res *dto.CreateSkinCheckResponse,
 	locale string,
 ) {
-	if res == nil || res.Analysis.Coach == nil {
-		return
-	}
-	stripAdsIfEntitled(ctx, gates, userID, &res.Analysis.Coach.ProductSuggestions)
-	if gates == nil || userID == uuid.Nil {
-		return
-	}
-	ok, _, err := gates.CanUseFeature(ctx, userID, domain.FeatureNoAds)
-	if err != nil || !ok {
-		return
-	}
-	res.Analysis.Coach.ProductGuidance = ai.StripAffiliateFromProductGuidance(res.Analysis.Coach.ProductGuidance, locale)
+	// Product affiliate intros stay for Premium (same as Free).
+	_ = ctx
+	_ = gates
+	_ = userID
+	_ = res
+	_ = locale
 }
 
 func stripSuggestAds(
@@ -115,18 +86,12 @@ func stripSuggestAds(
 	res *dto.SuggestJobStatusResponse,
 	locale string,
 ) {
-	if res == nil || res.Suggestion == nil {
-		return
-	}
-	stripAdsIfEntitled(ctx, gates, userID, &res.Suggestion.ProductSuggestions)
-	if gates == nil || userID == uuid.Nil {
-		return
-	}
-	ok, _, err := gates.CanUseFeature(ctx, userID, domain.FeatureNoAds)
-	if err != nil || !ok {
-		return
-	}
-	res.Suggestion.ProductGuidance = ai.StripAffiliateFromProductGuidance(res.Suggestion.ProductGuidance, locale)
+	// Product affiliate intros stay for Premium (same as Free).
+	_ = ctx
+	_ = gates
+	_ = userID
+	_ = res
+	_ = locale
 }
 
 func userHasNoAds(ctx context.Context, gates *premiumuc.Service, userID uuid.UUID) bool {
@@ -137,7 +102,7 @@ func userHasNoAds(ctx context.Context, gates *premiumuc.Service, userID uuid.UUI
 	return err == nil && ok
 }
 
-// stripStarterRoutineAdsIfEntitled clears suggestions + affiliate fields on guidance for Premium.
+// stripStarterRoutineAdsIfEntitled is a no-op: product affiliate intros stay for Premium.
 func stripStarterRoutineAdsIfEntitled(
 	ctx context.Context,
 	gates *premiumuc.Service,
@@ -145,15 +110,14 @@ func stripStarterRoutineAdsIfEntitled(
 	routine *dto.StarterRoutineResponse,
 	locale string,
 ) {
-	if routine == nil || !userHasNoAds(ctx, gates, userID) {
-		return
-	}
-	routine.ProductSuggestions = nil
-	routine.ProductGuidance = ai.StripAffiliateFromProductGuidance(routine.ProductGuidance, locale)
+	_ = ctx
+	_ = gates
+	_ = userID
+	_ = routine
+	_ = locale
 }
 
-// stripOnboardingSnapshotAdsIfEntitled clears commerce in starter_routine + skin_analysis
-// after GetSkin enrich — Premium must never receive branded affiliate JSON.
+// stripOnboardingSnapshotAdsIfEntitled is a no-op: product affiliate intros stay for Premium.
 func stripOnboardingSnapshotAdsIfEntitled(
 	ctx context.Context,
 	gates *premiumuc.Service,
@@ -161,8 +125,9 @@ func stripOnboardingSnapshotAdsIfEntitled(
 	snap *json.RawMessage,
 	locale string,
 ) {
-	if snap == nil || len(*snap) == 0 || !userHasNoAds(ctx, gates, userID) {
-		return
-	}
-	*snap = ai.StripAffiliateFromOnboardingSnapshot(*snap, locale)
+	_ = ctx
+	_ = gates
+	_ = userID
+	_ = snap
+	_ = locale
 }

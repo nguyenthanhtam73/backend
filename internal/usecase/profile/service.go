@@ -251,14 +251,7 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	// skip the background AI overwrite so /routine + review stay in sync.
 	starter := quickStarterFromOnboarding(req, loc)
 	userEditedStarter := applyClientStarterSteps(&starter, req)
-	// Persist-time strip for Premium — response strip alone is not enough.
-	if s.userHasNoAds(ctx, userID) {
-		stripStarterCommerce(&starter, loc)
-		if req.SkinAnalysis != nil {
-			stripSkinAnalysisCommerce(req.SkinAnalysis, loc)
-			snap["skin_analysis"] = req.SkinAnalysis
-		}
-	}
+	// Keep product affiliate intros for Premium (same as Free) — do not strip at persist.
 	snap["starter_routine"] = starter
 	if userEditedStarter {
 		snap["starter_routine_pending"] = false
@@ -442,13 +435,6 @@ func (s *Service) patchProfileStarterRoutine(ctx context.Context, userID uuid.UU
 		}
 	} else {
 		snap = map[string]any{}
-	}
-	loc := onboardingLocale("")
-	if v, ok := snap["locale"].(string); ok {
-		loc = onboardingLocale(v)
-	}
-	if s.userHasNoAds(ctx, userID) {
-		stripStarterCommerce(&starter, loc)
 	}
 	snap["starter_routine"] = starter
 	delete(snap, "starter_routine_pending")
