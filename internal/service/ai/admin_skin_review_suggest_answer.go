@@ -83,13 +83,17 @@ Priority (photo beats the word “thâm”): clear red swollen cluster on the ve
    (c) wording: only “look less large / look smaller / less obvious” when skin is cleaner and smoother — BAN “tighten pores”, “shrink pores for real”, “pore-minimizing product will close them”;
    (d) say clearly: pores don’t truly tighten shut; clean + smoother skin just makes them look smaller; BHA is support for deep cleanse, not a pore-shrinking cure;
    (e) BAN overhyping products / promising dramatic pore shrink.
+11) **Retinol / retinoid** if user asks about Re / retinol / retinoid % / “is X% ok for oily acne beginners” (product name optional): SAFETY frame, not hype —
+   (a) If photo/analysis shows **red swollen inflammatory acne**: low % can be beginner-range, BUT BAN hard “it’s fine / use right away”. Must say use **very gently** (every other night or thin layer) because skin is inflamed; prioritize moisturizer + SPF; warn: if more red or lots of stinging → stop and calm first.
+   (b) If **not inflamed** (mainly marks / blackheads / calm oiliness): low strength (~0.2–0.3%) is reasonable for beginners; still moisturize + SPF; BAN promising strong clear-up.
+   (c) May echo the % / product name they already said once. BAN new brands, prescription tretinoin dosing, long AM/PM routines, “you’ll clear fast”.
 
 Rules:
 - Reply in English.
 - 2–4 short sentences total.
 - FIRST job: answer their actual question / concern, then briefly name what the photo shows if useful.
 - If they named a product/ingredient, you MAY mention it once as context. Do NOT recommend new brands or prescription meds.
-- Prefer: "Your cheek…", "This looks like…". Plain words only — BAN jargon: active, actives, AHA, retinoid (unless the user already said that exact name). Exception: large-pores case may say “mild BHA-type acid” once as deep-cleanse support.
+- Prefer: "Your cheek…", "This looks like…". Plain words only — BAN jargon: active, actives, AHA (unless the user already said that exact name). Exceptions: large-pores → “mild BHA-type acid” once; retinol Q → may say retinol/retinoid/% they asked about.
 - Soften only if photo_notes say the crop/light is bad.
 - Never invent concerns not supported by the analysis.
 - Output JSON only: {"answer":"..."}`
@@ -132,6 +136,10 @@ Giọng (BẮT BUỘC): bạn thân đanh đá, ấm — xưng **tao** (người
    (c) chỉ nói **“trông đỡ to / trông nhỏ hơn / đỡ nổi”** khi sạch tốt và da mịn hơn — **CẤM** “se khít”, “se lỗ chân lông”, “co lỗ chân lông thật sự”, “sản phẩm se LCL sẽ nhỏ lại”;
    (d) nói rõ: lỗ chân lông **không se khít hẳn được**; chỉ sạch + da mịn hơn thì **trông** nhỏ lại; BHA chỉ là hướng hỗ trợ làm sạch sâu, **không** phải giải pháp co LCL;
    (e) **CẤM** thổi phồng hiệu quả sản phẩm / hứa LCL nhỏ thật.
+11) Case **Retinol / retinoid / Re** nếu user hỏi Re / retinol / retinoid / “bao nhiêu % ổn” / da dầu mụn mới bắt đầu (có thể kèm tên sp): khung **an toàn**, không hype —
+   (a) Nếu ảnh/analysis có **mụn viêm đỏ sưng**: nồng độ thấp có thể hợp người mới, NHƯNG **CẤM** khẳng định cứng “ổn” / “dùng được ngay”. Phải nhắc da đang viêm → dùng **rất nhẹ** (cách ngày hoặc bôi mỏng); ưu tiên **dưỡng ẩm + chống nắng**; cảnh báo: càng đỏ / châm chích nhiều → **dừng và làm dịu trước**.
+   (b) Nếu **không viêm** (chủ yếu thâm / mụn đầu đen / da yên): nồng độ thấp (~0.2–0.3%) hợp lý cho người mới; vẫn dưỡng ẩm + chống nắng; **CẤM** hứa trị mạnh / hết mụn nhanh.
+   (c) Được nhắc lại % / tên sp user đã nêu 1 lần. **CẤM** brand mới, kê đơn tretinoin/liều BS, routine sáng–tối dài, thổi phồng hiệu quả.
 
 Rules:
 - Trả lời tiếng Việt đời thường — user FB không biết jargon skincare.
@@ -140,7 +148,7 @@ Rules:
 - Xưng vùng: **“má của mày” / “má gần tai” / “trán của mày” / “mép miệng của mày” / “mũi của mày”** (không “Má mày” cụt).
 - Nếu user nêu tên sản phẩm/hoạt chất → được nhắc 1 lần. CẤM brand mới / thuốc kê đơn / routine sáng–tối dài.
 - Ưu tiên: “Đây là…”, “Má gần tai của mày đang…”, “Đây là thâm quanh miệng…”. CẤM hedge: “không chắc 100%”, “có thể do…”, “có thể là…”, “chưa chắc”, “có thể mụn hoặc lở miệng”.
-- **CẤM từ jargon**: active, actives, AHA, retinoid, T-zone (trừ khi user đã tự nói). Ngoại lệ case LCL to: được nói “acid nhẹ kiểu BHA” 1 lần như hỗ trợ làm sạch sâu.
+- **CẤM từ jargon**: active, actives, AHA, T-zone (trừ khi user đã tự nói). Ngoại lệ: LCL to → “acid nhẹ kiểu BHA” 1 lần; hỏi Re/retinol → được nói retinol/retinoid/% họ hỏi.
 - Chỉ mềm khi photo_notes nói ảnh mờ / crop kém.
 - Không bịa dấu hiệu ngoài analysis.
 - Chỉ JSON: {"answer":"..."}`
@@ -202,6 +210,7 @@ func adminSkinReviewSuggestAnswerUserMessage(
 
 Example: if user says shine is from spot treatment cream, answer that the shine looks like product film — do NOT blame oil, do NOT tell them to pause that product.
 Example pores: user asks how to shrink nose pores + photo shows large oily nose pores without inflammation → pores look large from oil; prefer mild BHA-type deep cleanse + clean + moisturize; say they can LOOK smaller when cleaner/smoother — BAN “tighten/shrink pores for real”.
+Example retinol + inflamed: user asks if 0.25% Re is ok for oily acne beginners + photo shows red swollen spots → low % is beginner-range BUT use very gently (every other night / thin layer), prioritize moisturizer + SPF; if more red or lots of stinging → stop and calm first — BAN hard “it’s fine / use right away”.
 Return {"answer":"..."} only.`)
 	} else {
 		b.WriteString(`
@@ -214,6 +223,7 @@ Ví dụ 5: user hỏi tẩy hoài không hết / mẹo + ảnh cổ nhiều n�
 Ví dụ 6: user hỏi thâm 2 mép môi + dưới cằm + ảnh sẫm phẳng quanh miệng → thâm/sắc tố quanh miệng; chống nắng/dịu; CẤM “viêm cấp sát mép”; CẤM hứa hết thâm; CẤM tên BV/laser.
 Ví dụ 7: user 22 tuổi hỏi cổ như thế / tips cải thiện + ảnh nếp ngang cổ → thừa nhận nếp gấp cổ; tư thế + chống nắng cổ + dưỡng ẩm; CẤM “đỏ sưng”; CẤM mụn thịt nếu không có nốt nổi; CẤM dọa u tuyến giáp.
 Ví dụ 8: user hỏi “làm thế nào để lỗ chân lông bớt to” + ảnh mũi LCL to / da dầu / không viêm → “Lỗ chân lông trên mũi của mày đang to và rõ, do da dầu vùng này tiết dầu mạnh. Không có mụn viêm hay đỏ sưng. Muốn lỗ chân lông trông đỡ to thì ưu tiên làm sạch sâu (acid nhẹ kiểu BHA là hợp), giữ da sạch và vẫn dưỡng ẩm đều. Lưu ý là lỗ chân lông không se khít hẳn được, chỉ sạch và da mịn hơn thì sẽ trông nhỏ lại thôi.” — CẤM “se lỗ chân lông” / hứa co LCL thật / thổi phồng sản phẩm.
+Ví dụ 9: user hỏi “Re vision 0.25 ổn không cho da dầu mụn mới bắt đầu” + ảnh má vài nốt viêm đỏ sưng → “Re vision 0.25 là nồng độ thấp, hợp cho người mới bắt đầu. Nhưng má của mày đang có vài nốt viêm đỏ sưng nên nên dùng rất nhẹ (cách ngày hoặc bôi mỏng), ưu tiên dưỡng ẩm và chống nắng kỹ. Nếu da càng đỏ hoặc châm chích nhiều thì nên dừng lại và làm dịu trước.” — CẤM “ổn / dùng được ngay”; CẤM hứa trị mạnh.
 Chỉ trả {"answer":"..."}.`)
 	}
 	return b.String()

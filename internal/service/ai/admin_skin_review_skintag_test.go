@@ -89,6 +89,37 @@ func TestSuggestAnswerPrompt_LargePoresFrame(t *testing.T) {
 	}
 }
 
+func TestSuggestAnswerPrompt_RetinolInflamedFrame(t *testing.T) {
+	t.Parallel()
+	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
+	for _, needle := range []string{
+		"Retinol / retinoid / Re",
+		"mụn viêm đỏ sưng",
+		"cách ngày hoặc bôi mỏng",
+		"dưỡng ẩm + chống nắng",
+		"dừng và làm dịu trước",
+		"0.2–0.3%",
+	} {
+		if !strings.Contains(sys, needle) {
+			t.Fatalf("suggest system prompt missing retinol needle %q", needle)
+		}
+	}
+	msg := adminSkinReviewSuggestAnswerUserMessage("Re vision 0.25 ổn không cho da dầu mụn mới bắt đầu", nil, "vi")
+	if !strings.Contains(msg, "Ví dụ 9") {
+		t.Fatal("suggest user message missing retinol example 9")
+	}
+	if !strings.Contains(msg, "dùng rất nhẹ") || !strings.Contains(msg, "làm dịu trước") {
+		t.Fatal("example 9 must keep cautious inflamed retinol frame")
+	}
+	en := adminSkinReviewSuggestAnswerSystemPrompt("en")
+	if !strings.Contains(en, "Retinol / retinoid") {
+		t.Fatal("EN suggest prompt missing Retinol frame")
+	}
+	if !strings.Contains(en, "stop and calm first") {
+		t.Fatal("EN retinol frame must warn to stop and calm if worse")
+	}
+}
+
 func TestAdminSkinReviewPrompt_PeriOralPigmentSplit(t *testing.T) {
 	t.Parallel()
 	p := AdminSkinReviewSystemPrompt()
