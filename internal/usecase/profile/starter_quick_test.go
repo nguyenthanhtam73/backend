@@ -54,3 +54,31 @@ func TestSanitizeClientStarterSteps_CapsLength(t *testing.T) {
 		t.Fatalf("len=%d want %d", len(out), maxClientStarterSteps)
 	}
 }
+
+func TestApplyClientStarterSteps_OverlaysCoachCopy(t *testing.T) {
+	starter := ai.StarterRoutine{
+		Morning:       []string{"scaffold am"},
+		Evening:       []string{"scaffold pm"},
+		WeekNotes:     "scaffold week",
+		Encouragement: "scaffold cheer",
+	}
+	req := dto.OnboardingCompleteRequest{
+		Morning:       []string{"Custom AM"},
+		Evening:       []string{"Custom PM"},
+		WeekNotes:     "  Guest week notes  ",
+		Encouragement: "Guest cheer",
+		SkinReadback:  "Guest readback",
+	}
+	if !applyClientStarterSteps(&starter, req) {
+		t.Fatal("expected client steps to apply")
+	}
+	if starter.WeekNotes != "Guest week notes" {
+		t.Fatalf("week_notes = %q", starter.WeekNotes)
+	}
+	if starter.Encouragement != "Guest cheer" {
+		t.Fatalf("encouragement = %q", starter.Encouragement)
+	}
+	if starter.SkinReadback != "Guest readback" {
+		t.Fatalf("skin_readback = %q", starter.SkinReadback)
+	}
+}

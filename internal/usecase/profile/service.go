@@ -328,6 +328,58 @@ func (s *Service) CompleteOnboarding(ctx context.Context, userID uuid.UUID, req 
 	return out, nil
 }
 
+// AttachOnboardingPhotos stores face photos on an already-completed profile
+// (used by guest claim: JSON complete first, photos uploaded in background).
+func (s *Service) AttachOnboardingPhotos(ctx context.Context, userID uuid.UUID, photoRels []string) (dto.SkinProfileResponse, error) {
+	var zero dto.SkinProfileResponse
+	if s == nil || s.prof == nil {
+		return zero, fmt.Errorf("%w", ErrUnavailable)
+	}
+	if userID == uuid.Nil {
+		return zero, fmt.Errorf("%w: user id required", ErrInvalidInput)
+	}
+	if len(photoRels) == 0 {
+		return zero, fmt.Errorf("%w: photos required", ErrInvalidInput)
+	}
+
+	p, err := s.prof.GetByUserID(ctx, userID)
+	if err != nil {
+		return zero, err
+	}
+	if p == nil || !hasOnboardingData(p) {
+		return zero, fmt.Errorf("%w", ErrOnboardingNotFound)
+	}
+
+	photoJSON, err := json.Marshal(photoRels)
+	if err != nil {
+		return zero, err
+	}
+	p.PhotoURLs = photoJSON
+
+	var snap map[string]any
+	if len(p.OnboardingSnapshot) > 0 {
+		if err := json.Unmarshal(p.OnboardingSnapshot, &snap); err != nil {
+			return zero, err
+		}
+	}
+	if snap == nil {
+		snap = map[string]any{}
+	}
+	snap["photos_skipped"] = false
+	snap["photo_urls"] = dto.BuildPublicUploadURLs(photoJSON)
+	fullSnap, err := json.Marshal(snap)
+	if err != nil {
+		return zero, err
+	}
+	p.OnboardingSnapshot = fullSnap
+
+	if err := s.prof.UpsertForUser(ctx, p); err != nil {
+		return zero, err
+	}
+	s.cache.Bust(userID)
+	return dto.SkinProfileFromDomain(p), nil
+}
+
 func (s *Service) memoryForStarterPrompt(ctx context.Context, userID uuid.UUID) string {
 	if s == nil {
 		return ""

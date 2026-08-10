@@ -129,6 +129,42 @@ func (h *ProfileHandler) CompleteOnboarding(c *fiber.Ctx) error {
 	return response.JSON(c, fiber.StatusOK, res)
 }
 
+// AttachOnboardingPhotos handles POST /profile/onboarding/photos (multipart images).
+// Used after a fast JSON onboarding complete (guest claim) to attach face photos.
+func (h *ProfileHandler) AttachOnboardingPhotos(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "profile service unavailable")
+	}
+	uid := middleware.UserIDFromLocals(c)
+	if uid == uuid.Nil {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
+	}
+
+	ct := string(c.Request().Header.ContentType())
+	if !strings.HasPrefix(ct, "multipart/form-data") {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_multipart", "expected multipart form data")
+	}
+	form, err := c.MultipartForm()
+	if err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_multipart", "expected multipart form data")
+	}
+	defer func() { _ = form.RemoveAll() }()
+
+	files := form.File["images"]
+	if len(files) == 0 {
+		return response.Error(c, fiber.StatusBadRequest, "photos_required", "upload at least one face photo")
+	}
+	rels, uerr := h.saveOnboardingPhotos(c.UserContext(), uid, files)
+	if uerr != nil {
+		return mapOnboardingUploadError(c, uerr)
+	}
+	res, err := h.svc.AttachOnboardingPhotos(c.UserContext(), uid, rels)
+	if err != nil {
+		return mapProfileError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
 func onboardingLocaleFromRequest(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "en":

@@ -31,6 +31,14 @@ type OnboardingCompleteRequest struct {
 	// skips the background AI starter refresh (backward compatible when omitted).
 	Morning []string `json:"morning,omitempty"`
 	Evening []string `json:"evening,omitempty"`
+	// Optional coach-copy fields used when locking Morning/Evening (e.g. guest claim).
+	// Non-empty values overlay the quick scaffold so personalized trial copy is kept.
+	WeekNotes       string `json:"week_notes,omitempty"`
+	SafetyNotes     string `json:"safety_notes,omitempty"`
+	Encouragement   string `json:"encouragement,omitempty"`
+	SkinReadback    string `json:"skin_readback,omitempty"`
+	Rationale       string `json:"rationale,omitempty"`
+	ClosingReminder string `json:"closing_reminder,omitempty"`
 }
 
 // SkinProfileResponse is the public API shape for GET /profile/skin.

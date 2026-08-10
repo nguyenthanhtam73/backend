@@ -69,7 +69,34 @@ func applyClientStarterSteps(starter *ai.StarterRoutine, req dto.OnboardingCompl
 	if len(evening) > 0 {
 		starter.Evening = evening
 	}
+	applyClientStarterCopy(starter, req)
 	return true
+}
+
+// applyClientStarterCopy overlays optional personalized coach strings when the
+// client locks AM/PM (guest claim / edited starter). Empty fields leave scaffold.
+func applyClientStarterCopy(starter *ai.StarterRoutine, req dto.OnboardingCompleteRequest) {
+	if starter == nil {
+		return
+	}
+	if v := strings.TrimSpace(req.WeekNotes); v != "" {
+		starter.WeekNotes = v
+	}
+	if v := strings.TrimSpace(req.SafetyNotes); v != "" {
+		starter.SafetyNotes = v
+	}
+	if v := strings.TrimSpace(req.Encouragement); v != "" {
+		starter.Encouragement = v
+	}
+	if v := strings.TrimSpace(req.SkinReadback); v != "" {
+		starter.SkinReadback = v
+	}
+	if v := strings.TrimSpace(req.Rationale); v != "" {
+		starter.Rationale = v
+	}
+	if v := strings.TrimSpace(req.ClosingReminder); v != "" {
+		starter.ClosingReminder = v
+	}
 }
 
 // quickStarterFromOnboarding builds an immediate AM/PM scaffold from form

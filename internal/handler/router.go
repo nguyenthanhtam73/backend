@@ -194,6 +194,12 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			onboardingCompleteLimit,
 			ph.CompleteOnboarding,
 		)
+		api.Post(
+			"/profile/onboarding/photos",
+			jwt,
+			onboardingCompleteLimit,
+			ph.AttachOnboardingPhotos,
+		)
 		api.Post("/profile/onboarding/skip", jwt, ph.SkipOnboarding)
 		api.Delete("/profile/onboarding", jwt, ph.DeleteOnboarding)
 		api.Post(
