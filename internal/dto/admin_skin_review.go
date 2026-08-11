@@ -76,6 +76,18 @@ type PublicSkinReviewResponse struct {
 	SharePath     string                  `json:"share_path"`
 }
 
+// PublicSkinReviewSitemapItem is one public share URL for sitemap.xml.
+type PublicSkinReviewSitemapItem struct {
+	Slug        string `json:"slug"`
+	PublishedAt string `json:"published_at,omitempty"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+// PublicSkinReviewSitemapResponse lists public share slugs (no auth).
+type PublicSkinReviewSitemapResponse struct {
+	Items []PublicSkinReviewSitemapItem `json:"items"`
+}
+
 // PatchAdminSkinReviewRequest updates optional metadata after analysis.
 type PatchAdminSkinReviewRequest struct {
 	Title        *string `json:"title"`

@@ -264,6 +264,25 @@ func (h *AdminSkinReviewHandler) GetPublic(c *fiber.Ctx) error {
 	return response.JSON(c, fiber.StatusOK, res)
 }
 
+// ListPublicSitemap handles GET /api/v1/public/skin-reviews (no auth).
+// Used by Next.js sitemap.xml — returns slug + timestamps only.
+func (h *AdminSkinReviewHandler) ListPublicSitemap(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "admin skin review unavailable")
+	}
+	limit := 500
+	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	res, err := h.svc.ListPublicForSitemap(c.UserContext(), limit)
+	if err != nil {
+		return mapAdminSkinReviewError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
 func mapAdminSkinReviewError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, adminskinreviewuc.ErrUnavailable):

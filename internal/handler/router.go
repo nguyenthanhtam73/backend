@@ -326,6 +326,8 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			api.Patch("/admin/skin-review/:id/unpublish", jwt, skinReview, adminReviewH.Unpublish)
 			api.Patch("/admin/skin-review/:id", jwt, skinReview, adminReviewH.Patch)
 			// Public share page (Facebook) — no auth; observations + blurred images only.
+			// List route before :slug so Fiber does not treat "skin-reviews" as a slug.
+			api.Get("/public/skin-reviews", adminReviewH.ListPublicSitemap)
 			api.Get("/public/skin-review/:slug", adminReviewH.GetPublic)
 		}
 

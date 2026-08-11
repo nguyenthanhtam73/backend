@@ -546,6 +546,32 @@ func (s *Service) Unpublish(ctx context.Context, id uuid.UUID) (dto.AdminSkinRev
 	return dto.FromDomainAdminSkinReview(row, publicUploadURLs(rels)), nil
 }
 
+// ListPublicForSitemap returns public share slugs for frontend sitemap.xml.
+func (s *Service) ListPublicForSitemap(ctx context.Context, limit int) (dto.PublicSkinReviewSitemapResponse, error) {
+	var zero dto.PublicSkinReviewSitemapResponse
+	if s == nil || s.repo == nil {
+		return zero, ErrUnavailable
+	}
+	rows, err := s.repo.ListPublicForSitemap(ctx, limit)
+	if err != nil {
+		return zero, err
+	}
+	out := dto.PublicSkinReviewSitemapResponse{
+		Items: make([]dto.PublicSkinReviewSitemapItem, 0, len(rows)),
+	}
+	for _, row := range rows {
+		item := dto.PublicSkinReviewSitemapItem{
+			Slug:      row.Slug,
+			UpdatedAt: row.UpdatedAt.UTC().Format(time.RFC3339),
+		}
+		if row.PublishedAt != nil {
+			item.PublishedAt = row.PublishedAt.UTC().Format(time.RFC3339)
+		}
+		out.Items = append(out.Items, item)
+	}
+	return out, nil
+}
+
 // GetPublic returns the share payload for a public slug (no admin notes, blurred images only).
 func (s *Service) GetPublic(ctx context.Context, slug string) (dto.PublicSkinReviewResponse, error) {
 	var zero dto.PublicSkinReviewResponse

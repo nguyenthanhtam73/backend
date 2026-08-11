@@ -236,6 +236,53 @@ func (r *GormAdminSkinReviewRepository) ListAdmin(
 	return rows, total, nil
 }
 
+// PublicSkinReviewSitemapRow is a slim row for sitemap generation.
+type PublicSkinReviewSitemapRow struct {
+	Slug        string
+	PublishedAt *time.Time
+	UpdatedAt   time.Time
+}
+
+// ListPublicForSitemap returns recent public share slugs (newest first).
+func (r *GormAdminSkinReviewRepository) ListPublicForSitemap(
+	ctx context.Context,
+	limit int,
+) ([]PublicSkinReviewSitemapRow, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+	var rows []domain.AdminSkinReview
+	if err := db.WithContext(ctx).
+		Model(&domain.AdminSkinReview{}).
+		Select("public_slug", "published_at", "updated_at").
+		Where("is_public = ? AND public_slug <> ''", true).
+		Order("updated_at DESC").
+		Limit(limit).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]PublicSkinReviewSitemapRow, 0, len(rows))
+	for _, row := range rows {
+		slug := strings.TrimSpace(row.PublicSlug)
+		if slug == "" {
+			continue
+		}
+		out = append(out, PublicSkinReviewSitemapRow{
+			Slug:        slug,
+			PublishedAt: row.PublishedAt,
+			UpdatedAt:   row.UpdatedAt,
+		})
+	}
+	return out, nil
+}
+
 // PublishFields persists public share fields after blur generation.
 func (r *GormAdminSkinReviewRepository) PublishFields(
 	ctx context.Context,
