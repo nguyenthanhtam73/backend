@@ -248,8 +248,8 @@ func TestCauseLooksCircularPigment(t *testing.T) {
 func TestAlignPigmentPrimaryTips(t *testing.T) {
 	t.Parallel()
 	a := &dto.AdminSkinReviewAnalysis{
-		Overview: "Má đang thâm nâu nông.",
-		PhotoNotes: "Close-up má — thiếu trán.",
+		Overview:       "Má đang thâm nâu nông.",
+		PhotoNotes:     "Close-up má — thiếu trán.",
 		PossibleCauses: []string{"Do thâm.", "Do nắng cục bộ."},
 		SoothingTips: []string{
 			"Đừng nặn ổ đang sưng đỏ.",
@@ -397,5 +397,56 @@ func TestTrimOverviewCheekOverlap(t *testing.T) {
 	}
 	if !strings.Contains(low, "cằm") {
 		t.Fatalf("non-overlap sentence should remain: %q", a.Overview)
+	}
+}
+
+func TestAlignCheekSkinTagMislabel_RewritesCheeksKeepsNeck(t *testing.T) {
+	t.Parallel()
+	a := &dto.AdminSkinReviewAnalysis{
+		Overview: "Close-up má của mày. Má đang có nhiều nốt nhỏ màu da nổi cao. Trông giống mụn thịt.",
+		PossibleCauses: []string{
+			"Do cọ xát hoặc nếp gấp da vùng cổ.",
+		},
+		SoothingTips: []string{
+			"Rửa mặt dịu nhẹ.",
+		},
+		AttentionAreas: []dto.AdminSkinAttentionArea{
+			{Region: "cheeks", Concern: "other", Severity: "moderate", Note: "Má của mày đang có nhiều nốt nhỏ màu da nổi cao. Đây trông giống mụn thịt. Không thấy đỏ sưng hay mủ."},
+			{Region: "forehead", Concern: "not_visible", Severity: "mild", Note: "Không thấy trán trên ảnh — chụp đủ mặt mới nhận xét được."},
+		},
+	}
+	if !AlignAdminSkinAnalysisWithQuestion(a, "", "vi") {
+		t.Fatal("expected cheek mụn thịt mislabel to be rewritten")
+	}
+	blob := strings.ToLower(a.Overview + " " + a.AttentionAreas[0].Note)
+	if strings.Contains(blob, "mụn thịt") {
+		t.Fatalf("cheek prose must not say mụn thịt, got overview=%q note=%q", a.Overview, a.AttentionAreas[0].Note)
+	}
+	if !strings.Contains(blob, "mụn ẩn") || !strings.Contains(blob, "milia") {
+		t.Fatalf("expected mụn ẩn hoặc milia, got overview=%q note=%q", a.Overview, a.AttentionAreas[0].Note)
+	}
+	if a.AttentionAreas[0].Concern != "papules" {
+		t.Fatalf("cheek concern want papules, got %q", a.AttentionAreas[0].Concern)
+	}
+	joinedCauses := strings.ToLower(strings.Join(a.PossibleCauses, " "))
+	if strings.Contains(joinedCauses, "cổ") {
+		t.Fatalf("neck-friction cause should be dropped for cheek case, got %#v", a.PossibleCauses)
+	}
+	joinedTips := strings.ToLower(strings.Join(a.SoothingTips, " "))
+	if !strings.Contains(joinedTips, "cắt") && !strings.Contains(joinedTips, "chà") && !strings.Contains(joinedTips, "nặn") {
+		t.Fatalf("expected DIY-ban tips, got %#v", a.SoothingTips)
+	}
+
+	neck := &dto.AdminSkinReviewAnalysis{
+		Overview: "Ảnh vùng cổ — nhiều nốt nhỏ màu da nổi cao. Trông giống mụn thịt ở cổ.",
+		AttentionAreas: []dto.AdminSkinAttentionArea{
+			{Region: "neck", Concern: "other", Severity: "moderate", Note: "Cổ của mày đang có nhiều nốt nhỏ màu da nổi cao. Đây trông giống mụn thịt ở cổ."},
+		},
+		PossibleCauses: []string{"Do cọ xát hoặc nếp gấp da vùng cổ."},
+		SoothingTips:   []string{"Không tẩy, chà mạnh, tự cắt hay nặn nốt này.", "Muốn lấy bỏ thì đến cơ sở y tế / da liễu."},
+	}
+	AlignAdminSkinAnalysisWithQuestion(neck, "", "vi")
+	if !strings.Contains(neck.Overview, "mụn thịt") || !strings.Contains(neck.AttentionAreas[0].Note, "mụn thịt") {
+		t.Fatalf("neck skin-tag case must keep mụn thịt, got overview=%q note=%q", neck.Overview, neck.AttentionAreas[0].Note)
 	}
 }

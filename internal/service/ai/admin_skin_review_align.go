@@ -595,6 +595,157 @@ func softenOilShineProseForSpotCream(s, locale string) string {
 	return reBongDauVI.ReplaceAllString(s, "bóng kiểu lớp kem")
 }
 
+func looksMunThitProse(s string) bool {
+	t := strings.ToLower(s)
+	return strings.Contains(t, "mụn thịt") || strings.Contains(t, "skin tag") || strings.Contains(t, "skin-tag")
+}
+
+func adminSkinFaceRegion(r string) bool {
+	switch strings.ToLower(strings.TrimSpace(r)) {
+	case "cheeks", "cheek", "forehead", "chin", "nose", "jawline", "t_zone", "under_eyes":
+		return true
+	default:
+		return false
+	}
+}
+
+var (
+	reTronGiongMunThit = regexp.MustCompile(`(?i)(đây\s+)?trông\s+giống\s+mụn\s+thịt(\s+ở\s+(cổ|má|nách|mặt))?`)
+	reMunThitToken     = regexp.MustCompile(`(?i)mụn\s+thịt`)
+	reSkinTagToken     = regexp.MustCompile(`(?i)skin[\s-]?tags?`)
+)
+
+// rewriteFaceMunThitToMilia replaces cheek/face "mụn thịt" mislabels with the
+// required closed-comedone / milia phrasing. Leaves explicit denials alone.
+func rewriteFaceMunThitToMilia(s, locale string) string {
+	if strings.TrimSpace(s) == "" || !looksMunThitProse(s) {
+		return s
+	}
+	lower := strings.ToLower(s)
+	if strings.Contains(lower, "không phải mụn thịt") || strings.Contains(lower, "không gọi mụn thịt") ||
+		strings.Contains(lower, "not a skin tag") || strings.Contains(lower, "not skin tags") {
+		return s
+	}
+	out := reTronGiongMunThit.ReplaceAllString(s, "trông giống mụn ẩn hoặc milia")
+	if locale == "en" {
+		out = reSkinTagToken.ReplaceAllString(out, "closed comedones or milia")
+		out = strings.ReplaceAll(out, "Closed comedones or milia", "closed comedones or milia")
+		return out
+	}
+	out = reMunThitToken.ReplaceAllString(out, "mụn ẩn hoặc milia")
+	return out
+}
+
+// alignCheekSkinTagMislabel rewrites "mụn thịt" on cheeks/face (not neck/axilla)
+// to the safer mụn ẩn / milia phrasing.
+func alignCheekSkinTagMislabel(a *dto.AdminSkinReviewAnalysis, locale string) bool {
+	if a == nil {
+		return false
+	}
+	hasFaceMunThit := false
+	for _, ar := range a.AttentionAreas {
+		c := strings.ToLower(strings.TrimSpace(ar.Concern))
+		if c == "not_visible" {
+			continue
+		}
+		if adminSkinFaceRegion(ar.Region) && looksMunThitProse(ar.Note) {
+			hasFaceMunThit = true
+			break
+		}
+	}
+	blob := strings.ToLower(a.Overview + " " + a.AdditionalObservations)
+	mentionsMa := strings.Contains(blob, "má") || strings.Contains(blob, "cheek")
+	mentionsNeckSite := strings.Contains(blob, "cổ") || strings.Contains(blob, "nách") ||
+		strings.Contains(blob, "neck") || strings.Contains(blob, "axilla")
+	if !hasFaceMunThit && looksMunThitProse(a.Overview) && mentionsMa && !mentionsNeckSite {
+		hasFaceMunThit = true
+	}
+	if !hasFaceMunThit {
+		return false
+	}
+
+	changed := false
+	rewrite := func(s string) string {
+		n := rewriteFaceMunThitToMilia(s, locale)
+		if n != s {
+			changed = true
+		}
+		return n
+	}
+	a.Overview = rewrite(a.Overview)
+	a.AdditionalObservations = rewrite(a.AdditionalObservations)
+	a.PhotoNotes = rewrite(a.PhotoNotes)
+	a.SkinTypeNote = rewrite(a.SkinTypeNote)
+	for i := range a.AttentionAreas {
+		c := strings.ToLower(strings.TrimSpace(a.AttentionAreas[i].Concern))
+		if c == "not_visible" {
+			continue
+		}
+		if !adminSkinFaceRegion(a.AttentionAreas[i].Region) {
+			continue
+		}
+		a.AttentionAreas[i].Note = rewrite(a.AttentionAreas[i].Note)
+		if looksMunThitProse(a.AttentionAreas[i].Note) {
+			continue
+		}
+		if c == "other" {
+			a.AttentionAreas[i].Concern = "papules"
+			changed = true
+		}
+	}
+
+	causes := make([]string, 0, len(a.PossibleCauses))
+	for _, cause := range a.PossibleCauses {
+		cl := strings.ToLower(cause)
+		if (strings.Contains(cl, "cổ") || strings.Contains(cl, "nách") || strings.Contains(cl, "neck") ||
+			strings.Contains(cl, "axilla")) &&
+			(strings.Contains(cl, "cọ") || strings.Contains(cl, "nếp") || strings.Contains(cl, "friction") ||
+				strings.Contains(cl, "fold")) {
+			changed = true
+			continue
+		}
+		causes = append(causes, cause)
+	}
+	a.PossibleCauses = causes
+	miliaCause := "Do dầu bít tắc trên má (mụn ẩn / milia)."
+	if locale == "en" {
+		miliaCause = "Clogged pores on the cheeks (closed comedones / milia)."
+	}
+	if len(a.PossibleCauses) == 0 ||
+		(!containsFold(a.PossibleCauses, "mụn ẩn") && !containsFold(a.PossibleCauses, "milia") &&
+			!containsFold(a.PossibleCauses, "closed comedone") && !containsFold(a.PossibleCauses, "bít tắc")) {
+		a.PossibleCauses = append([]string{miliaCause}, a.PossibleCauses...)
+		if len(a.PossibleCauses) > 2 {
+			a.PossibleCauses = a.PossibleCauses[:2]
+		}
+		changed = true
+	}
+
+	hasDIYBan := false
+	for _, tip := range a.SoothingTips {
+		tl := strings.ToLower(tip)
+		if strings.Contains(tl, "cắt") || strings.Contains(tl, "chà") || strings.Contains(tl, "nặn") ||
+			strings.Contains(tl, "cut") || strings.Contains(tl, "scrub") || strings.Contains(tl, "pick") {
+			hasDIYBan = true
+			break
+		}
+	}
+	if !hasDIYBan {
+		diy := "Không tự cắt, nặn hay chà mạnh nốt này."
+		clinic := "Muốn xử lý thì đến cơ sở y tế / da liễu — đừng tự lấy tại nhà."
+		if locale == "en" {
+			diy = "Don't cut, pick, or scrub these bumps hard."
+			clinic = "See a clinic/dermatologist if you want them treated — don't DIY."
+		}
+		a.SoothingTips = append([]string{diy, clinic}, a.SoothingTips...)
+		if len(a.SoothingTips) > 3 {
+			a.SoothingTips = a.SoothingTips[:3]
+		}
+		changed = true
+	}
+	return changed
+}
+
 // AlignAdminSkinAnalysisWithQuestion softens close-up laterality and rewrites
 // public causes/tips so they don't contradict the user's stated context.
 // Returns true when any field changed.
@@ -642,6 +793,9 @@ func AlignAdminSkinAnalysisWithQuestion(a *dto.AdminSkinReviewAnalysis, question
 		changed = true
 	}
 	if alignPeriOralThamVsAcute(a, q, locale) {
+		changed = true
+	}
+	if alignCheekSkinTagMislabel(a, locale) {
 		changed = true
 	}
 

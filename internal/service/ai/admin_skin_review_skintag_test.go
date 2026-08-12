@@ -161,6 +161,49 @@ func TestSuggestAnswerPrompt_ClosedComedonesFrame(t *testing.T) {
 	}
 }
 
+func TestAdminSkinReviewPrompt_CheekMiliaNotSkinTag(t *testing.T) {
+	t.Parallel()
+	p := AdminSkinReviewSystemPrompt()
+	for _, needle := range []string{
+		"Case 1h",
+		"trông giống mụn ẩn hoặc milia",
+		"CẤM tuyệt đối",
+		"Má — nốt nhỏ màu da nổi cao",
+		"có cuống hoặc dẹt",
+	} {
+		if !strings.Contains(p, needle) {
+			t.Fatalf("analysis prompt missing cheek-milia needle %q", needle)
+		}
+	}
+	if !strings.Contains(p, "CẤM tuyệt đối") || !strings.Contains(p, "mụn thịt") {
+		t.Fatal("prompt must ban mụn thịt on cheeks")
+	}
+	if !strings.Contains(AdminSkinReviewJSONSchemaBlock, "BAN mụn thịt on cheeks") {
+		t.Fatal("schema must ban mụn thịt on cheeks")
+	}
+	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
+	if !strings.Contains(sys, "8b") {
+		t.Fatal("suggest system prompt missing cheek milia case 8b")
+	}
+	if !strings.Contains(sys, "CẤM tuyệt đối") || !strings.Contains(sys, "mụn thịt") {
+		t.Fatal("suggest prompt must ban mụn thịt on cheeks")
+	}
+	msg := adminSkinReviewSuggestAnswerUserMessage("nốt trên má có phải mụn thịt không", nil, "vi")
+	if !strings.Contains(msg, "Ví dụ 15") {
+		t.Fatal("suggest user message missing cheek-milia example 15")
+	}
+	if !strings.Contains(msg, "trông giống mụn ẩn hoặc milia") {
+		t.Fatal("example 15 must use mụn ẩn hoặc milia phrasing")
+	}
+	en := adminSkinReviewSuggestAnswerSystemPrompt("en")
+	if !strings.Contains(en, "8b") {
+		t.Fatal("EN suggest prompt missing cheek milia frame 8b")
+	}
+	if !strings.Contains(en, "BAN this frame on CHEEKS") && !strings.Contains(en, "BAN “skin tags / mụn thịt” on cheeks") {
+		t.Fatal("EN suggest prompt must ban skin tags on cheeks")
+	}
+}
+
 func TestSuggestAnswerPrompt_CureAskAndHedgeBan(t *testing.T) {
 	t.Parallel()
 	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
