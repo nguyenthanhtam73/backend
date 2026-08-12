@@ -578,6 +578,116 @@ func alignPustuleConcernWithProse(a *dto.AdminSkinReviewAnalysis) bool {
 	return changed
 }
 
+func proseDeniesRedSwelling(s string) bool {
+	sl := strings.ToLower(s)
+	needles := []string{
+		"không thấy đỏ sưng", "không đỏ sưng", "không thấy đỏ hay mủ",
+		"không thấy đỏ sưng hay mủ", "no redness or pus", "not red or swollen",
+		"no red swelling", "no redness/pus",
+	}
+	for _, n := range needles {
+		if strings.Contains(sl, n) {
+			return true
+		}
+	}
+	return false
+}
+
+func looksCheekRoughTexture(s string) bool {
+	sl := strings.ToLower(s)
+	if strings.Contains(sl, "sần sùi") {
+		return true
+	}
+	if strings.Contains(sl, "gồ ghề không đều") || strings.Contains(sl, "gồ ghề không đều") {
+		return true
+	}
+	if strings.Contains(sl, "texture không đều") || strings.Contains(sl, "uneven texture") {
+		return true
+	}
+	if strings.Contains(sl, "gồ ghề") && (strings.Contains(sl, "không đều") || strings.Contains(sl, "sần")) {
+		return true
+	}
+	return false
+}
+
+var inflamedConcernsNoRed = map[string]bool{
+	"papules":    true,
+	"pustules":   true,
+	"redness":    true,
+	"irritation": true,
+}
+
+// alignNoRedInflamedConcern drops “Nốt đỏ sưng” (papules/redness) when prose
+// says there is no redness. Smooth milia-like bumps → acne; rough field → texture.
+func alignNoRedInflamedConcern(a *dto.AdminSkinReviewAnalysis) bool {
+	if a == nil {
+		return false
+	}
+	changed := false
+	overviewDenies := proseDeniesRedSwelling(a.Overview)
+	for i := range a.AttentionAreas {
+		ar := &a.AttentionAreas[i]
+		c := strings.ToLower(strings.TrimSpace(ar.Concern))
+		if !inflamedConcernsNoRed[c] {
+			continue
+		}
+		if !(proseDeniesRedSwelling(ar.Note) || overviewDenies) {
+			continue
+		}
+		blob := ar.Note + " " + a.Overview
+		if looksCheekRoughTexture(blob) && adminSkinFaceRegion(ar.Region) {
+			ar.Concern = "texture"
+			sev := strings.ToLower(strings.TrimSpace(ar.Severity))
+			if sev == "" || sev == "mild" {
+				ar.Severity = "moderate"
+			}
+		} else {
+			ar.Concern = "acne"
+		}
+		changed = true
+	}
+	return changed
+}
+
+func alignCheekRoughTextureCause(a *dto.AdminSkinReviewAnalysis, locale string) bool {
+	if a == nil {
+		return false
+	}
+	rough := false
+	for _, ar := range a.AttentionAreas {
+		c := strings.ToLower(strings.TrimSpace(ar.Concern))
+		if c == "not_visible" {
+			continue
+		}
+		if adminSkinFaceRegion(ar.Region) && (c == "texture" || looksCheekRoughTexture(ar.Note)) &&
+			(proseDeniesRedSwelling(ar.Note) || proseDeniesRedSwelling(a.Overview) || looksCheekRoughTexture(ar.Note)) {
+			if looksCheekRoughTexture(ar.Note + " " + a.Overview) {
+				rough = true
+				break
+			}
+		}
+	}
+	if !rough && looksCheekRoughTexture(a.Overview) && proseDeniesRedSwelling(a.Overview) {
+		rough = true
+	}
+	if !rough {
+		return false
+	}
+	want := "Do mụn ẩn lâu ngày + texture da bị ảnh hưởng."
+	if locale == "en" {
+		want = "Long-standing closed comedones plus affected skin texture."
+	}
+	if containsFold(a.PossibleCauses, "mụn ẩn lâu ngày") || containsFold(a.PossibleCauses, "closed comedones plus") ||
+		containsFold(a.PossibleCauses, "texture da bị ảnh hưởng") {
+		return false
+	}
+	a.PossibleCauses = append([]string{want}, a.PossibleCauses...)
+	if len(a.PossibleCauses) > 2 {
+		a.PossibleCauses = a.PossibleCauses[:2]
+	}
+	return true
+}
+
 var reBongDauVI = regexp.MustCompile(`(?i)bóng\s*dầu(\s+rõ(\s+rệt)?)?`)
 
 func softenOilShineProseForSpotCream(s, locale string) string {
@@ -688,8 +798,12 @@ func alignCheekSkinTagMislabel(a *dto.AdminSkinReviewAnalysis, locale string) bo
 		if looksMunThitProse(a.AttentionAreas[i].Note) {
 			continue
 		}
-		if c == "other" {
-			a.AttentionAreas[i].Concern = "papules"
+		if c == "other" || c == "papules" {
+			if looksCheekRoughTexture(a.AttentionAreas[i].Note + " " + a.Overview) {
+				a.AttentionAreas[i].Concern = "texture"
+			} else {
+				a.AttentionAreas[i].Concern = "acne"
+			}
 			changed = true
 		}
 	}
@@ -759,6 +873,9 @@ func AlignAdminSkinAnalysisWithQuestion(a *dto.AdminSkinReviewAnalysis, question
 	if alignPustuleConcernWithProse(a) {
 		changed = true
 	}
+	if alignNoRedInflamedConcern(a) {
+		changed = true
+	}
 
 	soften := adminSkinLooksCloseUpCheek(a)
 	if soften {
@@ -796,6 +913,9 @@ func AlignAdminSkinAnalysisWithQuestion(a *dto.AdminSkinReviewAnalysis, question
 		changed = true
 	}
 	if alignCheekSkinTagMislabel(a, locale) {
+		changed = true
+	}
+	if alignCheekRoughTextureCause(a, locale) {
 		changed = true
 	}
 

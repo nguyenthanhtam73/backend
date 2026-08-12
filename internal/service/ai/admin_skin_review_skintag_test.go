@@ -166,10 +166,12 @@ func TestAdminSkinReviewPrompt_CheekMiliaNotSkinTag(t *testing.T) {
 	p := AdminSkinReviewSystemPrompt()
 	for _, needle := range []string{
 		"Case 1h",
+		"Case 1i",
 		"trông giống mụn ẩn hoặc milia",
-		"CẤM tuyệt đối",
-		"Má — nốt nhỏ màu da nổi cao",
+		"sần sùi / texture không đều",
+		"Má — nốt nhỏ màu da / sần sùi",
 		"có cuống hoặc dẹt",
+		"Nốt đỏ sưng",
 	} {
 		if !strings.Contains(p, needle) {
 			t.Fatalf("analysis prompt missing cheek-milia needle %q", needle)
@@ -178,12 +180,15 @@ func TestAdminSkinReviewPrompt_CheekMiliaNotSkinTag(t *testing.T) {
 	if !strings.Contains(p, "CẤM tuyệt đối") || !strings.Contains(p, "mụn thịt") {
 		t.Fatal("prompt must ban mụn thịt on cheeks")
 	}
-	if !strings.Contains(AdminSkinReviewJSONSchemaBlock, "BAN mụn thịt on cheeks") {
-		t.Fatal("schema must ban mụn thịt on cheeks")
+	if !strings.Contains(AdminSkinReviewJSONSchemaBlock, "BAN papules") {
+		t.Fatal("schema must ban papules when cheeks are not red")
 	}
 	sys := adminSkinReviewSuggestAnswerSystemPrompt("vi")
 	if !strings.Contains(sys, "8b") {
 		t.Fatal("suggest system prompt missing cheek milia case 8b")
+	}
+	if !strings.Contains(sys, "8c") {
+		t.Fatal("suggest system prompt missing cheek texture case 8c")
 	}
 	if !strings.Contains(sys, "CẤM tuyệt đối") || !strings.Contains(sys, "mụn thịt") {
 		t.Fatal("suggest prompt must ban mụn thịt on cheeks")
@@ -192,8 +197,11 @@ func TestAdminSkinReviewPrompt_CheekMiliaNotSkinTag(t *testing.T) {
 	if !strings.Contains(msg, "Ví dụ 15") {
 		t.Fatal("suggest user message missing cheek-milia example 15")
 	}
-	if !strings.Contains(msg, "trông giống mụn ẩn hoặc milia") {
-		t.Fatal("example 15 must use mụn ẩn hoặc milia phrasing")
+	if !strings.Contains(msg, "Ví dụ 16") {
+		t.Fatal("suggest user message missing cheek-texture example 16")
+	}
+	if !strings.Contains(msg, "sần sùi rõ") {
+		t.Fatal("example 16 must use sần sùi phrasing")
 	}
 	en := adminSkinReviewSuggestAnswerSystemPrompt("en")
 	if !strings.Contains(en, "8b") {

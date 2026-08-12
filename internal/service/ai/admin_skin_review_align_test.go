@@ -425,8 +425,8 @@ func TestAlignCheekSkinTagMislabel_RewritesCheeksKeepsNeck(t *testing.T) {
 	if !strings.Contains(blob, "mụn ẩn") || !strings.Contains(blob, "milia") {
 		t.Fatalf("expected mụn ẩn hoặc milia, got overview=%q note=%q", a.Overview, a.AttentionAreas[0].Note)
 	}
-	if a.AttentionAreas[0].Concern != "papules" {
-		t.Fatalf("cheek concern want papules, got %q", a.AttentionAreas[0].Concern)
+	if a.AttentionAreas[0].Concern != "acne" {
+		t.Fatalf("cheek concern want acne, got %q", a.AttentionAreas[0].Concern)
 	}
 	joinedCauses := strings.ToLower(strings.Join(a.PossibleCauses, " "))
 	if strings.Contains(joinedCauses, "cổ") {
@@ -448,5 +448,45 @@ func TestAlignCheekSkinTagMislabel_RewritesCheeksKeepsNeck(t *testing.T) {
 	AlignAdminSkinAnalysisWithQuestion(neck, "", "vi")
 	if !strings.Contains(neck.Overview, "mụn thịt") || !strings.Contains(neck.AttentionAreas[0].Note, "mụn thịt") {
 		t.Fatalf("neck skin-tag case must keep mụn thịt, got overview=%q note=%q", neck.Overview, neck.AttentionAreas[0].Note)
+	}
+}
+
+func TestAlignNoRedInflamedConcern_PapulesToTexture(t *testing.T) {
+	t.Parallel()
+	a := &dto.AdminSkinReviewAnalysis{
+		Overview: "Má của mày đang sần sùi rõ, nhiều nốt nhỏ nổi cao + bề mặt da gồ ghề không đều. Không thấy đỏ sưng hay mủ. Có vài vết thâm nông.",
+		AttentionAreas: []dto.AdminSkinAttentionArea{
+			{Region: "cheeks", Concern: "papules", Severity: "mild", Note: "Má của mày đang sần sùi rõ, nhiều nốt nhỏ nổi cao + bề mặt da gồ ghề không đều. Không thấy đỏ sưng hay mủ. Có vài vết thâm nông."},
+		},
+		PossibleCauses: []string{"Do dầu bít tắc tại chỗ."},
+	}
+	if !AlignAdminSkinAnalysisWithQuestion(a, "", "vi") {
+		t.Fatal("expected no-red papules to remap")
+	}
+	if a.AttentionAreas[0].Concern != "texture" {
+		t.Fatalf("want texture, got %q", a.AttentionAreas[0].Concern)
+	}
+	if a.AttentionAreas[0].Severity != "moderate" {
+		t.Fatalf("want moderate severity for clear roughness, got %q", a.AttentionAreas[0].Severity)
+	}
+	joined := strings.Join(a.PossibleCauses, " ")
+	if !strings.Contains(joined, "mụn ẩn lâu ngày") {
+		t.Fatalf("expected texture cause, got %#v", a.PossibleCauses)
+	}
+}
+
+func TestAlignNoRedInflamedConcern_PapulesToAcneMilia(t *testing.T) {
+	t.Parallel()
+	a := &dto.AdminSkinReviewAnalysis{
+		Overview: "Má của mày đang có nhiều nốt nhỏ màu da nổi cao, trông giống mụn ẩn hoặc milia. Không thấy đỏ sưng hay mủ.",
+		AttentionAreas: []dto.AdminSkinAttentionArea{
+			{Region: "cheeks", Concern: "papules", Severity: "moderate", Note: "Má của mày đang có nhiều nốt nhỏ màu da nổi cao, trông giống mụn ẩn hoặc milia. Không thấy đỏ sưng hay mủ. Nốt tròn, mịn, nằm thành cụm nhỏ."},
+		},
+	}
+	if !AlignAdminSkinAnalysisWithQuestion(a, "", "vi") {
+		t.Fatal("expected no-red papules to remap to acne")
+	}
+	if a.AttentionAreas[0].Concern != "acne" {
+		t.Fatalf("want acne, got %q", a.AttentionAreas[0].Concern)
 	}
 }
