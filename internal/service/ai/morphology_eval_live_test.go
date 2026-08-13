@@ -75,8 +75,16 @@ func TestMorphologyEvalLive(t *testing.T) {
 		t.Skip("DADIARY_OPENAI_API_KEY not set — live eval needs a real vision call")
 	}
 
-	cfg := &config.Config{OpenAI: config.OpenAIConfig{APIKey: apiKey}}
+	// Score the model production actually uses. Falling back to the built-in default would
+	// silently measure a different model than the one serving users, which makes the number
+	// worse than useless: it would look like evidence while describing something else.
+	cfg := &config.Config{OpenAI: config.OpenAIConfig{
+		APIKey:      apiKey,
+		Model:       strings.TrimSpace(os.Getenv("DADIARY_OPENAI_MODEL")),
+		VisionModel: strings.TrimSpace(os.Getenv("DADIARY_OPENAI_VISION_MODEL")),
+	}}
 	httpClient := &http.Client{Timeout: 5 * time.Minute}
+	t.Logf("scoring vision model: %s (set DADIARY_OPENAI_VISION_MODEL to match production)", cfg.OpenAIVisionModel())
 
 	type groupStat struct{ hit, total int }
 	stats := map[string]*groupStat{}
@@ -132,6 +140,7 @@ func TestMorphologyEvalLive(t *testing.T) {
 	totalHit, totalAll := 0, 0
 	var report strings.Builder
 	report.WriteString("\n=== MORPHOLOGY EVAL (real photos) ===\n")
+	report.WriteString(fmt.Sprintf("  vision model: %s\n", cfg.OpenAIVisionModel()))
 	for _, g := range groups {
 		s := stats[g]
 		totalHit += s.hit
