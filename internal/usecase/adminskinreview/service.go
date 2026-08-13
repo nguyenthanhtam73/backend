@@ -672,7 +672,14 @@ func (s *Service) GetPublic(ctx context.Context, slug string) (dto.PublicSkinRev
 		return zero, ErrNotFound
 	}
 	blurRels, _ := dto.DecodeStringSlice(row.PublicImagePaths)
-	return dto.FromDomainPublicSkinReview(row, publicUploadURLs(blurRels)), nil
+	out := dto.FromDomainPublicSkinReview(row, publicUploadURLs(blurRels))
+	// Without a saved title every share page shipped the same generic <title>, which
+	// wastes the one thing these pages exist for: ranking for one specific question.
+	// Derive one from the user's own words (or the finding) so old pages get fixed too.
+	if strings.TrimSpace(out.Title) == "" {
+		out.Title = ai.PublicShareTitle(&out.Analysis, out.UserQuestion, out.Locale)
+	}
+	return out, nil
 }
 
 func (s *Service) uniquePublicSlug(ctx context.Context) (string, error) {
