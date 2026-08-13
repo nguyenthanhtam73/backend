@@ -1,0 +1,44 @@
+---
+description: How skin photo groups are decided and how accuracy is measured (read before touching skin analysis, or when the user pastes eval numbers)
+alwaysApply: true
+---
+
+# Skin photo accuracy
+
+Full runbook: `backend/docs/SKIN-ACCURACY-LOOP.md`.
+
+A photo becomes a **morphology group** (mụn viêm / mụn ẩn / milia / sần sùi-texture / thâm /
+mụn thịt / nếp gấp cổ…). Every routine and tip is derived from it, so a wrong group makes
+everything downstream wrong while still reading confidently.
+
+## Single source of truth
+
+- Wording + taxonomy: `internal/service/ai/vision_morphology.go`
+- Which group wins: `internal/service/ai/morphology_classify.go` (plain Go, unit-tested)
+- Admin, onboarding and check-in all concatenate the shared block. **Never fork it into one
+  pipeline** — `TestVisionMorphologyRules_SharedAcrossPipelines` fails if you do.
+
+## When the user pastes eval output
+
+They ran `cmd/eval-morphology-export` + `TestMorphologyEvalLive` against production data.
+The output lists accuracy per group and every miss. Diagnose in this order:
+
+1. Model named the wrong group on a clear photo → tighten `vision_morphology.go`.
+2. Model described it right but the group came out `unknown` → a missing phrase in the cue
+   lists in `morphology_prose.go` (cheap, most common).
+3. Both look right and it still misses → only then discuss a stronger
+   `DADIARY_OPENAI_VISION_MODEL`.
+
+Then run the offline tests, and have them re-run the last command to confirm the number
+moved. Never claim an accuracy improvement without that before/after.
+
+## Constraints to keep
+
+- Only ask the user a follow-up question when `ShouldAskUser` is true, i.e. the look-alikes
+  differ on care direction (calm-first vs gentle base). Milia vs closed comedones vs skin
+  tags share the same advice, so asking would dent trust for nothing.
+- `GroupUnknown` means the cue parser did not recognise the wording — a parser gap, not an
+  unreadable photo. Never surface it as uncertainty to a user.
+- Exported eval photos are real user faces: keep them gitignored, delete after each round.
+- Never put `skin_context` (what the user reported about their own skin) into anything
+  served publicly; `StripInternalAnalysisFields` guards the share payload.
