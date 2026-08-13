@@ -20,6 +20,9 @@ type featureCase struct {
 	want MorphologyGroup
 	// wantNeedsInfo asserts the classifier admits it cannot separate look-alikes.
 	wantNeedsInfo bool
+	// wantAsksUser asserts whether that doubt is worth showing a user: only when the
+	// answer would change the care direction.
+	wantAsksUser bool
 }
 
 func featureEvalCases() []featureCase {
@@ -27,7 +30,7 @@ func featureEvalCases() []featureCase {
 		{
 			name: "cheek raised skin-colored round smooth = milia-like (never skin tag)",
 			in:   MorphologyFeatures{Region: "cheeks", Raised: RaisedYes, Color: ColorSkin, Red: RedNone, Pus: PusNone, Shape: ShapeRoundSmooth},
-			want: GroupMiliaLike, wantNeedsInfo: true,
+			want: GroupMiliaLike, wantNeedsInfo: true, wantAsksUser: false,
 		},
 		{
 			name: "cheek raised + rough uneven surface = texture (never red bumps)",
@@ -42,7 +45,12 @@ func featureEvalCases() []featureCase {
 		{
 			name: "stalked shape but on the face must NOT be a skin tag",
 			in:   MorphologyFeatures{Region: "cheeks", Raised: RaisedYes, Color: ColorSkin, Red: RedNone, Pus: PusNone, Shape: ShapeStalkedSoft},
-			want: GroupMiliaLike, wantNeedsInfo: true,
+			want: GroupMiliaLike, wantNeedsInfo: true, wantAsksUser: false,
+		},
+		{
+			name: "raised bumps with unreadable redness must ask (calm-first vs gentle differ)",
+			in:   MorphologyFeatures{Region: "cheeks", Raised: RaisedYes, Color: ColorSkin, Pus: PusNone, Shape: ShapeRoundSmooth},
+			want: GroupMiliaLike, wantNeedsInfo: true, wantAsksUser: true,
 		},
 		{
 			name: "swollen + moderate red = inflamed acne",
@@ -80,14 +88,14 @@ func featureEvalCases() []featureCase {
 			want: GroupNeckCrease,
 		},
 		{
-			name: "raised skin-colored, shape unreadable = safe read + must ask",
+			name: "raised skin-colored, shape unreadable = safe read, no user question",
 			in:   MorphologyFeatures{Region: "cheeks", Raised: RaisedYes, Color: ColorSkin, Red: RedNone, Pus: PusNone, Shape: ShapeUnknown},
-			want: GroupClosedComedones, wantNeedsInfo: true,
+			want: GroupClosedComedones, wantNeedsInfo: true, wantAsksUser: false,
 		},
 		{
 			name: "nothing readable = unknown, never a confident group",
 			in:   MorphologyFeatures{Region: "cheeks"},
-			want: GroupUnknown, wantNeedsInfo: true,
+			want: GroupUnknown, wantNeedsInfo: true, wantAsksUser: false,
 		},
 	}
 }
@@ -102,10 +110,13 @@ func TestMorphologyEval_Features(t *testing.T) {
 			continue
 		}
 		if c.wantNeedsInfo && !got.NeedsMoreInfo {
-			failures = append(failures, fmt.Sprintf("  %-62s group ok but should ask for more info", c.name))
+			failures = append(failures, fmt.Sprintf("  %-62s group ok but should admit it cannot separate look-alikes", c.name))
 		}
 		if c.wantNeedsInfo && len(got.MissingCues) == 0 {
 			failures = append(failures, fmt.Sprintf("  %-62s NeedsMoreInfo without MissingCues", c.name))
+		}
+		if asks := ShouldAskUser(got); asks != c.wantAsksUser {
+			failures = append(failures, fmt.Sprintf("  %-62s ShouldAskUser=%v want %v (alts=%v)", c.name, asks, c.wantAsksUser, got.Alternatives))
 		}
 	}
 	if len(failures) > 0 {
@@ -249,8 +260,38 @@ func TestAlignOnboardingMorphology_NoRedDropsInflamedLabels(t *testing.T) {
 	if out.MorphologyGroup != string(GroupMiliaLike) {
 		t.Fatalf("morphology group: got %q want %q", out.MorphologyGroup, GroupMiliaLike)
 	}
+	// Milia and closed comedones get identical advice, so the user must NOT be
+	// interrogated about it — that only makes the read look unsure for no benefit.
+	if out.NeedsMoreInfo || len(out.ClarifyQuestions) > 0 {
+		t.Fatalf("same-care look-alikes must stay quiet, got clarify=%v", out.ClarifyQuestions)
+	}
+}
+
+// The one doubt worth surfacing: the photo never says whether the bumps are irritated,
+// which flips the advice between calming first and a gentle base.
+func TestAlignOnboardingMorphology_AsksOnlyWhenCareWouldChange(t *testing.T) {
+	t.Parallel()
+	out := &dto.OnboardingSkinAnalyzeResponse{
+		DetailedObservations: "Má mày đang có nhiều nốt nhỏ màu da nổi cao, tròn và mịn.",
+		PrimaryRegions:       []string{"cheeks"},
+	}
+	out.PhotoQuality.Sufficient = true
+	alignOnboardingMorphology(out, "vi")
 	if !out.NeedsMoreInfo || len(out.ClarifyQuestions) == 0 {
-		t.Fatal("milia vs closed comedones needs a follow-up question instead of a confident guess")
+		t.Fatal("unreadable redness changes the care direction, so it must ask")
+	}
+
+	// Same photo, but the structured cue fills in that there is no redness: no question.
+	obs := dto.OnboardingSkinObservations{Redness: "none"}
+	quiet := &dto.OnboardingSkinAnalyzeResponse{
+		DetailedObservations: "Má mày đang có nhiều nốt nhỏ màu da nổi cao, tròn và mịn.",
+		PrimaryRegions:       []string{"cheeks"},
+		SkinObservations:     &obs,
+	}
+	quiet.PhotoQuality.Sufficient = true
+	alignOnboardingMorphology(quiet, "vi")
+	if quiet.NeedsMoreInfo {
+		t.Fatalf("structured redness cue should settle it, got clarify=%v", quiet.ClarifyQuestions)
 	}
 }
 

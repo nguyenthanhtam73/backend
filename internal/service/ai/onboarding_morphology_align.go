@@ -48,7 +48,29 @@ func alignOnboardingMorphology(out *dto.OnboardingSkinAnalyzeResponse, locale st
 		strings.Join(out.MainConcerns, ". "),
 	}, ". ")
 
-	verdict := ClassifyMorphology(MorphologyFeaturesFromProse(prose, region))
+	features := MorphologyFeaturesFromProse(prose, region)
+	// Fill an unreadable redness cue from the structured enum — never override the prose,
+	// because the whole point of this pass is that prose saying "không thấy đỏ sưng" beats
+	// a stale/wrong redness enum. Filling silence just avoids asking about redness we know.
+	if obs := out.SkinObservations; obs != nil {
+		if features.Red == RedUnknown {
+			switch normLower(obs.Redness) {
+			case "none":
+				features.Red = RedNone
+			case "mild":
+				features.Red = RedMild
+			case "moderate":
+				features.Red = RedModerate
+			case "severe":
+				features.Red = RedSevere
+			}
+		}
+		switch normLower(obs.AcneStatus) {
+		case "inflammatory_acne", "cystic_acne":
+			features.Swollen = true
+		}
+	}
+	verdict := ClassifyMorphology(features)
 
 	// 2. Prose says no redness → strip inflamed/irritation labels and fix the cues that
 	// drive severity/phase, otherwise the user gets calm-first advice for calm skin
@@ -106,8 +128,13 @@ func alignOnboardingMorphology(out *dto.OnboardingSkinAnalyzeResponse, locale st
 	if verdict.Group != GroupUnknown {
 		out.MorphologyGroup = string(verdict.Group)
 		out.GroupConfidence = verdict.Confidence
-		out.NeedsMoreInfo = verdict.NeedsMoreInfo
-		out.ClarifyQuestions = MorphologyClarifyQuestions(verdict, locale)
+		// Only ask when the answer would change their routine. Milia vs closed comedones
+		// vs skin tags all get the same advice, so questioning those would dent trust in
+		// the read for nothing.
+		if ShouldAskUser(verdict) {
+			out.NeedsMoreInfo = true
+			out.ClarifyQuestions = MorphologyClarifyQuestions(verdict, locale)
+		}
 	}
 	if !out.PhotoQuality.Sufficient {
 		// A photo we cannot read is exactly when to ask rather than assert.

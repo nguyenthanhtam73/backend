@@ -198,6 +198,10 @@ func ClassifyMorphology(f MorphologyFeatures) MorphologyVerdict {
 
 	// Raised, skin-coloured, no pus — the look-alike cluster that used to get mislabeled.
 	if raised == RaisedYes || raised == RaisedMixed {
+		// Redness decides calm-first vs gentle care, so an unreadable redness cue is the
+		// one doubt worth raising with the user (see withRednessDoubt).
+		rednessUnreadable := red == RedUnknown
+
 		if redAny && !noRed {
 			// Tiny bumps on a pink base: both things are true, say both.
 			return MorphologyVerdict{Group: GroupComedonesIrritated, Confidence: ConfidenceMedium}
@@ -206,42 +210,43 @@ func ClassifyMorphology(f MorphologyFeatures) MorphologyVerdict {
 		// Soft stalked/flat-topped bumps off the face = skin tags.
 		if shape == ShapeStalkedSoft {
 			if isTagFriendlyRegion(region) {
-				return MorphologyVerdict{Group: GroupSkinTag, Confidence: ConfidenceHigh}
+				return withRednessDoubt(MorphologyVerdict{Group: GroupSkinTag, Confidence: ConfidenceHigh}, rednessUnreadable)
 			}
 			// Stalked shape but on the face — contradictory, do not claim skin tag.
-			return MorphologyVerdict{
+			return withRednessDoubt(MorphologyVerdict{
 				Group:         GroupMiliaLike,
 				Confidence:    ConfidenceLow,
 				NeedsMoreInfo: true,
 				MissingCues:   []string{CueTouchFirmness, CueStalk, CueDuration},
 				Alternatives:  []MorphologyGroup{GroupSkinTag, GroupClosedComedones},
-			}
+			}, rednessUnreadable)
 		}
 
 		if shape == ShapeRoughUneven {
 			// Rough uneven surface wins over "just milia" — texture, not red bumps.
-			return MorphologyVerdict{Group: GroupRoughTexture, Confidence: ConfidenceHigh}
+			return withRednessDoubt(MorphologyVerdict{Group: GroupRoughTexture, Confidence: ConfidenceHigh}, rednessUnreadable)
 		}
 
 		if shape == ShapeRoundSmooth {
 			if IsFaceRegion(region) {
 				// Photos cannot separate milia from closed comedones — touch/duration can.
-				return MorphologyVerdict{
+				// Both lead to the same care, so ShouldAskUser keeps this quiet for users.
+				return withRednessDoubt(MorphologyVerdict{
 					Group:         GroupMiliaLike,
 					Confidence:    ConfidenceMedium,
 					NeedsMoreInfo: true,
 					MissingCues:   []string{CueTouchFirmness, CueDuration},
 					Alternatives:  []MorphologyGroup{GroupClosedComedones},
-				}
+				}, rednessUnreadable)
 			}
 			if isTagFriendlyRegion(region) {
-				return MorphologyVerdict{
+				return withRednessDoubt(MorphologyVerdict{
 					Group:         GroupSkinTag,
 					Confidence:    ConfidenceLow,
 					NeedsMoreInfo: true,
 					MissingCues:   []string{CueTouchFirmness, CueStalk},
 					Alternatives:  []MorphologyGroup{GroupMiliaLike},
-				}
+				}, rednessUnreadable)
 			}
 		}
 
@@ -253,13 +258,13 @@ func ClassifyMorphology(f MorphologyFeatures) MorphologyVerdict {
 				alts = append(alts, GroupSkinTag)
 				cues = append(cues, CueStalk)
 			}
-			return MorphologyVerdict{
+			return withRednessDoubt(MorphologyVerdict{
 				Group:         GroupClosedComedones,
 				Confidence:    ConfidenceLow,
 				NeedsMoreInfo: true,
 				MissingCues:   cues,
 				Alternatives:  alts,
-			}
+			}, rednessUnreadable)
 		}
 	}
 
@@ -384,6 +389,68 @@ func OnboardingConcernTypeForGroup(g MorphologyGroup) string {
 	default:
 		return ""
 	}
+}
+
+// CareDirection is the axis that actually changes what we tell someone.
+//
+// It exists so we only interrupt a user when the answer would change their routine.
+// Milia, closed comedones, skin tags and rough texture all land on the same advice
+// (gentle base, don't pick or cut, see a clinic if you want it removed), so asking
+// "sờ cứng hay mềm?" to separate them buys nothing and just makes the app look unsure.
+type CareDirection string
+
+const (
+	// CareCalmFirst: irritation present — soothe, hold off acids/retinoids.
+	CareCalmFirst CareDirection = "calm_first"
+	// CareGentle: gentle cleanse + moisturise + SPF, don't pick; clinic for removal.
+	CareGentle           CareDirection = "gentle"
+	CareUnknownDirection CareDirection = "unknown"
+)
+
+// CareDirectionForGroup maps a group onto the care axis.
+func CareDirectionForGroup(g MorphologyGroup) CareDirection {
+	if GroupImpliesRedness(g) {
+		return CareCalmFirst
+	}
+	if g == GroupUnknown {
+		return CareUnknownDirection
+	}
+	return CareGentle
+}
+
+// AlternativesChangeCare reports whether any look-alike would lead to different advice.
+func AlternativesChangeCare(v MorphologyVerdict) bool {
+	base := CareDirectionForGroup(v.Group)
+	for _, alt := range v.Alternatives {
+		if CareDirectionForGroup(alt) != base {
+			return true
+		}
+	}
+	return false
+}
+
+// ShouldAskUser reports whether a follow-up question is worth showing a user.
+//
+// The classifier stays fully honest in NeedsMoreInfo (the photo really cannot separate
+// those groups); this is the narrower product question: would their answer change what
+// they should do? Only then is it worth denting their confidence in the read.
+func ShouldAskUser(v MorphologyVerdict) bool {
+	return v.NeedsMoreInfo && AlternativesChangeCare(v)
+}
+
+// withRednessDoubt adds the one ambiguity that genuinely changes care: when the photo
+// never says whether the area is irritated, the same bumps might need calming first.
+func withRednessDoubt(v MorphologyVerdict, rednessUnreadable bool) MorphologyVerdict {
+	if !rednessUnreadable || GroupImpliesRedness(v.Group) {
+		return v
+	}
+	v.NeedsMoreInfo = true
+	v.Alternatives = append(v.Alternatives, GroupComedonesIrritated)
+	v.MissingCues = append(v.MissingCues, CuePain)
+	if v.Confidence == ConfidenceHigh {
+		v.Confidence = ConfidenceMedium
+	}
+	return v
 }
 
 // GroupImpliesRedness reports whether the group means active redness/inflammation,

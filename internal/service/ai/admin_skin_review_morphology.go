@@ -100,8 +100,13 @@ func applyAdminMorphologyVerdict(a *dto.AdminSkinReviewAnalysis, locale string) 
 	}
 	a.MorphologyGroup = string(verdict.Group)
 	a.Confidence = verdict.Confidence
-	a.NeedsMoreInfo = verdict.NeedsMoreInfo
-	a.ClarifyQuestions = MorphologyClarifyQuestions(verdict, locale)
+	// Same rule as the user flow: only raise "chưa đủ chốt" when the answer would change
+	// the care direction. This analysis is also published on the public share page, so a
+	// banner over look-alikes that share the same advice would be noise there too.
+	if ShouldAskUser(verdict) {
+		a.NeedsMoreInfo = true
+		a.ClarifyQuestions = MorphologyClarifyQuestions(verdict, locale)
+	}
 	return changed
 }
 
@@ -117,11 +122,17 @@ func downgradeAdminConfidenceOnDisagreement(primary, second *dto.AdminSkinReview
 	if a.Group == b.Group {
 		return false
 	}
+	// Two reads of one photo disagreeing always means the photo is hard, so confidence
+	// drops. But only escalate to "chưa đủ chốt" when the two groups would lead to
+	// different care — disagreeing between milia and closed comedones changes nothing.
 	primary.Confidence = ConfidenceLow
+	if CareDirectionForGroup(a.Group) == CareDirectionForGroup(b.Group) {
+		return true
+	}
 	primary.NeedsMoreInfo = true
 	extra := MorphologyClarifyQuestions(MorphologyVerdict{
 		NeedsMoreInfo: true,
-		MissingCues:   []string{CueObliqueLight, CueTouchFirmness, CueDuration},
+		MissingCues:   []string{CueObliqueLight, CuePain, CueDuration},
 	}, locale)
 	primary.ClarifyQuestions = mergeClarifyQuestions(primary.ClarifyQuestions, extra)
 	return true
