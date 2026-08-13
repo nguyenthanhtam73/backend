@@ -19,10 +19,19 @@ const (
 	VisionMaxEdge = 1280
 	// VisionJPEGQuality balances file size and pore/redness cues for vision models.
 	VisionJPEGQuality = 88
+	// VisionPassThroughMaxBytes caps pass-through for JPEGs already within VisionMaxEdge.
+	//
+	// Clients already downscale + JPEG-encode before upload, so re-encoding a
+	// within-limits JPEG here only adds a second generation loss — it destroys the
+	// micro-texture cues (raised vs flat bumps, pore edges) the morphology rules
+	// depend on while saving almost no bytes. Only absurdly large payloads at this
+	// edge length are re-encoded.
+	VisionPassThroughMaxBytes = 2_000_000
 )
 
 // LimitForVisionAPI downscales large photos to VisionMaxEdge and re-encodes as JPEG.
-// Already-small JPEGs within limits are returned unchanged.
+// JPEGs already within VisionMaxEdge pass through untouched to avoid a second
+// lossy generation on top of the client-side compression.
 func LimitForVisionAPI(data []byte) ([]byte, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("imgprep: empty image")
@@ -40,7 +49,7 @@ func LimitForVisionAPI(data []byte) ([]byte, error) {
 	if cfg.Height > long {
 		long = cfg.Height
 	}
-	if long <= VisionMaxEdge && mime == "image/jpeg" && len(data) <= 700_000 {
+	if canPassThroughForVision(long, mime, len(data)) {
 		return data, nil
 	}
 
@@ -54,7 +63,7 @@ func LimitForVisionAPI(data []byte) ([]byte, error) {
 	if h > maxDim {
 		maxDim = h
 	}
-	if maxDim <= VisionMaxEdge && mime == "image/jpeg" && len(data) <= 700_000 {
+	if canPassThroughForVision(maxDim, mime, len(data)) {
 		return data, nil
 	}
 
@@ -79,4 +88,9 @@ func LimitForVisionAPI(data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("imgprep: encode jpeg: %w", err)
 	}
 	return out.Bytes(), nil
+}
+
+// canPassThroughForVision reports whether a JPEG can be sent as-is (no re-encode).
+func canPassThroughForVision(longEdge int, mime string, size int) bool {
+	return longEdge <= VisionMaxEdge && mime == "image/jpeg" && size <= VisionPassThroughMaxBytes
 }

@@ -45,6 +45,9 @@ var concernTypeAliases = map[string]string{
 	"inflammatory_acne": "inflammatory_acne", "inflammatory acne": "inflammatory_acne",
 	"mun an": "comedones", "mụn ẩn": "comedones", "mun an duoi da": "comedones",
 	"closed comedones": "comedones", "closed_comedones": "comedones", "closed comedone": "comedones",
+	"milia": "comedones", "mun an hoac milia": "comedones",
+	"da san": "texture", "da sần": "texture", "san sui": "texture", "sần sùi": "texture",
+	"da khong min deu": "texture", "da không mịn đều": "texture",
 	"mun coi": "comedones", "mụn cồi": "comedones", "comedones": "comedones",
 	"whiteheads": "comedones", "blackheads": "comedones", "dau den": "comedones", "đầu đen": "comedones",
 	"tham": "pih", "thâm": "pih", "pih": "pih", "post acne marks": "pih",
@@ -277,7 +280,8 @@ func mapConcernTypeLabel(label string) string {
 		// Safety: closed-comedone wording must not become inflammatory_acne.
 		if strings.Contains(raw, "ẩn") || strings.Contains(raw, "cồi") || strings.Contains(raw, "coi") ||
 			strings.Contains(raw, "whitehead") || strings.Contains(raw, "blackhead") ||
-			strings.Contains(raw, "closed comedone") || strings.Contains(n, "mun an") {
+			strings.Contains(raw, "closed comedone") || strings.Contains(n, "mun an") ||
+			strings.Contains(raw, "milia") {
 			return "comedones"
 		}
 		return "inflammatory_acne"

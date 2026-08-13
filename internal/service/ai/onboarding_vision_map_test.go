@@ -54,21 +54,35 @@ func TestMapOnboardingVisionRaw(t *testing.T) {
 	}
 }
 
-func TestMapOnboardingConcernLabel(t *testing.T) {
-	if got := mapOnboardingConcernLabel("Mụn viêm"); got != "acne" {
-		t.Fatalf("got %q", got)
+func TestMapOnboardingConcernLabel_MiliaAndSkinTag(t *testing.T) {
+	t.Parallel()
+	if got := mapOnboardingConcernLabel("milia"); got != "acne" {
+		t.Fatalf("milia: got %q want acne (profile comedone-like)", got)
 	}
-	if got := mapOnboardingConcernLabel("nốt đỏ"); got != "acne" {
-		t.Fatalf("nốt đỏ: got %q", got)
+	if got := mapOnboardingConcernLabel("da sần sùi"); got != "uneven_texture" {
+		t.Fatalf("sần sùi: got %q want uneven_texture", got)
 	}
-	if got := mapOnboardingConcernLabel("mụn ẩn"); got != "acne" {
-		t.Fatalf("mụn ẩn profile concern: got %q", got)
+	if got := mapOnboardingConcernLabel("mụn thịt"); got != "" {
+		t.Fatalf("mụn thịt must not map to face acne, got %q", got)
 	}
-	if got := mapOnboardingConcernLabel("barrier yếu"); got != "weak_barrier" {
-		t.Fatalf("got %q", got)
+	if got := mapConcernTypeLabel("milia"); got != "comedones" {
+		t.Fatalf("milia concern_type: got %q want comedones", got)
 	}
-	if got := mapOnboardingConcernLabel("da dễ đỏ"); got != "weak_barrier" {
-		t.Fatalf("da dễ đỏ: got %q", got)
+	if got := mapConcernTypeLabel("mụn thịt"); got == "inflammatory_acne" {
+		t.Fatal("mụn thịt must not become inflammatory_acne")
+	}
+	if got := mapConcernTypeLabel("da sần sùi"); got != "texture" {
+		t.Fatalf("sần sùi concern_type: got %q want texture", got)
+	}
+}
+
+func TestInferOnboardingBarrierSignal_TextureOnlyNotCompromised(t *testing.T) {
+	t.Parallel()
+	if got := inferOnboardingBarrierSignal("none", "bumpy"); got != "likely_ok" {
+		t.Fatalf("bumpy without redness should not look like a barrier flare, got %q", got)
+	}
+	if got := inferOnboardingBarrierSignal("moderate", "smooth"); got != "possibly_compromised" {
+		t.Fatalf("moderate redness should still flag barrier, got %q", got)
 	}
 }
 

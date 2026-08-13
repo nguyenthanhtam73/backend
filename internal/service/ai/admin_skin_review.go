@@ -51,6 +51,10 @@ var adminSkinContentRefusalRes = []*regexp.Regexp{
 // AdminSkinReviewAnalyze runs a Premium-depth OpenAI vision pass that returns
 // skin observations only (no routine / products / care steps).
 //
+// Morphology classification is VisionMorphologyRules() — shared with onboarding
+// and check-in vision so user-facing comments stay in sync. This flow adds
+// admin JSON + few-shots on top.
+//
 // Uses the configured vision model (default gpt-4o) — same deep multimodal path
 // as check-in vision — without calling the daily coach or suggest-routine flows.
 // On refusal / empty content, retries once with a compact prompt (no loop).
@@ -62,6 +66,26 @@ func AdminSkinReviewAnalyze(
 	localeRaw string,
 	userQuestion ...string,
 ) (*dto.AdminSkinReviewAnalysis, string, error) {
+	q := ""
+	if len(userQuestion) > 0 {
+		q = userQuestion[0]
+	}
+	return AdminSkinReviewAnalyzeWithContext(ctx, cfg, httpClient, images, localeRaw, q, "")
+}
+
+// AdminSkinReviewAnalyzeWithContext is AdminSkinReviewAnalyze plus skinContext — the
+// operator's answers about touch / pain / duration. A photo cannot separate milia from
+// closed comedones from skin tags; those answers can, so they are passed to vision and
+// outrank pixel guessing.
+func AdminSkinReviewAnalyzeWithContext(
+	ctx context.Context,
+	cfg *config.Config,
+	httpClient *http.Client,
+	images []ImageBytes,
+	localeRaw string,
+	userQuestionRaw string,
+	skinContext string,
+) (*dto.AdminSkinReviewAnalysis, string, error) {
 	if cfg == nil || strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
 		return nil, "", fmt.Errorf("admin skin review: openai api key required")
 	}
@@ -72,10 +96,8 @@ func AdminSkinReviewAnalyze(
 		return nil, "", fmt.Errorf("admin skin review: maximum 3 images")
 	}
 	locale := dto.NormalizeAdminSkinReviewLocale(localeRaw)
-	fullQuestion := ""
-	if len(userQuestion) > 0 {
-		fullQuestion = strings.TrimSpace(userQuestion[0])
-	}
+	fullQuestion := strings.TrimSpace(userQuestionRaw)
+	skinContext = strings.TrimSpace(skinContext)
 	// Vision gets a sanitized hint — clinic shopping / price Qs often trigger refusal.
 	// Align + callers still use fullQuestion for tips/answer grounding.
 	visionHint := VisionSafeUserQuestionHint(fullQuestion)
@@ -106,10 +128,49 @@ func AdminSkinReviewAnalyze(
 		return nil, "", err
 	}
 
+	userText := adminSkinReviewUserText(locale, false, visionHint) + AdminSkinContextBlock(skinContext, locale)
+
+	// Second independent sample of the SAME photos, in parallel so it costs latency
+	// nothing. Used only to detect disagreement — see downgradeAdminConfidenceOnDisagreement.
+	type sampleResult struct {
+		analysis *dto.AdminSkinReviewAnalysis
+	}
+	secondCh := make(chan sampleResult, 1)
+	if adminSkinReviewVisionSamples > 1 {
+		go func() {
+			out := sampleResult{}
+			defer func() {
+				// A crash in the advisory sample must never fail the review.
+				if r := recover(); r != nil {
+					slog.Warn("admin skin review: second sample panicked", "recover", r)
+					secondCh <- sampleResult{}
+					return
+				}
+				secondCh <- out
+			}()
+			rawB, metaB, errB := callAdminSkinReviewVision(ctx, cfg, httpClient, model, AdminSkinReviewSystemPrompt(), userText, imageParts, "openai-admin-skin-review-sample2")
+			if errB != nil || adminSkinEmptyOrRefused(rawB, metaB) {
+				return
+			}
+			jsonB, jErr := ExtractJSONObject(rawB)
+			if jErr != nil || len(jsonB) == 0 {
+				return
+			}
+			parsedB, pErr := parseAdminSkinReviewAnalysis(jsonB, locale)
+			if pErr != nil {
+				return
+			}
+			out.analysis = parsedB
+		}()
+	} else {
+		secondCh <- sampleResult{}
+	}
+
 	// Attempt 1 — full prompt.
 	usedCompact := false
-	raw, meta, err := callAdminSkinReviewVision(ctx, cfg, httpClient, model, AdminSkinReviewSystemPrompt(), adminSkinReviewUserText(locale, false, visionHint), imageParts, "openai-admin-skin-review")
+	raw, meta, err := callAdminSkinReviewVision(ctx, cfg, httpClient, model, AdminSkinReviewSystemPrompt(), userText, imageParts, "openai-admin-skin-review")
 	if err != nil {
+		// secondCh is buffered, so the advisory sample can finish and exit on its own.
 		return nil, "", err
 	}
 	if adminSkinEmptyOrRefused(raw, meta) {
@@ -155,6 +216,18 @@ func AdminSkinReviewAnalyze(
 	}
 	// Soften close-up laterality + align public tips/causes with the full user question.
 	_ = AlignAdminSkinAnalysisWithQuestion(parsed, fullQuestion, locale)
+	// Classify with the shared Go rules, repair concern enums the prose contradicts,
+	// then downgrade confidence if the independent sample read a different group.
+	_ = applyAdminMorphologyVerdict(parsed, locale)
+	parsed.SkinContext = skinContext
+	if second := <-secondCh; second.analysis != nil {
+		if downgradeAdminConfidenceOnDisagreement(parsed, second.analysis, locale) {
+			slog.Info("admin skin review: vision samples disagreed — confidence lowered",
+				"primary_group", parsed.MorphologyGroup,
+				"second_group", adminMorphologyVerdict(second.analysis).Group,
+			)
+		}
+	}
 	if usedCompact {
 		thinRegions := adminSkinThinProblemRegions(parsed)
 		ovSent := countAdminSkinSentences(parsed.Overview)

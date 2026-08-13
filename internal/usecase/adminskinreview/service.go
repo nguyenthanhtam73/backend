@@ -47,12 +47,15 @@ type CreateInput struct {
 	Answer       string
 	Status       string
 	Locale       string
-	Images       []UploadImage
+	// SkinContext holds touch / pain / duration answers that a photo cannot show.
+	SkinContext string
+	Images      []UploadImage
 }
 
 const (
 	maxUserQuestionRunes = 2000
 	maxAnswerRunes       = 4000
+	maxSkinContextRunes  = 1000
 )
 
 // Service orchestrates storage + Premium vision analysis + persistence.
@@ -112,6 +115,10 @@ func (s *Service) Create(ctx context.Context, adminUserID uuid.UUID, in CreateIn
 	if err != nil {
 		return zero, err
 	}
+	skinContext, err := clampAdminSkinText(in.SkinContext, maxSkinContextRunes)
+	if err != nil {
+		return zero, err
+	}
 
 	rels := make([]string, 0, len(in.Images))
 	aiImgs := make([]ai.ImageBytes, 0, len(in.Images))
@@ -126,7 +133,7 @@ func (s *Service) Create(ctx context.Context, adminUserID uuid.UUID, in CreateIn
 		aiImgs = append(aiImgs, ai.ImageBytes{Data: img.Data})
 	}
 
-	analysis, modelUsed, err := ai.AdminSkinReviewAnalyze(ctx, s.cfg, s.httpClient, aiImgs, locale, userQuestion)
+	analysis, modelUsed, err := ai.AdminSkinReviewAnalyzeWithContext(ctx, s.cfg, s.httpClient, aiImgs, locale, userQuestion, skinContext)
 	if err != nil {
 		return zero, fmt.Errorf("%w: %v", ErrAnalysis, err)
 	}
@@ -146,6 +153,7 @@ func (s *Service) Create(ctx context.Context, adminUserID uuid.UUID, in CreateIn
 		UserQuestion:     userQuestion,
 		Answer:           answer,
 		Status:           status,
+		SkinContext:      skinContext,
 		ImagePaths:       pathsJSON,
 		PublicImagePaths: json.RawMessage("[]"),
 		Analysis:         analysisJSON,
@@ -186,8 +194,8 @@ func (s *Service) Patch(
 	if s == nil || s.repo == nil {
 		return zero, ErrUnavailable
 	}
-	if req.Title == nil && req.Notes == nil && req.UserQuestion == nil && req.Answer == nil && req.Status == nil {
-		return zero, fmt.Errorf("%w: provide title, notes, user_question, answer, and/or status", ErrInvalidInput)
+	if req.Title == nil && req.Notes == nil && req.UserQuestion == nil && req.Answer == nil && req.Status == nil && req.Analysis == nil {
+		return zero, fmt.Errorf("%w: provide title, notes, user_question, answer, status, and/or analysis", ErrInvalidInput)
 	}
 	if req.Status != nil {
 		st := strings.TrimSpace(*req.Status)
@@ -241,15 +249,71 @@ func (s *Service) Patch(
 		}
 	}
 
-	row, err := s.repo.UpdateMeta(ctx, id, req.Title, req.Notes, req.UserQuestion, req.Answer, req.Status)
-	if err != nil {
-		return zero, err
+	row := existing
+	if req.Title != nil || req.Notes != nil || req.UserQuestion != nil || req.Answer != nil || req.Status != nil {
+		updated, uerr := s.repo.UpdateMeta(ctx, id, req.Title, req.Notes, req.UserQuestion, req.Answer, req.Status)
+		if uerr != nil {
+			return zero, uerr
+		}
+		if updated == nil {
+			return zero, ErrNotFound
+		}
+		row = updated
 	}
-	if row == nil {
-		return zero, ErrNotFound
+
+	// Operator correction: keep the model's first answer as labeled data.
+	if req.Analysis != nil {
+		corrected, cerr := s.applyAnalysisCorrection(ctx, id, existing, *req.Analysis)
+		if cerr != nil {
+			return zero, cerr
+		}
+		row = corrected
 	}
+
 	rels, _ := dto.DecodeStringSlice(row.ImagePaths)
 	return dto.FromDomainAdminSkinReview(row, publicUploadURLs(rels)), nil
+}
+
+// applyAnalysisCorrection stores an operator-edited analysis, preserving the AI's
+// original read the first time a row is corrected.
+func (s *Service) applyAnalysisCorrection(
+	ctx context.Context,
+	id uuid.UUID,
+	existing *domain.AdminSkinReview,
+	incoming dto.AdminSkinReviewAnalysis,
+) (*domain.AdminSkinReview, error) {
+	next := incoming
+	dto.NormalizeAdminSkinReviewAnalysis(&next, existing.Locale)
+	if strings.TrimSpace(next.Overview) == "" {
+		return nil, fmt.Errorf("%w: analysis.overview is required", ErrInvalidInput)
+	}
+	// Carry the context the analysis was produced with, so corrections stay comparable.
+	if strings.TrimSpace(next.SkinContext) == "" {
+		next.SkinContext = existing.SkinContext
+	}
+	// A human just decided what this is, which outranks the classifier's uncertainty —
+	// leaving "chưa đủ chốt nhóm" on a reviewed analysis would contradict the correction
+	// (and would keep showing that banner on the published share page).
+	next.NeedsMoreInfo = false
+	next.ClarifyQuestions = nil
+	next.Confidence = "high"
+	correctedJSON, err := json.Marshal(next)
+	if err != nil {
+		return nil, fmt.Errorf("marshal corrected analysis: %w", err)
+	}
+	// Only the FIRST correction snapshots the original — later edits must not overwrite it.
+	var originalJSON []byte
+	if len(existing.AnalysisOriginal) == 0 && len(existing.Analysis) > 0 {
+		originalJSON = existing.Analysis
+	}
+	row, err := s.repo.UpdateAnalysisCorrection(ctx, id, correctedJSON, originalJSON, time.Now())
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, ErrNotFound
+	}
+	return row, nil
 }
 
 // Reanalyze re-runs vision on saved images using the current (or override) user_question
@@ -292,6 +356,24 @@ func (s *Service) Reanalyze(
 		}
 	}
 
+	// Answers to the clarify questions arrive after the first analysis — persist them so
+	// this re-run (and any later one) reads the photo with that evidence in hand.
+	if req.SkinContext != nil {
+		sc, cerr := clampAdminSkinText(*req.SkinContext, maxSkinContextRunes)
+		if cerr != nil {
+			return zero, cerr
+		}
+		if sc != strings.TrimSpace(row.SkinContext) {
+			updated, uerr := s.repo.UpdateSkinContext(ctx, id, sc)
+			if uerr != nil {
+				return zero, uerr
+			}
+			if updated != nil {
+				row = updated
+			}
+		}
+	}
+
 	rels, _ := dto.DecodeStringSlice(row.ImagePaths)
 	if len(rels) == 0 {
 		return zero, fmt.Errorf("%w: no images to reanalyze", ErrInvalidInput)
@@ -311,7 +393,7 @@ func (s *Service) Reanalyze(
 		return zero, fmt.Errorf("%w: no readable images", ErrAnalysis)
 	}
 
-	analysis, modelUsed, err := ai.AdminSkinReviewAnalyze(ctx, s.cfg, s.httpClient, aiImgs, row.Locale, question)
+	analysis, modelUsed, err := ai.AdminSkinReviewAnalyzeWithContext(ctx, s.cfg, s.httpClient, aiImgs, row.Locale, question, row.SkinContext)
 	if err != nil {
 		return zero, fmt.Errorf("%w: %v", ErrAnalysis, err)
 	}

@@ -33,6 +33,16 @@ type AdminSkinReviewAnalysis struct {
 	SoothingTips  []string `json:"soothing_tips"`
 	NonDiagnostic string   `json:"non_diagnostic"`
 
+	// Morphology verdict from the Go classifier (service/ai/morphology_classify.go).
+	// NeedsMoreInfo + ClarifyQuestions let the review say "chưa đủ chốt" instead of
+	// committing to a look-alike group that would drive the wrong care advice.
+	MorphologyGroup  string   `json:"morphology_group,omitempty"`
+	Confidence       string   `json:"confidence,omitempty"` // high|medium|low
+	NeedsMoreInfo    bool     `json:"needs_more_info,omitempty"`
+	ClarifyQuestions []string `json:"clarify_questions,omitempty"`
+	// SkinContext holds the operator-supplied touch/pain/duration answers used for this analysis.
+	SkinContext string `json:"skin_context,omitempty"`
+
 	// Legacy fields kept for unmarshaling older saved reviews.
 	OverallSeverity  string `json:"overall_severity,omitempty"`
 	ExtraNotes       string `json:"extra_notes,omitempty"`
@@ -58,6 +68,13 @@ type AdminSkinReviewResponse struct {
 	SharePath    string                  `json:"share_path,omitempty"` // e.g. /share/skin-review/{slug}
 	CreatedAt    string                  `json:"created_at"`
 	UpdatedAt    string                  `json:"updated_at"`
+
+	// SkinContext is the operator's touch/pain/duration input used for this analysis.
+	SkinContext string `json:"skin_context,omitempty"`
+	// AnalysisCorrected is true when an operator edited the AI read (labeled data exists).
+	AnalysisCorrected   bool                     `json:"analysis_corrected,omitempty"`
+	AnalysisCorrectedAt string                   `json:"analysis_corrected_at,omitempty"`
+	AnalysisOriginal    *AdminSkinReviewAnalysis `json:"analysis_original,omitempty"`
 }
 
 // PublicSkinReviewResponse is the unauthenticated share payload.
@@ -89,12 +106,15 @@ type PublicSkinReviewSitemapResponse struct {
 }
 
 // PatchAdminSkinReviewRequest updates optional metadata after analysis.
+// Analysis lets an operator correct the AI's read (e.g. a wrong morphology group);
+// the model's first answer is preserved as labeled data for accuracy eval.
 type PatchAdminSkinReviewRequest struct {
-	Title        *string `json:"title"`
-	Notes        *string `json:"notes"`
-	UserQuestion *string `json:"user_question"`
-	Answer       *string `json:"answer"`
-	Status       *string `json:"status"`
+	Title        *string                  `json:"title"`
+	Notes        *string                  `json:"notes"`
+	UserQuestion *string                  `json:"user_question"`
+	Answer       *string                  `json:"answer"`
+	Status       *string                  `json:"status"`
+	Analysis     *AdminSkinReviewAnalysis `json:"analysis"`
 }
 
 // SuggestAdminSkinReviewAnswerRequest drafts a public reply from Q + analysis.
@@ -112,9 +132,14 @@ type SuggestAdminSkinReviewAnswerResponse struct {
 	Analysis *AdminSkinReviewAnalysis `json:"analysis,omitempty"`
 }
 
-// ReanalyzeAdminSkinReviewRequest re-runs vision on saved images with optional question override.
+// ReanalyzeAdminSkinReviewRequest re-runs vision on saved images with optional overrides.
+//
+// SkinContext exists so the clarify questions are actionable: when the analysis says it
+// cannot separate milia from closed comedones and asks how the bumps feel, the operator
+// gets that answer from the user and re-runs with it — without re-uploading the photos.
 type ReanalyzeAdminSkinReviewRequest struct {
 	UserQuestion *string `json:"user_question"`
+	SkinContext  *string `json:"skin_context"`
 }
 
 // AdminSkinReviewListItem is a compact row for the admin list table.
@@ -186,8 +211,20 @@ func FromDomainAdminSkinReview(row *domain.AdminSkinReview, imageURLs []string) 
 		ModelUsed:    row.ModelUsed,
 		IsPublic:     row.IsPublic,
 		PublicSlug:   row.PublicSlug,
+		SkinContext:  row.SkinContext,
 		CreatedAt:    row.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:    row.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+	if row.AnalysisCorrectedAt != nil {
+		out.AnalysisCorrected = true
+		out.AnalysisCorrectedAt = row.AnalysisCorrectedAt.UTC().Format(time.RFC3339)
+	}
+	if len(row.AnalysisOriginal) > 0 {
+		original := AdminSkinReviewAnalysis{}
+		if err := json.Unmarshal(row.AnalysisOriginal, &original); err == nil {
+			NormalizeAdminSkinReviewAnalysis(&original, row.Locale)
+			out.AnalysisOriginal = &original
+		}
 	}
 	if row.PublishedAt != nil {
 		out.PublishedAt = row.PublishedAt.UTC().Format(time.RFC3339)
@@ -208,6 +245,7 @@ func FromDomainPublicSkinReview(row *domain.AdminSkinReview, blurredURLs []strin
 		_ = json.Unmarshal(row.Analysis, &analysis)
 	}
 	NormalizeAdminSkinReviewAnalysis(&analysis, row.Locale)
+	StripInternalAnalysisFields(&analysis)
 	if blurredURLs == nil {
 		blurredURLs = []string{}
 	}
@@ -226,6 +264,20 @@ func FromDomainPublicSkinReview(row *domain.AdminSkinReview, blurredURLs []strin
 		out.PublishedAt = row.PublishedAt.UTC().Format(time.RFC3339)
 	}
 	return out
+}
+
+// StripInternalAnalysisFields removes operator-only data before an analysis is served
+// on the unauthenticated share page.
+//
+// SkinContext is what the user reported about their own skin (firmness, pain, how long)
+// — it is collected to pick the right group, not to be published, and the analysis JSON
+// is shared verbatim on /share/skin-review. Uncertainty fields stay: telling a public
+// reader the photo could not settle the group is the honest thing to do.
+func StripInternalAnalysisFields(a *AdminSkinReviewAnalysis) {
+	if a == nil {
+		return
+	}
+	a.SkinContext = ""
 }
 
 // NormalizeAdminSkinReviewAnalysis fills new fields from legacy keys when needed.

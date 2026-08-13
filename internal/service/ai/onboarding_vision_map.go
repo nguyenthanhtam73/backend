@@ -32,14 +32,14 @@ func mapOnboardingVisionRaw(raw onboardingVisionRaw, locale string) dto.Onboardi
 	sufficient, confidence, tips := mapOnboardingPhotoQuality(raw.PhotoQuality, locale)
 
 	out := dto.OnboardingSkinAnalyzeResponse{
-		SkinTypeGuess:        mapOnboardingSkinType(obs.OverallSkinType),
-		UndertoneGuess:       mapOnboardingUndertoneGuess(raw.Undertone, raw.SkinTone),
-		Concerns:             concerns,
-		SuggestedGoal:        inferOnboardingSuggestedGoal(concerns),
-		BarrierSignal:        inferOnboardingBarrierSignal(obs.Redness, obs.Texture),
-		Confidence:           confidence,
-		VisualObservations:   buildOnboardingVisualObservations(obs, raw.DetailedObservations, locale),
-		CoachingNotes:        "",
+		SkinTypeGuess:      mapOnboardingSkinType(obs.OverallSkinType),
+		UndertoneGuess:     mapOnboardingUndertoneGuess(raw.Undertone, raw.SkinTone),
+		Concerns:           concerns,
+		SuggestedGoal:      inferOnboardingSuggestedGoal(concerns),
+		BarrierSignal:      inferOnboardingBarrierSignal(obs.Redness, obs.Texture),
+		Confidence:         confidence,
+		VisualObservations: buildOnboardingVisualObservations(obs, raw.DetailedObservations, locale),
+		CoachingNotes:      "",
 		PhotoQuality: struct {
 			Sufficient bool     `json:"sufficient"`
 			Tips       []string `json:"tips"`
@@ -58,6 +58,9 @@ func mapOnboardingVisionRaw(raw onboardingVisionRaw, locale string) dto.Onboardi
 		raw.Summary,
 		locale,
 	)
+	// Reconcile labels with the prose BEFORE product guidance is derived — guidance keys
+	// off phase/concerns, so a wrong group here becomes wrong routine advice.
+	alignOnboardingMorphology(&out, locale)
 	guidance, suggestions := BuildOnboardingProductGuidance(
 		out.Phase,
 		out.SeverityLevel,
@@ -151,12 +154,17 @@ func onboardingPhotoQualityTips(locale string, poor bool) []string {
 
 // mapOnboardingConcernLabel maps a single vision main_concern label to a stable concern id.
 func mapOnboardingConcernLabel(label string) string {
+	raw := strings.ToLower(strings.TrimSpace(label))
+	// Skin tags are not face acne — do not map "mụn thịt" via the generic "mụn" rule.
+	if strings.Contains(raw, "mụn thịt") || strings.Contains(raw, "mun thit") || strings.Contains(raw, "skin tag") {
+		return ""
+	}
+
 	n := normalizeConcernLabel(label)
 	if id, ok := concernLabelAliases[n]; ok {
 		return id
 	}
 
-	raw := strings.ToLower(strings.TrimSpace(label))
 	for _, rule := range concernLabelSubstrings {
 		for _, substr := range rule.contains {
 			if strings.Contains(raw, substr) {
@@ -230,6 +238,9 @@ var concernLabelAliases = map[string]string{
 	"uneven texture": "uneven_texture", "uneven_texture": "uneven_texture",
 	"da khong deu": "uneven_texture", "da không đều": "uneven_texture",
 	"da hoi san": "uneven_texture", "da hơi sần": "uneven_texture",
+	"san sui": "uneven_texture", "sần sùi": "uneven_texture",
+	"da khong min deu": "uneven_texture", "da không mịn đều": "uneven_texture",
+	"milia": "acne", "mun an hoac milia": "acne",
 }
 
 var concernLabelSubstrings = []struct {
@@ -243,7 +254,7 @@ var concernLabelSubstrings = []struct {
 	{"large_pores", []string{"chân lông", "chan long", "pore"}},
 	{"redness", []string{"dễ kích ứng", "da đỏ", "ửng đỏ"}},
 	{"weak_barrier", []string{"barrier", "yếu hơn bình thường", "da dễ đỏ", "da yếu"}},
-	{"uneven_texture", []string{"hơi sần", "không mịn", "không đều"}},
+	{"uneven_texture", []string{"sần sùi", "san sui", "gồ ghề không đều", "hơi sần", "không mịn", "không đều"}},
 }
 
 func normalizeConcernLabel(s string) string {
@@ -341,12 +352,8 @@ func inferOnboardingBarrierSignal(redness, texture string) string {
 	case "mild":
 		return "unclear"
 	}
-	switch normLower(texture) {
-	case "rough", "bumpy":
-		return "possibly_compromised"
-	case "slightly_rough":
-		return "unclear"
-	}
+	// Texture-only (milia / sần không đỏ) is not a barrier flare — don't push calm_first from bumpiness alone.
+	_ = texture
 	return "likely_ok"
 }
 

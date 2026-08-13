@@ -99,6 +99,28 @@ func jsonQuote(s string) string {
 	return string(b)
 }
 
+// assertClaudeThenGPTFallback checks the hybrid contract: Claude was attempted and
+// OpenAI served the final answer.
+//
+// It deliberately does not assert an exact call count. Claude 5xx/504 are transient, so
+// CallAIWithRetry burns its retry budget before falling back — that budget is a tuning
+// knob, not a contract, and pinning it here made these tests fail on a retry-policy
+// change that was working as intended.
+func assertClaudeThenGPTFallback(t *testing.T, hits []string) {
+	t.Helper()
+	if len(hits) < 2 {
+		t.Fatalf("calls=%v want at least one claude attempt then gpt", hits)
+	}
+	if last := hits[len(hits)-1]; last != "/v1/chat/completions" {
+		t.Fatalf("calls=%v want gpt to serve the answer last", hits)
+	}
+	for _, h := range hits[:len(hits)-1] {
+		if h != "/v1/messages" {
+			t.Fatalf("calls=%v want only claude attempts before the gpt fallback", hits)
+		}
+	}
+}
+
 func wireHybridEndpoints(t *testing.T, srv *httptest.Server) func() {
 	t.Helper()
 	prevAnthropic := anthropicMessagesURL
@@ -152,9 +174,7 @@ func TestHybridPipeline_DailyFeedback(t *testing.T) {
 		if !strings.Contains(out.SituationAnalysis, mockCoachGPTMarker) {
 			t.Fatalf("want gpt marker, got %q", out.SituationAnalysis)
 		}
-		if len(*hits) != 2 || (*hits)[0] != "/v1/messages" || (*hits)[1] != "/v1/chat/completions" {
-			t.Fatalf("calls=%v want claude then gpt", *hits)
-		}
+		assertClaudeThenGPTFallback(t, *hits)
 	})
 }
 
@@ -200,9 +220,7 @@ func TestHybridPipeline_RoutineSuggest(t *testing.T) {
 		if !strings.Contains(out.Encouragement, mockRoutineGPT) {
 			t.Fatalf("want gpt marker, got %q", out.Encouragement)
 		}
-		if len(*hits) != 2 {
-			t.Fatalf("calls=%v", *hits)
-		}
+		assertClaudeThenGPTFallback(t, *hits)
 	})
 }
 
@@ -241,9 +259,7 @@ func TestHybridPipeline_StarterRoutine(t *testing.T) {
 		if !strings.Contains(out.Encouragement, mockStarterGPT) {
 			t.Fatalf("want gpt marker, got %q", out.Encouragement)
 		}
-		if len(*hits) != 2 {
-			t.Fatalf("calls=%v", *hits)
-		}
+		assertClaudeThenGPTFallback(t, *hits)
 	})
 }
 

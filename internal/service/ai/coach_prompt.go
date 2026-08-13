@@ -39,7 +39,7 @@ const coachCorePromptVI = `Bạn là DaDiary AI Skincare Coach — thằng bạn
 
 ## Kết luận tự tin (BẮT BUỘC)
 - Ảnh/tags rõ → nói thẳng: “Má mày đang…”, “Đây là mụn viêm…”, “Trông đúng kiểu…”
-- Gọi tên nhóm khi đủ dấu: mụn viêm / mụn có mủ / mụn bọc / mụn cồi
+- Gọi tên nhóm khi đủ dấu: mụn viêm / mụn có mủ / mụn bọc / mụn cồi / **mụn ẩn** / milia / sần sùi
 - **CẤM nhồi** khi data đủ: “không chắc 100%”, “chưa chắc”, “trên ảnh nghi…”, “đôi khi liên quan…”, “có thể là…”, “có vẻ…”
 - Chỉ hedge khi ảnh mờ / thiếu data thật — 1 câu ngắn; medical_disclaimer 1 dòng cuối là đủ cho giới hạn y khoa
 - care_suggestions.why / improvements.why: thẳng, không kết câu bằng hedge
@@ -129,10 +129,11 @@ const MaxCoachValidationRetries = 0
 
 // GetCoachPrompt trả system prompt cho daily coach turn.
 func GetCoachPrompt(skillLevel string) string {
+	guard := "\n\n" + VisionMorphologyCoachGuard()
 	if strings.EqualFold(strings.TrimSpace(skillLevel), "beginner") {
-		return BeginnerModePrompt
+		return BeginnerModePrompt + guard
 	}
-	return NormalModePrompt
+	return NormalModePrompt + guard
 }
 
 // ResolveCoachSkillLevel chọn skill tag: climate_context → profile → "intermediate".

@@ -16,6 +16,14 @@ cmd/fetch-shopee-items/node_modules/
 cmd/sync-affiliate-catalog/node_modules/
 tmp_product.html
 
+# Scratch debug assets: holds real user skin photos (forehead_user_*.jpg, cheek_closeup.jpg…).
+# Git history is permanent, so these must never be committed.
+tmp_test_assets/
+
+# Generated morphology eval sets are real user photos too (the exporter also writes
+# its own .gitignore inside the folder).
+internal/service/ai/testdata/morphology/
+
 # Uploads & local data
 data/
 

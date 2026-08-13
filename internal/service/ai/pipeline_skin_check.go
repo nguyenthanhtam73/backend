@@ -94,6 +94,11 @@ func runVisionObservationPass(
 		slog.Warn("skin-check: vision pass failed", "err", vErr)
 		return "", "unavailable"
 	}
+	// Fix morphology mislabels before the coach builds care advice on them.
+	if fixed, changed := SanitizeCheckInVisionJSON(raw, "vi"); changed {
+		slog.Info("skin-check: vision morphology labels aligned")
+		raw = fixed
+	}
 	return raw, "ok"
 }
 
@@ -180,6 +185,14 @@ func buildSkinCheckCoachUserMessage(
 		userMsg.WriteString("The following VISION_SUMMARY_JSON was produced by a separate vision-only pass over the user's check-in photos. It is NOT a diagnosis — only soft visual cues.\n\n")
 		userMsg.WriteString("VISION_SUMMARY_JSON:\n")
 		userMsg.WriteString(visionRaw)
+		// The vision pass flags blur / bad light / crop. Without this the coach reads a
+		// bad photo as confidently as a good one and the user never learns to retake.
+		if limited, note := CheckInVisionPhotoLimited(visionRaw); limited {
+			userMsg.WriteString("\n\nPHOTO_LIMITED: ")
+			userMsg.WriteString(note)
+			userMsg.WriteString("\nThe photo limits what can be read. Say so in ONE short clause, keep the read cautious for the affected cue, and put a retake ask in routine_hints using these: ")
+			userMsg.WriteString(strings.Join(RetakePhotoTips("vi"), " | "))
+		}
 	default:
 		userMsg.WriteString("VISION_SUMMARY_JSON: <unavailable for this turn — the separate vision pass could not run cleanly. Coach based on TODAY_CHECK_IN + RECENT_DIARY only, and acknowledge that no fresh photo cues are available in concern_alignment.>")
 	}

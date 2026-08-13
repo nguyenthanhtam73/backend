@@ -87,7 +87,7 @@ const VisionObservationSchemaBlock = `Return ONE JSON object only (no markdown).
     "angle_clarity": <string — a few words>,
     "limitations": <string — only if blurry/cropped/badly lit blocks a cue; else "">
   },
-  "visible_observations": [<string — ≤5 short confident bullets when signs are clear; region + cue + degree; morphology groups OK; do not invent hard disease names>],
+  "visible_observations": [<string — ≤5 short confident bullets when signs are clear; region + CORRECT morphology group + degree; e.g. mụn ẩn / milia / sần sùi / thâm quanh miệng / mụn thịt (neck only); do not invent hard disease names>],
   "texture_and_oil_cues": <string — one short sentence>,
   "redness_or_discoloration_cues": <string — one short sentence>,
   "uncertainty_note": <string — only when photo truly limits reading; else empty or one short clause>

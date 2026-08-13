@@ -97,6 +97,7 @@ func (h *AdminSkinReviewHandler) Create(c *fiber.Ctx) error {
 		Answer:       firstValue(form.Value["answer"]),
 		Status:       firstValue(form.Value["status"]),
 		Locale:       firstValue(form.Value["locale"]),
+		SkinContext:  firstValue(form.Value["skin_context"]),
 		Images:       images,
 	}
 

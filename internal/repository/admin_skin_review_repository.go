@@ -185,6 +185,74 @@ func (r *GormAdminSkinReviewRepository) UpdateAnalysis(
 	return r.GetByID(ctx, id)
 }
 
+// UpdateSkinContext saves the operator's touch / pain / duration answers.
+func (r *GormAdminSkinReviewRepository) UpdateSkinContext(
+	ctx context.Context,
+	id uuid.UUID,
+	skinContext string,
+) (*domain.AdminSkinReview, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("admin skin review id required")
+	}
+	res := db.WithContext(ctx).
+		Model(&domain.AdminSkinReview{}).
+		Where("id = ?", id).
+		Update("skin_context", strings.TrimSpace(skinContext))
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, nil
+	}
+	return r.GetByID(ctx, id)
+}
+
+// UpdateAnalysisCorrection saves an operator-corrected analysis.
+//
+// The model's answer is copied into analysis_original the first time a row is
+// corrected (never overwritten afterwards) so the (original, corrected) pair stays
+// usable as labeled data for accuracy measurement.
+func (r *GormAdminSkinReviewRepository) UpdateAnalysisCorrection(
+	ctx context.Context,
+	id uuid.UUID,
+	correctedJSON []byte,
+	originalJSON []byte,
+	correctedAt time.Time,
+) (*domain.AdminSkinReview, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if id == uuid.Nil {
+		return nil, fmt.Errorf("admin skin review id required")
+	}
+	if len(correctedJSON) == 0 {
+		return nil, fmt.Errorf("corrected analysis json required")
+	}
+	updates := map[string]any{
+		"analysis":              correctedJSON,
+		"analysis_corrected_at": correctedAt.UTC(),
+	}
+	if len(originalJSON) > 0 {
+		updates["analysis_original"] = originalJSON
+	}
+	res := db.WithContext(ctx).
+		Model(&domain.AdminSkinReview{}).
+		Where("id = ?", id).
+		Updates(updates)
+	if res.Error != nil {
+		return nil, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return nil, nil
+	}
+	return r.GetByID(ctx, id)
+}
+
 // AdminSkinReviewListFilter drives admin list pagination + status filter.
 type AdminSkinReviewListFilter struct {
 	Status   string // draft | published | "" (all)

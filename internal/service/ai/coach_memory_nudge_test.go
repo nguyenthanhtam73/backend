@@ -1,6 +1,9 @@
 package ai
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestCoachMemoryTurnChecklist(t *testing.T) {
 	if got := coachMemoryTurnChecklist("USER_MEMORY\nno saved memory yet"); got != "" {
@@ -12,7 +15,10 @@ func TestCoachMemoryTurnChecklist(t *testing.T) {
 	mustContain(t, got, "COACH_ACTION")
 
 	visionOnly := coachTurnChecklist("USER_MEMORY\n(no saved memory yet)", true)
-	mustContain(t, visionOnly, "≥4–6 photo details")
+	// The contract is the floor (MinVisionDetailCitations, which validation enforces);
+	// the upper bound in the copy is tuning, so asserting "≥4–6" only broke on rewording.
+	mustContain(t, visionOnly, "photo details")
+	mustContain(t, visionOnly, fmt.Sprintf("≥%d", MinVisionDetailCitations))
 	mustContain(t, visionOnly, "da hỗn hợp")
 }
 
