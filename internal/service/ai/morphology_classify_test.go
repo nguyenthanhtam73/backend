@@ -465,6 +465,43 @@ func TestGroupFromCorrectedArea(t *testing.T) {
 	}
 }
 
+// Real production notes: each region must be read from its own note. Appending the
+// whole-face overview leaked other regions' findings — a flat-pigment cheek note came out
+// inflamed, and an oily-nose note came out red and swollen.
+func TestAdminMorphologyVerdict_PerRegionNotesNotOverview(t *testing.T) {
+	t.Parallel()
+	a := &dto.AdminSkinReviewAnalysis{
+		Overview: "Má của mày đang có cụm mụn viêm đỏ sưng, vài nốt đầu trắng rõ. Mũi bóng dầu.",
+		AttentionAreas: []dto.AdminSkinAttentionArea{
+			{Region: "nose", Concern: "pores", Severity: "moderate",
+				Note: "Mũi của mày bóng dầu. Lỗ chân lông to rõ. Không thấy mụn viêm nổi bật ở đây."},
+			{Region: "cheeks", Concern: "pigmentation", Severity: "mild",
+				Note: "Má của mày có mảng thâm nâu phẳng, không nổi cục."},
+		},
+	}
+	// The nose note alone says nothing about inflammation; it must not inherit the
+	// overview's inflamed cheeks.
+	noseOnly := ClassifyMorphology(MorphologyFeaturesFromProse(a.AttentionAreas[0].Note, "nose"))
+	if GroupImpliesRedness(noseOnly.Group) {
+		t.Fatalf("oily-nose note must not read as inflamed, got %q", noseOnly.Group)
+	}
+
+	// Analysis level: pigment on cheeks is the only readable finding here.
+	got := adminMorphologyVerdict(a)
+	if got.Group != GroupPigment {
+		t.Fatalf("analysis group: got %q want %q", got.Group, GroupPigment)
+	}
+
+	// When a region genuinely needs calming, that region decides the care direction.
+	a.AttentionAreas = append(a.AttentionAreas, dto.AdminSkinAttentionArea{
+		Region: "chin", Concern: "pustules", Severity: "moderate",
+		Note: "Cằm của mày đang có cụm mụn viêm đỏ sưng. Có nốt đầu trắng rõ.",
+	})
+	if got := adminMorphologyVerdict(a); !GroupImpliesRedness(got.Group) {
+		t.Fatalf("an inflamed region must decide the analysis group, got %q", got.Group)
+	}
+}
+
 func TestWorstConfidence(t *testing.T) {
 	t.Parallel()
 	if got := WorstConfidence(ConfidenceHigh, ConfidenceLow, ConfidenceMedium); got != ConfidenceLow {

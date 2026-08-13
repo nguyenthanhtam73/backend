@@ -41,21 +41,52 @@ func adminPrimaryProblemArea(a *dto.AdminSkinReviewAnalysis) (dto.AdminSkinAtten
 }
 
 // adminMorphologyVerdict classifies the analysis from its own prose.
+//
+// Each region is classified from ITS OWN note. Appending the whole-face overview used to
+// leak other regions' findings into one area: a cheek note about flat pigment came out as
+// inflamed_acne because the overview described inflamed chin bumps, and a nose note about
+// oil and pores came out swollen and red for the same reason.
+//
+// The analysis-level group must then be the one that decides care, so a region needing
+// calming wins over regions that only need a gentle base.
 func adminMorphologyVerdict(a *dto.AdminSkinReviewAnalysis) MorphologyVerdict {
 	if a == nil {
 		return MorphologyVerdict{Group: GroupUnknown, Confidence: ConfidenceLow, NeedsMoreInfo: true}
 	}
-	area, ok := adminPrimaryProblemArea(a)
-	region := "cheeks"
-	prose := a.Overview
-	if ok {
-		region = area.Region
-		// Region note is the most specific description of the actual finding.
-		if strings.TrimSpace(area.Note) != "" {
-			prose = area.Note + ". " + a.Overview
+
+	best := MorphologyVerdict{Group: GroupUnknown, Confidence: ConfidenceLow, NeedsMoreInfo: true}
+	bestRank := -1
+	for _, ar := range a.AttentionAreas {
+		c := normLower(ar.Concern)
+		if c == "" || c == "none" || c == "not_visible" {
+			continue
+		}
+		prose := ar.Note
+		if strings.TrimSpace(prose) == "" {
+			// Only fall back to the overview when the region says nothing itself.
+			prose = a.Overview
+		}
+		v := ClassifyMorphology(MorphologyFeaturesFromProse(prose, ar.Region))
+
+		rank := 0 // known group needing only a gentle base
+		switch {
+		case v.Group == GroupUnknown:
+			rank = -1
+		case GroupImpliesRedness(v.Group):
+			rank = 2 // decides care: calm first
+		case normLower(ar.Region) == "cheeks":
+			rank = 1 // cheeks hold the look-alike cases we most need right
+		}
+		if rank > bestRank {
+			best, bestRank = v, rank
 		}
 	}
-	return ClassifyMorphology(MorphologyFeaturesFromProse(prose, region))
+
+	if bestRank < 0 {
+		// Nothing readable per region — try the overview as a whole.
+		return ClassifyMorphology(MorphologyFeaturesFromProse(a.Overview, "cheeks"))
+	}
+	return best
 }
 
 // applyAdminMorphologyVerdict records the verdict and repairs concern enums that the
