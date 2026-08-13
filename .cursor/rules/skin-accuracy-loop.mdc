@@ -18,6 +18,21 @@ everything downstream wrong while still reading confidently.
 - Admin, onboarding and check-in all concatenate the shared block. **Never fork it into one
   pipeline** — `TestVisionMorphologyRules_SharedAcrossPipelines` fails if you do.
 
+## Trigger: user says "soi lại da đi" (or asks to audit skin reviews)
+
+Run the audit — it needs no labels, no OpenAI spend, and no work from them:
+
+```powershell
+cd backend
+go run ./cmd/skin-review-audit --env .env.prod-eval.local --limit 20
+```
+
+Every `!!` line is a review that contradicts itself (a note denying redness under a
+red-bump chip, a group no region supports, a face note saying mụn thịt), so it is a rules
+or cue-parser bug, not a judgement call. Fix the cause, add a test using the real note
+text, then re-run. Reviews created before a fix shipped will still show findings — check
+the date before treating one as a live bug.
+
 ## When the user pastes eval output
 
 They ran `cmd/eval-morphology-export` + `TestMorphologyEvalLive` against production data.

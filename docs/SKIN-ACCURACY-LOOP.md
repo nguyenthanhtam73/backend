@@ -29,6 +29,25 @@ Before this loop existed there was no way to know how often the group was wrong.
 Never fork those rules into a single pipeline — a lock test fails if you do, because the
 whole point is that admin and user flows read a photo the same way.
 
+## Two kinds of improvement (don't confuse them)
+
+**Self-contradiction bugs — no labels needed.** A review that denies redness in a note
+while carrying a red-bump chip, or an analysis-level group no region supports, is wrong on
+its own terms. `cmd/skin-review-audit` finds these from data the operators generate just by
+using the tool:
+
+```powershell
+cd backend
+go run ./cmd/skin-review-audit --env .env.prod-eval.local --limit 20
+```
+
+Nothing about this is automatic, though: someone still has to run it, read it, and fix the
+code. Usage alone does not make the model better — there is no training here.
+
+**True accuracy — needs labels.** Whether the model actually read the photo right can only
+be answered by a human looking at it, which is what the correction button captures. That is
+the loop below.
+
 ## The loop
 
 1. **Operators label, just by reviewing.** In `/admin/skin-review`, a wrong group gets
