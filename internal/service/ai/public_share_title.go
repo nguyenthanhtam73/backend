@@ -93,6 +93,7 @@ func TitleFromUserQuestion(q, locale string) string {
 	}
 	q = trimShareLeadIns(q)
 	q = trimShareTails(q)
+	q = expandShareShorthand(q)
 	if q == "" {
 		return ""
 	}
@@ -219,6 +220,40 @@ func shareSegmentIsFiller(seg string) bool {
 		}
 	}
 	return true
+}
+
+// Whole-token chat shorthand people type on Facebook. Replaced only as a full
+// word so "kem" does not become "khôngem".
+var shareShorthand = map[string]string{
+	"kb":   "không biết",
+	"hqua": "hiệu quả",
+	"đtri": "điều trị",
+	"dtri": "điều trị",
+	"ntn":  "như thế nào",
+	"ko":   "không",
+	"kg":   "không",
+	"k":    "không",
+	"đc":   "được",
+	"dc":   "được",
+	"trc":  "trước",
+	"mn":   "mọi người",
+	"tv":   "tư vấn",
+}
+
+func expandShareShorthand(s string) string {
+	parts := strings.Fields(s)
+	for i, w := range parts {
+		core := strings.TrimRight(w, "?!.,:;…")
+		if core == "" {
+			continue
+		}
+		repl, ok := shareShorthand[strings.ToLower(core)]
+		if !ok {
+			continue
+		}
+		parts[i] = repl + w[len(core):]
+	}
+	return strings.Join(parts, " ")
 }
 
 func looksLikeQuestion(low string) bool {

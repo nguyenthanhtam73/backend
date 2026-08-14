@@ -42,6 +42,16 @@ func TestTitleFromUserQuestion(t *testing.T) {
 			in:   "cảm ơn mọi người ạ",
 			want: "",
 		},
+		{
+			name: "expands chat shorthand",
+			in:   "kb có hqua thật k",
+			want: "Không biết có hiệu quả thật không",
+		},
+		{
+			name: "expands treatment shorthand in a question",
+			in:   "Da nám thì phác đồ đtri ntn?",
+			want: "Da nám thì phác đồ điều trị như thế nào?",
+		},
 	}
 	for _, c := range cases {
 		if got := TitleFromUserQuestion(c.in, "vi"); got != c.want {

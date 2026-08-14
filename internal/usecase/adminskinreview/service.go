@@ -146,9 +146,14 @@ func (s *Service) Create(ctx context.Context, adminUserID uuid.UUID, in CreateIn
 		return zero, fmt.Errorf("marshal image paths: %w", err)
 	}
 
+	title := strings.TrimSpace(in.Title)
+	if title == "" && userQuestion != "" {
+		title = s.cleanShareTitle(ctx, userQuestion, locale)
+	}
+
 	row := &domain.AdminSkinReview{
 		AdminUserID:      adminUserID,
-		Title:            strings.TrimSpace(in.Title),
+		Title:            title,
 		Notes:            strings.TrimSpace(in.Notes),
 		UserQuestion:     userQuestion,
 		Answer:           answer,
@@ -574,6 +579,13 @@ func (s *Service) Publish(ctx context.Context, id uuid.UUID) (dto.AdminSkinRevie
 	if updated == nil {
 		return zero, ErrNotFound
 	}
+	if strings.TrimSpace(updated.Title) == "" && strings.TrimSpace(updated.UserQuestion) != "" {
+		if t := s.cleanShareTitle(ctx, updated.UserQuestion, updated.Locale); t != "" {
+			if next, uerr := s.repo.UpdateMeta(ctx, id, &t, nil, nil, nil, nil); uerr == nil && next != nil {
+				updated = next
+			}
+		}
+	}
 	origRels, _ := dto.DecodeStringSlice(updated.ImagePaths)
 	return dto.FromDomainAdminSkinReview(updated, publicUploadURLs(origRels)), nil
 }
@@ -767,4 +779,19 @@ func requireAnswerIfQuestion(userQuestion, answer string) error {
 		return fmt.Errorf("%w: answer required when user_question is set", ErrInvalidInput)
 	}
 	return nil
+}
+
+// cleanShareTitle writes a search-friendly title from the user's question.
+// Operator-supplied titles are never passed in here — callers only fill empties.
+// Falls back to the deterministic cleaner when the model is down.
+func (s *Service) cleanShareTitle(ctx context.Context, question, locale string) string {
+	if s == nil {
+		return ai.TitleFromUserQuestion(question, locale)
+	}
+	if s.cfg != nil && s.httpClient != nil {
+		if t, _, _ := ai.CleanShareTitle(ctx, s.cfg, s.httpClient, question, locale); t != "" {
+			return t
+		}
+	}
+	return ai.TitleFromUserQuestion(question, locale)
 }
