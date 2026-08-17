@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 
@@ -8,8 +10,10 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/dadiary/backend/pkg/alert"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -51,6 +55,7 @@ func (h *E2EHandler) Register(api fiber.Router) {
 		return
 	}
 	api.Post("/internal/e2e/force-plan", h.ForcePlan)
+	api.Post("/internal/e2e/routine/carried-over-fixture", h.RoutineCarriedOverFixture)
 	api.Get("/internal/e2e/alerts", h.ListAlerts)
 	api.Delete("/internal/e2e/alerts", h.ClearAlerts)
 	api.Get("/internal/e2e/ops-events", h.ListOpsEvents)
@@ -148,6 +153,111 @@ func (h *E2EHandler) ForcePlan(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"success": true,
 		"data":    dto.UserFromDomain(updated),
+	})
+}
+
+type carriedOverFixtureBody struct {
+	Email string `json:"email"`
+}
+
+// RoutineCarriedOverFixture seeds yesterday's routine and removes today's row so
+// GET /routines returns carried_over + saved=false (Playwright smoke only).
+func (h *E2EHandler) RoutineCarriedOverFixture(c *fiber.Ctx) error {
+	if !h.authorize(c) {
+		if h == nil || h.cfg == nil || !h.cfg.E2EHelpersEnabled() {
+			return c.SendStatus(fiber.StatusNotFound)
+		}
+		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"error":   fiber.Map{"code": "unauthorized", "message": "invalid e2e secret"},
+		})
+	}
+
+	var body carriedOverFixtureBody
+	if err := c.BodyParser(&body); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   fiber.Map{"code": "invalid_request", "message": "invalid json"},
+		})
+	}
+	email := strings.TrimSpace(strings.ToLower(body.Email))
+	if email == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"error":   fiber.Map{"code": "invalid_request", "message": "email required"},
+		})
+	}
+
+	user, err := h.users.GetByEmail(c.UserContext(), email)
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   fiber.Map{"code": "internal", "message": err.Error()},
+		})
+	}
+	if user == nil {
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"success": false,
+			"error":   fiber.Map{"code": "not_found", "message": "user not found"},
+		})
+	}
+
+	today := streaktime.Today()
+	yesterday := today.AddDate(0, 0, -1)
+	morningJSON, _ := json.Marshal([]fiber.Map{
+		{"id": "e2e-am-1", "title": "E2E Cleanser", "category": "cleanser", "completed": false},
+	})
+	eveningJSON, _ := json.Marshal([]fiber.Map{
+		{"id": "e2e-pm-1", "title": "E2E Moisturizer", "category": "moisturizer", "completed": false},
+	})
+
+	err = h.db.WithContext(c.UserContext()).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().
+			Where("user_id = ? AND routine_date = ?", user.ID, today).
+			Delete(&domain.RoutineEntry{}).Error; err != nil {
+			return err
+		}
+		var existing domain.RoutineEntry
+		find := tx.Unscoped().
+			Where("user_id = ? AND routine_date = ?", user.ID, yesterday).
+			First(&existing)
+		if find.Error != nil && !errors.Is(find.Error, gorm.ErrRecordNotFound) {
+			return find.Error
+		}
+		entry := domain.RoutineEntry{
+			ID:          uuid.New(),
+			UserID:      user.ID,
+			RoutineDate: yesterday,
+			Morning:     morningJSON,
+			Evening:     eveningJSON,
+			Source:      "manual",
+			SkillMode:   "beginner",
+		}
+		if find.Error == nil {
+			entry.ID = existing.ID
+			return tx.Model(&existing).Updates(map[string]interface{}{
+				"morning":     morningJSON,
+				"evening":     eveningJSON,
+				"source":      "manual",
+				"skill_mode":  "beginner",
+				"deleted_at":  nil,
+			}).Error
+		}
+		return tx.Create(&entry).Error
+	})
+	if err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"error":   fiber.Map{"code": "internal", "message": err.Error()},
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"success": true,
+		"data": fiber.Map{
+			"routine_date": yesterday.Format("2006-01-02"),
+			"carried_to":   today.Format("2006-01-02"),
+		},
 	})
 }
 

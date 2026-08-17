@@ -52,15 +52,15 @@ type RoutineResponse struct {
 
 // PutRoutineRequest is sent by POST /routines (create or update today).
 type PutRoutineRequest struct {
-	RoutineDate string        `json:"routine_date,omitempty"` // optional ISO date; defaults to "today UTC"
+	RoutineDate string        `json:"routine_date,omitempty"` // optional ISO date; server always writes today (VN calendar)
 	Morning     []RoutineStep `json:"morning"`
 	Evening     []RoutineStep `json:"evening"`
 	Notes       string        `json:"notes,omitempty"`
 	Source      string        `json:"source,omitempty"`     // "manual" | "ai_suggested" | "carried_over"
 	SkillMode   string        `json:"skill_mode,omitempty"` // beginner | intermediate | advanced
 	// SaveKind lets the server distinguish completion ticks from structural edits.
-	// tick_only → free users may autosave ticks without consuming manual-edit quota.
-	SaveKind string `json:"save_kind,omitempty"` // tick_only | manual_edit
+	// tick_only → autosave ticks; preference_only → skill_mode only; manual_edit → structural.
+	SaveKind string `json:"save_kind,omitempty"` // tick_only | preference_only | manual_edit
 }
 
 // SuggestRoutineRequest is sent by POST /routines/suggest. Body is optional —

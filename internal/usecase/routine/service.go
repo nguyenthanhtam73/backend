@@ -24,6 +24,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
+	"github.com/dadiary/backend/internal/streaktime"
 	usageuc "github.com/dadiary/backend/internal/usecase/usage"
 	"github.com/google/uuid"
 )
@@ -82,7 +83,7 @@ func (s *Service) GetCurrent(ctx context.Context, userID uuid.UUID) (dto.Routine
 	if s == nil || s.routines == nil {
 		return zero, fmt.Errorf("%w", ErrUnavailable)
 	}
-	today := todayUTC()
+	today := routineToday()
 
 	row, err := s.routines.GetByUserAndDate(ctx, userID, today)
 	if err != nil {
@@ -112,9 +113,9 @@ func (s *Service) GetCurrent(ctx context.Context, userID uuid.UUID) (dto.Routine
 	return out, nil
 }
 
-// Upsert validates the request and writes today's routine. When `routine_date`
-// is omitted, today (UTC) is used — making the "tick a step complete" use case
-// a single POST without the frontend having to know the date.
+// Upsert validates the request and writes today's routine (VN calendar via
+// streaktime). The client may omit routine_date — ticks and saves always land
+// on the civil "today" aligned with check-in streak.
 func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRoutineRequest) (dto.RoutineResponse, error) {
 	var zero dto.RoutineResponse
 	if s == nil || s.routines == nil {
@@ -124,34 +125,62 @@ func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRouti
 		return zero, fmt.Errorf("%w: user id required", ErrInvalidInput)
 	}
 
-	day, err := parseRoutineDate(req.RoutineDate)
-	if err != nil {
+	// Always write today's row. A client sending a past routine_date used to
+	// overwrite that day's snapshot when the history sheet "edit" loaded it
+	// into the live editor.
+	if _, err := parseRoutineDate(req.RoutineDate); err != nil {
 		return zero, err
 	}
+	day := routineToday()
+	tickOnly := usageuc.IsTickOnlySave(req.SaveKind)
+	preferenceOnly := usageuc.IsPreferenceOnlySave(req.SaveKind)
 
 	morning := sanitizeSteps(req.Morning)
 	evening := sanitizeSteps(req.Evening)
 
-	if len(morning) == 0 && len(evening) == 0 {
+	if !preferenceOnly && len(morning) == 0 && len(evening) == 0 {
 		return zero, fmt.Errorf("%w: morning and evening cannot both be empty", ErrInvalidInput)
 	}
 
-	// Completed steps are immutable once saved — merge with the existing row so
-	// clients cannot rename, delete, reorder, or untick confirmed steps.
 	existing, err := s.routines.GetByUserAndDate(ctx, userID, day)
 	if err != nil {
 		return zero, err
 	}
-	if existing != nil {
+
+	notes := strings.TrimSpace(req.Notes)
+	source := normalizeSource(req.Source)
+	skillMode := strings.ToLower(strings.TrimSpace(req.SkillMode))
+
+	if preferenceOnly {
+		if existing == nil {
+			return zero, fmt.Errorf("%w: nothing saved today to update skill mode", ErrInvalidInput)
+		}
+		if skillMode == "" {
+			return zero, fmt.Errorf("%w: skill_mode required for preference_only", ErrInvalidInput)
+		}
 		prior := dto.RoutineFromDomain(existing, true)
-		morning = mergeStepsPreservingCompleted(prior.Morning, morning)
-		evening = mergeStepsPreservingCompleted(prior.Evening, evening)
+		morning = prior.Morning
+		evening = prior.Evening
+		notes = existing.Notes
+		source = existing.Source
+	} else if tickOnly {
+		// Completion ticks only — do not persist dirty titles/order/notes, and
+		// do not consume Free manual-edit quota. Same-day untick is allowed.
+		if existing == nil {
+			return zero, fmt.Errorf("%w: nothing saved today to tick", ErrInvalidInput)
+		}
+		prior := dto.RoutineFromDomain(existing, true)
+		morning = overlayStepCompletions(prior.Morning, morning)
+		evening = overlayStepCompletions(prior.Evening, evening)
+		notes = existing.Notes
+		source = existing.Source
+		skillMode = existing.SkillMode
 		if len(morning) == 0 && len(evening) == 0 {
 			return zero, fmt.Errorf("%w: morning and evening cannot both be empty", ErrInvalidInput)
 		}
 	}
 
-	if s.usage != nil && !usageuc.IsTickOnlySave(req.SaveKind) {
+	if s.usage != nil && !tickOnly && !preferenceOnly {
 		if err := s.usage.AssertRoutineManualEdit(ctx, userID); err != nil {
 			return zero, err
 		}
@@ -171,16 +200,16 @@ func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRouti
 		RoutineDate: day,
 		Morning:     morningJSON,
 		Evening:     eveningJSON,
-		Notes:       strings.TrimSpace(req.Notes),
-		Source:      normalizeSource(req.Source),
-		SkillMode:   strings.ToLower(strings.TrimSpace(req.SkillMode)),
+		Notes:       notes,
+		Source:      source,
+		SkillMode:   skillMode,
 	}
 
 	saved, err := s.routines.UpsertForDay(ctx, entry)
 	if err != nil {
 		return zero, err
 	}
-	if s.usage != nil && !usageuc.IsTickOnlySave(req.SaveKind) {
+	if s.usage != nil && !tickOnly && !preferenceOnly {
 		if err := s.usage.RecordRoutineManualEdit(ctx, userID); err != nil {
 			return zero, err
 		}
@@ -205,7 +234,7 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, rangeDays int) 
 	if rangeDays > 365 {
 		rangeDays = 365
 	}
-	since := todayUTC().AddDate(0, 0, -rangeDays+1)
+	since := routineToday().AddDate(0, 0, -rangeDays+1)
 	rows, err := s.routines.ListForUserSince(ctx, userID, since, rangeDays)
 	if err != nil {
 		return zero, err
@@ -219,7 +248,7 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, rangeDays int) 
 	streak := computeStreak(rows)
 	avg := computeCompletionAvg(entries)
 
-	to := todayUTC().Format("2006-01-02")
+	to := streaktime.TodayString()
 	out := dto.RoutineHistoryResponse{
 		RangeDays:     rangeDays,
 		From:          since.Format("2006-01-02"),
@@ -466,7 +495,7 @@ func (s *Service) seedFromStarter(ctx context.Context, userID uuid.UUID) (dto.Ro
 	}
 	return dto.RoutineResponse{
 		UserID:      userID.String(),
-		RoutineDate: todayUTC().Format("2006-01-02"),
+		RoutineDate: streaktime.TodayString(),
 		Morning:     morning,
 		Evening:     evening,
 		Source:      "onboarding_starter",
@@ -497,36 +526,22 @@ func convertStarterList(v any) []dto.RoutineStep {
 	return out
 }
 
-// mergeStepsPreservingCompleted keeps every step that was already ticked complete
-// in the DB snapshot. Clients may add new steps or edit/reorder incomplete ones,
-// but cannot modify, delete, or untick confirmed steps.
-func mergeStepsPreservingCompleted(existing, incoming []dto.RoutineStep) []dto.RoutineStep {
-	locked := make(map[string]dto.RoutineStep)
-	for _, s := range existing {
-		if s.Completed {
-			locked[s.ID] = s
-		}
-	}
-	if len(locked) == 0 {
-		return incoming
-	}
-
-	out := make([]dto.RoutineStep, 0, len(incoming)+len(locked))
-	seenLocked := make(map[string]bool)
-
+// overlayStepCompletions copies completion flags from incoming onto the
+// persisted snapshot by id. Titles, order, notes, and membership stay as saved
+// — used for tick_only so a dirty editor cannot smuggle structural edits
+// (or burn Free quota). Untick is allowed.
+func overlayStepCompletions(existing, incoming []dto.RoutineStep) []dto.RoutineStep {
+	byID := make(map[string]dto.RoutineStep, len(incoming))
 	for _, s := range incoming {
-		if ls, ok := locked[s.ID]; ok {
-			out = append(out, ls)
-			seenLocked[s.ID] = true
+		if s.ID == "" {
 			continue
 		}
-		out = append(out, s)
+		byID[s.ID] = s
 	}
-
-	// Re-append locked steps the client tried to delete.
+	out := make([]dto.RoutineStep, 0, len(existing))
 	for _, s := range existing {
-		if !s.Completed || seenLocked[s.ID] {
-			continue
+		if live, ok := byID[s.ID]; ok {
+			s.Completed = live.Completed
 		}
 		out = append(out, s)
 	}
@@ -572,7 +587,7 @@ func normalizeSource(raw string) string {
 func parseRoutineDate(raw string) (time.Time, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
-		return todayUTC(), nil
+		return routineToday(), nil
 	}
 	d, err := time.Parse("2006-01-02", raw)
 	if err != nil {
@@ -581,9 +596,10 @@ func parseRoutineDate(raw string) (time.Time, error) {
 	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC), nil
 }
 
-func todayUTC() time.Time {
-	now := time.Now().UTC()
-	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+// routineToday is the civil "today" for routine rows — same VN calendar as
+// SkinCheck check_date and streak (Asia/Ho_Chi_Minh via streaktime).
+func routineToday() time.Time {
+	return streaktime.Today()
 }
 
 // computeStreak counts the number of consecutive most-recent days (starting
@@ -593,7 +609,7 @@ func computeStreak(rows []domain.RoutineEntry) int {
 	if len(rows) == 0 {
 		return 0
 	}
-	expected := todayUTC()
+	expected := routineToday()
 	streak := 0
 	for _, r := range rows {
 		d := r.RoutineDate.UTC()

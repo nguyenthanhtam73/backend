@@ -313,3 +313,8 @@ func (s *Service) RecordRoutineManualEdit(ctx context.Context, userID uuid.UUID)
 func IsTickOnlySave(kind string) bool {
 	return strings.EqualFold(strings.TrimSpace(kind), "tick_only")
 }
+
+// IsPreferenceOnlySave returns true when the client only updated skill_mode.
+func IsPreferenceOnlySave(kind string) bool {
+	return strings.EqualFold(strings.TrimSpace(kind), "preference_only")
+}
