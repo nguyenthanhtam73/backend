@@ -10,8 +10,9 @@ type UsageCounter struct {
 
 // WardrobeUsage describes skincare-shelf access for the current plan.
 //
-// Free users may create up to `limit` products (`can_write`); edit/delete
-// require Premium (`can_manage`). Premium is unlimited create + manage.
+// Free users may create up to `limit` products (`can_write`). Edit/delete
+// (`can_manage`) is allowed on every plan for items the user owns.
+// Premium is unlimited create + manage.
 type WardrobeUsage struct {
 	CanWrite  bool `json:"can_write"`
 	CanManage bool `json:"can_manage"`

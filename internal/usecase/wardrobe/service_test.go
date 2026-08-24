@@ -1,28 +1,24 @@
 package wardrobe
 
 import (
-	"context"
 	"testing"
-
-	"github.com/dadiary/backend/internal/dto"
-	"github.com/google/uuid"
 )
 
-func TestCreate_RequiresNameAndBrand(t *testing.T) {
-	svc := &Service{products: nil}
-	uid := uuid.New()
-
-	_, err := svc.Create(context.Background(), uid, dto.CreateWardrobeProductRequest{Name: ""})
+func TestNormalizeProductFields_NameRequiredBrandOptional(t *testing.T) {
+	_, _, _, _, _, err := normalizeProductFields("", "CeraVe", "", "", "")
 	if err == nil {
 		t.Fatal("expected error for empty name")
 	}
 
-	_, err = svc.Create(context.Background(), uid, dto.CreateWardrobeProductRequest{Name: "Cleanser", Brand: ""})
-	if err == nil {
-		t.Fatal("expected error for empty brand")
+	name, brand, _, _, _, err := normalizeProductFields("Cleanser", "", "", "", "")
+	if err != nil {
+		t.Fatalf("empty brand should be allowed: %v", err)
+	}
+	if name != "Cleanser" || brand != "" {
+		t.Fatalf("got name=%q brand=%q", name, brand)
 	}
 
-	_, err = svc.Create(context.Background(), uid, dto.CreateWardrobeProductRequest{Name: "   ", Brand: "CeraVe"})
+	_, _, _, _, _, err = normalizeProductFields("   ", "CeraVe", "", "", "")
 	if err == nil {
 		t.Fatal("expected error for whitespace-only name")
 	}

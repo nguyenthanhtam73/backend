@@ -23,7 +23,8 @@ const (
 	FreeRoutineSuggestPerMonth    = 3
 	FreeRoutineManualEditPerMonth = 5
 	// FreeWardrobeProductLimit is how many shelf items Free users may create.
-	// Premium / Premium+ are unlimited. Edit/delete still require wardrobe_full.
+	// Premium / Premium+ are unlimited. Edit/delete are allowed on every plan
+	// (ownership is enforced in the wardrobe usecase).
 	FreeWardrobeProductLimit = 3
 )
 
@@ -171,8 +172,8 @@ func (s *Service) GetQuota(ctx context.Context, userID uuid.UUID) (dto.UsageQuot
 		out.Features[string(f)] = quotaToFeatureDTO(q)
 	}
 	// Override wardrobe_full with live shelf slots so Free create uses the
-	// soft-paywall (allowed while remaining > 0). Manage stays Premium-only
-	// via AssertWardrobeManage / wardrobe.can_manage.
+	// soft-paywall (allowed while remaining > 0). Manage (edit/delete) is
+	// allowed for every signed-in user via wardrobe.can_manage.
 	out.Features[string(domain.FeatureWardrobeFull)] = wardrobeFeatureDTO(out.Wardrobe)
 	return out, nil
 }
@@ -204,7 +205,7 @@ func (s *Service) wardrobeUsage(ctx context.Context, userID uuid.UUID, paid bool
 	}
 	return dto.WardrobeUsage{
 		CanWrite:  remaining > 0,
-		CanManage: false,
+		CanManage: true,
 		Used:      used,
 		Limit:     FreeWardrobeProductLimit,
 		Remaining: remaining,
@@ -248,12 +249,16 @@ func (s *Service) AssertWardrobeCreate(ctx context.Context, userID uuid.UUID) er
 	return nil
 }
 
-// AssertWardrobeManage requires wardrobe_full (Premium / Premium+) for edit/delete.
+// AssertWardrobeManage allows any signed-in user to edit/delete their own
+// shelf items. Create stays capped via AssertWardrobeCreate.
 func (s *Service) AssertWardrobeManage(ctx context.Context, userID uuid.UUID) error {
 	if s == nil || s.gates == nil {
 		return fmt.Errorf("%w", ErrUnavailable)
 	}
-	return s.mapAssert(s.gates.AssertFeature(ctx, userID, domain.FeatureWardrobeFull))
+	if userID == uuid.Nil {
+		return fmt.Errorf("%w", ErrUnavailable)
+	}
+	return nil
 }
 
 // AssertWardrobeWrite is an alias for AssertWardrobeManage (edit/delete / full shelf).

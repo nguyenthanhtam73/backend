@@ -70,7 +70,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req dto.CreateWa
 	return dto.WardrobeProductFromDomain(p), nil
 }
 
-// Update edits a product owned by the user (Premium wardrobe_full).
+// Update edits a product owned by the user (any plan; ownership checked in repo).
 func (s *Service) Update(
 	ctx context.Context,
 	userID, productID uuid.UUID,
@@ -113,7 +113,7 @@ func (s *Service) Update(
 	return dto.WardrobeProductFromDomain(p), nil
 }
 
-// Delete soft-deletes a product owned by the user (Premium wardrobe_full).
+// Delete soft-deletes a product owned by the user (any plan; frees a Free create slot).
 func (s *Service) Delete(ctx context.Context, userID, productID uuid.UUID) error {
 	if s == nil || s.products == nil {
 		return fmt.Errorf("%w", ErrUnavailable)
@@ -175,9 +175,6 @@ func normalizeProductFields(
 		return "", "", "", "", nil, fmt.Errorf("%w: name is required", ErrInvalidInput)
 	}
 	brand = strings.TrimSpace(brandRaw)
-	if brand == "" {
-		return "", "", "", "", nil, fmt.Errorf("%w: brand is required", ErrInvalidInput)
-	}
 	category = strings.TrimSpace(categoryRaw)
 	notes = strings.TrimSpace(notesRaw)
 	opened, err = parseOpenedAt(openedRaw)

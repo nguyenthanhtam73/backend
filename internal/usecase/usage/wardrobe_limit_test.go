@@ -1,15 +1,17 @@
 package usage
 
 import (
+	"context"
 	"testing"
 
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/google/uuid"
 )
 
 func TestWardrobeFeatureDTO_FreeSlots(t *testing.T) {
 	mid := wardrobeFeatureDTO(dto.WardrobeUsage{
 		CanWrite:  true,
-		CanManage: false,
+		CanManage: true,
 		Used:      2,
 		Limit:     FreeWardrobeProductLimit,
 		Remaining: 1,
@@ -23,7 +25,7 @@ func TestWardrobeFeatureDTO_FreeSlots(t *testing.T) {
 
 	full := wardrobeFeatureDTO(dto.WardrobeUsage{
 		CanWrite:  false,
-		CanManage: false,
+		CanManage: true,
 		Used:      FreeWardrobeProductLimit,
 		Limit:     FreeWardrobeProductLimit,
 		Remaining: 0,
@@ -46,5 +48,15 @@ func TestWardrobeFeatureDTO_FreeSlots(t *testing.T) {
 func TestFreeWardrobeProductLimit(t *testing.T) {
 	if FreeWardrobeProductLimit != 3 {
 		t.Fatalf("expected FreeWardrobeProductLimit=3, got %d", FreeWardrobeProductLimit)
+	}
+}
+
+func TestAssertWardrobeManage_AllowsSignedIn(t *testing.T) {
+	s := NewService(nil, nil)
+	if err := s.AssertWardrobeManage(context.Background(), uuid.New()); err != nil {
+		t.Fatalf("signed-in manage: %v", err)
+	}
+	if err := s.AssertWardrobeManage(context.Background(), uuid.Nil); err == nil {
+		t.Fatal("expected error for nil user")
 	}
 }

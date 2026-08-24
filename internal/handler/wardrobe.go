@@ -69,10 +69,8 @@ func (h *WardrobeHandler) ScanProduct(c *fiber.Ctx) error {
 	if uid == uuid.Nil {
 		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
 	}
-	// Same create gate as POST /wardrobe/products (Free slot / Premium).
-	if err := h.svc.AssertCanCreate(c.UserContext(), uid); err != nil {
-		return mapWardrobeWriteError(c, err)
-	}
+	// Scan is suggestion-only (not persisted). Do not apply the Free create
+	// slot gate — that gate belongs on POST /wardrobe/products.
 
 	form, err := c.MultipartForm()
 	if err != nil {
