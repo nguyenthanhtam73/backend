@@ -10,6 +10,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/storage"
 	adminskinreviewuc "github.com/dadiary/backend/internal/usecase/adminskinreview"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
@@ -22,13 +23,21 @@ import (
 //
 // PublicShare is the unauthenticated GET by slug (registered without jwt/admin).
 type AdminSkinReviewHandler struct {
-	svc *adminskinreviewuc.Service
-	cfg *config.Config
+	svc   *adminskinreviewuc.Service
+	cfg   *config.Config
+	users userNamer
 }
 
 // NewAdminSkinReviewHandler constructs the handler.
 func NewAdminSkinReviewHandler(svc *adminskinreviewuc.Service, cfg *config.Config) *AdminSkinReviewHandler {
 	return &AdminSkinReviewHandler{svc: svc, cfg: cfg}
+}
+
+// AttachUsers lets admin-review photo keys include the operator username (Cloudflare R2 folders).
+func (h *AdminSkinReviewHandler) AttachUsers(users userNamer) {
+	if h != nil {
+		h.users = users
+	}
 }
 
 // Create handles POST /api/v1/admin/skin-review
@@ -82,7 +91,7 @@ func (h *AdminSkinReviewHandler) Create(c *fiber.Ctx) error {
 		if err := verifyImageBytes(data); err != nil {
 			return response.Error(c, fiber.StatusBadRequest, "invalid_image", "uploaded file is not a recognizable image")
 		}
-		rel := pathJoinSlash(adminID.String(), pathJoinSlash("admin-skin-review", uuid.New().String()+ext))
+		rel := uploadPhotoKey(c.UserContext(), h.users, adminID, storage.KindAdminSkinReview, ext)
 		images = append(images, adminskinreviewuc.UploadImage{
 			Rel:         rel,
 			Data:        data,

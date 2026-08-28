@@ -14,6 +14,7 @@ import (
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/analysis"
+	"github.com/dadiary/backend/internal/storage"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	"github.com/dadiary/backend/pkg/response"
@@ -27,6 +28,7 @@ type SkinCheckHandler struct {
 	repo    *repository.GormSkinCheckRepository
 	cfg     *config.Config
 	premium *premiumuc.Service
+	users   userNamer
 }
 
 // NewSkinCheckHandler constructs a SkinCheckHandler.
@@ -41,6 +43,13 @@ func NewSkinCheckHandler(
 	premium *premiumuc.Service,
 ) *SkinCheckHandler {
 	return &SkinCheckHandler{svc: svc, repo: repo, cfg: cfg, premium: premium}
+}
+
+// AttachUsers lets check-in photo keys include the username (Cloudflare R2 folders).
+func (h *SkinCheckHandler) AttachUsers(users userNamer) {
+	if h != nil {
+		h.users = users
+	}
 }
 
 // Create handles POST /skin-checks (multipart skin photos + metadata).
@@ -140,7 +149,7 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 			return response.Error(c, fiber.StatusBadRequest, "invalid_image", "uploaded file is not a recognizable image")
 		}
 
-		rel := pathJoinSlash(userID.String(), uuid.New().String()+ext)
+		rel := uploadPhotoKey(c.UserContext(), h.users, userID, storage.KindCheckIn, ext)
 		images = append(images, skincheckuc.UploadImage{
 			Rel:         rel,
 			Data:        data,
@@ -253,12 +262,6 @@ func parseTags(raw string) []string {
 		}
 	}
 	return out
-}
-
-func pathJoinSlash(a, b string) string {
-	a = strings.Trim(a, "/")
-	b = strings.Trim(b, "/")
-	return a + "/" + b
 }
 
 func extFromFile(fh *multipart.FileHeader) (string, bool) {

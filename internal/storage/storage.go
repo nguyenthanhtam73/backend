@@ -4,11 +4,14 @@
 //   - "local": files on disk under Upload.Dir (dev default; served via app.Static).
 //   - "r2":    Cloudflare R2 (S3-compatible), for durable/private production storage.
 //
-// The stored DB value is always a forward-slash relative *key* (e.g.
-// "<userID>/<uuid>.jpg" or "<userID>/onboarding/<uuid>.jpg"). Both drivers use the
-// same key, so switching drivers needs no DB migration. Public image URLs stay in
-// the "/uploads/<key>" shape regardless of driver — for "r2" the API proxies those
-// bytes (see cmd/api), so the frontend never has to change or juggle presigned TTLs.
+// The stored DB value is always a forward-slash relative *key*. New uploads use
+// PhotoKey: "{YYYY}/{MM}/{DD}/{kind}/{username}__{userID}/{uuid}.jpg" so the
+// Cloudflare R2 dashboard is browsable by date and user. Legacy keys
+// ("{userID}/{uuid}.jpg" / "{userID}/onboarding/...") stay valid — both drivers
+// use the same key, so switching drivers needs no DB migration. Public image
+// URLs stay in the "/uploads/<key>" shape regardless of driver — for "r2" the
+// API proxies those bytes (see cmd/api), so the frontend never has to change
+// or juggle presigned TTLs.
 package storage
 
 import (
@@ -25,8 +28,9 @@ type Storage interface {
 	Save(ctx context.Context, key string, data []byte, contentType string) error
 	// Read returns the raw bytes stored at key.
 	Read(ctx context.Context, key string) ([]byte, error)
-	// DeletePrefix removes every object whose key starts with prefix (e.g. a
-	// user's whole folder "<userID>/"). Missing prefixes are not an error.
+	// DeletePrefix removes every object whose key starts with prefix.
+	// Used for GDPR wipe: exact keys from the DB, plus the legacy
+	// "{userID}/" folder. Missing prefixes are not an error.
 	DeletePrefix(ctx context.Context, prefix string) error
 	// Driver reports the active backend: "local" or "r2".
 	Driver() string

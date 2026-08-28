@@ -33,7 +33,7 @@ var (
 // are kept in memory so moderation can run on them and the storage backend
 // (local disk or R2) can persist them after content passes checks.
 type UploadImage struct {
-	Rel         string // relative storage key, e.g. "<userID>/<uuid>.jpg"
+	Rel         string // relative storage key from storage.PhotoKey
 	Data        []byte
 	ContentType string
 }

@@ -540,7 +540,7 @@ func (s *Service) Publish(ctx context.Context, id uuid.UUID) (dto.AdminSkinRevie
 			return zero, fmt.Errorf("%w: no images to publish", ErrInvalidInput)
 		}
 		blurRels = make([]string, 0, len(origRels))
-		for i, rel := range origRels {
+		for _, rel := range origRels {
 			raw, rerr := s.store.Read(ctx, rel)
 			if rerr != nil {
 				return zero, fmt.Errorf("read image for blur: %w", rerr)
@@ -549,12 +549,12 @@ func (s *Service) Publish(ctx context.Context, id uuid.UUID) (dto.AdminSkinRevie
 			if berr != nil {
 				return zero, fmt.Errorf("blur image: %w", berr)
 			}
-			blurRel := pathJoin(
-				row.AdminUserID.String(),
-				"admin-skin-review",
-				"public",
+			blurRel := storage.PhotoKey(
+				row.AdminUserID,
 				slug,
-				fmt.Sprintf("%d.jpg", i),
+				storage.KindAdminSkinReviewPublic,
+				".jpg",
+				time.Now(),
 			)
 			if err := s.store.Save(ctx, blurRel, blurred, "image/jpeg"); err != nil {
 				return zero, fmt.Errorf("save blurred image: %w", err)
@@ -747,17 +747,6 @@ func publicUploadURLs(rels []string) []string {
 		out = append(out, "/uploads/"+clean)
 	}
 	return out
-}
-
-func pathJoin(parts ...string) string {
-	cleaned := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.Trim(strings.ReplaceAll(p, "\\", "/"), "/")
-		if p != "" {
-			cleaned = append(cleaned, p)
-		}
-	}
-	return strings.Join(cleaned, "/")
 }
 
 func clampAdminSkinText(raw string, maxRunes int) (string, error) {

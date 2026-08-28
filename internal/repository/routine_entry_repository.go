@@ -164,6 +164,27 @@ func (r *GormRoutineEntryRepository) ListForUserSince(ctx context.Context, userI
 	return rows, nil
 }
 
+const adminActivityRoutineCap = 200
+
+// ListByDate returns every routine row for a calendar day, newest updates first,
+// with User preloaded for the admin activity view.
+func (r *GormRoutineEntryRepository) ListByDate(ctx context.Context, day time.Time) ([]domain.RoutineEntry, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var rows []domain.RoutineEntry
+	if err := db.WithContext(ctx).
+		Preload("User").
+		Where("routine_date = ?", normalizeDay(day)).
+		Order("updated_at DESC").
+		Limit(adminActivityRoutineCap).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // normalizeDay truncates a time to UTC midnight so all comparisons against the
 // `routine_date` DATE column match regardless of the caller's timezone offset.
 func normalizeDay(t time.Time) time.Time {

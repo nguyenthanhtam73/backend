@@ -216,6 +216,28 @@ func (r *GormSkinCheckRepository) HasCheckedInToday(
 	return count > 0, nil
 }
 
+const adminActivityListCap = 200
+
+// ListByCheckDate returns every check-in on a Vietnam civil day (UTC-midnight
+// date column), newest first, with User preloaded for the admin activity view.
+func (r *GormSkinCheckRepository) ListByCheckDate(ctx context.Context, day time.Time) ([]domain.SkinCheck, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	d := streaktime.DateOf(day)
+	var rows []domain.SkinCheck
+	if err := db.WithContext(ctx).
+		Preload("User").
+		Where("check_date = ?", d).
+		Order("created_at DESC").
+		Limit(adminActivityListCap).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 // ListDistinctCheckDates returns unique SkinCheck calendar days (UTC date) for
 // a user, ascending. Used by streak reconcile to replay history.
 func (r *GormSkinCheckRepository) ListDistinctCheckDates(

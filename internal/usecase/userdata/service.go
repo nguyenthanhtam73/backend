@@ -80,6 +80,10 @@ func (s *Service) DeleteAll(ctx context.Context, userID uuid.UUID) (dto.DeleteUs
 	if userID == uuid.Nil {
 		return zero, ErrInvalidUser
 	}
+	photoKeys, keyErr := s.repo.ListPhotoKeys(ctx, userID)
+	if keyErr != nil {
+		return zero, fmt.Errorf("list photo keys: %w", keyErr)
+	}
 	if err := s.repo.DeleteAllPersonalData(ctx, userID); err != nil {
 		return zero, fmt.Errorf("delete user data: %w", err)
 	}
@@ -87,6 +91,12 @@ func (s *Service) DeleteAll(ctx context.Context, userID uuid.UUID) (dto.DeleteUs
 	// must not block the DB wipe from being reported as successful, since the
 	// personal rows are already gone — just log for follow-up.
 	if s.store != nil {
+		for _, key := range photoKeys {
+			if err := s.store.DeletePrefix(ctx, key); err != nil {
+				slog.Warn("user-data: delete stored photo failed", "user_id", userID, "key", key, "err", err)
+			}
+		}
+		// Legacy layout "{userID}/..." plus any leftover objects under that prefix.
 		if err := s.store.DeletePrefix(ctx, userID.String()+"/"); err != nil {
 			slog.Warn("user-data: delete stored photos failed", "user_id", userID, "err", err)
 		}

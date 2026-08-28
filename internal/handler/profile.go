@@ -27,6 +27,7 @@ type ProfileHandler struct {
 	cfg     *config.Config
 	store   storage.Storage
 	premium *premiumuc.Service
+	users   userNamer
 }
 
 // NewProfileHandler constructs ProfileHandler. premium may be nil (no_ads strip skipped).
@@ -37,6 +38,13 @@ func NewProfileHandler(
 	premium *premiumuc.Service,
 ) *ProfileHandler {
 	return &ProfileHandler{svc: svc, cfg: cfg, store: store, premium: premium}
+}
+
+// AttachUsers lets onboarding photo keys include the username (Cloudflare R2 folders).
+func (h *ProfileHandler) AttachUsers(users userNamer) {
+	if h != nil {
+		h.users = users
+	}
 }
 
 // GetSkin handles GET /profile/skin.
@@ -210,8 +218,7 @@ func (h *ProfileHandler) saveOnboardingPhotos(ctx context.Context, userID uuid.U
 			return nil, fmt.Errorf("%w: invalid_image", errUploadInvalid)
 		}
 
-		filename := uuid.New().String() + ext
-		rel := pathJoinSlash(pathJoinSlash(userID.String(), "onboarding"), filename)
+		rel := uploadPhotoKey(ctx, h.users, userID, storage.KindOnboarding, ext)
 		if err := h.store.Save(ctx, rel, data, contentTypeForExt(ext)); err != nil {
 			return nil, fmt.Errorf("%w: save_failed", errUploadFailed)
 		}

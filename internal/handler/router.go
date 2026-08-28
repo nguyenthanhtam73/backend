@@ -12,11 +12,12 @@ import (
 	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/token"
-	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
-	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
+	adminactivityuc "github.com/dadiary/backend/internal/usecase/adminactivity"
 	adminmetricsuc "github.com/dadiary/backend/internal/usecase/adminmetrics"
 	adminskinreviewuc "github.com/dadiary/backend/internal/usecase/adminskinreview"
 	adminuseruc "github.com/dadiary/backend/internal/usecase/adminuser"
+	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
+	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	betasignupuc "github.com/dadiary/backend/internal/usecase/betasignup"
 	dashboarduc "github.com/dadiary/backend/internal/usecase/dashboard"
@@ -167,6 +168,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		txRunner := repository.NewTxRunner(db)
 		svc := skincheckuc.NewService(cfg, repo, mod, analyzer, store, streakSvc, txRunner)
 		h := NewSkinCheckHandler(svc, repo, cfg, premiumSvc)
+		h.AttachUsers(userRepo)
 		api.Post("/skin-checks", jwt, skinCheckLimit, h.Create)
 		api.Get("/skin-checks/:id", jwt, h.Get)
 
@@ -186,6 +188,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		profSvc.AttachPremium(premiumSvc)
 		authH.AttachOnboardingStatus(profSvc)
 		ph := NewProfileHandler(profSvc, cfg, store, premiumSvc)
+		ph.AttachUsers(userRepo)
 		api.Get("/profile/skin", jwt, ph.GetSkin)
 		api.Put("/profile/skin", jwt, ph.PutSkin)
 		api.Post(
@@ -301,6 +304,11 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Get("/admin/users/:id", jwt, admin, adminUsersH.Get)
 		api.Put("/admin/users/:id/plan", jwt, admin, adminUsersH.UpdatePlan)
 
+		adminActivityH := NewAdminActivityHandler(
+			adminactivityuc.NewService(repo, routineRepo),
+		)
+		api.Get("/admin/activity", jwt, admin, adminActivityH.Get)
+
 		// Payment / subscription monitoring dashboard (admin-only).
 		payOrders := repository.NewPaymentOrderRepository(db)
 		payOps := repository.NewPaymentOpsEventRepository(db)
@@ -316,6 +324,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			adminReviewRepo := repository.NewAdminSkinReviewRepository(db)
 			adminReviewSvc := adminskinreviewuc.NewService(adminReviewRepo, store, cfg)
 			adminReviewH := NewAdminSkinReviewHandler(adminReviewSvc, cfg)
+			adminReviewH.AttachUsers(userRepo)
 			api.Post("/admin/skin-review", jwt, skinReview, adminReviewH.Create)
 			api.Get("/admin/skin-reviews", jwt, skinReview, adminReviewH.List)
 			api.Get("/admin/skin-review/:id", jwt, skinReview, adminReviewH.Get)
