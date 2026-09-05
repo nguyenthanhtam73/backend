@@ -18,10 +18,11 @@ const (
 	downgradeSpikeThreshold = 20
 )
 
-// PlanExpiryJob runs once per UTC day and downgrades users whose grace window
-// has ended (plan_expires_at + grace_days). Feature gates already treat
-// post-grace rows as Free via EffectivePlanTierWithGrace; this job keeps
-// plan_tier / subscription_status in the DB consistent.
+// PlanExpiryJob runs once per UTC day and reconciles billing state: expires
+// overdue subscription rows, marks in-grace users past_due, and downgrades
+// users whose grace window has ended. Feature gates already treat post-grace
+// rows as Free via EffectivePlanTierWithGrace; this job keeps users +
+// subscriptions rows consistent.
 type PlanExpiryJob struct {
 	premium *premiumuc.Service
 	subs    *subscriptionuc.Service
@@ -138,9 +139,9 @@ func (j *PlanExpiryJob) maybeRun(ctx context.Context) {
 			"error", err.Error(),
 		)
 		j.alertJob(ctx, "job_failed", err.Error(), map[string]any{
-			"day":         dayKey,
-			"downgraded":  n,
-			"elapsed_ms":  elapsed.Milliseconds(),
+			"day":        dayKey,
+			"downgraded": n,
+			"elapsed_ms": elapsed.Milliseconds(),
 		})
 		if j.locks != nil {
 			_ = j.locks.ReleaseClaim(ctx, planExpiryJobName, dayKey)
@@ -166,17 +167,18 @@ func (j *PlanExpiryJob) maybeRun(ctx context.Context) {
 			"threshold", downgradeSpikeThreshold,
 		)
 		j.alertJob(ctx, "downgrade_spike", "downgraded more users than threshold", map[string]any{
-			"day":         dayKey,
-			"downgraded":  n,
-			"threshold":   downgradeSpikeThreshold,
-			"elapsed_ms":  elapsed.Milliseconds(),
+			"day":        dayKey,
+			"downgraded": n,
+			"threshold":  downgradeSpikeThreshold,
+			"elapsed_ms": elapsed.Milliseconds(),
 		})
 	}
 }
 
 func (j *PlanExpiryJob) runDowngrade(ctx context.Context) (int, error) {
 	if j.subs != nil {
-		return j.subs.DowngradePastGrace(ctx)
+		res, err := j.subs.ReconcileBillingState(ctx)
+		return res.UsersExpired, err
 	}
 	return j.premium.DowngradeExpiredPlans(ctx)
 }
