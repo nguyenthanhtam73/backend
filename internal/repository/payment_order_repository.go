@@ -23,6 +23,21 @@ func NewPaymentOrderRepository(db *gorm.DB) *PaymentOrderRepository {
 	return &PaymentOrderRepository{db: db}
 }
 
+// SetCreatedAtForTest overwrites payment_orders.created_at (unit tests only).
+func (r *PaymentOrderRepository) SetCreatedAtForTest(ctx context.Context, invoice string, at time.Time) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	invoice = strings.TrimSpace(invoice)
+	if invoice == "" {
+		return fmt.Errorf("invoice required")
+	}
+	return db.WithContext(ctx).Model(&domain.PaymentOrder{}).
+		Where("invoice_number = ?", invoice).
+		Update("created_at", at).Error
+}
+
 func (r *PaymentOrderRepository) dbOrErr() (*gorm.DB, error) {
 	if r == nil || r.db == nil {
 		return nil, fmt.Errorf("database not configured")
@@ -138,7 +153,84 @@ func (r *PaymentOrderRepository) MarkPaidTx(
 	return &row, false, nil
 }
 
-// UpdateStatusTx sets a non-paid terminal status (failed / cancelled).
+// ListPendingCreatedBefore returns pending orders older than cutoff (newest first).
+func (r *PaymentOrderRepository) ListPendingCreatedBefore(
+	ctx context.Context,
+	cutoff time.Time,
+	limit int,
+) ([]domain.PaymentOrder, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if limit < 1 {
+		limit = 50
+	}
+	if limit > 500 {
+		limit = 500
+	}
+	var rows []domain.PaymentOrder
+	err = db.WithContext(ctx).
+		Where("status = ? AND created_at < ?", domain.PaymentPending, cutoff.UTC()).
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}
+
+// CountPendingCreatedBefore counts leftover pending checkouts older than cutoff.
+func (r *PaymentOrderRepository) CountPendingCreatedBefore(
+	ctx context.Context,
+	cutoff time.Time,
+) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = db.WithContext(ctx).Model(&domain.PaymentOrder{}).
+		Where("status = ? AND created_at < ?", domain.PaymentPending, cutoff.UTC()).
+		Count(&n).Error
+	return n, err
+}
+
+// CountPendingCreatedOnOrAfter counts pending checkouts still inside the TTL.
+func (r *PaymentOrderRepository) CountPendingCreatedOnOrAfter(
+	ctx context.Context,
+	cutoff time.Time,
+) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = db.WithContext(ctx).Model(&domain.PaymentOrder{}).
+		Where("status = ? AND created_at >= ?", domain.PaymentPending, cutoff.UTC()).
+		Count(&n).Error
+	return n, err
+}
+
+// ExpirePendingOlderThan sets status=expired on pending rows created before cutoff.
+// Idempotent: already-expired / paid / cancelled rows are not touched.
+func (r *PaymentOrderRepository) ExpirePendingOlderThan(
+	ctx context.Context,
+	cutoff time.Time,
+) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	tx := db.WithContext(ctx).
+		Model(&domain.PaymentOrder{}).
+		Where("status = ? AND created_at < ?", domain.PaymentPending, cutoff.UTC()).
+		Updates(map[string]any{
+			"status":     domain.PaymentExpired,
+			"updated_at": time.Now().UTC(),
+		})
+	return tx.RowsAffected, tx.Error
+}
+
+// UpdateStatusTx sets a non-paid terminal status (failed / cancelled / expired).
 func (r *PaymentOrderRepository) UpdateStatusTx(
 	tx *gorm.DB,
 	invoice string,

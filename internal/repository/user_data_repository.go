@@ -83,6 +83,9 @@ func (r *UserDataRepository) DeleteAllPersonalData(
 		if err := tx.Where("user_id = ?", userID).Delete(&domain.PushSendReceipt{}).Error; err != nil {
 			return err
 		}
+		if err := tx.Where("user_id = ?", userID).Delete(&domain.CheckInReminderFlag{}).Error; err != nil {
+			return err
+		}
 		return nil
 	})
 }

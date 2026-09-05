@@ -33,6 +33,20 @@ func NewUserRepository(db *gorm.DB) *GormUserRepository {
 	return &GormUserRepository{db: db}
 }
 
+// SetCreatedAtForTest overwrites users.created_at (unit tests / fixtures only).
+func (r *GormUserRepository) SetCreatedAtForTest(ctx context.Context, id uuid.UUID, at time.Time) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if id == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	return db.WithContext(ctx).Model(&domain.User{}).
+		Where("id = ?", id).
+		Update("created_at", at).Error
+}
+
 func (r *GormUserRepository) dbOrErr() (*gorm.DB, error) {
 	if r == nil || r.db == nil {
 		return nil, fmt.Errorf("database not configured")
@@ -410,6 +424,33 @@ func (r *GormUserRepository) ListPastGracePaidUsers(
 	// plan_expires_at <= now - graceDays  ⇔  plan_expires_at + grace <= now
 	cutoff := now.UTC().Add(-domain.DaysDuration(graceDays))
 	return r.listPaidUsersExpiresAtOrBefore(ctx, cutoff, limit)
+}
+
+// ListCreatedBetween returns active users whose created_at is in [from, to).
+// Used by the D0/D1 check-in reminder refresh to find new-account cohorts.
+func (r *GormUserRepository) ListCreatedBetween(
+	ctx context.Context,
+	from, to time.Time,
+	limit int,
+) ([]domain.User, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if limit < 1 {
+		limit = 200
+	}
+	if limit > 5000 {
+		limit = 5000
+	}
+	var rows []domain.User
+	err = db.WithContext(ctx).
+		Where("created_at >= ? AND created_at < ?", from, to).
+		Where("is_active = ?", true).
+		Order("created_at ASC").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
 }
 
 func (r *GormUserRepository) listPaidUsersExpiresAtOrBefore(

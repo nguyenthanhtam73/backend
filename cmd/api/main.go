@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path"
 	"syscall"
+	"time"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
@@ -19,6 +20,8 @@ import (
 	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/token"
+	checkinreminderuc "github.com/dadiary/backend/internal/usecase/checkinreminder"
+	paymentuc "github.com/dadiary/backend/internal/usecase/payment"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	pushuc "github.com/dadiary/backend/internal/usecase/push"
 	subscriptionuc "github.com/dadiary/backend/internal/usecase/subscription"
@@ -75,6 +78,8 @@ func main() {
 	startDailyReminderJob(ctx, cfg, db)
 	startMonthlyUsageResetJob(ctx, db)
 	startPlanExpiryJob(ctx, cfg, db)
+	startCheckInReminderJob(ctx, cfg, db)
+	startPendingOrderExpiryJob(ctx, cfg, db)
 
 	go func() {
 		addr := fmt.Sprintf(":%d", cfg.HTTP.Port)
@@ -170,6 +175,62 @@ func startPlanExpiryJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
 		}))
 	}
 	job.Start(ctx)
+}
+
+// startCheckInReminderJob refreshes D0/D1 flags once per Vietnam civil day.
+func startCheckInReminderJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
+	if cfg != nil && !cfg.CheckInReminder.Enabled {
+		slog.Info("checkin_reminder_job: disabled via config")
+		return
+	}
+	if db == nil {
+		slog.Warn("checkin_reminder_job: skipped — database not available")
+		return
+	}
+	users := repository.NewUserRepository(db)
+	checks := repository.NewSkinCheckRepository(db)
+	flags := repository.NewCheckInReminderRepository(db)
+	vapid := cfg != nil && cfg.HasVAPIDKeys()
+	svc := checkinreminderuc.NewService(users, checks, flags, vapid)
+	if res, err := svc.RefreshWindow(ctx); err != nil {
+		slog.Error("checkin_reminder_job: boot refresh failed", "error", err.Error())
+	} else {
+		slog.Info("checkin_reminder_job: boot refresh",
+			"scanned", res.Scanned,
+			"due_d0", res.DueD0,
+			"due_d1", res.DueD1,
+			"cleared", res.Cleared,
+		)
+	}
+	jobLocks := repository.NewPushJobLockRepository(db)
+	scheduler.NewCheckInReminderJob(svc, jobLocks).Start(ctx)
+}
+
+// startPendingOrderExpiryJob expires leftover SePay pending orders past the local TTL.
+func startPendingOrderExpiryJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
+	if cfg != nil && !cfg.PendingOrderExpiry.Enabled {
+		slog.Info("pending_order_expiry_job: disabled via config")
+		return
+	}
+	if db == nil {
+		slog.Warn("pending_order_expiry_job: skipped — database not available")
+		return
+	}
+	users := repository.NewUserRepository(db)
+	orders := repository.NewPaymentOrderRepository(db)
+	logs := repository.NewPlanChangeLogRepository(db)
+	paySvc := paymentuc.NewService(db, cfg, orders, users, logs)
+	if res, err := paySvc.ExpireStalePending(ctx, time.Time{}); err != nil {
+		slog.Error("pending_order_expiry_job: boot expire failed", "error", err.Error())
+	} else {
+		slog.Info("pending_order_expiry_job: boot expire",
+			"expired", res.Expired,
+			"pending_fresh", res.PendingFresh,
+			"ttl_hours", res.TTLHours,
+		)
+	}
+	jobLocks := repository.NewPushJobLockRepository(db)
+	scheduler.NewPendingOrderExpiryJob(paySvc, jobLocks).Start(ctx)
 }
 
 // registerUploadServing exposes stored photos under the stable "/uploads/*" path.

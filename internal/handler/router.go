@@ -20,6 +20,7 @@ import (
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	betasignupuc "github.com/dadiary/backend/internal/usecase/betasignup"
+	checkinreminderuc "github.com/dadiary/backend/internal/usecase/checkinreminder"
 	dashboarduc "github.com/dadiary/backend/internal/usecase/dashboard"
 	feedbackuc "github.com/dadiary/backend/internal/usecase/feedback"
 	paymentuc "github.com/dadiary/backend/internal/usecase/payment"
@@ -162,6 +163,11 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		dashSvc := dashboarduc.NewUsecase(streakSvc, usageSvc, repo, premiumSvc)
 		dashH := NewDashboardHandler(dashSvc)
 		api.Get("/me/dashboard", jwt, dashH.GetSummary)
+
+		reminderFlags := repository.NewCheckInReminderRepository(db)
+		reminderSvc := checkinreminderuc.NewService(userRepo, repo, reminderFlags, cfg != nil && cfg.HasVAPIDKeys())
+		reminderH := NewCheckInReminderHandler(reminderSvc)
+		api.Get("/me/check-in-reminder", jwt, reminderH.Get)
 
 		mod := moderation.New(cfg)
 		analyzer := analysis.New(cfg, repo, profRepo, fbRepo, routineRepo, wardRepo, memCache, store)
@@ -358,6 +364,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		subH := NewSubscriptionHandler(subSvc)
 		api.Post("/subscription/cancel", jwt, subH.Cancel)
 		api.Post("/admin/billing/reconcile", jwt, admin, NewAdminBillingHandler(subSvc).Reconcile)
+		api.Post("/admin/check-in-reminders/refresh", jwt, admin, reminderH.AdminRefresh)
 
 		// SePay Payment Gateway — checkout (JWT) + IPN webhook (public).
 		// Configure IPN URL in SePay dashboard → POST /api/v1/payment/sepay/webhook
@@ -387,6 +394,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		payH := NewPaymentSePayHandler(paySvc)
 		api.Post("/payment/sepay/checkout", jwt, payH.CreateCheckout)
 		api.Post("/payment/sepay/webhook", payH.Webhook)
+		api.Post("/admin/payments/expire-pending", jwt, admin, NewAdminPaymentsHandler(paySvc).ExpirePending)
 
 		// Playwright smoke helpers — only when DADIARY_E2E_SECRET is set.
 		NewE2EHandler(cfg, db, userRepo).
