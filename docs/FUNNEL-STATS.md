@@ -97,4 +97,11 @@ WHERE deleted_at IS NULL
   AND COALESCE(paid_at, created_at) >= now() - interval '7 days';
 ```
 
-Frontend: `GET /admin/funnel` (admin-only page) reads this payload.
+Frontend page (separate repo: `nguyenthanhtam73/frontend`):
+
+- Route: `/admin/funnel` (admin JWT / `user.is_admin` only)
+- Client: `GET /api/v1/admin/funnel-stats` via the existing `apiGet` helper
+- Render: compact cards for signup 1d/7d, skin-check users ever/1d/7d, D0, D1 (`n / eligible`), paid 7d, paywall **N/A**
+- Nav: admin header chip + links from `/admin/activity` and `/admin/payments`
+
+This agent could not open the frontend PR (GitHub token is scoped to this backend repo). Apply the page there, or re-run a frontend-scoped agent against the contract above.
