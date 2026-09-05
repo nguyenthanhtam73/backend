@@ -153,3 +153,15 @@ func TestClampTrialAndGrace(t *testing.T) {
 		t.Fatalf("grace max: %d", ClampGraceDays(10))
 	}
 }
+
+func TestOpenSubscriptionStatuses(t *testing.T) {
+	if !IsOpenSubscriptionStatus(SubStatusActive) || !IsOpenSubscriptionStatus(SubStatusPastDue) {
+		t.Fatal("active/past_due should be open")
+	}
+	if IsOpenSubscriptionStatus(SubStatusExpired) || IsOpenSubscriptionStatus(SubStatusNone) {
+		t.Fatal("expired/none should not be open")
+	}
+	if got := len(OpenSubscriptionStatuses()); got != 4 {
+		t.Fatalf("open statuses=%d want 4", got)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/google/uuid"
@@ -95,4 +96,154 @@ func (r *SubscriptionRepository) ExistsByExternalRef(ctx context.Context, extern
 		Where("external_ref = ?", externalRef).
 		Count(&count).Error
 	return count > 0, err
+}
+
+// ListOpenOverdue returns non-terminal subscription rows whose billed period
+// has already ended. Used by billing reconcile (cron + operator command).
+func (r *SubscriptionRepository) ListOpenOverdue(
+	ctx context.Context,
+	now time.Time,
+	limit int,
+) ([]domain.Subscription, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if limit < 1 {
+		limit = 200
+	}
+	if limit > 2000 {
+		limit = 2000
+	}
+	var rows []domain.Subscription
+	err = db.WithContext(ctx).
+		Where("status IN ?", domain.OpenSubscriptionStatuses()).
+		Where("period_ends_at IS NOT NULL AND period_ends_at <= ?", now.UTC()).
+		Order("period_ends_at ASC").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}
+
+// ListOpenByUserTx returns non-terminal rows for one user (inside a transaction).
+func (r *SubscriptionRepository) ListOpenByUserTx(tx *gorm.DB, userID uuid.UUID) ([]domain.Subscription, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("transaction required")
+	}
+	if userID == uuid.Nil {
+		return nil, fmt.Errorf("user id required")
+	}
+	var rows []domain.Subscription
+	err := tx.Where("user_id = ? AND status IN ?", userID, domain.OpenSubscriptionStatuses()).
+		Order("created_at DESC").
+		Find(&rows).Error
+	return rows, err
+}
+
+// MarkOverdueOpenTx sets status on open rows whose period_ends_at has passed.
+func (r *SubscriptionRepository) MarkOverdueOpenTx(
+	tx *gorm.DB,
+	userID uuid.UUID,
+	now time.Time,
+	to domain.SubscriptionStatus,
+) (int64, error) {
+	if tx == nil {
+		return 0, fmt.Errorf("transaction required")
+	}
+	if userID == uuid.Nil {
+		return 0, fmt.Errorf("user id required")
+	}
+	to = domain.NormalizeSubscriptionStatus(to)
+	res := tx.Model(&domain.Subscription{}).
+		Where("user_id = ?", userID).
+		Where("status IN ?", domain.OpenSubscriptionStatuses()).
+		Where("status <> ?", to).
+		Where("period_ends_at IS NOT NULL AND period_ends_at <= ?", now.UTC()).
+		Updates(map[string]any{
+			"status":     to,
+			"updated_at": now.UTC(),
+		})
+	return res.RowsAffected, res.Error
+}
+
+// CloseOpenTx sets status on every open row for the user (renewal / trial replace).
+func (r *SubscriptionRepository) CloseOpenTx(
+	tx *gorm.DB,
+	userID uuid.UUID,
+	to domain.SubscriptionStatus,
+	now time.Time,
+) (int64, error) {
+	if tx == nil {
+		return 0, fmt.Errorf("transaction required")
+	}
+	if userID == uuid.Nil {
+		return 0, fmt.Errorf("user id required")
+	}
+	to = domain.NormalizeSubscriptionStatus(to)
+	res := tx.Model(&domain.Subscription{}).
+		Where("user_id = ? AND status IN ?", userID, domain.OpenSubscriptionStatuses()).
+		Updates(map[string]any{
+			"status":     to,
+			"updated_at": now.UTC(),
+		})
+	return res.RowsAffected, res.Error
+}
+
+// MarkOpenStatusesTx sets status on rows matching fromStatuses for one user.
+func (r *SubscriptionRepository) MarkOpenStatusesTx(
+	tx *gorm.DB,
+	userID uuid.UUID,
+	from []domain.SubscriptionStatus,
+	to domain.SubscriptionStatus,
+	now time.Time,
+) (int64, error) {
+	if tx == nil {
+		return 0, fmt.Errorf("transaction required")
+	}
+	if userID == uuid.Nil {
+		return 0, fmt.Errorf("user id required")
+	}
+	if len(from) == 0 {
+		return 0, nil
+	}
+	to = domain.NormalizeSubscriptionStatus(to)
+	res := tx.Model(&domain.Subscription{}).
+		Where("user_id = ? AND status IN ?", userID, from).
+		Updates(map[string]any{
+			"status":     to,
+			"updated_at": now.UTC(),
+		})
+	return res.RowsAffected, res.Error
+}
+
+// CountActiveInPeriod counts subscription rows that are currently billed
+// (status=active and period_ends_at still in the future). Lifetime grants
+// (NULL period_ends_at) are excluded — they live on users.plan_expires_at.
+func (r *SubscriptionRepository) CountActiveInPeriod(ctx context.Context, now time.Time) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = db.WithContext(ctx).
+		Model(&domain.Subscription{}).
+		Where("status = ?", domain.SubStatusActive).
+		Where("period_ends_at IS NOT NULL AND period_ends_at > ?", now.UTC()).
+		Count(&n).Error
+	return n, err
+}
+
+// HasEventType reports whether a history row of eventType exists for the user.
+func (r *SubscriptionRepository) HasEventTypeTx(tx *gorm.DB, userID uuid.UUID, eventType domain.SubscriptionEventType) (bool, error) {
+	if tx == nil {
+		return false, fmt.Errorf("transaction required")
+	}
+	if userID == uuid.Nil {
+		return false, fmt.Errorf("user id required")
+	}
+	var n int64
+	err := tx.Model(&domain.Subscription{}).
+		Where("user_id = ? AND event_type = ?", userID, eventType).
+		Count(&n).Error
+	return n > 0, err
 }

@@ -53,10 +53,10 @@ type RenewalInput struct {
 
 // Service orchestrates subscription lifecycle mutations.
 type Service struct {
-	db       *gorm.DB
-	users    *repository.GormUserRepository
-	subs     *repository.SubscriptionRepository
-	logs     *repository.PlanChangeLogRepository
+	db        *gorm.DB
+	users     *repository.GormUserRepository
+	subs      *repository.SubscriptionRepository
+	logs      *repository.PlanChangeLogRepository
 	trialDays int
 	graceDays int
 }
@@ -146,6 +146,9 @@ func (s *Service) StartTrial(
 		}
 
 		graceEnd := domain.GraceEndsAt(&trialEnd, graceDays)
+		if _, err := s.subs.CloseOpenTx(tx, userID, domain.SubStatusExpired, now); err != nil {
+			return err
+		}
 		hist := &domain.Subscription{
 			UserID:          userID,
 			PlanTier:        planTier,
@@ -226,16 +229,21 @@ func (s *Service) CancelSubscription(ctx context.Context, userID uuid.UUID) (*Ac
 		}
 
 		graceEnd := domain.GraceEndsAt(updated.PlanExpiresAt, graceDays)
+		if _, err := s.subs.MarkOpenStatusesTx(tx, userID,
+			[]domain.SubscriptionStatus{domain.SubStatusActive, domain.SubStatusTrialing, domain.SubStatusPastDue},
+			domain.SubStatusCanceled, now); err != nil {
+			return err
+		}
 		hist := &domain.Subscription{
-			UserID:         userID,
-			PlanTier:       domain.NormalizePlanTier(updated.PlanTier),
-			Status:         domain.SubStatusCanceled,
-			EventType:      domain.SubEventCanceled,
-			Provider:       domain.SubProviderSePay, // self-serve cancel; renewals are SePay-backed
-			PeriodEndsAt:   updated.PlanExpiresAt,
-			CanceledAt:     &canceledAt,
-			GraceEndsAt:    graceEnd,
-			TrialEndsAt:    updated.TrialEndsAt,
+			UserID:       userID,
+			PlanTier:     domain.NormalizePlanTier(updated.PlanTier),
+			Status:       domain.SubStatusCanceled,
+			EventType:    domain.SubEventCanceled,
+			Provider:     domain.SubProviderSePay, // self-serve cancel; renewals are SePay-backed
+			PeriodEndsAt: updated.PlanExpiresAt,
+			CanceledAt:   &canceledAt,
+			GraceEndsAt:  graceEnd,
+			TrialEndsAt:  updated.TrialEndsAt,
 		}
 		if err := s.subs.CreateTx(tx, hist); err != nil {
 			return err
@@ -369,6 +377,9 @@ func (s *Service) ApplyRenewalTx(tx *gorm.DB, in RenewalInput) (*ActivePlan, err
 	}
 
 	graceEnd := domain.GraceEndsAt(&expires, graceDays)
+	if _, err := s.subs.CloseOpenTx(tx, in.UserID, domain.SubStatusExpired, now); err != nil {
+		return nil, err
+	}
 	hist := &domain.Subscription{
 		UserID:          in.UserID,
 		PlanTier:        to,
@@ -441,40 +452,124 @@ func (s *Service) CheckActivePlan(ctx context.Context, userID uuid.UUID) (*Activ
 	return s.snapshot(u, time.Now().UTC()), nil
 }
 
-// DowngradePastGrace sets Free for paid users whose grace window ended.
-// Safe under FOR UPDATE so concurrent SePay renewals cannot race the downgrade.
-// Intended entrypoint for the daily cron (replaces immediate expiry downgrade).
+// ReconcileResult is the outcome of an idempotent billing repair pass.
+type ReconcileResult struct {
+	Candidates             int `json:"candidates"`
+	SubscriptionRowsClosed int `json:"subscription_rows_closed"`
+	UsersExpired           int `json:"users_expired"`
+	UsersMarkedPastDue     int `json:"users_marked_past_due"`
+	HistoryEventsAppended  int `json:"history_events_appended"`
+}
+
+// DowngradePastGrace sets Free for paid users whose grace window ended and
+// closes leftover open subscription rows. Safe to re-run (idempotent).
+// Prefer ReconcileBillingState when the caller wants the full counter set.
 func (s *Service) DowngradePastGrace(ctx context.Context) (int, error) {
+	res, err := s.ReconcileBillingState(ctx)
+	return res.UsersExpired, err
+}
+
+// ReconcileBillingState expires overdue subscription rows and syncs users.
+//
+// Safe to re-run: already-consistent rows are no-ops. Intended for:
+//   - the daily PlanExpiryJob
+//   - API boot (repairs leftover prod rows even if today's cron lock is taken)
+//   - cmd/reconcile-subscriptions and POST /admin/billing/reconcile
+//
+// Lifetime admin grants (paid + NULL plan_expires_at) are left on users;
+// only their leftover billed-period subscription rows are closed.
+func (s *Service) ReconcileBillingState(ctx context.Context) (ReconcileResult, error) {
+	var zero ReconcileResult
 	if err := s.ready(); err != nil {
-		return 0, err
+		return zero, err
 	}
 	now := time.Now().UTC()
+	return s.reconcileBillingStateAt(ctx, now)
+}
+
+func (s *Service) reconcileBillingStateAt(ctx context.Context, now time.Time) (ReconcileResult, error) {
+	var out ReconcileResult
+	now = now.UTC()
 	graceDays := s.GraceDays()
-	candidates, err := s.users.ListPastGracePaidUsers(ctx, now, graceDays, 500)
+
+	ids := map[uuid.UUID]struct{}{}
+
+	overdue, err := s.subs.ListOpenOverdue(ctx, now, 2000)
 	if err != nil {
-		return 0, err
+		return out, err
+	}
+	for i := range overdue {
+		ids[overdue[i].UserID] = struct{}{}
 	}
 
-	downgraded := 0
-	for i := range candidates {
-		uid := candidates[i].ID
-		err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			u, err := s.users.GetByIDForUpdateTx(tx, uid)
-			if err != nil {
-				return err
-			}
-			if u == nil {
-				return nil
-			}
-			// Re-check under lock (renewal IPN may have extended expiry).
-			if domain.EffectivePlanTierWithGrace(u, now, graceDays).IsPaidPlan() {
-				return nil
-			}
-			from := domain.NormalizePlanTier(u.PlanTier)
-			if !from.IsPaidPlan() {
-				return nil
-			}
+	periodEnded, err := s.users.ListExpiredPaidUsers(ctx, now, 1000)
+	if err != nil {
+		return out, err
+	}
+	for i := range periodEnded {
+		ids[periodEnded[i].ID] = struct{}{}
+	}
 
+	out.Candidates = len(ids)
+	for uid := range ids {
+		res, err := s.reconcileUser(ctx, uid, now, graceDays)
+		if err != nil {
+			slog.Error("subscription: reconcile user failed",
+				"user_id", uid.String(),
+				"error", err,
+			)
+			continue
+		}
+		out.SubscriptionRowsClosed += res.SubscriptionRowsClosed
+		out.UsersExpired += res.UsersExpired
+		out.UsersMarkedPastDue += res.UsersMarkedPastDue
+		out.HistoryEventsAppended += res.HistoryEventsAppended
+	}
+
+	slog.Info("subscription: billing reconcile complete",
+		"candidates", out.Candidates,
+		"subscription_rows_closed", out.SubscriptionRowsClosed,
+		"users_expired", out.UsersExpired,
+		"users_marked_past_due", out.UsersMarkedPastDue,
+		"history_events_appended", out.HistoryEventsAppended,
+		"grace_days", graceDays,
+	)
+	return out, nil
+}
+
+func (s *Service) reconcileUser(
+	ctx context.Context,
+	uid uuid.UUID,
+	now time.Time,
+	graceDays int,
+) (ReconcileResult, error) {
+	var out ReconcileResult
+	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		u, err := s.users.GetByIDForUpdateTx(tx, uid)
+		if err != nil {
+			return err
+		}
+		if u == nil {
+			return nil
+		}
+
+		effective := domain.EffectivePlanTierWithGrace(u, now, graceDays)
+		resolved := domain.ResolveSubscriptionStatus(u, now, graceDays)
+		rowStatus := subscriptionRowStatusAfterPeriod(u, now, graceDays)
+
+		closed, err := s.subs.MarkOverdueOpenTx(tx, uid, now, rowStatus)
+		if err != nil {
+			return err
+		}
+		out.SubscriptionRowsClosed = int(closed)
+
+		// Lifetime grant (paid + NULL expiry): close leftover billed rows only.
+		if domain.NormalizePlanTier(u.PlanTier).IsPaidPlan() && u.PlanExpiresAt == nil {
+			return nil
+		}
+
+		if !effective.IsPaidPlan() && domain.NormalizePlanTier(u.PlanTier).IsPaidPlan() {
+			from := domain.NormalizePlanTier(u.PlanTier)
 			updated, err := s.users.ApplySubscriptionStateTx(tx, uid, repository.SubscriptionStatePatch{
 				PlanTier:           domain.PlanFree,
 				SetPlanTier:        true,
@@ -484,7 +579,6 @@ func (s *Service) DowngradePastGrace(ctx context.Context) (int, error) {
 				SetCanceledAt:      true,
 				SubscriptionStatus: domain.SubStatusExpired,
 				SetStatus:          true,
-				// Keep TrialEndsAt — trial is one-time.
 			})
 			if err != nil {
 				return err
@@ -492,39 +586,80 @@ func (s *Service) DowngradePastGrace(ctx context.Context) (int, error) {
 			if updated == nil {
 				return nil
 			}
-
-			hist := &domain.Subscription{
-				UserID:      uid,
-				PlanTier:    domain.PlanFree,
-				Status:      domain.SubStatusExpired,
-				EventType:   domain.SubEventExpired,
-				Provider:    domain.SubProviderCron,
-				TrialEndsAt: updated.TrialEndsAt,
-			}
-			if err := s.subs.CreateTx(tx, hist); err != nil {
+			out.UsersExpired = 1
+			hasExpired, err := s.subs.HasEventTypeTx(tx, uid, domain.SubEventExpired)
+			if err != nil {
 				return err
 			}
-			if err := s.writePlanLogTx(tx, uid, from, domain.PlanFree, "grace_ended"); err != nil {
-				return err
+			if !hasExpired {
+				if err := s.subs.CreateTx(tx, &domain.Subscription{
+					UserID:      uid,
+					PlanTier:    domain.PlanFree,
+					Status:      domain.SubStatusExpired,
+					EventType:   domain.SubEventExpired,
+					Provider:    domain.SubProviderCron,
+					TrialEndsAt: updated.TrialEndsAt,
+				}); err != nil {
+					return err
+				}
+				out.HistoryEventsAppended = 1
 			}
-			downgraded++
-			return nil
-		})
-		if err != nil {
-			slog.Error("subscription: grace downgrade failed",
-				"user_id", uid.String(),
-				"error", err,
-			)
-			continue
+			return s.writePlanLogTx(tx, uid, from, domain.PlanFree, "grace_ended")
 		}
-	}
 
-	slog.Info("subscription: grace downgrade complete",
-		"candidates", len(candidates),
-		"downgraded", downgraded,
-		"grace_days", graceDays,
-	)
-	return downgraded, nil
+		if !effective.IsPaidPlan() {
+			stored := domain.NormalizeSubscriptionStatus(u.SubscriptionStatus)
+			if domain.IsOpenSubscriptionStatus(stored) {
+				if _, err := s.users.ApplySubscriptionStateTx(tx, uid, repository.SubscriptionStatePatch{
+					SubscriptionStatus: domain.SubStatusExpired,
+					SetStatus:          true,
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+
+		stored := domain.NormalizeSubscriptionStatus(u.SubscriptionStatus)
+		if stored == resolved {
+			return nil
+		}
+		if resolved != domain.SubStatusPastDue && resolved != domain.SubStatusCanceled && resolved != domain.SubStatusExpired {
+			return nil
+		}
+		if _, err := s.users.ApplySubscriptionStateTx(tx, uid, repository.SubscriptionStatePatch{
+			SubscriptionStatus: resolved,
+			SetStatus:          true,
+		}); err != nil {
+			return err
+		}
+		if resolved == domain.SubStatusPastDue {
+			out.UsersMarkedPastDue = 1
+		}
+		return nil
+	})
+	return out, err
+}
+
+// subscriptionRowStatusAfterPeriod is the status an overdue open row should
+// take: expired after grace, canceled if the user canceled, otherwise past_due.
+func subscriptionRowStatusAfterPeriod(u *domain.User, now time.Time, graceDays int) domain.SubscriptionStatus {
+	if u == nil {
+		return domain.SubStatusExpired
+	}
+	resolved := domain.ResolveSubscriptionStatus(u, now, graceDays)
+	switch resolved {
+	case domain.SubStatusCanceled:
+		return domain.SubStatusCanceled
+	case domain.SubStatusPastDue:
+		return domain.SubStatusPastDue
+	case domain.SubStatusActive, domain.SubStatusTrialing:
+		// User still has a current period (or lifetime). Overdue leftover
+		// rows from an earlier invoice should be marked expired.
+		return domain.SubStatusExpired
+	default:
+		return domain.SubStatusExpired
+	}
 }
 
 func (s *Service) snapshot(u *domain.User, now time.Time) *ActivePlan {

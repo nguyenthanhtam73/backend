@@ -326,6 +326,23 @@ func (r *GormUserRepository) CountActivePremiumUsers(ctx context.Context) (int64
 	return n, err
 }
 
+// CountActivePremiumInPeriod counts users whose stored entitlement is still in
+// a billed window: paid plan, status=active, plan_expires_at in the future.
+// Excludes lifetime grants (NULL plan_expires_at) and in-grace / expired users.
+func (r *GormUserRepository) CountActivePremiumInPeriod(ctx context.Context, now time.Time) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = db.WithContext(ctx).Model(&domain.User{}).
+		Where("plan_tier IN ?", []domain.PlanTier{domain.PlanPremium, domain.PlanPremiumPlus}).
+		Where("subscription_status = ?", domain.SubStatusActive).
+		Where("plan_expires_at IS NOT NULL AND plan_expires_at > ?", now.UTC()).
+		Count(&n).Error
+	return n, err
+}
+
 // UpcomingExpiry is a compact row for admin payment metrics.
 type UpcomingExpiry struct {
 	UserID        uuid.UUID

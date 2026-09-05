@@ -56,6 +56,27 @@ func NormalizeSubscriptionStatus(raw SubscriptionStatus) SubscriptionStatus {
 	}
 }
 
+// OpenSubscriptionStatuses are rows that still represent a current (or just-ended)
+// period. They must not stay "active"/"trialing" after period_ends_at.
+func OpenSubscriptionStatuses() []SubscriptionStatus {
+	return []SubscriptionStatus{
+		SubStatusActive,
+		SubStatusTrialing,
+		SubStatusCanceled,
+		SubStatusPastDue,
+	}
+}
+
+// IsOpenSubscriptionStatus reports whether status is a non-terminal billing row.
+func IsOpenSubscriptionStatus(raw SubscriptionStatus) bool {
+	switch NormalizeSubscriptionStatus(raw) {
+	case SubStatusActive, SubStatusTrialing, SubStatusCanceled, SubStatusPastDue:
+		return true
+	default:
+		return false
+	}
+}
+
 // ClampTrialDays keeps trial length inside the product range [7, 14].
 func ClampTrialDays(days int) int {
 	if days < MinTrialDays {
@@ -123,20 +144,20 @@ type Subscription struct {
 	ID     uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
 	UserID uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
 
-	PlanTier        PlanTier             `gorm:"size:16;not null" json:"plan_tier"`
-	BillingInterval BillingInterval      `gorm:"size:16" json:"billing_interval,omitempty"`
-	Status          SubscriptionStatus   `gorm:"size:16;not null;index" json:"status"`
+	PlanTier        PlanTier              `gorm:"size:16;not null" json:"plan_tier"`
+	BillingInterval BillingInterval       `gorm:"size:16" json:"billing_interval,omitempty"`
+	Status          SubscriptionStatus    `gorm:"size:16;not null;index" json:"status"`
 	EventType       SubscriptionEventType `gorm:"size:32;not null;index" json:"event_type"`
-	Provider        SubscriptionProvider `gorm:"size:16;not null;default:sepay" json:"provider"`
+	Provider        SubscriptionProvider  `gorm:"size:16;not null;default:sepay" json:"provider"`
 
 	// ExternalRef links to SePay invoice / admin reason code (optional).
 	ExternalRef string `gorm:"size:128" json:"external_ref,omitempty"`
 
-	TrialEndsAt        *time.Time `json:"trial_ends_at,omitempty"`
-	PeriodStartsAt     *time.Time `json:"period_starts_at,omitempty"`
-	PeriodEndsAt       *time.Time `json:"period_ends_at,omitempty"`
-	CanceledAt         *time.Time `json:"canceled_at,omitempty"`
-	GraceEndsAt        *time.Time `json:"grace_ends_at,omitempty"`
+	TrialEndsAt    *time.Time `json:"trial_ends_at,omitempty"`
+	PeriodStartsAt *time.Time `json:"period_starts_at,omitempty"`
+	PeriodEndsAt   *time.Time `json:"period_ends_at,omitempty"`
+	CanceledAt     *time.Time `json:"canceled_at,omitempty"`
+	GraceEndsAt    *time.Time `json:"grace_ends_at,omitempty"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

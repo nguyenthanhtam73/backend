@@ -73,6 +73,8 @@ Flip helper (rejects sandbox keys): `backend/scripts/flip-sepay-production.ps1`.
       `SePay webhook: signature_invalid`)
 - [ ] Fail-rate monitor active (fail rate > 10% / hour or webhook errors > 5 / hour)
 - [ ] `PlanExpiryJob` wired with same alerter (job fail or downgrade > 20 users)
+- [ ] After deploy, confirm billing reconcile closed leftover `subscriptions.status='active'`
+      rows with `period_ends_at` in the past (see [`BILLING-RECONCILE.md`](./BILLING-RECONCILE.md))
 - [ ] Admin metrics reachable (admin JWT):
   ```
   GET /api/v1/admin/metrics/payment

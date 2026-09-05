@@ -357,6 +357,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		authH.AttachSubscription(subSvc)
 		subH := NewSubscriptionHandler(subSvc)
 		api.Post("/subscription/cancel", jwt, subH.Cancel)
+		api.Post("/admin/billing/reconcile", jwt, admin, NewAdminBillingHandler(subSvc).Reconcile)
 
 		// SePay Payment Gateway — checkout (JWT) + IPN webhook (public).
 		// Configure IPN URL in SePay dashboard → POST /api/v1/payment/sepay/webhook
