@@ -75,6 +75,10 @@ Flip helper (rejects sandbox keys): `backend/scripts/flip-sepay-production.ps1`.
 - [ ] `PlanExpiryJob` wired with same alerter (job fail or downgrade > 20 users)
 - [ ] After deploy, confirm billing reconcile closed leftover `subscriptions.status='active'`
       rows with `period_ends_at` in the past (see [`BILLING-RECONCILE.md`](./BILLING-RECONCILE.md))
+- [ ] After deploy, leftover `payment_orders.status='pending'` older than 72h should
+      move to `expired` (boot + daily job; see [`RETENTION-AND-PENDING-ORDERS.md`](./RETENTION-AND-PENDING-ORDERS.md))
+- [ ] Frontend can poll `GET /api/v1/me/check-in-reminder` for D0/D1 in-app nudges
+      (no ESP — email is not sent)
 - [ ] Admin metrics reachable (admin JWT):
   ```
   GET /api/v1/admin/metrics/payment

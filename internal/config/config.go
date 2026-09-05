@@ -45,6 +45,10 @@ type Config struct {
 	SePay SePayConfig `mapstructure:"sepay"`
 	// Subscription controls trial length + post-expiry grace (Premium lifecycle).
 	Subscription SubscriptionConfig `mapstructure:"subscription"`
+	// CheckInReminder marks D0/D1 first-check-in flags (GET /me/check-in-reminder).
+	CheckInReminder CheckInReminderConfig `mapstructure:"checkin_reminder"`
+	// PendingOrderExpiry expires leftover SePay payment_orders.status=pending.
+	PendingOrderExpiry PendingOrderExpiryConfig `mapstructure:"pending_order_expiry"`
 	// Alert is optional ops alerting (Slack / Telegram) for payment & cron failures.
 	Alert AlertConfig `mapstructure:"alert"`
 	// E2ESecret enables POST /api/v1/internal/e2e/* helpers for Playwright smoke.
@@ -112,6 +116,19 @@ func (s SePayConfig) NormalizedEnv() string {
 		return "production"
 	}
 	return "sandbox"
+}
+
+// CheckInReminderConfig toggles the D0/D1 snapshot job (API GET always computes live).
+type CheckInReminderConfig struct {
+	Enabled bool `mapstructure:"enabled"` // DADIARY_CHECKIN_REMINDER_ENABLED
+}
+
+// PendingOrderExpiryConfig is local hygiene for leftover SePay checkouts.
+// TTLHours is a labeled hypothesis (24–168, default 72) — not a SePay-documented
+// session lifetime. See docs/RETENTION-AND-PENDING-ORDERS.md.
+type PendingOrderExpiryConfig struct {
+	Enabled  bool `mapstructure:"enabled"`   // DADIARY_PENDING_ORDER_EXPIRY_ENABLED
+	TTLHours int  `mapstructure:"ttl_hours"` // DADIARY_PENDING_ORDER_TTL_HOURS
 }
 
 // DailyReminderConfig controls when the Daily Check-in Reminder job fires.
@@ -282,6 +299,9 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("daily_reminder.enabled", "DADIARY_DAILY_REMINDER_ENABLED")
 	_ = v.BindEnv("daily_reminder.hour", "DADIARY_DAILY_REMINDER_HOUR")
 	_ = v.BindEnv("daily_reminder.minute", "DADIARY_DAILY_REMINDER_MINUTE")
+	_ = v.BindEnv("checkin_reminder.enabled", "DADIARY_CHECKIN_REMINDER_ENABLED")
+	_ = v.BindEnv("pending_order_expiry.enabled", "DADIARY_PENDING_ORDER_EXPIRY_ENABLED")
+	_ = v.BindEnv("pending_order_expiry.ttl_hours", "DADIARY_PENDING_ORDER_TTL_HOURS")
 	_ = v.BindEnv("sepay.merchant_id", "DADIARY_SEPAY_MERCHANT_ID")
 	_ = v.BindEnv("sepay.secret_key", "DADIARY_SEPAY_SECRET_KEY")
 	_ = v.BindEnv("sepay.env", "DADIARY_SEPAY_ENV")
@@ -390,6 +410,20 @@ func Load(relativeEnvPath string) (*Config, error) {
 	}
 	if cfg.DailyReminder.Minute < 0 || cfg.DailyReminder.Minute > 59 {
 		cfg.DailyReminder.Minute = 0
+	}
+
+	if raw := strings.TrimSpace(os.Getenv("DADIARY_CHECKIN_REMINDER_ENABLED")); raw == "" {
+		cfg.CheckInReminder.Enabled = true
+	} else {
+		cfg.CheckInReminder.Enabled = parseEnvBool(raw, true)
+	}
+	if raw := strings.TrimSpace(os.Getenv("DADIARY_PENDING_ORDER_EXPIRY_ENABLED")); raw == "" {
+		cfg.PendingOrderExpiry.Enabled = true
+	} else {
+		cfg.PendingOrderExpiry.Enabled = parseEnvBool(raw, true)
+	}
+	if cfg.PendingOrderExpiry.TTLHours <= 0 {
+		cfg.PendingOrderExpiry.TTLHours = 72
 	}
 
 	// SePay: trim + sandbox defaults for local Beta (never rely on these in production).
