@@ -3,6 +3,7 @@ package handler
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"strings"
@@ -85,12 +86,17 @@ func (h *OnboardingAnalyzeHandler) AnalyzeSkin(c *fiber.Ctx) error {
 	locale := firstFormLocale(form)
 	out, err := ai.OnboardingSkinAnalyze(c.UserContext(), h.cfg, h.httpClient, imgs, locale)
 	if err != nil {
-		// Surface model/parse issues without leaking stack traces.
-		msg := err.Error()
-		if strings.Contains(strings.ToLower(msg), "api key") {
+		if strings.Contains(strings.ToLower(err.Error()), "api key") {
 			return response.Error(c, fiber.StatusServiceUnavailable, "openai_not_configured", "OpenAI API key required for photo analysis")
 		}
-		return response.Error(c, fiber.StatusUnprocessableEntity, "analysis_failed", msg)
+		// Model and parse failures carry prompt fragments and vendor payloads —
+		// keep the detail in logs, hand the client the code only.
+		slog.Warn("onboarding analyze: vision pipeline failed",
+			"images", len(imgs),
+			"locale", locale,
+			"error", err,
+		)
+		return response.Error(c, fiber.StatusUnprocessableEntity, "analysis_failed", "could not analyze the uploaded photos")
 	}
 	uid := middleware.UserIDFromLocals(c)
 	stripOnboardingAnalyzeAds(c.UserContext(), h.premium, uid, out, locale)
