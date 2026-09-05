@@ -26,6 +26,7 @@ func setupReminderSvc(t *testing.T, now time.Time) (*Service, *repository.GormUs
 	if err := db.AutoMigrate(
 		&domain.User{},
 		&domain.SkinCheck{},
+		&domain.SkinAnalysis{},
 		&domain.CheckInReminderFlag{},
 	); err != nil {
 		t.Fatal(err)
