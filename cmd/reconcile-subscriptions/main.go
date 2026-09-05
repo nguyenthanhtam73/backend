@@ -1,8 +1,9 @@
 // reconcile-subscriptions repairs leftover billing state.
 //
-// The daily PlanExpiryJob updates users when grace ends but used to leave the
-// original subscriptions.status='active' row in place. This command closes
-// overdue open subscription rows and syncs users.plan_tier / subscription_status.
+// Closes overdue open subscription rows and syncs users.plan_tier /
+// subscription_status to verified evidence: a covering subscriptions period,
+// a still-covering paid SePay order, or an admin lifetime grant.
+// Dated Premium with no covering evidence is set back to free/expired.
 // Safe to re-run (idempotent). Default is dry-run.
 //
 // Usage:
@@ -46,14 +47,17 @@ func main() {
 	users := repository.NewUserRepository(db)
 	subs := repository.NewSubscriptionRepository(db)
 	logs := repository.NewPlanChangeLogRepository(db)
+	orders := repository.NewPaymentOrderRepository(db)
 	trialDays, graceDays := domain.DefaultTrialDays, domain.DefaultGraceDays
 	if cfg != nil {
 		trialDays = cfg.Subscription.TrialDays
 		graceDays = cfg.Subscription.GraceDays
 	}
 	svc := subscriptionuc.NewService(db, users, subs, logs, trialDays, graceDays)
+	svc.AttachPaymentOrders(orders)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	grace := domain.ClampGraceDays(graceDays)
 
 	overdue, err := subs.ListOpenOverdue(ctx, now, 2000)
 	if err != nil {
@@ -67,10 +71,35 @@ func main() {
 	if err != nil {
 		fail("count active users: %v", err)
 	}
+	premiumUsers, err := users.CountActivePremiumUsers(ctx)
+	if err != nil {
+		fail("count premium plan_tier: %v", err)
+	}
+	activeStatus, err := users.CountUsersBySubscriptionStatus(ctx, domain.SubStatusActive)
+	if err != nil {
+		fail("count subscription_status=active: %v", err)
+	}
+	lifetime, err := users.CountLifetimePaidUsers(ctx)
+	if err != nil {
+		fail("count lifetime grants: %v", err)
+	}
+	paidLooking, err := users.ListPaidLookingUsers(ctx, 2000)
+	if err != nil {
+		fail("list paid-looking users: %v", err)
+	}
+	coveringIDs, err := subs.ListCoveringUserIDs(ctx, now, grace, 2000)
+	if err != nil {
+		fail("list covering subscriptions: %v", err)
+	}
 
 	fmt.Println("=== BILLING RECONCILE ===")
-	fmt.Printf("now=%s  grace_days=%d  apply=%v\n", now.Format(time.RFC3339), domain.ClampGraceDays(graceDays), *apply)
+	fmt.Printf("now=%s  grace_days=%d  apply=%v\n", now.Format(time.RFC3339), grace, *apply)
 	fmt.Printf("open overdue subscription rows: %d\n", len(overdue))
+	fmt.Printf("users.plan_tier premium/premium_plus: %d\n", premiumUsers)
+	fmt.Printf("users.subscription_status=active: %d\n", activeStatus)
+	fmt.Printf("lifetime grants (paid + NULL plan_expires_at): %d\n", lifetime)
+	fmt.Printf("paid-looking users (paid plan or open status): %d\n", len(paidLooking))
+	fmt.Printf("users with covering subscription (period+grace): %d\n", len(coveringIDs))
 	fmt.Printf("active billed subscriptions (status=active AND period_ends_at > now): %d\n", activeSubs)
 	fmt.Printf("active billed users (premium + status=active AND plan_expires_at > now): %d\n", activeUsers)
 	fmt.Println()
@@ -106,15 +135,23 @@ func main() {
 	activeSubsAfter, _ := subs.CountActiveInPeriod(ctx, now)
 	activeUsersAfter, _ := users.CountActivePremiumInPeriod(ctx, now)
 	overdueAfter, _ := subs.ListOpenOverdue(ctx, now, 2000)
+	premiumAfter, _ := users.CountActivePremiumUsers(ctx)
+	activeStatusAfter, _ := users.CountUsersBySubscriptionStatus(ctx, domain.SubStatusActive)
+	lifetimeAfter, _ := users.CountLifetimePaidUsers(ctx)
 
-	fmt.Printf("applied: candidates=%d rows_closed=%d users_expired=%d users_past_due=%d history_appended=%d\n",
-		res.Candidates, res.SubscriptionRowsClosed, res.UsersExpired, res.UsersMarkedPastDue, res.HistoryEventsAppended)
+	fmt.Printf("applied: candidates=%d rows_closed=%d users_expired=%d users_past_due=%d users_refreshed=%d history_appended=%d\n",
+		res.Candidates, res.SubscriptionRowsClosed, res.UsersExpired, res.UsersMarkedPastDue, res.UsersRefreshed, res.HistoryEventsAppended)
 	fmt.Printf("after: open overdue=%d  active billed subs=%d  active billed users=%d\n",
 		len(overdueAfter), activeSubsAfter, activeUsersAfter)
+	fmt.Printf("after: plan_tier premium=%d  subscription_status=active=%d  lifetime grants=%d\n",
+		premiumAfter, activeStatusAfter, lifetimeAfter)
 	if activeSubsAfter != activeUsersAfter {
-		fmt.Println("NOTE: counts still differ — check lifetime grants (NULL plan_expires_at) or leftover rows.")
+		fmt.Println("NOTE: billed-period counts still differ — leftover rows or clock skew.")
 	} else {
 		fmt.Println("OK: active billed subscriptions match active billed users.")
+	}
+	if premiumAfter > lifetimeAfter && activeSubsAfter == 0 {
+		fmt.Println("NOTE: remaining premium rows should be lifetime grants (NULL plan_expires_at) or in-grace covering periods.")
 	}
 }
 

@@ -17,7 +17,8 @@ func NewAdminBillingHandler(svc *subscriptionuc.Service) *AdminBillingHandler {
 }
 
 // Reconcile handles POST /api/v1/admin/billing/reconcile.
-// Idempotent: expires overdue subscription rows and syncs users.
+// Idempotent: expires overdue subscription rows and syncs users to covering
+// subscriptions / paid orders (demotes dated Premium with no evidence).
 func (h *AdminBillingHandler) Reconcile(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "subscription unavailable")

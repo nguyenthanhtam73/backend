@@ -19,10 +19,10 @@ const (
 )
 
 // PlanExpiryJob runs once per UTC day and reconciles billing state: expires
-// overdue subscription rows, marks in-grace users past_due, and downgrades
-// users whose grace window has ended. Feature gates already treat post-grace
-// rows as Free via EffectivePlanTierWithGrace; this job keeps users +
-// subscriptions rows consistent.
+// overdue subscription rows, syncs users from covering subscriptions / paid
+// orders, marks in-grace users past_due, and downgrades users with no
+// covering evidence. Feature gates already treat post-grace rows as Free via
+// EffectivePlanTierWithGrace; this job keeps users + subscriptions consistent.
 type PlanExpiryJob struct {
 	premium *premiumuc.Service
 	subs    *subscriptionuc.Service

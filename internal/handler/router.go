@@ -360,6 +360,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			graceDays = cfg.Subscription.GraceDays
 		}
 		subSvc := subscriptionuc.NewService(db, userRepo, subsRepo, planLogRepo, trialDays, graceDays)
+		subSvc.AttachPaymentOrders(payOrders)
 		authH.AttachSubscription(subSvc)
 		subH := NewSubscriptionHandler(subSvc)
 		api.Post("/subscription/cancel", jwt, subH.Cancel)

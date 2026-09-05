@@ -340,6 +340,68 @@ func (r *GormUserRepository) CountActivePremiumUsers(ctx context.Context) (int64
 	return n, err
 }
 
+// CountUsersBySubscriptionStatus counts users with the given stored status.
+func (r *GormUserRepository) CountUsersBySubscriptionStatus(
+	ctx context.Context,
+	status domain.SubscriptionStatus,
+) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = db.WithContext(ctx).Model(&domain.User{}).
+		Where("subscription_status = ?", domain.NormalizeSubscriptionStatus(status)).
+		Count(&n).Error
+	return n, err
+}
+
+// CountLifetimePaidUsers counts paid plan_tier rows with NULL plan_expires_at
+// (admin lifetime grants — no subscriptions row by design).
+func (r *GormUserRepository) CountLifetimePaidUsers(ctx context.Context) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = db.WithContext(ctx).Model(&domain.User{}).
+		Where("plan_tier IN ?", []domain.PlanTier{domain.PlanPremium, domain.PlanPremiumPlus}).
+		Where("plan_expires_at IS NULL").
+		Count(&n).Error
+	return n, err
+}
+
+// ListPaidLookingUsers returns users whose stored columns claim paid or open
+// access (plan_tier paid, or subscription_status in an open lifecycle state).
+// Used by billing reconcile so dated Premium without a covering subscription
+// is still selected.
+func (r *GormUserRepository) ListPaidLookingUsers(
+	ctx context.Context,
+	limit int,
+) ([]domain.User, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if limit < 1 {
+		limit = 200
+	}
+	if limit > 2000 {
+		limit = 2000
+	}
+	var rows []domain.User
+	err = db.WithContext(ctx).
+		Where(
+			"plan_tier IN ? OR subscription_status IN ?",
+			[]domain.PlanTier{domain.PlanPremium, domain.PlanPremiumPlus},
+			domain.OpenSubscriptionStatuses(),
+		).
+		Order("updated_at ASC").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}
+
 // CountActivePremiumInPeriod counts users whose stored entitlement is still in
 // a billed window: paid plan, status=active, plan_expires_at in the future.
 // Excludes lifetime grants (NULL plan_expires_at) and in-grace / expired users.

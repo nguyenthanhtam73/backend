@@ -252,6 +252,51 @@ func (r *PaymentOrderRepository) UpdateStatusTx(
 		Updates(updates).Error
 }
 
+// ListPaidForUserTx returns paid checkout rows for one user, oldest first
+// (so ComputePlanExpiry can be folded in paid_at order).
+func (r *PaymentOrderRepository) ListPaidForUserTx(
+	tx *gorm.DB,
+	userID uuid.UUID,
+) ([]domain.PaymentOrder, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("transaction required")
+	}
+	if userID == uuid.Nil {
+		return nil, fmt.Errorf("user id required")
+	}
+	var rows []domain.PaymentOrder
+	err := tx.Where("user_id = ? AND status = ?", userID, domain.PaymentPaid).
+		Order("paid_at ASC, created_at ASC").
+		Limit(50).
+		Find(&rows).Error
+	return rows, err
+}
+
+// ListDistinctPaidUserIDs returns user_ids that have at least one paid order.
+func (r *PaymentOrderRepository) ListDistinctPaidUserIDs(
+	ctx context.Context,
+	limit int,
+) ([]uuid.UUID, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if limit < 1 {
+		limit = 200
+	}
+	if limit > 2000 {
+		limit = 2000
+	}
+	var ids []uuid.UUID
+	err = db.WithContext(ctx).
+		Model(&domain.PaymentOrder{}).
+		Where("status = ?", domain.PaymentPaid).
+		Distinct("user_id").
+		Limit(limit).
+		Pluck("user_id", &ids).Error
+	return ids, err
+}
+
 // PaymentDayStats aggregates payment_orders created on [dayStart, dayEnd).
 type PaymentDayStats struct {
 	TotalCreated int64

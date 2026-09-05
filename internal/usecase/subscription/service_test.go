@@ -192,6 +192,17 @@ func TestDowngradePastGrace(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	// Grace is a property of a billed period, not a floating users.plan_expires_at.
+	if err := subs.Create(ctx, &domain.Subscription{
+		UserID:       graceUser.ID,
+		PlanTier:     domain.PlanPremium,
+		Status:       domain.SubStatusPastDue,
+		EventType:    domain.SubEventRenewed,
+		Provider:     domain.SubProviderSePay,
+		PeriodEndsAt: &inGrace,
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	n, err := svc.DowngradePastGrace(ctx)
 	if err != nil {
@@ -467,6 +478,189 @@ func TestReconcileBillingState_DowngradesPastGracePaidUser(t *testing.T) {
 	}
 	if again.UsersExpired != 0 || again.HistoryEventsAppended != 0 {
 		t.Fatalf("repeat downgrade: %+v", again)
+	}
+}
+
+func TestReconcileBillingState_ExpiresOrphanPremiumWithoutEvidence(t *testing.T) {
+	db, users, subs, logs := setupSubDB(t)
+	svc := NewService(db, users, subs, logs, 7, 3)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	future := now.Add(20 * 24 * time.Hour)
+
+	orphan := &domain.User{
+		Email:              "orphan-premium@test.com",
+		Username:           "orphan_prem",
+		PlanTier:           domain.PlanPremium,
+		PlanExpiresAt:      &future,
+		SubscriptionStatus: domain.SubStatusActive,
+		IsActive:           true,
+	}
+	if err := users.Create(ctx, orphan); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.ReconcileBillingState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.UsersExpired != 1 {
+		t.Fatalf("users_expired=%d want 1 (dated premium, no covering sub/order)", res.UsersExpired)
+	}
+
+	got, _ := users.GetByID(ctx, orphan.ID)
+	if got.PlanTier != domain.PlanFree || got.SubscriptionStatus != domain.SubStatusExpired {
+		t.Fatalf("orphan not demoted: %+v", got)
+	}
+	if got.PlanExpiresAt != nil {
+		t.Fatalf("orphan expiry not cleared: %v", got.PlanExpiresAt)
+	}
+
+	again, err := svc.ReconcileBillingState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.UsersExpired != 0 {
+		t.Fatalf("second expire: %+v", again)
+	}
+}
+
+func TestReconcileBillingState_KeepsUserWhenPaidOrderCovers(t *testing.T) {
+	db, users, subs, logs := setupSubDB(t)
+	if err := db.AutoMigrate(&domain.PaymentOrder{}); err != nil {
+		t.Fatal(err)
+	}
+	orders := repository.NewPaymentOrderRepository(db)
+	svc := NewService(db, users, subs, logs, 7, 3)
+	svc.AttachPaymentOrders(orders)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	future := now.Add(20 * 24 * time.Hour)
+	paidAt := now.Add(-5 * 24 * time.Hour)
+
+	u := &domain.User{
+		Email:              "paid-order@test.com",
+		Username:           "paid_order",
+		PlanTier:           domain.PlanPremium,
+		PlanExpiresAt:      &future,
+		SubscriptionStatus: domain.SubStatusActive,
+		IsActive:           true,
+	}
+	if err := users.Create(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+	if err := orders.Create(ctx, &domain.PaymentOrder{
+		UserID:          u.ID,
+		InvoiceNumber:   "DD-TEST-COVER-1",
+		PlanTier:        domain.PlanPremium,
+		BillingInterval: domain.BillingMonthly,
+		AmountVND:       79000,
+		Status:          domain.PaymentPaid,
+		PaidAt:          &paidAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.ReconcileBillingState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.UsersExpired != 0 {
+		t.Fatalf("paid-order user expired: %+v", res)
+	}
+
+	got, _ := users.GetByID(ctx, u.ID)
+	if got.PlanTier != domain.PlanPremium || got.SubscriptionStatus != domain.SubStatusActive {
+		t.Fatalf("paid-order user not kept: %+v", got)
+	}
+	if got.PlanExpiresAt == nil {
+		t.Fatal("paid-order user lost expiry")
+	}
+	wantExpiry := domain.ComputePlanExpiry(domain.BillingMonthly, paidAt, nil)
+	if !got.PlanExpiresAt.Equal(wantExpiry) {
+		t.Fatalf("expiry=%s want stacked order expiry %s", got.PlanExpiresAt.Format(time.RFC3339), wantExpiry.Format(time.RFC3339))
+	}
+}
+
+func TestReconcileBillingState_RefreshesFreeUserFromCoveringSub(t *testing.T) {
+	db, users, subs, logs := setupSubDB(t)
+	svc := NewService(db, users, subs, logs, 7, 3)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	future := now.Add(15 * 24 * time.Hour)
+
+	u := &domain.User{
+		Email:              "free-with-sub@test.com",
+		Username:           "free_sub",
+		PlanTier:           domain.PlanFree,
+		SubscriptionStatus: domain.SubStatusNone,
+		IsActive:           true,
+	}
+	if err := users.Create(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+	if err := subs.Create(ctx, &domain.Subscription{
+		UserID:       u.ID,
+		PlanTier:     domain.PlanPremium,
+		Status:       domain.SubStatusActive,
+		EventType:    domain.SubEventRenewed,
+		Provider:     domain.SubProviderSePay,
+		PeriodEndsAt: &future,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.ReconcileBillingState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.UsersRefreshed != 1 {
+		t.Fatalf("users_refreshed=%d want 1", res.UsersRefreshed)
+	}
+
+	got, _ := users.GetByID(ctx, u.ID)
+	if got.PlanTier != domain.PlanPremium || got.SubscriptionStatus != domain.SubStatusActive {
+		t.Fatalf("not refreshed from sub: %+v", got)
+	}
+	if got.PlanExpiresAt == nil || !got.PlanExpiresAt.Equal(future) {
+		t.Fatalf("expiry=%v want %s", got.PlanExpiresAt, future.Format(time.RFC3339))
+	}
+
+	again, err := svc.ReconcileBillingState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.UsersRefreshed != 0 || again.UsersExpired != 0 {
+		t.Fatalf("second refresh not idempotent: %+v", again)
+	}
+}
+
+func TestReconcileBillingState_ExpiresFreeUserWithStaleActiveStatus(t *testing.T) {
+	db, users, subs, logs := setupSubDB(t)
+	svc := NewService(db, users, subs, logs, 7, 3)
+	ctx := context.Background()
+
+	u := &domain.User{
+		Email:              "stale-active@test.com",
+		Username:           "stale_act",
+		PlanTier:           domain.PlanFree,
+		SubscriptionStatus: domain.SubStatusActive,
+		IsActive:           true,
+	}
+	if err := users.Create(ctx, u); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.ReconcileBillingState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.UsersExpired != 1 {
+		t.Fatalf("users_expired=%d want 1", res.UsersExpired)
+	}
+	got, _ := users.GetByID(ctx, u.ID)
+	if got.PlanTier != domain.PlanFree || got.SubscriptionStatus != domain.SubStatusExpired {
+		t.Fatalf("stale active status not cleared: %+v", got)
 	}
 }
 
