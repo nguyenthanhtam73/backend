@@ -455,6 +455,54 @@ func (r *GormSkinCheckRepository) ListForOwner(ctx context.Context, userID uuid.
 	return rows, nil
 }
 
+// CountDistinctUsers returns how many distinct users have ≥1 skin_check.
+func (r *GormSkinCheckRepository) CountDistinctUsers(ctx context.Context) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = db.WithContext(ctx).Model(&domain.SkinCheck{}).
+		Distinct("user_id").
+		Count(&n).Error
+	return n, err
+}
+
+// CountDistinctUsersCreatedSince counts distinct users with a skin_check
+// whose created_at is on/after since (rolling activity window).
+func (r *GormSkinCheckRepository) CountDistinctUsersCreatedSince(ctx context.Context, since time.Time) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = db.WithContext(ctx).Model(&domain.SkinCheck{}).
+		Where("created_at >= ?", since.UTC()).
+		Distinct("user_id").
+		Count(&n).Error
+	return n, err
+}
+
+// FunnelCheckDateRow is one (user, check_date) used for D0/D1 proxies.
+type FunnelCheckDateRow struct {
+	UserID    uuid.UUID
+	CheckDate time.Time
+}
+
+// ListFunnelCheckDates returns distinct (user_id, check_date) pairs.
+func (r *GormSkinCheckRepository) ListFunnelCheckDates(ctx context.Context) ([]FunnelCheckDateRow, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var rows []FunnelCheckDateRow
+	err = db.WithContext(ctx).Model(&domain.SkinCheck{}).
+		Select("user_id", "check_date").
+		Distinct("user_id", "check_date").
+		Find(&rows).Error
+	return rows, err
+}
+
 // SaveAnalysis updates an existing analysis row.
 func (r *GormSkinCheckRepository) SaveAnalysis(ctx context.Context, a *domain.SkinAnalysis) error {
 	db, err := r.dbOrErr()
