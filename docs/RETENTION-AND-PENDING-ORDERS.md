@@ -95,6 +95,18 @@ curl -X POST https://<api>/api/v1/admin/payments/expire-pending \
 
 API boot runs one expire pass; a daily UTC job repeats it.
 
+### Funnel health (admin)
+
+```
+GET /api/v1/admin/funnel-stats
+Authorization: Bearer <admin-jwt>
+```
+
+Counts signups, distinct skin-check users, D0/D1 check-in proxies (Vietnam
+calendar), and paid orders in the last 7 days. Paywall impressions are
+client-only (`paywall_views` is `null`). Curl + field table:
+[`FUNNEL-STATS.md`](./FUNNEL-STATS.md).
+
 ### Verify (Postgres)
 
 ```sql

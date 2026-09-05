@@ -398,3 +398,18 @@ func (r *PaymentOrderRepository) AggregateCreatedBetween(
 		RevenueVND:   revenue,
 	}, nil
 }
+
+// CountPaidSince counts paid checkout rows whose paid_at (or created_at
+// when paid_at is null) is on/after since.
+func (r *PaymentOrderRepository) CountPaidSince(ctx context.Context, since time.Time) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = db.WithContext(ctx).Model(&domain.PaymentOrder{}).
+		Where("status = ?", domain.PaymentPaid).
+		Where("COALESCE(paid_at, created_at) >= ?", since.UTC()).
+		Count(&n).Error
+	return n, err
+}

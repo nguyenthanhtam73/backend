@@ -541,3 +541,36 @@ func (r *GormUserRepository) listPaidUsersExpiresAtOrBefore(
 		Find(&rows).Error
 	return rows, err
 }
+
+// CountCreatedSince counts non-deleted users with created_at >= since.
+func (r *GormUserRepository) CountCreatedSince(ctx context.Context, since time.Time) (int64, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return 0, err
+	}
+	var n int64
+	err = db.WithContext(ctx).Model(&domain.User{}).
+		Where("created_at >= ?", since.UTC()).
+		Count(&n).Error
+	return n, err
+}
+
+// FunnelSignupRow is the compact signup payload for D0/D1 aggregation.
+type FunnelSignupRow struct {
+	ID        uuid.UUID
+	CreatedAt time.Time
+}
+
+// ListFunnelSignups returns every non-deleted user's id + created_at.
+func (r *GormUserRepository) ListFunnelSignups(ctx context.Context) ([]FunnelSignupRow, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var rows []FunnelSignupRow
+	err = db.WithContext(ctx).Model(&domain.User{}).
+		Select("id", "created_at").
+		Order("created_at ASC").
+		Find(&rows).Error
+	return rows, err
+}
