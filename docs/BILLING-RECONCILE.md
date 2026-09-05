@@ -7,20 +7,32 @@ When someone paid via SePay, DaDiary wrote two things:
 1. The **user** row (`users.plan_tier`, `subscription_status`, `plan_expires_at`) — this is what the app uses for “are they Premium?”
 2. A **subscription history** row (`subscriptions.status = active`, `period_ends_at`)
 
-When the paid month ended, a daily job updated the **user** (back to Free / Expired) but left the **subscription** row marked `active`. So the database disagreed with itself:
+Two kinds of leftover disagreement showed up in production:
 
-- 15 subscription rows still said “active” even though every `period_ends_at` was in the past
-- 13 of those people were already Free/Expired on `users`
-- 2 people still looked Premium on `users` while their billed period had already ended (one still inside the 3-day grace window; one looked like a lifetime grant with no expiry date)
+**A. Zombie subscription rows** (first repair): the paid month ended, the daily job updated the **user** (back to Free / Expired) but left the **subscription** row marked `active`.
 
-Feature gates already treat a user as Free after expiry + grace, so most people were not getting free Premium. The bug is **incorrect billing records**, which breaks admin counts and any check that trusts `subscriptions.status = 'active'`.
+**B. Orphan Premium on `users`** (this repair): after those history rows were closed, some people still looked Premium on `users` while **no** `subscriptions` row had `status=active AND period_ends_at > now()`. Admin `active_premium_count` and `/me` still read `users.plan_tier`, so the app showed Premium.
+
+Typical leftover shapes:
+
+- Dated Premium (`plan_expires_at` still in the future) with no covering history row and no covering paid order — e2e ForcePlan, legacy SePay fulfill, or a user column that was never cleared
+- `subscription_status=active` on a Free user
+- A free user who still has a covering history row (converse: refresh `users` from that row)
+
+Feature gates already treat a user as Free after expiry + grace. The bug is **incorrect billing records**, which breaks admin counts and any check that trusts `users.plan_tier` alone.
 
 ## What we changed
 
 - Expiry / renew / cancel now **close** leftover open subscription rows. A row cannot stay `active` after `period_ends_at`.
 - A safe, **idempotent** reconcile (safe to run twice):
   - expires overdue `subscriptions` (or marks them `past_due` during the 3-day grace window)
-  - syncs `users.plan_tier` / `subscription_status` / `plan_expires_at`
+  - selects **paid-looking users** (paid `plan_tier` or an open `subscription_status`), not only people whose `plan_expires_at` has already passed
+  - syncs `users.plan_tier` / `subscription_status` / `plan_expires_at` from verified evidence, in this order:
+    1. a covering `subscriptions` row (`period_ends_at` still in the billed window or grace) — source of truth when present
+    2. stacked paid `payment_orders` (same `ComputePlanExpiry` fold as SePay renew)
+    3. admin lifetime grant (paid + NULL `plan_expires_at`) — left alone
+    4. otherwise set the user back to free / expired
+  - does **not** invent a new `subscriptions` row from a paid order (history stays what was actually written)
   - does **not** revoke admin lifetime grants (Premium + empty `plan_expires_at`)
 - The API runs this once on boot, and the daily expiry job runs it every UTC day.
 - Operators can also run it by command or admin API.
@@ -63,6 +75,15 @@ WHERE plan_tier IN ('premium', 'premium_plus')
   AND subscription_status = 'active'
   AND plan_expires_at IS NOT NULL
   AND plan_expires_at > now();
+```
+
+`users.plan_tier` premium and `users.subscription_status = active` may still be higher than the billed-period counts when lifetime grants exist:
+
+```sql
+SELECT count(*) AS lifetime_grants
+FROM users
+WHERE plan_tier IN ('premium', 'premium_plus')
+  AND plan_expires_at IS NULL;
 ```
 
 Leftover overdue actives should be **0**:

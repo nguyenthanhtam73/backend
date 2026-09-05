@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -211,6 +212,92 @@ func (r *SubscriptionRepository) MarkOpenStatusesTx(
 		Where("user_id = ? AND status IN ?", userID, from).
 		Updates(map[string]any{
 			"status":     to,
+			"updated_at": now.UTC(),
+		})
+	return res.RowsAffected, res.Error
+}
+
+// ListCoveringUserIDs returns distinct user_ids that have a history row whose
+// period_ends_at is still inside the billed window or grace at `now`.
+func (r *SubscriptionRepository) ListCoveringUserIDs(
+	ctx context.Context,
+	now time.Time,
+	graceDays int,
+	limit int,
+) ([]uuid.UUID, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if limit < 1 {
+		limit = 200
+	}
+	if limit > 2000 {
+		limit = 2000
+	}
+	graceDays = domain.ClampGraceDays(graceDays)
+	cutoff := now.UTC().Add(-domain.DaysDuration(graceDays))
+	var ids []uuid.UUID
+	err = db.WithContext(ctx).
+		Model(&domain.Subscription{}).
+		Where("period_ends_at IS NOT NULL AND period_ends_at > ?", cutoff).
+		Distinct("user_id").
+		Limit(limit).
+		Pluck("user_id", &ids).Error
+	return ids, err
+}
+
+// FindBestCoveringForUserTx returns the history row with the latest period_ends_at
+// that still covers now (period or grace). Nil when none exists.
+func (r *SubscriptionRepository) FindBestCoveringForUserTx(
+	tx *gorm.DB,
+	userID uuid.UUID,
+	now time.Time,
+	graceDays int,
+) (*domain.Subscription, error) {
+	if tx == nil {
+		return nil, fmt.Errorf("transaction required")
+	}
+	if userID == uuid.Nil {
+		return nil, fmt.Errorf("user id required")
+	}
+	graceDays = domain.ClampGraceDays(graceDays)
+	cutoff := now.UTC().Add(-domain.DaysDuration(graceDays))
+	var row domain.Subscription
+	err := tx.Where("user_id = ? AND period_ends_at IS NOT NULL AND period_ends_at > ?", userID, cutoff).
+		Order("period_ends_at DESC").
+		First(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &row, nil
+}
+
+// MarkCoveringActiveTx re-opens a history row that still has a future
+// period_ends_at but was left expired/past_due (repair, not a new period).
+func (r *SubscriptionRepository) MarkCoveringActiveTx(
+	tx *gorm.DB,
+	id uuid.UUID,
+	now time.Time,
+) (int64, error) {
+	if tx == nil {
+		return 0, fmt.Errorf("transaction required")
+	}
+	if id == uuid.Nil {
+		return 0, fmt.Errorf("subscription id required")
+	}
+	res := tx.Model(&domain.Subscription{}).
+		Where("id = ?", id).
+		Where("period_ends_at IS NOT NULL AND period_ends_at > ?", now.UTC()).
+		Where("canceled_at IS NULL").
+		Where("status IN ?", []domain.SubscriptionStatus{
+			domain.SubStatusExpired, domain.SubStatusPastDue,
+		}).
+		Updates(map[string]any{
+			"status":     domain.SubStatusActive,
 			"updated_at": now.UTC(),
 		})
 	return res.RowsAffected, res.Error

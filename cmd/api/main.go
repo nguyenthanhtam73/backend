@@ -152,8 +152,9 @@ func startPlanExpiryJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
 	premiumSvc := premiumuc.NewService(userRepo, usageRepo)
 	premiumSvc.AttachPlanExpiryDeps(db, userRepo, logs, graceDays)
 	subSvc := subscriptionuc.NewService(db, userRepo, subsRepo, logs, trialDays, graceDays)
+	subSvc.AttachPaymentOrders(repository.NewPaymentOrderRepository(db))
 	// Boot reconcile does not use the daily job lock, so a same-day deploy
-	// still repairs leftover active subscription rows.
+	// still repairs leftover user / subscription rows.
 	if res, recErr := subSvc.ReconcileBillingState(ctx); recErr != nil {
 		slog.Error("plan_expiry_job: boot reconcile failed", "error", recErr.Error())
 	} else {
@@ -162,6 +163,7 @@ func startPlanExpiryJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
 			"subscription_rows_closed", res.SubscriptionRowsClosed,
 			"users_expired", res.UsersExpired,
 			"users_marked_past_due", res.UsersMarkedPastDue,
+			"users_refreshed", res.UsersRefreshed,
 		)
 	}
 	jobLocks := repository.NewPushJobLockRepository(db)
