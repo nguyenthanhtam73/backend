@@ -13,6 +13,11 @@ import (
 const (
 	checkInReminderJobName    = "checkin_reminder_hour"
 	checkInReminderCheckEvery = 1 * time.Hour
+	// checkInReminderHourLayout is Vietnam YYYYMMDDHH (10 chars) so the claim
+	// fits push_job_locks.last_run_date VARCHAR(10). The dashed layout
+	// "2006-01-02-15" is 13 chars and Postgres rejects it (SQLSTATE 22001),
+	// which left the hourly email/push fan-out dead after boot.
+	checkInReminderHourLayout = "2006010215"
 )
 
 // CheckInReminderJob recomputes D0/D1 flags every Vietnam hour, then fans out
@@ -68,7 +73,7 @@ func (j *CheckInReminderJob) loop(ctx context.Context) {
 }
 
 func (j *CheckInReminderJob) maybeRun(ctx context.Context) {
-	hourKey := streaktime.Now().Format("2006-01-02-15")
+	hourKey := streaktime.Now().Format(checkInReminderHourLayout)
 
 	j.mu.Lock()
 	already := j.lastRunHour == hourKey
