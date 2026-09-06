@@ -12,29 +12,40 @@ type CheckInReminderResponse struct {
 }
 
 // CheckInReminderChannels tells the client which delivery paths exist today.
-// Email is false until an ESP is wired. Push is the existing evening
-// daily_reminder job (not a D0/D1-specific send).
+// Email is true only when Resend (RESEND_API_KEY + EMAIL_FROM) is configured.
+// PushD0D1Specific is true when the check-in reminder job is enabled.
 type CheckInReminderChannels struct {
 	InApp bool `json:"in_app"`
 	Email bool `json:"email"`
 	// PushEvening is true when VAPID keys are configured so the existing
 	// 20:00 VN daily_reminder job can send to subscribed devices.
 	PushEvening bool `json:"push_evening"`
-	// PushD0D1Specific is reserved; this release does not send a separate
-	// D0/D1 push (avoid a second evening notification).
+	// PushD0D1Specific is true when the D0/D1 fan-out job is enabled.
 	PushD0D1Specific bool `json:"push_d0_d1_specific"`
 	// EmailReason / PushNote are machine-stable so FE can hide or explain.
 	EmailReason string `json:"email_reason,omitempty"`
 	PushNote    string `json:"push_note,omitempty"`
 }
 
+// CheckInReminderDeliveryStats is the outbound fan-out from refresh+deliver.
+type CheckInReminderDeliveryStats struct {
+	EmailSent    int `json:"email_sent"`
+	EmailSkipped int `json:"email_skipped"`
+	EmailFailed  int `json:"email_failed"`
+	PushSent     int `json:"push_sent"`
+	PushSkipped  int `json:"push_skipped"`
+	PushFailed   int `json:"push_failed"`
+	Candidates   int `json:"candidates"`
+}
+
 // CheckInReminderRefreshResponse is POST /api/v1/admin/check-in-reminders/refresh.
 type CheckInReminderRefreshResponse struct {
-	Scanned  int `json:"scanned"`
-	DueD0    int `json:"due_d0"`
-	DueD1    int `json:"due_d1"`
-	Cleared  int `json:"cleared"`
-	Upserted int `json:"upserted"`
+	Scanned  int                          `json:"scanned"`
+	DueD0    int                          `json:"due_d0"`
+	DueD1    int                          `json:"due_d1"`
+	Cleared  int                          `json:"cleared"`
+	Upserted int                          `json:"upserted"`
+	Delivery CheckInReminderDeliveryStats `json:"delivery,omitempty"`
 }
 
 // ExpirePendingOrdersResponse is POST /api/v1/admin/payments/expire-pending.

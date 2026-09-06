@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/service/email"
 	"github.com/dadiary/backend/internal/streaktime"
+	pushuc "github.com/dadiary/backend/internal/usecase/push"
 	"github.com/google/uuid"
 )
 
@@ -19,11 +22,20 @@ type Service struct {
 	checks *repository.GormSkinCheckRepository
 	flags  *repository.CheckInReminderRepository
 	now    func() time.Time
-	// vapidConfigured is true when the evening daily_reminder job can send.
+	// vapidConfigured is true when Web Push sending can be attempted.
 	vapidConfigured bool
+	emailConfigured bool
+	jobEnabled      bool
+
+	mailer        email.Sender
+	emailReceipts *repository.EmailSendReceiptRepository
+	push          *pushuc.Service
+	unsub         *email.UnsubscribeSigner
+	checkInURL    string
 }
 
 // NewService wires reminder deps. now may be nil (uses time.Now).
+// Job defaults to enabled (same as DADIARY_CHECKIN_REMINDER_ENABLED).
 func NewService(
 	users *repository.GormUserRepository,
 	checks *repository.GormSkinCheckRepository,
@@ -36,6 +48,45 @@ func NewService(
 		flags:           flags,
 		now:             time.Now,
 		vapidConfigured: vapidConfigured,
+		jobEnabled:      true,
+	}
+}
+
+// SetEmailConfigured flips channels.email when the Resend ESP is wired.
+func (s *Service) SetEmailConfigured(ok bool) {
+	if s != nil {
+		s.emailConfigured = ok
+	}
+}
+
+// SetJobEnabled controls channels.push_d0_d1_specific (fan-out job on/off).
+func (s *Service) SetJobEnabled(ok bool) {
+	if s != nil {
+		s.jobEnabled = ok
+	}
+}
+
+// AttachOutbound wires ESP + D0/D1 push delivery. Safe to skip (email no-ops).
+func (s *Service) AttachOutbound(
+	mailer email.Sender,
+	receipts *repository.EmailSendReceiptRepository,
+	push *pushuc.Service,
+	unsub *email.UnsubscribeSigner,
+	checkInURL string,
+) {
+	if s == nil {
+		return
+	}
+	s.mailer = mailer
+	s.emailReceipts = receipts
+	s.push = push
+	s.unsub = unsub
+	s.checkInURL = strings.TrimSpace(checkInURL)
+	if s.checkInURL == "" {
+		s.checkInURL = "https://dadiary.vn/check-in"
+	}
+	if mailer != nil && mailer.Configured() {
+		s.emailConfigured = true
 	}
 }
 
@@ -79,7 +130,18 @@ func (s *Service) GetForUser(ctx context.Context, userID uuid.UUID) (dto.CheckIn
 			"err", err,
 		)
 	}
-	return s.toDTO(state), nil
+	return s.toDTO(state, u), nil
+}
+
+// RefreshAndDeliver recomputes flags then fans out email + D0/D1 push.
+func (s *Service) RefreshAndDeliver(ctx context.Context) (dto.CheckInReminderRefreshResponse, error) {
+	out, err := s.RefreshWindow(ctx)
+	if err != nil {
+		return out, err
+	}
+	del, delErr := s.DeliverDue(ctx)
+	out.Delivery = del.toDTO()
+	return out, delErr
 }
 
 // RefreshWindow recomputes flags for every D0/D1 candidate (signup yesterday
@@ -197,25 +259,46 @@ func (s *Service) persist(ctx context.Context, userID uuid.UUID, state State) er
 	return s.flags.Upsert(ctx, row)
 }
 
-func (s *Service) toDTO(state State) dto.CheckInReminderResponse {
+func (s *Service) toDTO(state State, u *domain.User) dto.CheckInReminderResponse {
 	return dto.CheckInReminderResponse{
 		Kind:            string(state.Kind),
 		Due:             state.Due,
 		SignupDate:      state.SignupDate,
 		DaysSinceSignup: state.DaysSinceSignup,
 		CheckedInToday:  state.CheckedInToday,
-		Channels:        s.channels(),
+		Channels:        s.channels(u),
 	}
 }
 
-func (s *Service) channels() dto.CheckInReminderChannels {
-	ch := dto.CheckInReminderChannels{
-		InApp:            true,
-		Email:            false,
-		EmailReason:      "no_outbound_email",
-		PushEvening:      s != nil && s.vapidConfigured,
-		PushD0D1Specific: false,
-		PushNote:         "evening_daily_reminder_exists_not_d0_d1_specific",
+func (s *Service) channels(u *domain.User) dto.CheckInReminderChannels {
+	emailOn := s != nil && s.emailConfigured
+	emailReason := ""
+	switch {
+	case !emailOn:
+		emailReason = "no_outbound_email"
+	case u != nil && u.EmailUnsubscribedAt != nil:
+		emailOn = false
+		emailReason = "unsubscribed"
 	}
-	return ch
+
+	jobOn := s != nil && s.jobEnabled
+	vapid := s != nil && s.vapidConfigured
+	pushSpecific := jobOn
+	pushNote := "d0_d1_specific_enabled"
+	switch {
+	case !jobOn:
+		pushSpecific = false
+		pushNote = "job_disabled"
+	case !vapid:
+		pushNote = "d0_d1_specific_enabled_vapid_missing"
+	}
+
+	return dto.CheckInReminderChannels{
+		InApp:            true,
+		Email:            emailOn,
+		EmailReason:      emailReason,
+		PushEvening:      vapid,
+		PushD0D1Specific: pushSpecific,
+		PushNote:         pushNote,
+	}
 }

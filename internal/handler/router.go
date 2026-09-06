@@ -8,6 +8,7 @@ import (
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/dadiary/backend/internal/service/analysis"
+	"github.com/dadiary/backend/internal/service/email"
 	"github.com/dadiary/backend/internal/service/moderation"
 	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/storage"
@@ -173,8 +174,16 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 
 		reminderFlags := repository.NewCheckInReminderRepository(db)
 		reminderSvc := checkinreminderuc.NewService(userRepo, repo, reminderFlags, cfg != nil && cfg.HasVAPIDKeys())
+		checkinreminderuc.AttachFromConfig(reminderSvc, cfg, db, nil)
 		reminderH := NewCheckInReminderHandler(reminderSvc)
 		api.Get("/me/check-in-reminder", jwt, reminderH.Get)
+		unsubSigner := email.NewUnsubscribeSigner("", "")
+		if cfg != nil {
+			unsubSigner = email.NewUnsubscribeSigner(cfg.JWT.Secret, cfg.PublicAPIOrigin())
+		}
+		unsubH := NewEmailUnsubscribeHandler(unsubSigner, userRepo)
+		api.Get("/email/unsubscribe", unsubH.Handle)
+		api.Post("/email/unsubscribe", unsubH.Handle)
 
 		mod := moderation.New(cfg)
 		analyzer := analysis.New(cfg, repo, profRepo, fbRepo, routineRepo, wardRepo, memCache, store)
@@ -289,6 +298,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// Skin-check + streak repos power reminder filters (checked-in today / at risk).
 		pushReceipts := repository.NewPushSendReceiptRepository(db)
 		pushSvc := pushuc.NewService(pushRepo, pushSender, repo, streakRepo, pushReceipts)
+		checkinreminderuc.AttachFromConfig(reminderSvc, cfg, db, pushSvc)
 		pushH := NewPushSubscriptionHandler(pushSvc)
 		api.Post("/me/push/subscribe", jwt, pushH.Subscribe)
 		api.Delete("/me/push/unsubscribe", jwt, pushH.Unsubscribe)

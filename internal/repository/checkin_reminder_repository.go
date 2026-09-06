@@ -98,3 +98,25 @@ func (r *CheckInReminderRepository) ListDueUserIDs(ctx context.Context, limit in
 		Pluck("user_id", &ids).Error
 	return ids, err
 }
+
+// ListDue returns due D0/D1 flag rows for outbound fan-out.
+func (r *CheckInReminderRepository) ListDue(
+	ctx context.Context,
+	limit int,
+) ([]domain.CheckInReminderFlag, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 5000 {
+		limit = 2000
+	}
+	var rows []domain.CheckInReminderFlag
+	err = db.WithContext(ctx).
+		Where("due = ?", true).
+		Where("kind IN ?", []string{"d0", "d1"}).
+		Order("computed_at ASC").
+		Limit(limit).
+		Find(&rows).Error
+	return rows, err
+}

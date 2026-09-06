@@ -49,6 +49,29 @@ func (r *GormPushSendReceiptRepository) HasSent(
 	return n > 0, err
 }
 
+// HasSentAny reports whether userID already received any of notificationTypes on runDate.
+func (r *GormPushSendReceiptRepository) HasSentAny(
+	ctx context.Context,
+	userID uuid.UUID,
+	runDate string,
+	notificationTypes ...string,
+) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if len(notificationTypes) == 0 {
+		return false, nil
+	}
+	var n int64
+	err = DBFromContext(ctx, db).WithContext(ctx).
+		Model(&domain.PushSendReceipt{}).
+		Where("user_id = ? AND run_date = ? AND notification_type IN ?",
+			userID, runDate, notificationTypes).
+		Count(&n).Error
+	return n > 0, err
+}
+
 // MarkSent records a successful delivery (idempotent on conflict).
 func (r *GormPushSendReceiptRepository) MarkSent(
 	ctx context.Context,

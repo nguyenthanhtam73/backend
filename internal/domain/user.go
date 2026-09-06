@@ -72,6 +72,8 @@ type User struct {
 	// OnboardingSkipped is true when the user chose “enter app” without finishing onboarding.
 	// Cleared when they complete onboarding. Survives across devices via /me.
 	OnboardingSkipped bool `gorm:"not null;default:false" json:"onboarding_skipped"`
+	// EmailUnsubscribedAt is set when the user opts out of outbound reminder email.
+	EmailUnsubscribedAt *time.Time `json:"email_unsubscribed_at,omitempty"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

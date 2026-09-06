@@ -31,4 +31,6 @@ func (PushJobLock) TableName() string {
 const (
 	PushJobDailyReminder = "daily_reminder"
 	PushJobStreakAtRisk  = "streak_at_risk"
+	// PushJobD0D1Reminder is the hourly D0/D1 email+push delivery claim.
+	PushJobD0D1Reminder = "d0_d1_reminder"
 )

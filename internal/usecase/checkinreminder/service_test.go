@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-func setupReminderSvc(t *testing.T, now time.Time) (*Service, *repository.GormUserRepository, *repository.GormSkinCheckRepository) {
+func setupReminderSvc(t *testing.T, now time.Time) (*Service, *repository.GormUserRepository, *repository.GormSkinCheckRepository, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:remind_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
@@ -28,6 +28,7 @@ func setupReminderSvc(t *testing.T, now time.Time) (*Service, *repository.GormUs
 		&domain.SkinCheck{},
 		&domain.SkinAnalysis{},
 		&domain.CheckInReminderFlag{},
+		&domain.EmailSendReceipt{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +37,7 @@ func setupReminderSvc(t *testing.T, now time.Time) (*Service, *repository.GormUs
 	flags := repository.NewCheckInReminderRepository(db)
 	svc := NewService(users, checks, flags, false)
 	svc.now = func() time.Time { return now }
-	return svc, users, checks
+	return svc, users, checks, db
 }
 
 func createUser(t *testing.T, users *repository.GormUserRepository, email string, createdAt time.Time) *domain.User {
@@ -61,7 +62,7 @@ func createUser(t *testing.T, users *repository.GormUserRepository, email string
 
 func TestGetForUser_MarksD0AndClearsAfterCheckIn(t *testing.T) {
 	now := streaktime.Now()
-	svc, users, checks := setupReminderSvc(t, now)
+	svc, users, checks, _ := setupReminderSvc(t, now)
 	signup := StartOfVNDay(now).Add(30 * time.Minute)
 	if !now.After(signup) {
 		signup = StartOfVNDay(now)
@@ -75,11 +76,14 @@ func TestGetForUser_MarksD0AndClearsAfterCheckIn(t *testing.T) {
 	if res.Kind != "d0" || !res.Due || res.CheckedInToday {
 		t.Fatalf("D0 due: %+v", res)
 	}
-	if res.Channels.Email || res.Channels.PushD0D1Specific {
-		t.Fatalf("channels should document missing email/specific push: %+v", res.Channels)
+	if res.Channels.Email {
+		t.Fatalf("email should be off without ESP: %+v", res.Channels)
 	}
 	if res.Channels.EmailReason != "no_outbound_email" {
 		t.Fatalf("email_reason=%s", res.Channels.EmailReason)
+	}
+	if !res.Channels.PushD0D1Specific {
+		t.Fatalf("push_d0_d1_specific should be true when job enabled: %+v", res.Channels)
 	}
 
 	check := &domain.SkinCheck{
@@ -102,7 +106,7 @@ func TestGetForUser_MarksD0AndClearsAfterCheckIn(t *testing.T) {
 
 func TestRefreshWindow_SelectsD0AndD1AndClearsPast(t *testing.T) {
 	now := streaktime.Now()
-	svc, users, _ := setupReminderSvc(t, now)
+	svc, users, _, _ := setupReminderSvc(t, now)
 	todayStart := StartOfVNDay(now)
 
 	d0 := createUser(t, users, "new@test.com", todayStart.Add(20*time.Minute))
