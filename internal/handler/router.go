@@ -25,6 +25,7 @@ import (
 	dashboarduc "github.com/dadiary/backend/internal/usecase/dashboard"
 	feedbackuc "github.com/dadiary/backend/internal/usecase/feedback"
 	paymentuc "github.com/dadiary/backend/internal/usecase/payment"
+	paywallviewuc "github.com/dadiary/backend/internal/usecase/paywallview"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	pushuc "github.com/dadiary/backend/internal/usecase/push"
@@ -70,6 +71,10 @@ const (
 	// Wardrobe label scan: vision OCR only (no product persist). Cap spam / cost.
 	wardrobeScanRateMax    = 10
 	wardrobeScanRateWindow = time.Hour
+
+	// Paywall impression ingest is cheap, but public (JWT optional). Cap bursts.
+	paywallViewRateMax    = 40
+	paywallViewRateWindow = 15 * time.Minute
 )
 
 // Router wires API v1 routes: health (public), auth (mixed), skin-checks (protected).
@@ -136,6 +141,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		routineRepo := repository.NewRoutineEntryRepository(db)
 		wardRepo := repository.NewSkincareProductRepository(db)
 		affiliateRepo := repository.NewAffiliateClickRepository(db)
+		paywallViewRepo := repository.NewPaywallViewRepository(db)
 		// One in-process memory cache shared by all services that read or
 		// invalidate the long-term USER_MEMORY block. 5-minute TTL +
 		// explicit bust from each write path keeps results fresh without
@@ -235,6 +241,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		affH := NewAffiliateHandler(affiliateSvc)
 		api.Post("/affiliate/clicks", jwt, affH.LogClick)
 
+		paywallViewLimit := middleware.AILimiter(paywallViewRateMax, paywallViewRateWindow)
+		paywallViewH := NewPaywallViewHandler(paywallviewuc.NewService(paywallViewRepo))
+		api.Post("/analytics/paywall-view", jwtOptional, paywallViewLimit, paywallViewH.Log)
+
 		fbSvc := aifeedbackuc.NewService(fbRepo, memCache)
 		fbh := NewAIFeedbackHandler(fbSvc)
 		api.Post("/ai/feedback", jwt, fbh.Create)
@@ -325,7 +335,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Get("/admin/metrics/payment", jwt, admin, adminMetricsH.Payment)
 		api.Get("/admin/metrics/affiliate", jwt, admin, adminMetricsH.Affiliate)
 		adminFunnelH := NewAdminFunnelHandler(
-			adminfunneluc.NewService(userRepo, repo, payOrders),
+			adminfunneluc.NewService(userRepo, repo, payOrders, paywallViewRepo),
 		)
 		api.Get("/admin/funnel-stats", jwt, admin, adminFunnelH.Get)
 

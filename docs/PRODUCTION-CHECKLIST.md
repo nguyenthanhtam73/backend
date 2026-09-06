@@ -88,7 +88,8 @@ Flip helper (rejects sandbox keys): `backend/scripts/flip-sepay-production.ps1`.
   `webhook_errors_last_24h`, `active_premium_count`, `upcoming_expiries`
   Expect funnel: `signed_up_1d` / `signed_up_7d`, `skin_check_users_*`,
   `d0_checkin_users`, `d1_checkin_users` + `d1_eligible_users`, `paid_orders_7d`,
-  `paywall_views: null` (see [`FUNNEL-STATS.md`](./FUNNEL-STATS.md))
+  `paywall_views_1d` / `paywall_views_7d` / `paywall_views` (never `null`;
+  see [`FUNNEL-STATS.md`](./FUNNEL-STATS.md))
 
 ## 7. Smoke test production
 

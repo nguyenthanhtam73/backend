@@ -2,8 +2,8 @@ package dto
 
 // AdminFunnelStatsResponse is GET /api/v1/admin/funnel-stats.
 //
-// Read-only leaky-bucket proxies from Postgres. Paywall impressions are
-// client-only and are not persisted — PaywallViews is always null.
+// Read-only leaky-bucket proxies from Postgres. Paywall impressions come
+// from POST /api/v1/analytics/paywall-view (never null; 0 before any traffic).
 type AdminFunnelStatsResponse struct {
 	// SignedUp1d / SignedUp7d count non-deleted users created in a rolling window.
 	SignedUp1d int64 `json:"signed_up_1d"`
@@ -31,9 +31,13 @@ type AdminFunnelStatsResponse struct {
 	// (paid_at when set, otherwise created_at).
 	PaidOrders7d int64 `json:"paid_orders_7d"`
 
-	// PaywallViews is always null — the paywall is client-only.
-	PaywallViews *int64           `json:"paywall_views"`
-	Notes        AdminFunnelNotes `json:"notes"`
+	// PaywallViews1d / PaywallViews7d count persisted paywall_views rows
+	// created in the rolling window. PaywallViews equals PaywallViews7d so
+	// older admin cards that read the single field still show a number.
+	PaywallViews1d int64            `json:"paywall_views_1d"`
+	PaywallViews7d int64            `json:"paywall_views_7d"`
+	PaywallViews   int64            `json:"paywall_views"`
+	Notes          AdminFunnelNotes `json:"notes"`
 	// AsOf is the UTC timestamp when stats were computed.
 	AsOf string `json:"as_of"`
 }
