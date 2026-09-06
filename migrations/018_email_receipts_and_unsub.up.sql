@@ -1,4 +1,5 @@
 -- Outbound D0/D1 email receipts (≤1 D0 and ≤1 D1 per user) + unsubscribe column.
+-- Numbered 018 so it lands after PR #5's 017_paywall_views.
 
 ALTER TABLE users
     ADD COLUMN IF NOT EXISTS email_unsubscribed_at TIMESTAMPTZ;

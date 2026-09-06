@@ -161,3 +161,5 @@ GROUP BY kind, due;
 | `DADIARY_PUBLIC_WEB_URL` | `https://dadiary.vn` | Check-in CTA origin |
 | `DADIARY_PENDING_ORDER_EXPIRY_ENABLED` | true | Boot + daily pending expire |
 | `DADIARY_PENDING_ORDER_TTL_HOURS` | 72 | Local pending TTL (24–168) |
+
+Schema: `018_email_receipts_and_unsub` (after PR #5's `017_paywall_views`). Merge #5 first, then this change. Do not invent `RESEND_API_KEY`.
