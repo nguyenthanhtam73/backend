@@ -11,23 +11,23 @@ import (
 )
 
 const (
-	checkInReminderJobName    = "checkin_reminder_refresh"
+	checkInReminderJobName    = "checkin_reminder_hour"
 	checkInReminderCheckEvery = 1 * time.Hour
 )
 
-// CheckInReminderJob recomputes D0/D1 reminder flags once per Vietnam civil day.
-// GET /me/check-in-reminder also computes live, so this job is the batch path
-// for future email/push and for keeping the snapshot table current.
+// CheckInReminderJob recomputes D0/D1 flags every Vietnam hour, then fans out
+// outbound email + typed d0_reminder / d1_reminder push. GET /me/check-in-reminder
+// still computes live for the in-app banner.
 type CheckInReminderJob struct {
 	svc   *checkinreminderuc.Service
 	locks JobLockStore
 
-	mu         sync.Mutex
-	lastRunDay string
-	checkEvery time.Duration
+	mu          sync.Mutex
+	lastRunHour string
+	checkEvery  time.Duration
 }
 
-// NewCheckInReminderJob wires the daily refresh. locks may be nil.
+// NewCheckInReminderJob wires the hourly refresh + outbound deliver. locks may be nil.
 func NewCheckInReminderJob(svc *checkinreminderuc.Service, locks JobLockStore) *CheckInReminderJob {
 	return &CheckInReminderJob{
 		svc:        svc,
@@ -68,60 +68,83 @@ func (j *CheckInReminderJob) loop(ctx context.Context) {
 }
 
 func (j *CheckInReminderJob) maybeRun(ctx context.Context) {
-	dayKey := streaktime.TodayString()
+	hourKey := streaktime.Now().Format("2006-01-02-15")
 
 	j.mu.Lock()
-	already := j.lastRunDay == dayKey
+	already := j.lastRunHour == hourKey
 	j.mu.Unlock()
 	if already {
 		return
 	}
 
 	if j.locks != nil {
-		claimed, err := j.locks.TryClaim(ctx, checkInReminderJobName, dayKey)
+		claimed, err := j.locks.TryClaim(ctx, checkInReminderJobName, hourKey)
 		if err != nil {
 			slog.Error("checkin_reminder_job: lock claim failed",
-				"day", dayKey,
+				"hour", hourKey,
 				"error", err.Error(),
 			)
 			return
 		}
 		if !claimed {
-			slog.Info("checkin_reminder_job: skipped — another replica claimed", "day", dayKey)
+			slog.Info("checkin_reminder_job: skipped — another replica claimed", "hour", hourKey)
 			j.mu.Lock()
-			j.lastRunDay = dayKey
+			j.lastRunHour = hourKey
 			j.mu.Unlock()
 			return
 		}
 	}
 
 	started := time.Now().UTC()
-	slog.Info("checkin_reminder_job: start", "day", dayKey)
+	slog.Info("checkin_reminder_job: start", "hour", hourKey, "day", streaktime.TodayString())
 
-	res, err := j.svc.RefreshWindow(ctx)
+	res, err := j.svc.RefreshAndDeliver(ctx)
 	elapsed := time.Since(started)
 	if err != nil {
 		slog.Error("checkin_reminder_job: fail",
-			"day", dayKey,
+			"hour", hourKey,
 			"elapsed_ms", elapsed.Milliseconds(),
 			"error", err.Error(),
+			"email_sent", res.Delivery.EmailSent,
+			"email_failed", res.Delivery.EmailFailed,
+			"push_sent", res.Delivery.PushSent,
+			"push_failed", res.Delivery.PushFailed,
 		)
 		if j.locks != nil {
-			_ = j.locks.ReleaseClaim(ctx, checkInReminderJobName, dayKey)
+			_ = j.locks.ReleaseClaim(ctx, checkInReminderJobName, hourKey)
 		}
 		return
 	}
 
 	j.mu.Lock()
-	j.lastRunDay = dayKey
+	j.lastRunHour = hourKey
 	j.mu.Unlock()
 
+	if res.Delivery.EmailFailed > 0 || res.Delivery.PushFailed > 0 {
+		if j.locks != nil {
+			_ = j.locks.ReleaseClaim(ctx, checkInReminderJobName, hourKey)
+		}
+		j.mu.Lock()
+		if j.lastRunHour == hourKey {
+			j.lastRunHour = ""
+		}
+		j.mu.Unlock()
+		slog.Info("checkin_reminder_job: unclaimed for retry", "hour", hourKey)
+	}
+
 	slog.Info("checkin_reminder_job: end",
-		"day", dayKey,
+		"hour", hourKey,
+		"day", streaktime.TodayString(),
 		"scanned", res.Scanned,
 		"due_d0", res.DueD0,
 		"due_d1", res.DueD1,
 		"cleared", res.Cleared,
+		"email_sent", res.Delivery.EmailSent,
+		"email_skipped", res.Delivery.EmailSkipped,
+		"email_failed", res.Delivery.EmailFailed,
+		"push_sent", res.Delivery.PushSent,
+		"push_skipped", res.Delivery.PushSkipped,
+		"push_failed", res.Delivery.PushFailed,
 		"elapsed_ms", elapsed.Milliseconds(),
 	)
 }

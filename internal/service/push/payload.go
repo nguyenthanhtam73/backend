@@ -74,7 +74,16 @@ const (
 	NotificationTypeTest          NotificationType = "test"
 	NotificationTypeDailyReminder NotificationType = "daily_reminder"
 	NotificationTypeStreakAtRisk  NotificationType = "streak_at_risk"
+	NotificationTypeD0Reminder    NotificationType = "d0_reminder"
+	NotificationTypeD1Reminder    NotificationType = "d1_reminder"
 )
+
+// ReminderTypesSameVNDay are mutually exclusive evening/D0/D1 nudges for one VN day.
+var ReminderTypesSameVNDay = []string{
+	string(NotificationTypeDailyReminder),
+	string(NotificationTypeD0Reminder),
+	string(NotificationTypeD1Reminder),
+}
 
 // Web Push TTL (seconds): how long the push service may retain an undelivered
 // message while the device is offline. Short TTLs (e.g. 60s) drop evening
@@ -93,7 +102,7 @@ const (
 // TTLForType returns the Web Push TTL for a notification kind.
 func TTLForType(nType NotificationType) int {
 	switch nType {
-	case NotificationTypeDailyReminder:
+	case NotificationTypeDailyReminder, NotificationTypeD0Reminder, NotificationTypeD1Reminder:
 		return TTLDailyReminder
 	case NotificationTypeStreakAtRisk:
 		return TTLStreakAtRisk
@@ -184,6 +193,28 @@ func BuildNotificationPayload(nType NotificationType, data map[string]any) Notif
 		base.Body = copy.Body
 		base.Tag = "dadiary-streak-at-risk"
 		base.RequireInteraction = true // important — don't auto-dismiss
+		base.Data["action"] = "check-in"
+		base.Actions = []NotificationAction{
+			{Action: "check-in", Title: "Check-in ngay"},
+			{Action: "later", Title: "Để sau"},
+		}
+
+	case NotificationTypeD0Reminder:
+		base.Title = "Hôm nay chụp một tấm check-in da nhé"
+		base.Body = "Chào mừng bạn đến DaDiary. Một phút check-in da thôi — không cần hoàn hảo ✨"
+		base.Tag = "dadiary-d0-reminder"
+		base.RequireInteraction = false
+		base.Data["action"] = "check-in"
+		base.Actions = []NotificationAction{
+			{Action: "check-in", Title: "Check-in ngay"},
+			{Action: "later", Title: "Để sau"},
+		}
+
+	case NotificationTypeD1Reminder:
+		base.Title = "DaDiary nhớ bạn"
+		base.Body = "Hôm qua bạn đã mở app. Hôm nay check-in nhẹ một tấm nha ✨"
+		base.Tag = "dadiary-d1-reminder"
+		base.RequireInteraction = false
 		base.Data["action"] = "check-in"
 		base.Actions = []NotificationAction{
 			{Action: "check-in", Title: "Check-in ngay"},

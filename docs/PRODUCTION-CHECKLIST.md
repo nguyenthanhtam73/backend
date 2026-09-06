@@ -78,7 +78,11 @@ Flip helper (rejects sandbox keys): `backend/scripts/flip-sepay-production.ps1`.
 - [ ] After deploy, leftover `payment_orders.status='pending'` older than 72h should
       move to `expired` (boot + daily job; see [`RETENTION-AND-PENDING-ORDERS.md`](./RETENTION-AND-PENDING-ORDERS.md))
 - [ ] Frontend can poll `GET /api/v1/me/check-in-reminder` for D0/D1 in-app nudges
-      (no ESP — email is not sent)
+- [ ] Optional re-engagement: `RESEND_API_KEY` + `EMAIL_FROM` on Railway backend
+      (also `DADIARY_PUBLIC_API_URL` for unsubscribe links). Missing ESP is a
+      logged no-op — do not invent keys. VAPID already enables evening + D0/D1
+      typed push (`d0_reminder` / `d1_reminder`; receipts prevent a second
+      `daily_reminder` the same VN day).
 - [ ] Admin metrics reachable (admin JWT):
   ```
   GET /api/v1/admin/metrics/payment

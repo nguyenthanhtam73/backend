@@ -4,13 +4,11 @@
 
 | Path | Exists today | Used for |
 |------|----------------|----------|
-| Evening Web Push (`DailyReminderJob`, 20:00 VN) | Yes, if VAPID keys + user subscribed | Anyone who has not checked in *today* (and is not streak-at-risk) |
-| Streak-at-risk push | Yes | Days-since 1 / savable 2 |
-| Outbound email / ESP | **No** | There is no SMTP/SendGrid/Resend client. `email` on users is an identifier only |
+| Evening Web Push (`DailyReminderJob`, 20:00 VN) | Yes, if VAPID keys + user subscribed | Anyone who has not checked in *today* (and is not streak-at-risk), skipped if a D0/D1 push already went out the same VN day |
+| D0/D1 typed push (`d0_reminder` / `d1_reminder`) | Yes, if VAPID + reminder job enabled | Due `checkin_reminder_flags` with an active push subscription |
+| Outbound D0/D1 email (Resend) | Yes, if `RESEND_API_KEY` + `EMAIL_FROM` | ≤1 D0 and ≤1 D1 per user; no-op when ESP env is missing |
 | SePay checkout | Yes | Creates `payment_orders` as `pending`; IPN marks `paid` |
-| Pending-order cleanup | **Was missing** | Historical unpaid checkouts stayed `pending` forever |
-
-We did **not** add an email provider. The app path is flags + an API the frontend can poll.
+| Pending-order cleanup | Yes | Local `pending` → `expired` after TTL |
 
 ## 1. D0 / D1 check-in reminder
 
@@ -42,22 +40,44 @@ Authorization: Bearer <access>
     "checked_in_today": false,
     "channels": {
       "in_app": true,
-      "email": false,
+      "email": true,
       "push_evening": true,
-      "push_d0_d1_specific": false,
-      "email_reason": "no_outbound_email",
-      "push_note": "evening_daily_reminder_exists_not_d0_d1_specific"
+      "push_d0_d1_specific": true,
+      "push_note": "d0_d1_specific_enabled"
     }
   }
 }
 ```
 
+`channels.email` is **true only** when Resend is configured (`RESEND_API_KEY` + `EMAIL_FROM`). Otherwise `email: false` and `email_reason: "no_outbound_email"`. `push_d0_d1_specific` is **true when the check-in reminder job is enabled** (`DADIARY_CHECKIN_REMINDER_ENABLED`, default on).
+
 Show an in-app nudge when `due` is true. Do not treat `kind=none` as an error.
 
-### What’s still missing for email / push
+### Outbound email (Resend)
 
-- **Email:** no ESP, no templates, no unsubscribe. Do not set `channels.email` until a provider is wired.
-- **D0/D1-specific push:** not sent. Users who already granted Web Push still get the existing 20:00 VN `daily_reminder` if they have not checked in. A second D0/D1 push the same evening would double-nudge.
+The hourly in-process job (same API process — Railway has no separate cron service) refreshes flags then delivers:
+
+- ≤1 `d0` and ≤1 `d1` email per user (`email_send_receipts` claim-before-send)
+- Skip if `checked_in_today`, inactive, invalid address, or `email_unsubscribed_at` is set
+- CTA: `https://dadiary.vn/check-in` (or `DADIARY_PUBLIC_WEB_URL` + `/check-in`). No magic-link auth exists; the web app is auth-aware if the session cookie is present.
+- Unsubscribe: `GET|POST /api/v1/email/unsubscribe?token=…` (HMAC with `DADIARY_JWT_SECRET`). `List-Unsubscribe` header is set when `DADIARY_PUBLIC_API_URL` is present.
+- Vietnamese copy only; soft DaDiary tone; no diagnosis or cure claims.
+- **Missing ESP:** the path no-ops and logs `email no-op — ESP not configured (set RESEND_API_KEY and EMAIL_FROM)`.
+
+Railway setup (do not invent keys):
+
+```
+RESEND_API_KEY=re_...
+EMAIL_FROM=DaDiary <noreply@your-verified-domain>
+DADIARY_PUBLIC_API_URL=https://<your-api-host>
+DADIARY_PUBLIC_WEB_URL=https://dadiary.vn
+```
+
+`DADIARY_RESEND_API_KEY` / `DADIARY_EMAIL_FROM` are aliases.
+
+### D0/D1-specific push
+
+Same hourly pass selects due flags whose user has an active Web Push subscription and sends typed payloads `d0_reminder` / `d1_reminder` (distinct VN copy). Receipts live in `push_send_receipts`. The 20:00 VN `daily_reminder` job skips a user if `daily_reminder`, `d0_reminder`, or `d1_reminder` already has a receipt for that Vietnam civil day — no double-nudge.
 
 ### Ops
 
@@ -134,6 +154,10 @@ GROUP BY kind, due;
 
 | Env | Default | Meaning |
 |-----|---------|---------|
-| `DADIARY_CHECKIN_REMINDER_ENABLED` | true | Boot + daily flag refresh |
+| `DADIARY_CHECKIN_REMINDER_ENABLED` | true | Boot + hourly VN flag refresh and D0/D1 email/push fan-out (in-process; not a Railway cron) |
+| `RESEND_API_KEY` / `DADIARY_RESEND_API_KEY` | empty | Resend API key. Empty → email no-op |
+| `EMAIL_FROM` / `DADIARY_EMAIL_FROM` | empty | Verified From (e.g. `DaDiary <noreply@dadiary.vn>`). Required with the key |
+| `DADIARY_PUBLIC_API_URL` | empty | Public API origin for unsubscribe links |
+| `DADIARY_PUBLIC_WEB_URL` | `https://dadiary.vn` | Check-in CTA origin |
 | `DADIARY_PENDING_ORDER_EXPIRY_ENABLED` | true | Boot + daily pending expire |
 | `DADIARY_PENDING_ORDER_TTL_HOURS` | 72 | Local pending TTL (24–168) |

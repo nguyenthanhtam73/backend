@@ -50,6 +50,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.PaymentOrder{},
 		&domain.PaymentOpsEvent{},
 		&domain.CheckInReminderFlag{},
+		&domain.EmailSendReceipt{},
 		&domain.Subscription{},
 		&domain.Streak{},
 		&domain.PushSubscription{},

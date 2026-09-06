@@ -112,6 +112,28 @@ func (r *GormUserRepository) UsernameExists(ctx context.Context, username string
 	return count > 0, nil
 }
 
+// SetEmailUnsubscribedAt records an outbound-email opt-out (idempotent).
+func (r *GormUserRepository) SetEmailUnsubscribedAt(
+	ctx context.Context,
+	userID uuid.UUID,
+	at time.Time,
+) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	return db.WithContext(ctx).Model(&domain.User{}).
+		Where("id = ?", userID).
+		Where("email_unsubscribed_at IS NULL").
+		Update("email_unsubscribed_at", at).Error
+}
+
 // SetOnboardingSkipped updates users.onboarding_skipped for the given account.
 func (r *GormUserRepository) SetOnboardingSkipped(ctx context.Context, userID uuid.UUID, skipped bool) error {
 	db, err := r.dbOrErr()

@@ -194,7 +194,19 @@ func startCheckInReminderJob(ctx context.Context, cfg *config.Config, db *gorm.D
 	flags := repository.NewCheckInReminderRepository(db)
 	vapid := cfg != nil && cfg.HasVAPIDKeys()
 	svc := checkinreminderuc.NewService(users, checks, flags, vapid)
-	if res, err := svc.RefreshWindow(ctx); err != nil {
+	var pushSvc *pushuc.Service
+	if vapid {
+		pushRepo := repository.NewPushSubscriptionRepository(db)
+		pushSender := pushsvc.NewPushSender(cfg, pushRepo)
+		pushReceipts := repository.NewPushSendReceiptRepository(db)
+		streakRepo := repository.NewStreakRepository(db)
+		pushSvc = pushuc.NewService(pushRepo, pushSender, checks, streakRepo, pushReceipts)
+	}
+	checkinreminderuc.AttachFromConfig(svc, cfg, db, pushSvc)
+	if cfg == nil || !cfg.HasEmailESP() {
+		slog.Info("checkin_reminder_job: email no-op — set RESEND_API_KEY and EMAIL_FROM to enable")
+	}
+	if res, err := svc.RefreshAndDeliver(ctx); err != nil {
 		slog.Error("checkin_reminder_job: boot refresh failed", "error", err.Error())
 	} else {
 		slog.Info("checkin_reminder_job: boot refresh",
@@ -202,6 +214,12 @@ func startCheckInReminderJob(ctx context.Context, cfg *config.Config, db *gorm.D
 			"due_d0", res.DueD0,
 			"due_d1", res.DueD1,
 			"cleared", res.Cleared,
+			"email_sent", res.Delivery.EmailSent,
+			"email_skipped", res.Delivery.EmailSkipped,
+			"email_failed", res.Delivery.EmailFailed,
+			"push_sent", res.Delivery.PushSent,
+			"push_skipped", res.Delivery.PushSkipped,
+			"push_failed", res.Delivery.PushFailed,
 		)
 	}
 	jobLocks := repository.NewPushJobLockRepository(db)

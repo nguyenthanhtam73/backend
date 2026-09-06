@@ -92,6 +92,26 @@ func TestBuildNotificationPayload_DailyReminderCopy(t *testing.T) {
 	}
 }
 
+func TestBuildNotificationPayload_D0D1Copy(t *testing.T) {
+	d0 := BuildNotificationPayload(NotificationTypeD0Reminder, nil)
+	d1 := BuildNotificationPayload(NotificationTypeD1Reminder, nil)
+	if d0.Title == "" || d1.Title == "" || d0.Title == d1.Title {
+		t.Fatalf("D0/D1 titles must be distinct: %q %q", d0.Title, d1.Title)
+	}
+	if d0.Data["type"] != string(NotificationTypeD0Reminder) {
+		t.Fatalf("d0 type=%v", d0.Data["type"])
+	}
+	if d1.Data["type"] != string(NotificationTypeD1Reminder) {
+		t.Fatalf("d1 type=%v", d1.Data["type"])
+	}
+	if d0.Tag != "dadiary-d0-reminder" || d1.Tag != "dadiary-d1-reminder" {
+		t.Fatalf("tags %q %q", d0.Tag, d1.Tag)
+	}
+	if TTLForType(NotificationTypeD0Reminder) != TTLDailyReminder {
+		t.Fatal("d0 TTL")
+	}
+}
+
 func TestBuildNotificationPayload_StreakAtRiskCopy(t *testing.T) {
 	known := make(map[string]string, len(streakAtRiskVariants))
 	for _, v := range streakAtRiskVariants {

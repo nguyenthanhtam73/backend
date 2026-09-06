@@ -44,7 +44,7 @@ func (h *CheckInReminderHandler) AdminRefresh(c *fiber.Ctx) error {
 	if h == nil || h.svc == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "reminder unavailable")
 	}
-	res, err := h.svc.RefreshWindow(c.UserContext())
+	res, err := h.svc.RefreshAndDeliver(c.UserContext())
 	if err != nil {
 		if ae, ok := domain.AsAppError(err); ok {
 			return response.Error(c, ae.HTTPStatus, ae.Code, ae.Message)

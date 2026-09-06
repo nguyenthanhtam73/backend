@@ -42,6 +42,7 @@ type StreakAtRiskSource interface {
 // Implemented by repository.GormPushSendReceiptRepository; nil = in-memory only.
 type SendReceiptStore interface {
 	HasSent(ctx context.Context, userID uuid.UUID, notificationType, runDate string) (bool, error)
+	HasSentAny(ctx context.Context, userID uuid.UUID, runDate string, notificationTypes ...string) (bool, error)
 	MarkSent(ctx context.Context, userID uuid.UUID, notificationType, runDate string) error
 }
 
@@ -87,6 +88,28 @@ func (s *Service) alreadySentDurable(
 		slog.Warn("push: HasSent receipt lookup failed — continuing without durable skip",
 			"user_id", userID.String(),
 			"type", notificationType,
+			"err", err,
+		)
+		return false
+	}
+	return ok
+}
+
+// alreadySentAnyDurable is true if any of the types already have a receipt today.
+func (s *Service) alreadySentAnyDurable(
+	ctx context.Context,
+	userID uuid.UUID,
+	runDate string,
+	notificationTypes ...string,
+) bool {
+	if s == nil || s.receipts == nil || len(notificationTypes) == 0 {
+		return false
+	}
+	ok, err := s.receipts.HasSentAny(ctx, userID, runDate, notificationTypes...)
+	if err != nil {
+		slog.Warn("push: HasSentAny receipt lookup failed — continuing without durable skip",
+			"user_id", userID.String(),
+			"types", notificationTypes,
 			"err", err,
 		)
 		return false

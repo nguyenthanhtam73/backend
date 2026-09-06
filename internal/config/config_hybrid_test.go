@@ -40,3 +40,20 @@ func TestHybridConfig_HasKeys(t *testing.T) {
 		t.Fatal("expected no keys")
 	}
 }
+
+func TestHasEmailESP_RequiresKeyAndFrom(t *testing.T) {
+	if (&Config{}).HasEmailESP() {
+		t.Fatal("empty should be off")
+	}
+	onlyKey := &Config{Email: EmailConfig{ResendAPIKey: "re_x"}}
+	if onlyKey.HasEmailESP() {
+		t.Fatal("key without from should be off")
+	}
+	ok := &Config{Email: EmailConfig{ResendAPIKey: "re_x", From: "DaDiary <a@b.com>"}}
+	if !ok.HasEmailESP() {
+		t.Fatal("key+from should be on")
+	}
+	if ok.CheckInURL() != "https://dadiary.vn/check-in" {
+		t.Fatalf("default check-in url: %s", ok.CheckInURL())
+	}
+}

@@ -47,6 +47,10 @@ type Config struct {
 	Subscription SubscriptionConfig `mapstructure:"subscription"`
 	// CheckInReminder marks D0/D1 first-check-in flags (GET /me/check-in-reminder).
 	CheckInReminder CheckInReminderConfig `mapstructure:"checkin_reminder"`
+	// Email is the outbound ESP (Resend). Empty key/from → no-op, channels.email=false.
+	Email EmailConfig `mapstructure:"email"`
+	// PublicAPIURL is the public API origin (unsubscribe links), e.g. Railway host.
+	PublicAPIURL string `mapstructure:"public_api_url"` // DADIARY_PUBLIC_API_URL
 	// PendingOrderExpiry expires leftover SePay payment_orders.status=pending.
 	PendingOrderExpiry PendingOrderExpiryConfig `mapstructure:"pending_order_expiry"`
 	// Alert is optional ops alerting (Slack / Telegram) for payment & cron failures.
@@ -121,6 +125,13 @@ func (s SePayConfig) NormalizedEnv() string {
 // CheckInReminderConfig toggles the D0/D1 snapshot job (API GET always computes live).
 type CheckInReminderConfig struct {
 	Enabled bool `mapstructure:"enabled"` // DADIARY_CHECKIN_REMINDER_ENABLED
+}
+
+// EmailConfig is the Resend ESP. Both ResendAPIKey and From must be set to send.
+// Accepts RESEND_API_KEY / EMAIL_FROM or DADIARY_RESEND_API_KEY / DADIARY_EMAIL_FROM.
+type EmailConfig struct {
+	ResendAPIKey string `mapstructure:"resend_api_key"` // RESEND_API_KEY / DADIARY_RESEND_API_KEY
+	From         string `mapstructure:"from"`           // EMAIL_FROM / DADIARY_EMAIL_FROM
 }
 
 // PendingOrderExpiryConfig is local hygiene for leftover SePay checkouts.
@@ -300,6 +311,9 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("daily_reminder.hour", "DADIARY_DAILY_REMINDER_HOUR")
 	_ = v.BindEnv("daily_reminder.minute", "DADIARY_DAILY_REMINDER_MINUTE")
 	_ = v.BindEnv("checkin_reminder.enabled", "DADIARY_CHECKIN_REMINDER_ENABLED")
+	_ = v.BindEnv("email.resend_api_key", "DADIARY_RESEND_API_KEY")
+	_ = v.BindEnv("email.from", "DADIARY_EMAIL_FROM")
+	_ = v.BindEnv("public_api_url", "DADIARY_PUBLIC_API_URL")
 	_ = v.BindEnv("pending_order_expiry.enabled", "DADIARY_PENDING_ORDER_EXPIRY_ENABLED")
 	_ = v.BindEnv("pending_order_expiry.ttl_hours", "DADIARY_PENDING_ORDER_TTL_HOURS")
 	_ = v.BindEnv("sepay.merchant_id", "DADIARY_SEPAY_MERCHANT_ID")
@@ -417,6 +431,22 @@ func Load(relativeEnvPath string) (*Config, error) {
 	} else {
 		cfg.CheckInReminder.Enabled = parseEnvBool(raw, true)
 	}
+
+	// ESP: prefer DADIARY_* then the unprefixed Resend/EMAIL names.
+	cfg.Email.ResendAPIKey = firstNonEmpty(
+		cfg.Email.ResendAPIKey,
+		os.Getenv("DADIARY_RESEND_API_KEY"),
+		os.Getenv("RESEND_API_KEY"),
+	)
+	cfg.Email.From = firstNonEmpty(
+		cfg.Email.From,
+		os.Getenv("DADIARY_EMAIL_FROM"),
+		os.Getenv("EMAIL_FROM"),
+	)
+	cfg.PublicAPIURL = strings.TrimRight(firstNonEmpty(
+		cfg.PublicAPIURL,
+		os.Getenv("DADIARY_PUBLIC_API_URL"),
+	), "/")
 	if raw := strings.TrimSpace(os.Getenv("DADIARY_PENDING_ORDER_EXPIRY_ENABLED")); raw == "" {
 		cfg.PendingOrderExpiry.Enabled = true
 	} else {
@@ -639,6 +669,45 @@ func (c *Config) HasVAPIDKeys() bool {
 	return c != nil &&
 		strings.TrimSpace(c.VAPID.PublicKey) != "" &&
 		strings.TrimSpace(c.VAPID.PrivateKey) != ""
+}
+
+// HasEmailESP reports whether outbound email can be attempted (Resend key + From).
+func (c *Config) HasEmailESP() bool {
+	return c != nil &&
+		strings.TrimSpace(c.Email.ResendAPIKey) != "" &&
+		strings.TrimSpace(c.Email.From) != ""
+}
+
+// PublicWebOrigin is the Next.js origin for deep links (default https://dadiary.vn).
+func (c *Config) PublicWebOrigin() string {
+	if c != nil {
+		if u := strings.TrimRight(strings.TrimSpace(c.SePay.PublicWebURL), "/"); u != "" {
+			return u
+		}
+	}
+	return "https://dadiary.vn"
+}
+
+// CheckInURL is the photo check-in deep link (auth-aware on the web app).
+func (c *Config) CheckInURL() string {
+	return c.PublicWebOrigin() + "/check-in"
+}
+
+// PublicAPIOrigin is the API host for unsubscribe links. Empty when unset.
+func (c *Config) PublicAPIOrigin() string {
+	if c == nil {
+		return ""
+	}
+	return strings.TrimRight(strings.TrimSpace(c.PublicAPIURL), "/")
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if s := strings.TrimSpace(v); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func parseEnvBool(raw string, fallback bool) bool {

@@ -42,7 +42,8 @@ func (s *Service) SendDailyReminderToUser(ctx context.Context, userID uuid.UUID)
 
 	today := streaktime.TodayString()
 	nType := string(pushsvc.NotificationTypeDailyReminder)
-	if s.alreadySentDurable(ctx, userID, nType, today) {
+	if s.alreadySentAnyDurable(ctx, userID, today, pushsvc.ReminderTypesSameVNDay...) ||
+		s.alreadySentDurable(ctx, userID, nType, today) {
 		slog.Info("daily_reminder: skip — already sent today (receipt)",
 			"user_id", userID.String(),
 			"date", today,
