@@ -1,0 +1,264 @@
+{
+  "id": "dadiary-coach-public-knowledge",
+  "version": 1,
+  "updated": "2026-09-06",
+  "scope": "Curated from reputable PUBLIC patient/monograph pages only. No user diary, Facebook, skin-reviews, private messages, or selling/affiliate data. Coach-facing: do not dump URLs or English jargon at the user. Do not invent medical claims beyond this pack.",
+  "global_rules_vi": [
+    "Không chẩn đoán bệnh (kể cả nám / eczema / herpes).",
+    "Ưu tiên làm dịu + chống nắng + nói khi nào nên khám bác sĩ da.",
+    "Không bịa tuần hết thâm/nám, không kê đơn, không hứa chữa khỏi.",
+    "Cấm khuyên nặn / lấy nhân / tự lẻ mụn tại nhà.",
+    "Nguồn chỉ để coach bám — không đọc list URL cho user."
+  ],
+  "themes": [
+    {
+      "id": "irritation_after_adapalene_bha",
+      "title_vi": "Kích ứng / lớp bảo vệ da sau adapalene hoặc BHA",
+      "summary_vi": "Adapalene (retinoid bôi) và axit salicylic (BHA) hay làm da đỏ, khô, bong, châm chích — nhất là lúc mới dùng. Bôi nhiều hơn không làm hết mụn nhanh hơn. Khi đang rát: dịu da, dưỡng ẩm, chống nắng; giảm tần suất hoặc tạm nghỉ chất mạnh.",
+      "do_vi": [
+        "Rửa mặt dịu, không chà.",
+        "Dưỡng ẩm mỗi ngày kể cả da dầu — giúp da chịu được adapalene / BHA hơn.",
+        "Chống nắng mỗi ngày (retinoid làm da dễ bắt nắng).",
+        "Đang rát: bôi ít hơn hoặc cách ngày; xen rửa dịu nếu BHA đang làm khô.",
+        "Tạm nghỉ thêm acid / rửa mạnh / cồn khi da đang kích."
+      ],
+      "dont_vi": [
+        "Không bảo bôi dày hơn cho 'mau hết'.",
+        "Không chồng nhiều retinoid + BHA + tẩy mạnh khi đang đỏ rát.",
+        "Không nặn / chà khi da đang đỏ.",
+        "Không tự chốt 'dị ứng thuốc' — kích ứng lúc mới dùng khá thường gặp; dị ứng nặng (sưng mặt, phù) thì phải khám.",
+        "Không hứa vài ngày là hết kích."
+      ],
+      "see_doctor_vi": [
+        "Sưng mặt / mí / môi, phù, ngứa dữ — nghĩ tới phản ứng nặng, đi khám.",
+        "Rát nặng, phồng, nứt, lan rộng, hoặc không đỡ sau khi đã dịu / giảm tần suất.",
+        "Đang mang thai hoặc định có thai mà đang dùng retinoid — hỏi bác sĩ, đừng tự chỉnh liều."
+      ],
+      "match_any": [
+        "adapalene",
+        "adapalen",
+        "differin",
+        "differin gel"
+      ],
+      "match_pairs": [
+        {
+          "any": ["bha", "salicylic", "axit salicylic", "acid salicylic"],
+          "and_any": ["kích ứng", "kich ung", "rát", "rat", "bong da", "châm chích", "cham chich", "stinging", "lớp bảo vệ", "lop bao ve", "barrier", "khô rát", "đỏ rát", "do rat", "peel"]
+        },
+        {
+          "any": ["retinol", "retinoid", "tretinoin"],
+          "and_any": ["kích ứng", "kich ung", "rát", "rat", "bong da", "châm chích", "cham chich", "lớp bảo vệ", "lop bao ve", "barrier"]
+        }
+      ],
+      "sources": [
+        {
+          "name": "AAD",
+          "title": "Acne: Diagnosis and treatment — retinoid irritation tips; applying more does not clear faster; salicylic acid opens clogged pores",
+          "url": "https://www.aad.org/public/diseases/acne/derm-treat/treat",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "Moisturizer: Why you may need it if you have acne — salicylic acid, adapalene, tazarotene, tretinoin dry and irritate; daily moisturizer helps tolerate them",
+          "url": "https://www.aad.org/public/diseases/acne/skin-care/moisturizer",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "How to control oily skin — salicylic/glycolic/lactic acids may be too harsh; stop or use less often if irritated",
+          "url": "https://www.aad.org/public/everyday-care/skin-care-basics/dry/oily-skin",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "DailyMed / FDA label",
+          "title": "DIFFERIN (adapalene) gel — erythema, scaling, dryness, stinging/burning; caution with other irritating products; sunscreen; hypersensitivity (face/eyelid edema)",
+          "url": "https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=a0031324-92a6-4c11-90e2-c2818f7278ec",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "NCBI StatPearls",
+          "title": "Adapalene — pea-sized thin layer; initial irritation often peaks within ~2 weeks; every-other-day or short-contact options; moisturizer; sunscreen",
+          "url": "https://www.ncbi.nlm.nih.gov/books/NBK482509/",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "DermNet",
+          "title": "Topical retinoids — dryness and sun sensitivity; sunscreen + moisturizer; adapalene often least irritating of the class; avoid eyes/lips",
+          "url": "https://dermnetnz.org/topics/topical-retinoids",
+          "accessed": "2026-09-06"
+        }
+      ]
+    },
+    {
+      "id": "post_acne_marks_vs_melasma",
+      "title_vi": "Thâm sau mụn và nám — không chẩn đoán từ ảnh",
+      "summary_vi": "Ảnh hoặc lời kể không đủ để chốt 'đây là nám'. Thâm sau mụn thường là vết phẳng đúng chỗ mụn cũ (hồng / nâu / xám). Nám thường là mảng loang, hay hai bên mặt, dễ đậm hơn khi nắng hoặc thay đổi hormone. Cả hai đều cần chống nắng. Không hứa hết nhanh.",
+      "do_vi": [
+        "Nói dấu thường gặp bằng tiếng Việt đời thường — không chốt bệnh danh.",
+        "Nếu vết phẳng đúng chỗ mụn vừa xẹp: được nói 'đúng kiểu thâm sau mụn', vẫn không phủ nhận khả năng khác.",
+        "Chống nắng mỗi ngày — nắng làm thâm và nám đậm hơn / lâu hơn.",
+        "Dịu da, đừng chà / đừng kích thêm (kích có thể làm sạm đậm hơn).",
+        "Muốn rõ hoặc trị chuyên sâu → khám bác sĩ da tại chỗ."
+      ],
+      "dont_vi": [
+        "CẤM chẩn đoán nám chắc từ ảnh/check-in.",
+        "CẤM hứa hết thâm/nám trong vài tuần (thâm sau mụn có thể kéo dài nhiều tháng tới hơn một năm; nám có thể kéo dài năm và tái).",
+        "CẤM khuyên laser / peel / tự tẩy mạnh tại nhà.",
+        "CẤM gọi thâm phẳng là sẹo lõm — thâm sau mụn không phải sẹo.",
+        "CẤM dọa ung thư da chỉ vì mảng sạm (nám không phải ung thư) — chỉ bảo khám nếu lo / mảng đổi lạ."
+      ],
+      "see_doctor_vi": [
+        "Mảng loang rộng, hay hai bên mặt, liên quan thai kỳ / thuốc tránh thai — bác sĩ da mới phân biệt nám với thâm khác.",
+        "Thâm/sạm đậm dần, hình dạng lạ, hoặc user rất lo.",
+        "Muốn thuốc kê đơn / thủ thuật trị nám.",
+        "Đang mang thai: AAD khuyên đợi sau sinh mới trị nám; không tự mua kem trị nám."
+      ],
+      "match_any": [
+        "nám",
+        "thâm nám",
+        "tham nam",
+        "melasma",
+        "thâm sau mụn",
+        "tham sau mun",
+        "thâm mụn",
+        "post-inflammatory",
+        "postinflammatory",
+        "pih",
+        "thâm hay nám",
+        "nam da",
+        "mặt nạ thai kỳ",
+        "mat na thai ky",
+        "mask of pregnancy"
+      ],
+      "match_pairs": [
+        {
+          "any": ["thâm", "tham", "sạm", "sam", "pigment", "hyperpigmentation"],
+          "and_any": ["nám", "melasma", "sau mụn", "sau mun", "vết mụn", "vet mun"]
+        }
+      ],
+      "sources": [
+        {
+          "name": "AAD",
+          "title": "Acne: Signs and symptoms — postinflammatory hyperpigmentation (PIH) is a flat pink/red/purple/black/brown spot after acne, often mistaken for a scar; can last a year or longer",
+          "url": "https://www.aad.org/public/diseases/acne/really-acne/symptoms",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "Acne scars: Signs and symptoms — PIH is not a scar; usually fades; treatment can help it fade faster",
+          "url": "https://www.aad.org/public/diseases/acne/derm-treat/scars/symptoms",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "How to fade dark spots in darker skin tones — PIH follows a pimple/wound/irritation; treat the cause first; a few-shades-darker spot often 6–12 months; sunscreen essential",
+          "url": "https://www.aad.org/public/everyday-care/skin-care-secrets/routine/fade-dark-spots",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "Melasma: Overview — patches/spots darker than skin, usually the face; common in pregnancy/birth-control; can be mistaken for another condition; dermatologist diagnoses; not cancer; can last years and return with sun",
+          "url": "https://www.aad.org/public/diseases/a-z/melasma-overview",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "Melasma: Signs and symptoms — typically both sides of the face; blotchy; not painful or itchy; more noticeable after sun",
+          "url": "https://www.aad.org/public/diseases/a-z/melasma-symptoms",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "DermNet",
+          "title": "Postinflammatory hyperpigmentation — temporary pigmentation after injury/inflammation at the site of the original lesion; sun can darken it; diagnosis needs history and exam",
+          "url": "https://dermnetnz.org/topics/postinflammatory-hyperpigmentation",
+          "accessed": "2026-09-06"
+        }
+      ]
+    },
+    {
+      "id": "oily_closed_comedones",
+      "title_vi": "Da dầu / mụn ẩn — BHA chậm, không nặn",
+      "summary_vi": "Mụn ẩn (closed comedo / mụn đầu trắng) là lỗ chân lông bị bít — nốt nhỏ màu da hoặc trắng, ít đỏ. Da dầu dễ bít thêm. Axit salicylic (BHA) có thể hỗ trợ làm sạch lỗ chân lông nhưng dễ khô/kích: bắt đầu chậm, giảm nếu rát. Không nặn / lấy nhân tại nhà.",
+      "do_vi": [
+        "Rửa mặt dịu tối đa 2 lần/ngày và sau khi đổ mồ hôi — không chà.",
+        "Chọn sản phẩm ít dầu / ít bít lỗ; vẫn dưỡng ẩm (da dầu khô càng dễ tiết dầu).",
+        "Chống nắng.",
+        "Da đang yên, ít đỏ: BHA nhẹ được, nhưng chậm — nếu khô/rát thì thưa ra hoặc xen rửa dịu.",
+        "Cho thời gian: AAD nói nhiều trị mụn cần 6–8 tuần mới thấy đỡ."
+      ],
+      "dont_vi": [
+        "CẤM nặn, lấy nhân, tự lẻ mụn ẩn tại nhà — dễ thêm mụn, viêm, sẹo.",
+        "CẤM rửa xà / chà mạnh cho 'sạch dầu' — hay làm da kích rồi tiết dầu thêm.",
+        "CẤM đẩy BHA / retinoid khi má đang đỏ hồng (đang kích thì dịu trước).",
+        "CẤM hứa hết mụn ẩn nhanh.",
+        "Lấy nhân chỉ nên do bác sĩ / người được đào tạo — không phải tip tại nhà."
+      ],
+      "see_doctor_vi": [
+        "Mụn ẩn dày, không đỡ sau nhiều tuần chăm sóc dịu.",
+        "Muốn lấy nhân / 'nặn hộ' — đến cơ sở y tế, đừng tự làm.",
+        "Mụn sâu, đau, hoặc đang để lại sẹo."
+      ],
+      "match_any": [
+        "mụn ẩn",
+        "mun an",
+        "closed comedone",
+        "closed comedones",
+        "closed_comedones",
+        "mụn đầu trắng",
+        "mun dau trang",
+        "whitehead",
+        "whiteheads",
+        "nặn mụn",
+        "nan mun",
+        "lấy nhân",
+        "lay nhan",
+        "extraction",
+        "comedo extraction"
+      ],
+      "match_pairs": [
+        {
+          "any": ["da dầu", "da dau", "oily", "nhiều dầu", "nhieu dau"],
+          "and_any": ["mụn", "mun", "bha", "nặn", "nan", "lỗ chân lông", "lo chan long"]
+        }
+      ],
+      "sources": [
+        {
+          "name": "AAD",
+          "title": "Acne: Signs and symptoms — whitehead = closed comedo; picking can lead to more whiteheads and scars; squeeze blackheads can infect or scar",
+          "url": "https://www.aad.org/public/diseases/acne/really-acne/symptoms",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "How to treat different types of acne — whiteheads are clogged closed pores; give treatment 6–8 weeks; comedo extraction is a medical procedure; popping pustules can worsen acne",
+          "url": "https://www.aad.org/public/diseases/acne/diy/types-breakouts",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "Acne: Diagnosis and treatment — salicylic acid opens clogged pores / helps whiteheads; acne extraction only by a trained doctor to avoid scarring and infection",
+          "url": "https://www.aad.org/public/diseases/acne/derm-treat/treat",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "Adult acne treatment — salicylic acid works best on whiteheads and blackheads",
+          "url": "https://www.aad.org/public/diseases/acne/diy/adult-acne-treatment",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "What can treat large facial pores — salicylic acid cleanser may unclog; if it dries/irritates, alternate with a gentle cleanser",
+          "url": "https://www.aad.org/public/everyday-care/skin-care-secrets/face/treat-large-pores",
+          "accessed": "2026-09-06"
+        },
+        {
+          "name": "AAD",
+          "title": "How to control oily skin — cleanse up to twice daily, no scrubbing; acids may be too harsh (use less often if irritated); still moisturize; see a dermatologist for persistent blackheads/acne",
+          "url": "https://www.aad.org/public/everyday-care/skin-care-basics/dry/oily-skin",
+          "accessed": "2026-09-06"
+        }
+      ]
+    }
+  ]
+}

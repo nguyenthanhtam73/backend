@@ -1,6 +1,6 @@
 package ai
 
-// coach_prompt.go — System prompt cho **Daily Skincare Coach** (CoachDailyPromptVersion 26).
+// coach_prompt.go — System prompt cho **Daily Skincare Coach** (CoachDailyPromptVersion 27).
 //
 // v21: tone bựa bựa, xéo xắt nhẹ, bạn thân — vẫn ≥4 chi tiết ảnh, history callback, khích lệ.
 // v22: siết BREVITY để giảm token output → coach chạy nhanh hơn (đi kèm default Haiku):
@@ -129,7 +129,7 @@ const MaxCoachValidationRetries = 0
 
 // GetCoachPrompt trả system prompt cho daily coach turn.
 func GetCoachPrompt(skillLevel string) string {
-	guard := "\n\n" + VisionMorphologyCoachGuard()
+	guard := "\n\n" + VisionMorphologyCoachGuard() + "\n\n" + CoachPublicKnowledgeGuard()
 	if strings.EqualFold(strings.TrimSpace(skillLevel), "beginner") {
 		return BeginnerModePrompt + guard
 	}
