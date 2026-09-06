@@ -28,9 +28,9 @@ func (r *GormPushJobLockRepository) dbOrErr() (*gorm.DB, error) {
 	return r.db, nil
 }
 
-// TryClaim attempts to claim jobName for runDate (VN day "2006-01-02" or
-// hour "2006-01-02-15"). Returns true when this caller owns the claim;
-// false if another process already holds a non-expired claim for the same key.
+// TryClaim attempts to claim jobName for runDate (VN "2006-01-02").
+// Returns true when this caller owns the claim; false if another process
+// already holds a non-expired claim for the same day.
 //
 // An expired lease (pod crash) may be stolen so the evening job can finish.
 func (r *GormPushJobLockRepository) TryClaim(

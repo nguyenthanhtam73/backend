@@ -50,13 +50,11 @@ func TestPushJobLock_TryClaimAndRelease(t *testing.T) {
 }
 
 func TestPushJobLock_HourKeyFitsAndClaims(t *testing.T) {
-	hourKey := time.Date(2026, 9, 7, 4, 0, 0, 0, time.UTC).Format(domain.PushJobHourKeyLayout)
-	if len(hourKey) != 13 {
-		t.Fatalf("hour key %q len=%d want 13", hourKey, len(hourKey))
-	}
-	if len(hourKey) > domain.PushJobRunKeyMaxLen {
-		t.Fatalf("hour key %q len=%d exceeds last_run_date VARCHAR(%d)",
-			hourKey, len(hourKey), domain.PushJobRunKeyMaxLen)
+	// Compact YYYYMMDDHH (10 chars) — same layout the hourly reminder job uses.
+	// A dashed hour key is 13 chars and Postgres VARCHAR(10) rejects it.
+	hourKey := time.Date(2026, 9, 7, 4, 0, 0, 0, time.UTC).Format("2006010215")
+	if len(hourKey) != 10 {
+		t.Fatalf("hour key %q len=%d want 10", hourKey, len(hourKey))
 	}
 
 	db, err := gorm.Open(sqlite.Open("file:push_job_hour?mode=memory&cache=shared"), &gorm.Config{
@@ -71,17 +69,17 @@ func TestPushJobLock_HourKeyFitsAndClaims(t *testing.T) {
 	repo := NewPushJobLockRepository(db)
 	ctx := context.Background()
 
-	ok, err := repo.TryClaim(ctx, domain.PushJobD0D1Reminder, hourKey)
+	ok, err := repo.TryClaim(ctx, "checkin_reminder_hour", hourKey)
 	if err != nil || !ok {
 		t.Fatalf("hour claim: ok=%v err=%v", ok, err)
 	}
-	ok, err = repo.TryClaim(ctx, domain.PushJobD0D1Reminder, hourKey)
+	ok, err = repo.TryClaim(ctx, "checkin_reminder_hour", hourKey)
 	if err != nil || ok {
 		t.Fatalf("same hour should be held: ok=%v err=%v", ok, err)
 	}
 
-	nextHour := time.Date(2026, 9, 7, 5, 0, 0, 0, time.UTC).Format(domain.PushJobHourKeyLayout)
-	ok, err = repo.TryClaim(ctx, domain.PushJobD0D1Reminder, nextHour)
+	nextHour := time.Date(2026, 9, 7, 5, 0, 0, 0, time.UTC).Format("2006010215")
+	ok, err = repo.TryClaim(ctx, "checkin_reminder_hour", nextHour)
 	if err != nil || !ok {
 		t.Fatalf("next hour must be claimable: ok=%v err=%v", ok, err)
 	}
