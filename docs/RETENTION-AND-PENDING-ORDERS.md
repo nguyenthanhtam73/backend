@@ -103,8 +103,8 @@ Authorization: Bearer <admin-jwt>
 ```
 
 Counts signups, distinct skin-check users, D0/D1 check-in proxies (Vietnam
-calendar), and paid orders in the last 7 days. Paywall impressions are
-client-only (`paywall_views` is `null`). Curl + field table:
+calendar), paid orders in the last 7 days, and paywall impressions
+(`paywall_views_1d` / `paywall_views_7d`, never `null`). Curl + field table:
 [`FUNNEL-STATS.md`](./FUNNEL-STATS.md).
 
 ### Verify (Postgres)

@@ -15,11 +15,11 @@ var (
 )
 
 const (
-	paywallNote  = "N/A — paywall is client-only and is not persisted in Postgres"
+	paywallNote  = "Impression rows from POST /api/v1/analytics/paywall-view (upsell_banner, pricing, upgrade). Rolling 1d/7d from as_of. paywall_views equals paywall_views_7d."
 	calendarNote = "Asia/Ho_Chi_Minh"
 	d0Note       = "Users with a skin_check.check_date on their Vietnam signup day"
 	d1Note       = "Users with a skin_check.check_date on the Vietnam day after signup. d1_eligible_users is the denominator (signup day strictly before today VN)."
-	windowsNote  = "1d/7d signup, skin-check, and paid-order windows are rolling hours from as_of. D0/D1 use Vietnam civil dates."
+	windowsNote  = "1d/7d signup, skin-check, paid-order, and paywall-view windows are rolling hours from as_of. D0/D1 use Vietnam civil dates."
 )
 
 // Service aggregates leaky-bucket proxies for admins.
@@ -27,6 +27,7 @@ type Service struct {
 	users  *repository.GormUserRepository
 	checks *repository.GormSkinCheckRepository
 	orders *repository.PaymentOrderRepository
+	views  *repository.GormPaywallViewRepository
 	now    func() time.Time
 }
 
@@ -35,12 +36,13 @@ func NewService(
 	users *repository.GormUserRepository,
 	checks *repository.GormSkinCheckRepository,
 	orders *repository.PaymentOrderRepository,
+	views *repository.GormPaywallViewRepository,
 ) *Service {
-	return &Service{users: users, checks: checks, orders: orders, now: time.Now}
+	return &Service{users: users, checks: checks, orders: orders, views: views, now: time.Now}
 }
 
 func (s *Service) ready() error {
-	if s == nil || s.users == nil || s.checks == nil || s.orders == nil {
+	if s == nil || s.users == nil || s.checks == nil || s.orders == nil || s.views == nil {
 		return ErrUnavailable
 	}
 	return nil
@@ -87,6 +89,15 @@ func (s *Service) Stats(ctx context.Context) (dto.AdminFunnelStatsResponse, erro
 		return zero, fmt.Errorf("count paid orders 7d: %w", err)
 	}
 
+	paywall1d, err := s.views.CountSince(ctx, since1d)
+	if err != nil {
+		return zero, fmt.Errorf("count paywall views 1d: %w", err)
+	}
+	paywall7d, err := s.views.CountSince(ctx, since7d)
+	if err != nil {
+		return zero, fmt.Errorf("count paywall views 7d: %w", err)
+	}
+
 	signups, err := s.users.ListFunnelSignups(ctx)
 	if err != nil {
 		return zero, fmt.Errorf("list signups: %w", err)
@@ -119,7 +130,9 @@ func (s *Service) Stats(ctx context.Context) (dto.AdminFunnelStatsResponse, erro
 		D1CheckinUsers7d:   proxies.D1Users7d,
 		D1EligibleUsers7d:  proxies.D1Eligible7d,
 		PaidOrders7d:       paid7d,
-		PaywallViews:       nil,
+		PaywallViews1d:     paywall1d,
+		PaywallViews7d:     paywall7d,
+		PaywallViews:       paywall7d,
 		Notes: dto.AdminFunnelNotes{
 			Paywall:  paywallNote,
 			Calendar: calendarNote,

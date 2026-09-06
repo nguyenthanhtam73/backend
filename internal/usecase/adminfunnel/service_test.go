@@ -23,13 +23,14 @@ func setupFunnelDB(t *testing.T) (*gorm.DB, *Service) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.SkinCheck{}, &domain.PaymentOrder{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.SkinCheck{}, &domain.PaymentOrder{}, &domain.PaywallView{}); err != nil {
 		t.Fatal(err)
 	}
 	svc := NewService(
 		repository.NewUserRepository(db),
 		repository.NewSkinCheckRepository(db),
 		repository.NewPaymentOrderRepository(db),
+		repository.NewPaywallViewRepository(db),
 	)
 	return db, svc
 }
@@ -118,6 +119,30 @@ func TestStats_LeakyBucketCounts(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	uid := fresh.ID
+	if err := db.Create(&domain.PaywallView{
+		UserID:    &uid,
+		Surface:   domain.PaywallSurfacePricing,
+		Feature:   "generic",
+		CreatedAt: now.Add(-2 * time.Hour),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&domain.PaywallView{
+		Surface:   domain.PaywallSurfaceUpsellBanner,
+		Feature:   "wardrobe_full",
+		CreatedAt: now.Add(-3 * 24 * time.Hour),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&domain.PaywallView{
+		Surface:   domain.PaywallSurfaceUpgrade,
+		Feature:   "generic",
+		CreatedAt: now.Add(-20 * 24 * time.Hour),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
 	out, err := svc.Stats(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -152,8 +177,14 @@ func TestStats_LeakyBucketCounts(t *testing.T) {
 	if out.PaidOrders7d != 1 {
 		t.Fatalf("paid_orders_7d=%d want 1", out.PaidOrders7d)
 	}
-	if out.PaywallViews != nil {
-		t.Fatalf("paywall_views should be null")
+	if out.PaywallViews1d != 1 {
+		t.Fatalf("paywall_views_1d=%d want 1", out.PaywallViews1d)
+	}
+	if out.PaywallViews7d != 2 {
+		t.Fatalf("paywall_views_7d=%d want 2", out.PaywallViews7d)
+	}
+	if out.PaywallViews != 2 {
+		t.Fatalf("paywall_views=%d want 2 (equals 7d)", out.PaywallViews)
 	}
 	if out.Notes.Paywall == "" || out.Notes.Calendar != "Asia/Ho_Chi_Minh" {
 		t.Fatalf("notes missing: %#v", out.Notes)
@@ -165,7 +196,7 @@ func TestStats_Unavailable(t *testing.T) {
 	if _, err := svc.Stats(context.Background()); err != ErrUnavailable {
 		t.Fatalf("nil service err=%v", err)
 	}
-	svc = NewService(nil, nil, nil)
+	svc = NewService(nil, nil, nil, nil)
 	if _, err := svc.Stats(context.Background()); err != ErrUnavailable {
 		t.Fatalf("nil deps err=%v", err)
 	}
