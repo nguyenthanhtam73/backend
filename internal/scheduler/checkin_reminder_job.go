@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/streaktime"
 	checkinreminderuc "github.com/dadiary/backend/internal/usecase/checkinreminder"
 )
@@ -68,7 +69,7 @@ func (j *CheckInReminderJob) loop(ctx context.Context) {
 }
 
 func (j *CheckInReminderJob) maybeRun(ctx context.Context) {
-	hourKey := streaktime.Now().Format("2006-01-02-15")
+	hourKey := streaktime.Now().Format(domain.PushJobHourKeyLayout)
 
 	j.mu.Lock()
 	already := j.lastRunHour == hourKey

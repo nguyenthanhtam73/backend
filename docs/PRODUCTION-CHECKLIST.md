@@ -80,9 +80,14 @@ Flip helper (rejects sandbox keys): `backend/scripts/flip-sepay-production.ps1`.
 - [ ] Frontend can poll `GET /api/v1/me/check-in-reminder` for D0/D1 in-app nudges
 - [ ] Optional re-engagement: `RESEND_API_KEY` + `EMAIL_FROM` on Railway backend
       (also `DADIARY_PUBLIC_API_URL` for unsubscribe links). Missing ESP is a
-      logged no-op — do not invent keys. VAPID already enables evening + D0/D1
-      typed push (`d0_reminder` / `d1_reminder`; receipts prevent a second
-      `daily_reminder` the same VN day).
+      logged no-op — do not invent keys. The From domain (`dadiary.vn`) must be
+      **Verified** on the same Resend account as `RESEND_API_KEY` (a 403
+      `domain is not verified` releases the receipt — `email_send_receipts`
+      stays 0). After a deploy, confirm boot logs: `email_ready=true`,
+      `email_sent>0` (or a 403 if the domain is still pending), and no
+      `lock claim failed` / `SQLSTATE 22001`. VAPID already enables evening
+      + D0/D1 typed push (`d0_reminder` / `d1_reminder`; receipts prevent a
+      second `daily_reminder` the same VN day).
 - [ ] Admin metrics reachable (admin JWT):
   ```
   GET /api/v1/admin/metrics/payment

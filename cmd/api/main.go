@@ -179,7 +179,7 @@ func startPlanExpiryJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
 	job.Start(ctx)
 }
 
-// startCheckInReminderJob refreshes D0/D1 flags once per Vietnam civil day.
+// startCheckInReminderJob refreshes D0/D1 flags hourly (Vietnam clock) and fans out email/push.
 func startCheckInReminderJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
 	if cfg != nil && !cfg.CheckInReminder.Enabled {
 		slog.Info("checkin_reminder_job: disabled via config")
