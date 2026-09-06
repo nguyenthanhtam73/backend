@@ -20,7 +20,7 @@ type DailyFeedbackInput struct {
 	Deps         UserMemoryDeps
 	TodayContext string // profile + notes for this turn (required)
 	SkillLevel   string
-	Check        *domain.SkinCheck  // optional — resolves skill level
+	Check        *domain.SkinCheck   // optional — resolves skill level
 	Profile      *domain.SkinProfile // optional — resolves skill level
 	MemOpts      UserMemoryOptions
 }
@@ -113,6 +113,7 @@ func buildDailyFeedbackPrompt(userContextMarkdown, skillLevel string) (system, u
 	userMsg.WriteString("USER_CONTEXT:\n")
 	userMsg.WriteString(u)
 	userMsg.WriteString(coachMemoryTurnChecklist(u))
+	AppendCoachKnowledgeContext(&userMsg, u)
 	AppendAffiliateCoachContext(&userMsg)
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")
 	userMsg.WriteString(CoachOutputJSONSchemaBlock)

@@ -62,4 +62,9 @@ package ai
 //
 // v26 (2026-08-06) — Confident conclusions on clear photo/tag cues; less hedge spam
 // (“không chắc 100% / có thể là / nghi…”); keep tao/mày tart buddy voice + care_suggestions.
-const CoachDailyPromptVersion = 26
+//
+// v27 (2026-09-06) — Public-source coach knowledge pack (coach_knowledge.json) for
+// irritation after adapalene/BHA, post-acne marks vs melasma, and oily/closed
+// comedones. Theme-matched block in the user message; short system-prompt guard.
+// No user-diary / Facebook / selling data. JSON schema unchanged.
+const CoachDailyPromptVersion = 27

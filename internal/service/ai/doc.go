@@ -42,4 +42,6 @@
 // "Using OpenAI for vision".
 // Prompts: coach personas + skill routing in coach_prompt.go (GetCoachPrompt, ResolveCoachSkillLevel);
 // Claude-specific stubs and other prompts in prompts_claude.go, prompts_onboarding.go, schema.go.
+// Public-source Coach knowledge (AAD/DermNet/monographs, no user data): coach_knowledge.json
+// + coach_knowledge.go — see docs/COACH-KNOWLEDGE.md.
 package ai
