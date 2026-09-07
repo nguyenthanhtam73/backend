@@ -49,15 +49,6 @@ func CareRoleFromText(text string) string {
 	return ""
 }
 
-func containsAny(s string, needles ...string) bool {
-	for _, n := range needles {
-		if n != "" && strings.Contains(s, n) {
-			return true
-		}
-	}
-	return false
-}
-
 func wardrobeCoveredRoles(owned []wardrobeItem) map[string]wardrobeItem {
 	out := make(map[string]wardrobeItem)
 	for _, item := range owned {
