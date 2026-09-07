@@ -215,6 +215,31 @@ func (h *SkinCheckHandler) Get(c *fiber.Ctx) error {
 	return response.JSON(c, fiber.StatusOK, res)
 }
 
+// Reanalyze handles POST /api/v1/skin-checks/:id/reanalyze.
+// Re-runs the shared analysis pipeline on stored image URLs (no upload).
+// Owner-only (404 otherwise). Skip-mode / no photos → 422. In-flight jobs
+// return the current payload without enqueueing a second run.
+func (h *SkinCheckHandler) Reanalyze(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "skin check service is not available")
+	}
+	userID := middleware.UserIDFromLocals(c)
+	if userID == uuid.Nil {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
+	}
+	idParam := strings.TrimSpace(c.Params("id"))
+	id, err := uuid.Parse(idParam)
+	if err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_id", "skin check id must be a valid uuid")
+	}
+	res, err := h.svc.Reanalyze(c.UserContext(), userID, id)
+	if err != nil {
+		return mapSkinCheckError(c, err)
+	}
+	stripSkinCheckAds(c.UserContext(), h.premium, userID, &res, uiLocaleFromClimateJSON(res.Check.ClimateContext))
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
 func firstValue(v []string) string {
 	if len(v) == 0 {
 		return ""
@@ -342,6 +367,12 @@ func mapSkinCheckError(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, skincheckuc.ErrInvalidInput):
 		return response.Error(c, fiber.StatusBadRequest, "invalid_input", err.Error())
+	case errors.Is(err, skincheckuc.ErrNotFound):
+		return response.Error(c, fiber.StatusNotFound, "not_found", "skin check not found")
+	case errors.Is(err, skincheckuc.ErrNoPhotos):
+		return response.Error(c, fiber.StatusUnprocessableEntity, "photos_required", "reanalyze needs at least one stored photo")
+	case errors.Is(err, skincheckuc.ErrReanalyzeLimit):
+		return response.Error(c, fiber.StatusTooManyRequests, "reanalyze_limit", "this check can be reanalyzed once per day")
 	case errors.Is(err, skincheckuc.ErrModerationRejected):
 		return response.Error(c, fiber.StatusUnprocessableEntity, "moderation_failed", err.Error())
 	case errors.Is(err, skincheckuc.ErrDatabase):

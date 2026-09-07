@@ -193,6 +193,9 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		h.AttachUsers(userRepo)
 		api.Post("/skin-checks", jwt, skinCheckLimit, h.Create)
 		api.Get("/skin-checks/:id", jwt, h.Get)
+		// Reanalyze re-runs vision on stored URLs (no upload). Shares the create
+		// limiter so check-in + reanalyze together stay inside the same cost cap.
+		api.Post("/skin-checks/:id/reanalyze", jwt, skinCheckLimit, h.Reanalyze)
 
 		// Progress Timeline + Summary — both read aggregations over skin_checks +
 		// skin_analyses. No LLM call, so they stay snappy even on cold cache.

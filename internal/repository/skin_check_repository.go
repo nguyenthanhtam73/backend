@@ -511,3 +511,37 @@ func (r *GormSkinCheckRepository) SaveAnalysis(ctx context.Context, a *domain.Sk
 	}
 	return db.WithContext(ctx).Save(a).Error
 }
+
+// ClaimReanalyze atomically marks a completed/failed analysis as processing so
+// only one reanalyze job can start. Failed rows may retry the same UTC day;
+// completed rows are limited to one claim per UTC day via last_reanalyzed_at.
+// Returns true when this caller won the claim.
+func (r *GormSkinCheckRepository) ClaimReanalyze(ctx context.Context, skinCheckID uuid.UUID, now time.Time) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if skinCheckID == uuid.Nil {
+		return false, fmt.Errorf("skin check id required")
+	}
+	now = now.UTC()
+	dayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	res := db.WithContext(ctx).Model(&domain.SkinAnalysis{}).
+		Where("skin_check_id = ?", skinCheckID).
+		Where("status IN ?", []domain.AnalysisStatus{
+			domain.AnalysisStatusCompleted,
+			domain.AnalysisStatusFailed,
+		}).
+		Where("(status = ? OR last_reanalyzed_at IS NULL OR last_reanalyzed_at < ?)",
+			domain.AnalysisStatusFailed, dayStart).
+		Updates(map[string]any{
+			"status":             domain.AnalysisStatusProcessing,
+			"error_message":      "",
+			"model_version":      "pending",
+			"last_reanalyzed_at": now,
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}

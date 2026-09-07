@@ -23,23 +23,27 @@ type SkinAnalysis struct {
 	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
 	SkinCheckID uuid.UUID `gorm:"type:uuid;uniqueIndex;not null" json:"skin_check_id"`
 
-	Status       AnalysisStatus `gorm:"size:24;default:pending;index" json:"status"`
+	Status AnalysisStatus `gorm:"size:24;default:pending;index" json:"status"`
 	// ModelVersion stores e.g. "pipeline=hybrid|vision=gpt-4o(ok)|coach=claude-sonnet-4-6(anthropic)" (~70 chars).
 	ModelVersion string `gorm:"size:256" json:"model_version,omitempty"`
 	// PromptVersion is the coach pipeline prompt/schema generation (see ai.CoachDailyPromptVersion).
 	PromptVersion int `gorm:"default:1;not null" json:"prompt_version,omitempty"`
 
-	SkinScores   json.RawMessage `gorm:"type:jsonb" json:"skin_scores,omitempty"`
-	Strengths    json.RawMessage `gorm:"type:jsonb" json:"strengths,omitempty"`
-	Improvements json.RawMessage `gorm:"type:jsonb" json:"improvements,omitempty"`
-	RoutineHints         json.RawMessage `gorm:"type:jsonb" json:"routine_hints,omitempty"`
-	ProductSuggestions   json.RawMessage `gorm:"type:jsonb" json:"product_suggestions,omitempty"`
-	AvoidOrPatch         json.RawMessage `gorm:"type:jsonb" json:"avoid_or_patch,omitempty"`
-	SummaryNotes string          `gorm:"type:text" json:"summary_notes,omitempty"`
-	SafetyFlags  json.RawMessage `gorm:"type:jsonb" json:"safety_flags,omitempty"`
-	ErrorMessage string          `gorm:"type:text" json:"error_message,omitempty"`
+	SkinScores         json.RawMessage `gorm:"type:jsonb" json:"skin_scores,omitempty"`
+	Strengths          json.RawMessage `gorm:"type:jsonb" json:"strengths,omitempty"`
+	Improvements       json.RawMessage `gorm:"type:jsonb" json:"improvements,omitempty"`
+	RoutineHints       json.RawMessage `gorm:"type:jsonb" json:"routine_hints,omitempty"`
+	ProductSuggestions json.RawMessage `gorm:"type:jsonb" json:"product_suggestions,omitempty"`
+	AvoidOrPatch       json.RawMessage `gorm:"type:jsonb" json:"avoid_or_patch,omitempty"`
+	SummaryNotes       string          `gorm:"type:text" json:"summary_notes,omitempty"`
+	SafetyFlags        json.RawMessage `gorm:"type:jsonb" json:"safety_flags,omitempty"`
+	ErrorMessage       string          `gorm:"type:text" json:"error_message,omitempty"`
 
 	AnalyzedAt *time.Time `json:"analyzed_at,omitempty"`
+	// LastReanalyzedAt is set when the owner claims a reanalyze job. Used to
+	// cap successful re-runs at one per check per UTC day (failed retries are
+	// allowed so a dead pipeline does not lock the photo).
+	LastReanalyzedAt *time.Time `json:"last_reanalyzed_at,omitempty"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
