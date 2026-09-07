@@ -15,7 +15,6 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
-	"github.com/dadiary/backend/internal/service/analysis"
 	"github.com/dadiary/backend/internal/service/moderation"
 	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/streaktime"
@@ -27,7 +26,16 @@ var (
 	ErrInvalidInput       = errors.New("invalid skin check payload")
 	ErrModerationRejected = errors.New("content did not pass moderation")
 	ErrDatabase           = errors.New("database error")
+	ErrNotFound           = errors.New("skin check not found")
+	ErrNoPhotos           = errors.New("photos required to reanalyze")
+	ErrReanalyzeLimit     = errors.New("reanalyze limit reached")
 )
+
+// AnalysisEnqueuer starts the shared skin-check AI pipeline in the background.
+// *analysis.Service implements this; tests may stub it to avoid LLM calls.
+type AnalysisEnqueuer interface {
+	EnqueueAnalysis(skinCheckID uuid.UUID)
+}
 
 // UploadImage is one decoded, validated photo handed from the HTTP layer. Bytes
 // are kept in memory so moderation can run on them and the storage backend
@@ -57,7 +65,7 @@ type Service struct {
 	cfg      *config.Config
 	checks   *repository.GormSkinCheckRepository
 	mod      *moderation.Service
-	analyzer *analysis.Service
+	analyzer AnalysisEnqueuer
 	store    storage.Storage
 	streaks  StreakRecorder
 	tx       repository.TxRunner
@@ -77,7 +85,7 @@ func NewService(
 	cfg *config.Config,
 	checks *repository.GormSkinCheckRepository,
 	mod *moderation.Service,
-	analyzer *analysis.Service,
+	analyzer AnalysisEnqueuer,
 	store storage.Storage,
 	streaks StreakRecorder,
 	tx repository.TxRunner,
