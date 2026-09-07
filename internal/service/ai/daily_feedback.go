@@ -93,10 +93,12 @@ func GenerateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 	}
 	locale := localeFromUserContext(u)
 	out.ProductSuggestions, out.ProductGuidance, out.CarePhase = FinalizeCoachCommerce(out.ProductSuggestions, u, locale, "")
+	ApplyCabinetFirstCare(out, u)
 	if needsAdherenceRetry(u, out) {
 		retryBody := textBody + "\n\nVALIDATION FAILED: your JSON did not mention routine adherence in strengths or summary_notes. Regenerate the FULL JSON — include one sentence about routine ticks/effort per COACH_ACTION.\n"
 		if retryOut, retryErr := callDailyFeedbackLLM(ctx, cfg, client, system, retryBody); retryErr == nil && retryOut != nil {
 			retryOut.ProductSuggestions, retryOut.ProductGuidance, retryOut.CarePhase = FinalizeCoachCommerce(retryOut.ProductSuggestions, u, locale, "")
+			ApplyCabinetFirstCare(retryOut, u)
 			out = retryOut
 		}
 	}
@@ -106,7 +108,9 @@ func GenerateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 func buildDailyFeedbackPrompt(userContextMarkdown, skillLevel string) (system, user string) {
 	u := strings.TrimSpace(userContextMarkdown)
 	var userMsg strings.Builder
-	userMsg.WriteString("The user did not attach new photos for this turn. Base your coaching ONLY on USER_CONTEXT below (and acknowledge you have no fresh vision cues).\n\n")
+	userMsg.WriteString("The user did not attach new photos for this turn. Base your coaching ONLY on USER_CONTEXT below (and acknowledge you have no fresh vision cues).\n")
+	userMsg.WriteString(PhotoEvidencePromptBlock(CheckInPhotoEvidence{Kind: PhotoEvidenceSkip}, localeFromUserContext(u)))
+	userMsg.WriteString("\n")
 	if priority := prependCoachActionPriority(u); priority != "" {
 		userMsg.WriteString(priority)
 	}

@@ -279,6 +279,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	if phase := strings.TrimSpace(parsed.CarePhase); phase != "" {
 		labels["care_phase"] = phase
 	}
+	ai.ApplyPhotoEvidenceToScores(labels, ai.ClassifyCheckInPhotoEvidence(visionStatus, visionRaw))
 	ss, _ := json.Marshal(labels)
 
 	str, _ := json.Marshal(parsed.Strengths)

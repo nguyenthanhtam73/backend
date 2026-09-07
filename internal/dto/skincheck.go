@@ -10,9 +10,9 @@ import (
 // CreateSkinCheckResponse is returned after POST /api/v1/skin-checks succeeds.
 // When AI runs synchronously, analysis.coach contains structured coach feedback (or error_message on pipeline failure).
 type CreateSkinCheckResponse struct {
-	Check     SkinCheckSummary     `json:"check"`
-	Analysis  SkinAnalysisSummary  `json:"analysis"`
-	ImageURLs []string             `json:"image_urls"`
+	Check     SkinCheckSummary    `json:"check"`
+	Analysis  SkinAnalysisSummary `json:"analysis"`
+	ImageURLs []string            `json:"image_urls"`
 	// Streak is set on create when the check-in updated the user's streak
 	// (omitted on GET poll responses). Used so the client can toast auto-freeze.
 	Streak *SkinCheckStreakMeta `json:"streak,omitempty"`
@@ -77,38 +77,42 @@ type CoachCareSuggestionItem struct {
 // Public share Admin Skin Review is a separate DTO (overview / possible_causes / soothing_tips only)
 // and must not include care_suggestions or full AM–PM care checklists.
 type SkinCoachDetail struct {
-	SummaryNotes       string                     `json:"summary_notes,omitempty"`
-	Strengths          []string                   `json:"strengths,omitempty"`
-	SituationSummary   string                     `json:"situation_summary,omitempty"`
-	ConcernAlignment   string                     `json:"concern_alignment,omitempty"`
-	SkinScoreGauges    *SkinCoachScoreGauges      `json:"skin_score_gauges,omitempty"`
-	Improvements       []CoachImprovementItem     `json:"improvements,omitempty"`
-	CareSuggestions    []CoachCareSuggestionItem  `json:"care_suggestions,omitempty"`
-	RoutineHints       []string                   `json:"routine_hints,omitempty"`
-	AvoidOrPatch       []string                   `json:"avoid_or_patch,omitempty"`
-	SafetyReminders    []string                   `json:"safety_reminders,omitempty"`
-	MedicalDisclaimer  string                     `json:"medical_disclaimer,omitempty"`
-	ProductSuggestions []ProductSuggestion        `json:"product_suggestions,omitempty"`
-	ProductGuidance    []ProductGuidanceItem      `json:"product_guidance,omitempty"`
-	CarePhase          string                     `json:"care_phase,omitempty"`
-	ErrorMessage       string                     `json:"error_message,omitempty"`
+	SummaryNotes       string                    `json:"summary_notes,omitempty"`
+	Strengths          []string                  `json:"strengths,omitempty"`
+	SituationSummary   string                    `json:"situation_summary,omitempty"`
+	ConcernAlignment   string                    `json:"concern_alignment,omitempty"`
+	SkinScoreGauges    *SkinCoachScoreGauges     `json:"skin_score_gauges,omitempty"`
+	Improvements       []CoachImprovementItem    `json:"improvements,omitempty"`
+	CareSuggestions    []CoachCareSuggestionItem `json:"care_suggestions,omitempty"`
+	RoutineHints       []string                  `json:"routine_hints,omitempty"`
+	AvoidOrPatch       []string                  `json:"avoid_or_patch,omitempty"`
+	SafetyReminders    []string                  `json:"safety_reminders,omitempty"`
+	MedicalDisclaimer  string                    `json:"medical_disclaimer,omitempty"`
+	ProductSuggestions []ProductSuggestion       `json:"product_suggestions,omitempty"`
+	ProductGuidance    []ProductGuidanceItem     `json:"product_guidance,omitempty"`
+	CarePhase          string                    `json:"care_phase,omitempty"`
+	// PhotoEvidence is skip | limited | ok — FE banner “Ảnh hạn chế” / skip chips.
+	PhotoEvidence    string `json:"photo_evidence,omitempty"`
+	PhotoLimited     bool   `json:"photo_limited,omitempty"`
+	PhotoLimitedNote string `json:"photo_limited_note,omitempty"`
+	ErrorMessage     string `json:"error_message,omitempty"`
 }
 
 // SkinCoachScoreGauges exposes soft 0–1 subscores from the coach JSON (not clinical).
 type SkinCoachScoreGauges struct {
-	Overall     *float64 `json:"overall,omitempty"`
-	Hydration   *float64 `json:"hydration,omitempty"`
-	Clarity     *float64 `json:"clarity,omitempty"`
-	Barrier     *float64 `json:"barrier,omitempty"`
+	Overall   *float64 `json:"overall,omitempty"`
+	Hydration *float64 `json:"hydration,omitempty"`
+	Clarity   *float64 `json:"clarity,omitempty"`
+	Barrier   *float64 `json:"barrier,omitempty"`
 }
 
 // SkinAnalysisSummary is the public read model for one AI analysis row.
 type SkinAnalysisSummary struct {
-	ID             string `json:"id"`
-	SkinCheckID    string `json:"skin_check_id"`
-	Status         string `json:"status"`
-	ModelVersion   string `json:"model_version,omitempty"`
-	PromptVersion  int    `json:"prompt_version,omitempty"`
+	ID            string `json:"id"`
+	SkinCheckID   string `json:"skin_check_id"`
+	Status        string `json:"status"`
+	ModelVersion  string `json:"model_version,omitempty"`
+	PromptVersion int    `json:"prompt_version,omitempty"`
 	// Coach is set for completed (full detail) or failed (error_message only) after synchronous pipeline.
 	Coach *SkinCoachDetail `json:"coach,omitempty"`
 }
@@ -153,11 +157,11 @@ func mapSkinAnalysisSummary(a *domain.SkinAnalysis) SkinAnalysisSummary {
 		return SkinAnalysisSummary{}
 	}
 	out := SkinAnalysisSummary{
-		ID:             a.ID.String(),
-		SkinCheckID:    a.SkinCheckID.String(),
-		Status:         string(a.Status),
-		ModelVersion:   a.ModelVersion,
-		PromptVersion:  a.PromptVersion,
+		ID:            a.ID.String(),
+		SkinCheckID:   a.SkinCheckID.String(),
+		Status:        string(a.Status),
+		ModelVersion:  a.ModelVersion,
+		PromptVersion: a.PromptVersion,
 	}
 	switch a.Status {
 	case domain.AnalysisStatusFailed:
@@ -220,6 +224,15 @@ func buildCoachDetailFromDomain(a *domain.SkinAnalysis) *SkinCoachDetail {
 			}
 			if v, ok := scores["care_phase"].(string); ok {
 				d.CarePhase = v
+			}
+			if v, ok := scores["photo_evidence"].(string); ok {
+				d.PhotoEvidence = strings.TrimSpace(v)
+			}
+			if v, ok := scores["photo_limited"].(bool); ok {
+				d.PhotoLimited = v
+			}
+			if v, ok := scores["photo_limited_note"].(string); ok {
+				d.PhotoLimitedNote = strings.TrimSpace(v)
 			}
 			d.ProductGuidance = extractProductGuidance(scores)
 		}

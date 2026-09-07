@@ -619,8 +619,9 @@ func buildRoutineCompletionSectionDbg(
 
 const wardrobeMemoryMaxItems = 20
 
-// buildWardrobeSectionDbg renders products the user already owns so affiliate
-// picks can skip duplicates. Format matches FinalizeProductSuggestions parser.
+// buildWardrobeSectionDbg renders products the user already owns so care_suggestions
+// can name them first and affiliate picks skip covered roles. Format matches
+// FinalizeProductSuggestions parser.
 func buildWardrobeSectionDbg(
 	ctx context.Context,
 	userID uuid.UUID,
@@ -637,7 +638,7 @@ func buildWardrobeSectionDbg(
 		rows = rows[:wardrobeMemoryMaxItems]
 	}
 	var b strings.Builder
-	b.WriteString("## Wardrobe (products user already owns — DO NOT re-recommend these)\n")
+	b.WriteString("## Wardrobe (products user already owns — prefer these in care_suggestions; do NOT re-sell them)\n")
 	count := 0
 	for _, p := range rows {
 		name := strings.TrimSpace(p.Name)
@@ -658,7 +659,7 @@ func buildWardrobeSectionDbg(
 	if count == 0 {
 		return "", 0
 	}
-	b.WriteString("If wardrobe already covers today's gap, return product_suggestions: [].\n")
+	b.WriteString("Name owned products in care_suggestions when the step role matches (rửa / dưỡng / chống nắng / …). Cabinet first; product_suggestions: [] if the shelf already covers today's roles.\n")
 	return b.String(), count
 }
 

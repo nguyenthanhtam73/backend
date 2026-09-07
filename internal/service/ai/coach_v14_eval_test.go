@@ -29,10 +29,19 @@ func TestCoachPrompt_v24_SarcasticBuddyTone(t *testing.T) {
 	}
 }
 
-func TestCoachPromptVersion_v27(t *testing.T) {
-	if CoachDailyPromptVersion != 27 {
-		t.Fatalf("expected CoachDailyPromptVersion == 27, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v28(t *testing.T) {
+	if CoachDailyPromptVersion != 28 {
+		t.Fatalf("expected CoachDailyPromptVersion == 28, got %d", CoachDailyPromptVersion)
 	}
+}
+
+func TestCoachPrompt_v28_PhotoEvidenceUncertainty(t *testing.T) {
+	p := GetCoachPrompt("intermediate")
+	mustContain(t, p, "PHOTO_EVIDENCE")
+	mustContain(t, p, "skip")
+	mustContain(t, p, "limited")
+	mustContain(t, p, "BẮT BUỘC nói chưa chắc")
+	mustContain(t, p, "nói thẳng")
 }
 
 // TestCoachPrompt_v22_BrevityRules pins the tightened output limits so a future
