@@ -67,4 +67,8 @@ package ai
 // irritation after adapalene/BHA, post-acne marks vs melasma, and oily/closed
 // comedones. Theme-matched block in the user message; short system-prompt guard.
 // No user-diary / Facebook / selling data. JSON schema unchanged.
-const CoachDailyPromptVersion = 27
+//
+// v28 (2026-09-07) — Fix hedge contradiction: “nói thẳng / CẤM hedge” must not
+// force certainty on skip or weak photos. Speak plainly when PHOTO_EVIDENCE is
+// ok; MUST say chưa chắc when skip/limited. Persists photo_evidence fields for FE.
+const CoachDailyPromptVersion = 28

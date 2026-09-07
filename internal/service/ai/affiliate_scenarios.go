@@ -12,7 +12,7 @@ import (
 // AffiliateScenario is a QA fixture for affiliate product_suggestions quality.
 type AffiliateScenario struct {
 	CoachPersona
-	Wardrobe []wardrobeItem
+	Wardrobe         []wardrobeItem
 	ExpectMaxCount   int
 	ExpectIdealMax   int
 	ExpectMinCount   int
@@ -133,9 +133,9 @@ func affiliateWardrobeFull() AffiliateScenario {
 			TodayCheck: check,
 			Memory:     memory,
 		},
-		Wardrobe:         wardrobe,
-		ExpectMaxCount:   2,
-		ExpectIdealMax:   1,
+		Wardrobe:       wardrobe,
+		ExpectMaxCount: 2,
+		ExpectIdealMax: 1,
 		// Wardrobe stocked — any 0–1 gap filler OK; do not require toner/mask specifically.
 		PreferCategories: nil,
 	}
@@ -232,10 +232,10 @@ func wardrobeSection(items []wardrobeItem) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## Wardrobe (products user already owns — DO NOT re-recommend these)\n")
+	b.WriteString("## Wardrobe (products user already owns — prefer these in care_suggestions; do NOT re-sell them)\n")
 	for _, it := range items {
 		fmt.Fprintf(&b, "- %s | brand: %s | category: %s\n", it.Name, it.Brand, it.Category)
 	}
-	b.WriteString("If wardrobe already covers today's gap, return product_suggestions: [].\n")
+	b.WriteString("Name owned products in care_suggestions when the step role matches (rửa / dưỡng / chống nắng / …). Cabinet first; product_suggestions: [] if the shelf already covers today's roles.\n")
 	return b.String()
 }

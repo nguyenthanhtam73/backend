@@ -11,9 +11,9 @@ import (
 func TestBuildCoachDetailCareSuggestionsFromSkinScores(t *testing.T) {
 	t.Parallel()
 	scores := map[string]any{
-		"overall":             0.55,
-		"situation_analysis":  "Má đỏ vài nốt.",
-		"concern_alignment":   "Khớp tags viêm.",
+		"overall":            0.55,
+		"situation_analysis": "Má đỏ vài nốt.",
+		"concern_alignment":  "Khớp tags viêm.",
 		"care_suggestions": []map[string]string{
 			{
 				"slot":        "evening",
@@ -53,6 +53,37 @@ func TestBuildCoachDetailCareSuggestionsFromSkinScores(t *testing.T) {
 	}
 	if d.CareSuggestions[0].Step != "Rửa mặt dịu" || d.CareSuggestions[0].SafetyNote != "Đừng nặn." {
 		t.Fatalf("%#v", d.CareSuggestions[0])
+	}
+}
+
+func TestBuildCoachDetailPhotoEvidenceFromSkinScores(t *testing.T) {
+	t.Parallel()
+	scores := map[string]any{
+		"overall":            0.5,
+		"situation_analysis": "Ảnh hơi mờ nên chưa chắc.",
+		"photo_evidence":     "limited",
+		"photo_limited":      true,
+		"photo_limited_note": "ảnh hơi mờ, thiếu sáng",
+	}
+	ss, err := json.Marshal(scores)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &domain.SkinAnalysis{
+		ID:          uuid.New(),
+		SkinCheckID: uuid.New(),
+		Status:      domain.AnalysisStatusCompleted,
+		SkinScores:  ss,
+	}
+	d := buildCoachDetailFromDomain(a)
+	if d.PhotoEvidence != "limited" {
+		t.Fatalf("evidence=%q", d.PhotoEvidence)
+	}
+	if !d.PhotoLimited {
+		t.Fatal("photo_limited should be true")
+	}
+	if d.PhotoLimitedNote != "ảnh hơi mờ, thiếu sáng" {
+		t.Fatalf("note=%q", d.PhotoLimitedNote)
 	}
 }
 

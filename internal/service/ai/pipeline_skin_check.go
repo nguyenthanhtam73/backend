@@ -151,6 +151,7 @@ func runSkinCheckCoachAfterVision(
 		localeFromUserContext(fullCtx),
 		visionRaw,
 	)
+	ApplyCabinetFirstCare(parsed, fullCtx)
 
 	ver := fmt.Sprintf(
 		"pipeline=hybrid|vision=%s(%s)|coach=%s(%s%s)",
@@ -179,23 +180,19 @@ func buildSkinCheckCoachUserMessage(
 		}
 	}
 
+	ev := ClassifyCheckInPhotoEvidence(visionStatus, visionRaw)
+	locale := localeFromUserContext(fullCtx)
+
 	var userMsg strings.Builder
 	switch visionStatus {
 	case "ok":
 		userMsg.WriteString("The following VISION_SUMMARY_JSON was produced by a separate vision-only pass over the user's check-in photos. It is NOT a diagnosis — only soft visual cues.\n\n")
 		userMsg.WriteString("VISION_SUMMARY_JSON:\n")
 		userMsg.WriteString(visionRaw)
-		// The vision pass flags blur / bad light / crop. Without this the coach reads a
-		// bad photo as confidently as a good one and the user never learns to retake.
-		if limited, note := CheckInVisionPhotoLimited(visionRaw); limited {
-			userMsg.WriteString("\n\nPHOTO_LIMITED: ")
-			userMsg.WriteString(note)
-			userMsg.WriteString("\nThe photo limits what can be read. Say so in ONE short clause, keep the read cautious for the affected cue, and put a retake ask in routine_hints using these: ")
-			userMsg.WriteString(strings.Join(RetakePhotoTips("vi"), " | "))
-		}
 	default:
-		userMsg.WriteString("VISION_SUMMARY_JSON: <unavailable for this turn — the separate vision pass could not run cleanly. Coach based on TODAY_CHECK_IN + RECENT_DIARY only, and acknowledge that no fresh photo cues are available in concern_alignment.>")
+		userMsg.WriteString("VISION_SUMMARY_JSON: <unavailable for this turn — skip-face, missing key, or the vision pass could not run cleanly. Coach based on TODAY_CHECK_IN + RECENT_DIARY only.>")
 	}
+	userMsg.WriteString(PhotoEvidencePromptBlock(ev, locale))
 	if priority := prependCoachActionPriority(fullCtx); priority != "" {
 		userMsg.WriteString("\n\n")
 		userMsg.WriteString(priority)

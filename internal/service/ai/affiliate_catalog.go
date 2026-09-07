@@ -18,18 +18,18 @@ const maxProductSuggestions = 2
 
 // affiliateCatalogEntry is the server-side source of truth for affiliate picks.
 type affiliateCatalogEntry struct {
-	ID              string   `json:"id"`
-	ProductName     string   `json:"product_name"`
-	Brand           string   `json:"brand"`
-	Category        string   `json:"category"`
-	Step            string   `json:"step,omitempty"` // cleanse|moisturize|spf|soothe|treat
-	SkinTypes       []string `json:"skin_types"`
-	Concerns        []string `json:"concerns"`
-	Phases          []string `json:"phases,omitempty"` // calm_first | can_add_active
-	ActiveKind      string   `json:"active_kind,omitempty"`
-	ReasonTemplate  string   `json:"reason_template,omitempty"`
-	PriceRange      string   `json:"price_range"`
-	AffiliateLink   string   `json:"affiliate_link"`
+	ID             string   `json:"id"`
+	ProductName    string   `json:"product_name"`
+	Brand          string   `json:"brand"`
+	Category       string   `json:"category"`
+	Step           string   `json:"step,omitempty"` // cleanse|moisturize|spf|soothe|treat
+	SkinTypes      []string `json:"skin_types"`
+	Concerns       []string `json:"concerns"`
+	Phases         []string `json:"phases,omitempty"` // calm_first | can_add_active
+	ActiveKind     string   `json:"active_kind,omitempty"`
+	ReasonTemplate string   `json:"reason_template,omitempty"`
+	PriceRange     string   `json:"price_range"`
+	AffiliateLink  string   `json:"affiliate_link"`
 }
 
 var (
@@ -69,7 +69,7 @@ const AffiliateRecommendationRulesBlock = `## Affiliate product picks (product_s
 - Respect catalog **phases** + **step** + **active_kind**:
   · If skin is flaring / dense inflammation / barrier angry → phase calm_first: prefer cleanse/moisturize/spf/soothe; NEVER pick step=treat or active_kind bha|bp|aha.
   · If skin looks steadier → phase can_add_active: at most **one** treat (BHA or BP or patch) — do not stack actives.
-- If USER_MEMORY has ## Wardrobe listing products the user already owns → **do NOT** re-recommend those; suggest only a clear gap (e.g. missing SPF) or return [].
+- If USER_MEMORY has ## Wardrobe listing products the user already owns → name those products in care_suggestions first; **do NOT** re-recommend them as product_suggestions. If wardrobe categories already cover today's care roles (cleanser/moisturizer/spf/…), product_suggestions MUST be [].
 - "reason" MUST be specific to TODAY (tags, photo cues, profile goal, wardrobe gap) — warm friend tone, not ad copy. You may adapt reason_template.
 - "priority": "high" = directly fills today's top gap; "medium" = optional add-on. Treat/actives are medium unless clearly needed.
 - Routine steps stay generic roles; product_suggestions is the ONLY branded slot.

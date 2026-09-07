@@ -16,14 +16,16 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
                          Weave ≥3–4 photo-specific details (region + cue + degree/count) — specificity matters more than length;
                          pack the details into the 2–3 sentences rather than adding more sentences.
                          BAN: "da hỗn hợp", "da dễ nổi mụn", vague dryness without region.
-                         History callback when ## Recent SkinChecks present (teasing OK). Sarcastic, hyper-specific.>,
+                         History callback when ## Recent SkinChecks present (teasing OK). Sarcastic, hyper-specific.
+                         PHOTO_EVIDENCE=skip/limited: MUST include one short chưa-chắc / ảnh-hạn-chế clause; do not lock a morphology group.>,
   "improvements": [
     {
       "tip": <string — ONE concrete actionable step: name the step + body region + product ROLE or action
               ("Tối: rửa mặt dịu vùng má đỏ", "Sáng: kem chống nắng SPF50 vùng thâm").
               BAN vague tips like "sản phẩm nhẹ nhàng" or "chăm sóc nhẹ". Never push >1 new active per check-in.>,
-      "why": <string — ONE plain-language clause (2 only if truly needed), confident when cues are clear.
-              Cite da dễ đỏ, nắng, viêm đang sưng, stress-da, ngủ, thiếu nước — everyday words. No hedge spam.
+      "why": <string — ONE plain-language clause (2 only if truly needed), confident when PHOTO_EVIDENCE=ok.
+              Cite da dễ đỏ, nắng, viêm đang sưng, stress-da, ngủ, thiếu nước — everyday words.
+              skip/limited: one short chưa-chắc clause is required, not hedge spam.
               Beginner: skip jargon entirely.>
     }
     // 2–3 items MAX (both modes) — pick the highest-impact steps, don't pad.
@@ -32,7 +34,7 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
     {
       "slot": <"morning"|"evening"|"today" — group for UI. Prefer morning/evening when a step is time-bound; use "today" for priority avoid/do once.>,
       "step": <string — everyday step NAME only, no brand: "Rửa mặt dịu", "Dưỡng ẩm", "Chống nắng", "Giảm active mạnh". EN: "Gentle cleanse", "Moisturize", "SPF".>,
-      "why": <string — ONE confident sentence: why this fits TODAY's photo/tags (region + cue). No “có thể/nghi/chưa chắc” closers.>,
+      "why": <string — ONE sentence: why this fits TODAY. Name an owned ## Wardrobe product when that role is already on the shelf. Confident when PHOTO_EVIDENCE=ok; one short chưa-chắc clause when skip/limited.>,
       "safety_note": <string — optional short caution: avoid picking, ease strong actives if inflamed, patch-test if new, see derm if large/painful/lasting. Empty string if N/A.>
     }
     // 3–5 items. IN-APP ONLY detailed care (richer than public share 2–3 soothing_tips).
@@ -56,10 +58,10 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
     // Soft gauges from TODAY context only — not clinical. Use mid-range unless context is strong.
   },
   "concern_alignment": <string — 1–2 short sentences: how the user's TODAY tags line up
-                        (or diverge) from vision cues. When vision is available,
+                        (or diverge) from vision cues. When vision is available and PHOTO_EVIDENCE=ok,
                         include at least 1 additional photo-specific detail not repeated verbatim
-                        from situation_analysis. Confident when cues agree; only mention photo limits
-                        if the crop/lighting truly blocks a cue. No hard disease names.>,
+                        from situation_analysis. PHOTO_EVIDENCE=skip: say coaching is from tags/notes only.
+                        PHOTO_EVIDENCE=limited: MUST say ảnh hạn chế / chưa chắc. No hard disease names.>,
   "medical_disclaimer": <string — ONE short closing line: informational coaching only,
                          not medical diagnosis or treatment, not a substitute for a clinician.
                          Match the user's language (VI if notes/tags Vietnamese; EN otherwise).
