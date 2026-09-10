@@ -290,7 +290,8 @@ func (s *Service) AssertRoutineSuggest(ctx context.Context, userID uuid.UUID) er
 	return s.mapAssert(s.gates.AssertFeature(ctx, userID, domain.FeatureAIRoutineSuggestion))
 }
 
-// RecordRoutineSuggest increments the suggest counter after a successful AI call.
+// RecordRoutineSuggest increments the suggest counter when a job is accepted
+// (async StartSuggestJob) or after a successful sync Suggest() call.
 func (s *Service) RecordRoutineSuggest(ctx context.Context, userID uuid.UUID) error {
 	if s == nil || s.gates == nil {
 		return fmt.Errorf("%w", ErrUnavailable)

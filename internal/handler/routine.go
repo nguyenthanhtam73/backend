@@ -49,7 +49,7 @@ func (h *RoutineHandler) GetCurrent(c *fiber.Ctx) error {
 	}
 	res, err := h.svc.GetCurrent(c.UserContext(), uid)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, "routine_error", err.Error())
+		return response.Error(c, fiber.StatusInternalServerError, "routine_error", "could not load routine")
 	}
 	return response.JSON(c, fiber.StatusOK, res)
 }
@@ -95,7 +95,7 @@ func (h *RoutineHandler) History(c *fiber.Ctx) error {
 	rangeDays := parseRoutineRange(c.Query("range"))
 	res, err := h.svc.History(c.UserContext(), uid, rangeDays)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, "routine_error", err.Error())
+		return response.Error(c, fiber.StatusInternalServerError, "routine_error", "could not load routine history")
 	}
 	return response.JSON(c, fiber.StatusOK, res)
 }
@@ -138,7 +138,7 @@ func (h *RoutineHandler) SuggestStatus(c *fiber.Ctx) error {
 	if jobID == "" {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_input", "job_id is required")
 	}
-	res, ok, err := h.svc.GetSuggestJobStatus(uid, jobID)
+	res, ok, err := h.svc.GetSuggestJobStatus(c.UserContext(), uid, jobID)
 	if err != nil {
 		return mapRoutineError(c, domain.FeatureAIRoutineSuggestion, err)
 	}
@@ -166,7 +166,7 @@ func (h *RoutineHandler) CancelSuggest(c *fiber.Ctx) error {
 	if jobID == "" {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_input", "job_id is required")
 	}
-	if !h.svc.CancelSuggestJob(uid, jobID) {
+	if !h.svc.CancelSuggestJob(c.UserContext(), uid, jobID) {
 		return response.Error(c, fiber.StatusNotFound, "not_found", "suggest job not found or expired")
 	}
 	return response.JSON(c, fiber.StatusOK, fiber.Map{
@@ -187,7 +187,7 @@ func mapRoutineError(c *fiber.Ctx, feature domain.Feature, err error) error {
 		errors.Is(err, premiumuc.ErrQuotaExceeded):
 		return mapPremiumGateError(c, feature, err)
 	default:
-		return response.Error(c, fiber.StatusInternalServerError, "routine_error", err.Error())
+		return response.Error(c, fiber.StatusInternalServerError, "routine_error", "could not complete routine request")
 	}
 }
 

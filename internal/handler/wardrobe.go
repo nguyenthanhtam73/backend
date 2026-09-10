@@ -169,7 +169,7 @@ func (h *WardrobeHandler) List(c *fiber.Ctx) error {
 	}
 	res, err := h.svc.List(c.UserContext(), uid)
 	if err != nil {
-		return response.Error(c, fiber.StatusInternalServerError, "wardrobe_error", err.Error())
+		return response.Error(c, fiber.StatusInternalServerError, "wardrobe_error", "could not load wardrobe")
 	}
 	return response.JSON(c, fiber.StatusOK, res)
 }
@@ -191,5 +191,5 @@ func mapWardrobeWriteError(c *fiber.Ctx, err error) error {
 	if errors.Is(err, usageuc.ErrPremiumRequired) || errors.Is(err, usageuc.ErrQuotaExceeded) {
 		return mapPremiumGateError(c, domain.FeatureWardrobeFull, err)
 	}
-	return response.Error(c, fiber.StatusInternalServerError, "wardrobe_error", err.Error())
+	return response.Error(c, fiber.StatusInternalServerError, "wardrobe_error", "could not save product")
 }

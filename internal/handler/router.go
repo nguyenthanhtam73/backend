@@ -287,6 +287,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// routine repo is reused below for adherence stats in the memory
 		// builder; the memory cache is busted after every Upsert.
 		routineSvc := routineuc.NewService(cfg, routineRepo, profRepo, repo, fbRepo, wardRepo, memCache, usageSvc)
+		routineSvc.AttachSuggestJobs(repository.NewRoutineSuggestJobRepository(db))
 		rh := NewRoutineHandler(routineSvc, premiumSvc)
 		api.Get("/routines", jwt, rh.GetCurrent)
 		api.Post("/routines", jwt, rh.Put)

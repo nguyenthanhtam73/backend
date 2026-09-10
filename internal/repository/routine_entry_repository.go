@@ -2,10 +2,11 @@
 // routines (AM/PM step arrays stored as JSON in routine_entries).
 //
 // Design rationale:
-//   - There is **at most one row per (user, routine_date)**. The unique key is
-//     enforced softly by GetByUserAndDate + UpsertForDay in code (Postgres also
-//     has the index from AutoMigrate). This makes the daily tick-list a single
-//     row to fetch and patch, no JOINs.
+//   - There is **at most one row per (user, routine_date)**. Apply
+//     migrations/015_routine_entries_user_date_unique.up.sql for a partial
+//     unique index; UpsertForDay still fetch-then-create and retries on a
+//     unique collision. This makes the daily tick-list a single row to fetch
+//     and patch, no JOINs.
 //   - History queries (`?range=30`) lean on the existing index on
 //     (user_id, routine_date). We deliberately don't preload anything — steps
 //     already live in JSONB on the same row.
@@ -85,10 +86,8 @@ func (r *GormRoutineEntryRepository) GetLatestForUser(ctx context.Context, userI
 
 // UpsertForDay creates or updates the single routine entry for (user, day).
 //
-// We intentionally fetch-then-create-or-update instead of using ON CONFLICT
-// because not every Postgres deployment has the partial-unique index yet (the
-// model uses `gorm:"index"` on routine_date, not unique). This is a low-write
-// path (one row per day per user) so the extra read is fine.
+// Fetch-then-create is the happy path. If two requests race after the unique
+// index is applied, Create hits a unique violation and we re-get + update.
 func (r *GormRoutineEntryRepository) UpsertForDay(ctx context.Context, entry *domain.RoutineEntry) (*domain.RoutineEntry, error) {
 	db, err := r.dbOrErr()
 	if err != nil {
@@ -105,9 +104,19 @@ func (r *GormRoutineEntryRepository) UpsertForDay(ctx context.Context, entry *do
 	}
 	if existing == nil {
 		if err := db.WithContext(ctx).Create(entry).Error; err != nil {
-			return nil, err
+			if !IsUniqueConflict(err) {
+				return nil, err
+			}
+			existing, err = r.GetByUserAndDate(ctx, entry.UserID, entry.RoutineDate)
+			if err != nil {
+				return nil, err
+			}
+			if existing == nil {
+				return nil, fmt.Errorf("routine unique conflict but row missing")
+			}
+		} else {
+			return entry, nil
 		}
-		return entry, nil
 	}
 
 	existing.Morning = entry.Morning

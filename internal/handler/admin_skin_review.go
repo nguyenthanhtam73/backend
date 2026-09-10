@@ -306,8 +306,8 @@ func mapAdminSkinReviewError(c *fiber.Ctx, err error) error {
 		if strings.Contains(strings.ToLower(msg), "api key") {
 			return response.Error(c, fiber.StatusServiceUnavailable, "openai_not_configured", "OpenAI API key required for photo analysis")
 		}
-		return response.Error(c, fiber.StatusUnprocessableEntity, "analysis_failed", msg)
+		return response.Error(c, fiber.StatusUnprocessableEntity, "analysis_failed", "could not analyze photo")
 	default:
-		return response.Error(c, fiber.StatusInternalServerError, "internal_error", err.Error())
+		return response.Error(c, fiber.StatusInternalServerError, "internal_error", "could not complete admin skin review")
 	}
 }

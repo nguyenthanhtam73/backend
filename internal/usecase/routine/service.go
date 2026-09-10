@@ -48,6 +48,9 @@ type Service struct {
 	// Upsert so adherence stats reflect the new tick immediately.
 	cache *ai.MemoryCache
 	usage *usageuc.Service
+	// suggestJobs persists async AI jobs. Nil falls back to process memory
+	// (unit tests). Production always attaches the Postgres repo.
+	suggestJobs *repository.GormRoutineSuggestJobRepository
 }
 
 // NewService wires dependencies. skinCheck, feedback, and cache are optional —
@@ -72,6 +75,15 @@ func NewService(
 		cache:     cache,
 		usage:     usage,
 	}
+}
+
+// AttachSuggestJobs stores async suggest jobs in Postgres so poll/cancel
+// survive a process restart. Optional — tests may leave this unset.
+func (s *Service) AttachSuggestJobs(repo *repository.GormRoutineSuggestJobRepository) {
+	if s == nil {
+		return
+	}
+	s.suggestJobs = repo
 }
 
 // GetCurrent returns today's routine if it exists. Otherwise it falls back to
@@ -260,8 +272,8 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, rangeDays int) 
 	return out, nil
 }
 
-// StartSuggestJob validates quota, enqueues an async AI routine suggestion, and
-// returns immediately with a job id for polling.
+// StartSuggestJob validates quota, consumes one Free suggest slot, enqueues
+// an async AI routine suggestion, and returns immediately with a job id for polling.
 func (s *Service) StartSuggestJob(ctx context.Context, userID uuid.UUID, req dto.SuggestRoutineRequest) (dto.SuggestJobCreatedResponse, error) {
 	var zero dto.SuggestJobCreatedResponse
 	if s == nil || s.routines == nil {
@@ -276,22 +288,41 @@ func (s *Service) StartSuggestJob(ctx context.Context, userID uuid.UUID, req dto
 		}
 	}
 
-	jobID := newSuggestJobID()
-	storeSuggestJob(jobID, userID, req)
+	jobID := uuid.New()
+	if s.suggestJobs != nil {
+		if err := s.persistNewSuggestJob(ctx, jobID, userID, req); err != nil {
+			slog.Warn("routine suggest: persist create failed", "job_id", jobID, "user_id", userID, "err", err)
+			return zero, fmt.Errorf("%w", ErrUnavailable)
+		}
+		slog.Info("routine suggest: job created", "job_id", jobID, "user_id", userID)
+	} else {
+		storeSuggestJob(jobID.String(), userID, req)
+	}
+
+	if s.usage != nil {
+		if err := s.usage.RecordRoutineSuggest(ctx, userID); err != nil {
+			s.failPersistedSuggestJob(ctx, userID, jobID.String(), pollableSuggestFailMsg)
+			return zero, err
+		}
+	}
+
 	slog.Info("routine suggest: enqueue generate", "job_id", jobID, "user_id", userID)
-	go s.runSuggestJob(jobID, userID, req)
+	go s.runSuggestJob(jobID.String(), userID, req)
 
 	return dto.SuggestJobCreatedResponse{
-		JobID:  jobID,
+		JobID:  jobID.String(),
 		Status: "processing",
 	}, nil
 }
 
 // GetSuggestJobStatus returns the current state of an async suggest job.
-func (s *Service) GetSuggestJobStatus(userID uuid.UUID, jobID string) (dto.SuggestJobStatusResponse, bool, error) {
+func (s *Service) GetSuggestJobStatus(ctx context.Context, userID uuid.UUID, jobID string) (dto.SuggestJobStatusResponse, bool, error) {
 	var zero dto.SuggestJobStatusResponse
 	if userID == uuid.Nil {
 		return zero, false, nil
+	}
+	if s != nil && s.suggestJobs != nil {
+		return s.loadPersistedSuggestJob(ctx, userID, jobID)
 	}
 	job, ok := loadSuggestJob(jobID)
 	if !ok || job.userID != userID {
@@ -313,7 +344,13 @@ func (s *Service) GetSuggestJobStatus(userID uuid.UUID, jobID string) (dto.Sugge
 }
 
 // CancelSuggestJob marks a processing job as cancelled (best-effort).
-func (s *Service) CancelSuggestJob(userID uuid.UUID, jobID string) bool {
+func (s *Service) CancelSuggestJob(ctx context.Context, userID uuid.UUID, jobID string) bool {
+	if userID == uuid.Nil {
+		return false
+	}
+	if s != nil && s.suggestJobs != nil {
+		return s.cancelPersistedSuggestJob(ctx, userID, jobID)
+	}
 	job, ok := loadSuggestJob(jobID)
 	if !ok || job.userID != userID {
 		slog.Info("routine suggest: cancel miss", "job_id", jobID, "user_id", userID)
@@ -340,10 +377,10 @@ func (s *Service) runSuggestJob(jobID string, userID uuid.UUID, req dto.SuggestR
 			"reason", reason,
 			"err", err,
 		)
-		failSuggestJob(jobID, err.Error())
+		s.failPersistedSuggestJob(ctx, userID, jobID, pollableSuggestFailMsg)
 		return
 	}
-	finishSuggestJob(jobID, res)
+	s.completePersistedSuggestJob(ctx, userID, jobID, res)
 }
 
 // classifySuggestGenerateErr maps AI/provider failures to stable log reasons.
@@ -429,11 +466,6 @@ func (s *Service) generateSuggestion(ctx context.Context, userID uuid.UUID, req 
 	if err != nil {
 		return zero, err
 	}
-	if s.usage != nil {
-		if err := s.usage.RecordRoutineSuggest(ctx, userID); err != nil {
-			return zero, err
-		}
-	}
 
 	skillMode := req.SkillMode
 	if skillMode == "" && profile != nil {
@@ -465,7 +497,16 @@ func (s *Service) Suggest(ctx context.Context, userID uuid.UUID, req dto.Suggest
 			return dto.SuggestRoutineResponse{}, err
 		}
 	}
-	return s.generateSuggestion(ctx, userID, req)
+	res, err := s.generateSuggestion(ctx, userID, req)
+	if err != nil {
+		return dto.SuggestRoutineResponse{}, err
+	}
+	if s.usage != nil {
+		if err := s.usage.RecordRoutineSuggest(ctx, userID); err != nil {
+			return dto.SuggestRoutineResponse{}, err
+		}
+	}
+	return res, nil
 }
 
 // seedFromStarter promotes the onboarding starter routine (stored in the

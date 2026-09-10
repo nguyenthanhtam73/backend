@@ -200,7 +200,7 @@ func (h *SkinCheckHandler) Get(c *fiber.Ctx) error {
 	}
 	check, err := h.repo.GetByIDForOwner(c.UserContext(), id, userID)
 	if err != nil {
-		return response.Error(c, fiber.StatusServiceUnavailable, "database_error", err.Error())
+		return response.Error(c, fiber.StatusServiceUnavailable, "database_error", "could not load skin check")
 	}
 	if check == nil {
 		return response.Error(c, fiber.StatusNotFound, "not_found", "skin check not found")
@@ -376,7 +376,7 @@ func mapSkinCheckError(c *fiber.Ctx, err error) error {
 	case errors.Is(err, skincheckuc.ErrModerationRejected):
 		return response.Error(c, fiber.StatusUnprocessableEntity, "moderation_failed", err.Error())
 	case errors.Is(err, skincheckuc.ErrDatabase):
-		return response.Error(c, fiber.StatusServiceUnavailable, "database_error", err.Error())
+		return response.Error(c, fiber.StatusServiceUnavailable, "database_error", "could not save skin check")
 	default:
 		return response.Error(c, fiber.StatusInternalServerError, "internal_error", "could not create skin check")
 	}

@@ -61,7 +61,23 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, req dto.CreateWa
 		Notes:    notes,
 		OpenedAt: opened,
 	}
-	if err := s.products.Create(ctx, p); err != nil {
+	if s.usage != nil {
+		paid, err := s.usage.IsPremium(ctx, userID)
+		if err != nil {
+			return zero, err
+		}
+		if paid {
+			err = s.products.Create(ctx, p)
+		} else {
+			err = s.products.CreateUnderFreeCap(ctx, p, usageuc.FreeWardrobeProductLimit)
+			if errors.Is(err, repository.ErrShelfCapExceeded) {
+				return zero, usageuc.ErrQuotaExceeded
+			}
+		}
+		if err != nil {
+			return zero, err
+		}
+	} else if err := s.products.Create(ctx, p); err != nil {
 		return zero, err
 	}
 	if s.cache != nil {

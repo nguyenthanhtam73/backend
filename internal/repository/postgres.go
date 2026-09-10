@@ -32,6 +32,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.User{},
 		&domain.RefreshSession{},
 		&domain.OnboardingPreviewJob{},
+		&domain.RoutineSuggestJob{},
 		&domain.SkinProfile{},
 		&domain.SkinCheck{},
 		&domain.SkinAnalysis{},

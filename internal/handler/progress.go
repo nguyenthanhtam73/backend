@@ -61,7 +61,7 @@ func (h *ProgressHandler) Timeline(c *fiber.Ctx) error {
 
 	rows, err := h.repo.ListForOwner(c.UserContext(), userID, since, limit)
 	if err != nil {
-		return response.Error(c, fiber.StatusServiceUnavailable, "database_error", err.Error())
+		return response.Error(c, fiber.StatusServiceUnavailable, "database_error", "could not load progress")
 	}
 	out := dto.NewProgressTimelineResponse(rows, rangeDays, "/uploads")
 	return response.JSON(c, fiber.StatusOK, out)
@@ -82,7 +82,7 @@ func (h *ProgressHandler) Summary(c *fiber.Ctx) error {
 	rangeDays, since := h.clampProgressRange(c, userID, c.Query("range"))
 	rows, err := h.repo.ListForOwner(c.UserContext(), userID, since, 0)
 	if err != nil {
-		return response.Error(c, fiber.StatusServiceUnavailable, "database_error", err.Error())
+		return response.Error(c, fiber.StatusServiceUnavailable, "database_error", "could not load progress")
 	}
 	full := dto.NewProgressTimelineResponse(rows, rangeDays, "")
 	return response.JSON(c, fiber.StatusOK, fiber.Map{

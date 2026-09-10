@@ -66,7 +66,7 @@ func (h *MeDataHandler) Delete(c *fiber.Ctx) error {
 		if errors.Is(err, userdatauc.ErrInvalidUser) {
 			return response.Error(c, fiber.StatusBadRequest, "invalid_user", err.Error())
 		}
-		return response.Error(c, fiber.StatusInternalServerError, "delete_failed", err.Error())
+		return response.Error(c, fiber.StatusInternalServerError, "delete_failed", "could not delete user data")
 	}
 	return response.JSON(c, fiber.StatusOK, res)
 }

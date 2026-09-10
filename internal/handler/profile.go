@@ -328,5 +328,5 @@ func mapProfileError(c *fiber.Ctx, err error) error {
 	if errors.Is(err, profileuc.ErrOnboardingNotFound) {
 		return response.Error(c, fiber.StatusNotFound, "onboarding_not_found", err.Error())
 	}
-	return response.Error(c, fiber.StatusInternalServerError, "profile_error", err.Error())
+	return response.Error(c, fiber.StatusInternalServerError, "profile_error", "could not update profile")
 }

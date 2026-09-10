@@ -8,6 +8,7 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // GormSkincareProductRepository persists wardrobe items.
@@ -34,6 +35,46 @@ func (r *GormSkincareProductRepository) Create(ctx context.Context, p *domain.Sk
 		return err
 	}
 	return db.WithContext(ctx).Create(p).Error
+}
+
+// CreateUnderFreeCap inserts a product only if the user is still under `cap`
+// live rows. The user row is locked on Postgres so concurrent Free creates
+// cannot both slip under the cap.
+func (r *GormSkincareProductRepository) CreateUnderFreeCap(
+	ctx context.Context,
+	p *domain.SkincareProduct,
+	cap int,
+) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if p == nil || p.UserID == uuid.Nil {
+		return fmt.Errorf("invalid product")
+	}
+	if cap <= 0 {
+		return ErrShelfCapExceeded
+	}
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		q := tx.Model(&domain.User{}).Select("id").Where("id = ?", p.UserID)
+		if tx.Dialector.Name() == "postgres" {
+			q = q.Clauses(clause.Locking{Strength: "UPDATE"})
+		}
+		var owner domain.User
+		if err := q.First(&owner).Error; err != nil {
+			return err
+		}
+		var n int64
+		if err := tx.Model(&domain.SkincareProduct{}).
+			Where("user_id = ?", p.UserID).
+			Count(&n).Error; err != nil {
+			return err
+		}
+		if int(n) >= cap {
+			return ErrShelfCapExceeded
+		}
+		return tx.Create(p).Error
+	})
 }
 
 // ListByUser returns all active products for a user, newest first.
