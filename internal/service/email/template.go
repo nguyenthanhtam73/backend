@@ -25,15 +25,17 @@ type Template struct {
 // Do not load a web font: missing glyphs render as boxes in mail clients.
 const reminderFontStack = "Arial, Helvetica, Roboto, 'Noto Sans', sans-serif"
 
-// Reminder colors are the locked web palette. Muted text is the same teal hue
-// as #0F766E, desaturated so secondary lines stay cool and readable on mint.
+// Reminder colors are the light CapCut mint palette. Title stays deep teal;
+// body and muted lines are slate so the mail does not read as heavy teal.
+// Button label is #0F766E: white on #2DD4BF is about 1.9:1, #0F766E is about 2.9:1.
 const (
-	reminderPageBackground = "#F3FAF7"
+	reminderPageBackground = "#FAFDFB"
 	reminderCardBackground = "#FFFFFF"
-	reminderTextColor      = "#0F766E"
-	reminderMutedColor     = "#4C7672"
-	reminderButtonColor    = "#14B8A6"
-	reminderButtonText     = "#FFFFFF"
+	reminderTitleColor     = "#134E4A"
+	reminderBodyColor      = "#334155"
+	reminderMutedColor     = "#64748B"
+	reminderButtonColor    = "#2DD4BF"
+	reminderButtonText     = "#0F766E"
 )
 
 func reminderStyle(rest string) string {
@@ -119,14 +121,14 @@ func BuildReminderTemplate(kind Kind, checkInURL, unsubURL, displayName string) 
   </table>
 </body>
 </html>`,
-		reminderStyle("margin:0;padding:0;background:"+reminderPageBackground+";color:"+reminderTextColor+";"),
+		reminderStyle("margin:0;padding:0;background:"+reminderPageBackground+";color:"+reminderBodyColor+";"),
 		reminderStyle("background:"+reminderPageBackground+";padding:32px 16px;"),
 		reminderStyle(""),
 		reminderStyle("max-width:520px;background:"+reminderCardBackground+";border-radius:16px;padding:32px 28px;"),
-		reminderStyle("font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:"+reminderTextColor+";"),
-		reminderStyle("padding-top:16px;font-size:22px;line-height:1.35;"),
+		reminderStyle("font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:"+reminderTitleColor+";"),
+		reminderStyle("padding-top:16px;font-size:22px;line-height:1.35;color:"+reminderTitleColor+";"),
 		safeGreeting,
-		reminderStyle("padding-top:16px;font-size:16px;line-height:1.6;color:"+reminderTextColor+";"),
+		reminderStyle("padding-top:16px;font-size:16px;line-height:1.6;color:"+reminderBodyColor+";"),
 		safeBody,
 		reminderStyle("padding-top:28px;"),
 		safeCTA,
