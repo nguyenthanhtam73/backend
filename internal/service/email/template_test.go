@@ -64,13 +64,14 @@ func TestBuildReminderTemplate_UsesVietnameseSystemFont(t *testing.T) {
 }
 
 func TestBuildReminderTemplate_UsesMintTealBrand(t *testing.T) {
-	required := []string{"#F3FAF7", "#FFFFFF", "#0F766E", "#14B8A6", "#4C7672"}
+	required := []string{"#FAFDFB", "#FFFFFF", "#134E4A", "#334155", "#64748B", "#2DD4BF", "#0F766E"}
 	banned := []string{
 		"#faf6f2", "#FAF6F2",
 		"#c4785a", "#C4785A",
 		"#c4a484", "#C4A484",
 		"#3d342e", "#5c524c", "#8a7f78",
-		"#134E4A", "#0D9488", "#5E7A76",
+		"#F3FAF7", "#14B8A6", "#4C7672",
+		"#0D9488", "#5E7A76",
 	}
 	for _, kind := range []Kind{KindD0, KindD1} {
 		htmlBody := BuildReminderTemplate(kind, "https://dadiary.vn/check-in", "https://api/unsub", "Lan").HTML
@@ -79,11 +80,17 @@ func TestBuildReminderTemplate_UsesMintTealBrand(t *testing.T) {
 				t.Fatalf("%s missing brand color %s", kind, hex)
 			}
 		}
-		if !strings.Contains(htmlBody, "background:#14B8A6") || !strings.Contains(htmlBody, "color:#FFFFFF") || !strings.Contains(htmlBody, "border-radius:999px") {
-			t.Fatalf("%s CTA is not a solid #14B8A6 pill", kind)
+		if !strings.Contains(htmlBody, "background:#2DD4BF;color:#0F766E") || !strings.Contains(htmlBody, "border-radius:999px") {
+			t.Fatalf("%s CTA is not a #2DD4BF pill with #0F766E label", kind)
 		}
-		if !strings.Contains(htmlBody, "color:#0F766E") {
-			t.Fatalf("%s body text is not #0F766E", kind)
+		if strings.Contains(htmlBody, "color:#FFFFFF") {
+			t.Fatalf("%s still uses white text", kind)
+		}
+		if !strings.Contains(htmlBody, "font-size:22px;line-height:1.35;color:#134E4A") {
+			t.Fatalf("%s title is not #134E4A", kind)
+		}
+		if !strings.Contains(htmlBody, "font-size:16px;line-height:1.6;color:#334155") {
+			t.Fatalf("%s body text is not #334155", kind)
 		}
 		for _, old := range banned {
 			if strings.Contains(htmlBody, old) {
