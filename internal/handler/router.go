@@ -73,6 +73,11 @@ const (
 	wardrobeScanRateMax    = 10
 	wardrobeScanRateWindow = time.Hour
 
+	// Cabinet product insight: one text-model card per saved product.
+	// Same hourly budget as label scan so wardrobe AI stays quota-aware.
+	wardrobeInsightRateMax    = 10
+	wardrobeInsightRateWindow = time.Hour
+
 	// Paywall impression ingest is cheap, but public (JWT optional). Cap bursts.
 	paywallViewRateMax    = 40
 	paywallViewRateWindow = 15 * time.Minute
@@ -121,6 +126,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 	wardrobeScanLimit := middleware.AILimiter(
 		wardrobeScanRateMax,
 		wardrobeScanRateWindow,
+	)
+	wardrobeInsightLimit := middleware.AILimiter(
+		wardrobeInsightRateMax,
+		wardrobeInsightRateWindow,
 	)
 
 	var onboardingAnalyzeH *OnboardingAnalyzeHandler
@@ -243,8 +252,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 
 		wardSvc := wardrobeuc.NewService(wardRepo, memCache, usageSvc)
 		wh := NewWardrobeHandler(wardSvc, cfg)
+		wh.AttachSkinSources(profRepo, repo)
 		api.Post("/wardrobe/products/scan", jwt, wardrobeScanLimit, wh.ScanProduct)
 		api.Post("/wardrobe/products", jwt, wh.CreateProduct)
+		api.Post("/wardrobe/products/:id/insight", jwt, wardrobeInsightLimit, wh.ProductInsight)
 		api.Patch("/wardrobe/products/:id", jwt, wh.UpdateProduct)
 		api.Delete("/wardrobe/products/:id", jwt, wh.DeleteProduct)
 		api.Get("/wardrobe", jwt, wh.List)

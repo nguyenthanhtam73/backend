@@ -37,6 +37,10 @@ type WardrobeProductResponse struct {
 	OpenedAt  string `json:"opened_at,omitempty"`
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+	// Insight is the cabinet card. Omitted until POST /wardrobe/products/:id/insight.
+	// Frontend /cabinet reads these fields; see WardrobeProductInsight.
+	Insight   *WardrobeProductInsight `json:"insight,omitempty"`
+	InsightAt string                  `json:"insight_at,omitempty"`
 }
 
 // WardrobeListResponse wraps the cabinet list.
@@ -71,6 +75,12 @@ func WardrobeProductFromDomain(p *domain.SkincareProduct) WardrobeProductRespons
 	}
 	if p.OpenedAt != nil {
 		out.OpenedAt = p.OpenedAt.UTC().Format("2006-01-02")
+	}
+	if insight := MapStoredWardrobeInsight(p.Insight); insight != nil {
+		out.Insight = insight
+		if p.InsightAt != nil {
+			out.InsightAt = p.InsightAt.UTC().Format(time.RFC3339)
+		}
 	}
 	return out
 }

@@ -3,6 +3,7 @@ package handler
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
+	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
 	usageuc "github.com/dadiary/backend/internal/usecase/usage"
 	wardrobeuc "github.com/dadiary/backend/internal/usecase/wardrobe"
@@ -24,6 +26,8 @@ type WardrobeHandler struct {
 	svc        *wardrobeuc.Service
 	cfg        *config.Config
 	httpClient *http.Client
+	profiles   *repository.GormSkinProfileRepository
+	checks     *repository.GormSkinCheckRepository
 }
 
 // NewWardrobeHandler constructs WardrobeHandler. cfg may be nil (scan disabled).
@@ -35,6 +39,19 @@ func NewWardrobeHandler(svc *wardrobeuc.Service, cfg *config.Config) *WardrobeHa
 			Timeout: 3 * time.Minute,
 		},
 	}
+}
+
+// AttachSkinSources wires profile + recent check-ins into the cabinet card.
+// Both may be nil; the card then stays "maybe" / "chưa nên" instead of guessing a skin type.
+func (h *WardrobeHandler) AttachSkinSources(
+	profiles *repository.GormSkinProfileRepository,
+	checks *repository.GormSkinCheckRepository,
+) {
+	if h == nil {
+		return
+	}
+	h.profiles = profiles
+	h.checks = checks
 }
 
 // CreateProduct handles POST /wardrobe/products.
@@ -113,6 +130,75 @@ func (h *WardrobeHandler) ScanProduct(c *fiber.Ctx) error {
 		return response.Error(c, fiber.StatusUnprocessableEntity, "scan_failed", msg)
 	}
 	return response.JSON(c, fiber.StatusOK, out)
+}
+
+// ProductInsight handles POST /wardrobe/products/:id/insight.
+// One structured cabinet card for a saved product. Not a chat endpoint.
+// The card is stored on the product and returned on this response and on GET /wardrobe.
+func (h *WardrobeHandler) ProductInsight(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "wardrobe unavailable")
+	}
+	if h.cfg == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "configuration missing")
+	}
+	uid := middleware.UserIDFromLocals(c)
+	if uid == uuid.Nil {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
+	}
+	productID, err := parseWardrobeProductID(c)
+	if err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_id", "product id must be a UUID")
+	}
+	product, err := h.svc.GetOwned(c.UserContext(), uid, productID)
+	if err != nil {
+		return mapWardrobeWriteError(c, err)
+	}
+	profile, recent, err := h.loadInsightSkin(c, uid)
+	if err != nil {
+		slog.Warn("wardrobe insight: skin context failed", "error", err)
+		return response.Error(c, fiber.StatusInternalServerError, "wardrobe_error", "could not load skin context")
+	}
+	card, err := ai.GenerateWardrobeProductInsight(c.UserContext(), h.cfg, h.httpClient, ai.WardrobeProductInsightRequest{
+		Name:     product.Name,
+		Brand:    product.Brand,
+		Category: product.Category,
+		Notes:    product.Notes,
+		Profile:  profile,
+		Recent:   recent,
+	})
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "api key") {
+			return response.Error(c, fiber.StatusServiceUnavailable, "openai_not_configured", "OpenAI API key required for product insight")
+		}
+		slog.Warn("wardrobe insight: model failed", "error", err)
+		return response.Error(c, fiber.StatusUnprocessableEntity, "insight_failed", "could not build product insight")
+	}
+	res, err := h.svc.SaveInsight(c.UserContext(), uid, productID, card)
+	if err != nil {
+		return mapWardrobeWriteError(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, res)
+}
+
+func (h *WardrobeHandler) loadInsightSkin(c *fiber.Ctx, userID uuid.UUID) (*domain.SkinProfile, []domain.SkinCheck, error) {
+	var profile *domain.SkinProfile
+	var recent []domain.SkinCheck
+	if h != nil && h.profiles != nil {
+		p, err := h.profiles.GetByUserID(c.UserContext(), userID)
+		if err != nil {
+			return nil, nil, err
+		}
+		profile = p
+	}
+	if h != nil && h.checks != nil {
+		rows, err := h.checks.ListRecentForCoach(c.UserContext(), userID, uuid.Nil, 5)
+		if err != nil {
+			return nil, nil, err
+		}
+		recent = rows
+	}
+	return profile, recent, nil
 }
 
 // UpdateProduct handles PATCH /wardrobe/products/:id.
