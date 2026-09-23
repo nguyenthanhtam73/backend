@@ -63,6 +63,34 @@ func TestBuildReminderTemplate_UsesVietnameseSystemFont(t *testing.T) {
 	}
 }
 
+func TestBuildReminderTemplate_UsesMintTealBrand(t *testing.T) {
+	warm := []string{"#faf6f2", "#c4785a", "#c4a484", "#3d342e", "#5c524c", "#8a7f78", "#FAF6F2", "#C4785A"}
+	for _, kind := range []Kind{KindD0, KindD1} {
+		htmlBody := BuildReminderTemplate(kind, "https://dadiary.vn/check-in", "https://api/unsub", "Lan").HTML
+		for _, hex := range []string{
+			reminderPageBackground,
+			reminderCardBackground,
+			reminderTextColor,
+			reminderButtonColor,
+			reminderButtonText,
+			reminderAccentColor,
+			reminderMutedColor,
+		} {
+			if !strings.Contains(htmlBody, hex) {
+				t.Fatalf("%s missing brand color %s", kind, hex)
+			}
+		}
+		if !strings.Contains(htmlBody, "background:"+reminderButtonColor) || !strings.Contains(htmlBody, "border-radius:999px") {
+			t.Fatalf("%s CTA is not a solid teal pill", kind)
+		}
+		for _, old := range warm {
+			if strings.Contains(htmlBody, old) {
+				t.Fatalf("%s still uses warm color %s", kind, old)
+			}
+		}
+	}
+}
+
 func TestBuildReminderTemplate_KeepsNameAndUnsubscribe(t *testing.T) {
 	tpl := BuildReminderTemplate(KindD0, "https://dadiary.vn/check-in", "https://api/unsub?token=abc", "Lan")
 	if !strings.Contains(tpl.Text, "Chào Lan,") {
