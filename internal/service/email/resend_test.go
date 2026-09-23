@@ -36,7 +36,7 @@ func TestResendClient_SendPostsJSON(t *testing.T) {
 	c.endpoint = srv.URL
 	err := c.Send(context.Background(), Message{
 		To:          "user@example.com",
-		Subject:     "Streak da chưa mở… chụp 1 tấm là xong ✨",
+		Subject:     "Streak da chưa mở… trời đổi, chụp 1 tấm là xong ✨",
 		Text:        "body",
 		HTML:        "<p>body</p>",
 		Unsubscribe: "https://api.example/unsub",

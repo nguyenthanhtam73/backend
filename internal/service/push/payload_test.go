@@ -98,10 +98,10 @@ func TestBuildNotificationPayload_D0D1Copy(t *testing.T) {
 	if d0.Title != "Streak da chưa mở" || d1.Title != "DaDiary nhớ bạn" || d0.Title == d1.Title {
 		t.Fatalf("D0/D1 titles: %q %q", d0.Title, d1.Title)
 	}
-	if d0.Body != "Chụp 1 tấm là xong — 1 phút thôi ✨" {
+	if d0.Body != "Trời đổi, da cần 1 tấm — chụp là xong ✨" {
 		t.Fatalf("d0 body=%q", d0.Body)
 	}
-	if d1.Body != "Hôm nay check-in nhẹ một tấm nha — streak đang chờ" {
+	if d1.Body != "Trời đổi rồi — check-in nhẹ một tấm nha ✨" {
 		t.Fatalf("d1 body=%q", d1.Body)
 	}
 	if d0.Data["type"] != string(NotificationTypeD0Reminder) {
