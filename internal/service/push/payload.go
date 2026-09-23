@@ -201,7 +201,7 @@ func BuildNotificationPayload(nType NotificationType, data map[string]any) Notif
 
 	case NotificationTypeD0Reminder:
 		base.Title = "Streak da chưa mở"
-		base.Body = "Chụp 1 tấm là xong — 1 phút thôi ✨"
+		base.Body = "Trời đổi, da cần 1 tấm — chụp là xong ✨"
 		base.Tag = "dadiary-d0-reminder"
 		base.RequireInteraction = false
 		base.Data["action"] = "check-in"
@@ -212,7 +212,7 @@ func BuildNotificationPayload(nType NotificationType, data map[string]any) Notif
 
 	case NotificationTypeD1Reminder:
 		base.Title = "DaDiary nhớ bạn"
-		base.Body = "Hôm nay check-in nhẹ một tấm nha — streak đang chờ"
+		base.Body = "Trời đổi rồi — check-in nhẹ một tấm nha ✨"
 		base.Tag = "dadiary-d1-reminder"
 		base.RequireInteraction = false
 		base.Data["action"] = "check-in"
