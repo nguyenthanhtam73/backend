@@ -63,6 +63,36 @@ func TestBuildReminderTemplate_UsesVietnameseSystemFont(t *testing.T) {
 	}
 }
 
+func TestBuildReminderTemplate_UsesMintTealBrand(t *testing.T) {
+	required := []string{"#F3FAF7", "#FFFFFF", "#0F766E", "#14B8A6", "#4C7672"}
+	banned := []string{
+		"#faf6f2", "#FAF6F2",
+		"#c4785a", "#C4785A",
+		"#c4a484", "#C4A484",
+		"#3d342e", "#5c524c", "#8a7f78",
+		"#134E4A", "#0D9488", "#5E7A76",
+	}
+	for _, kind := range []Kind{KindD0, KindD1} {
+		htmlBody := BuildReminderTemplate(kind, "https://dadiary.vn/check-in", "https://api/unsub", "Lan").HTML
+		for _, hex := range required {
+			if !strings.Contains(htmlBody, hex) {
+				t.Fatalf("%s missing brand color %s", kind, hex)
+			}
+		}
+		if !strings.Contains(htmlBody, "background:#14B8A6") || !strings.Contains(htmlBody, "color:#FFFFFF") || !strings.Contains(htmlBody, "border-radius:999px") {
+			t.Fatalf("%s CTA is not a solid #14B8A6 pill", kind)
+		}
+		if !strings.Contains(htmlBody, "color:#0F766E") {
+			t.Fatalf("%s body text is not #0F766E", kind)
+		}
+		for _, old := range banned {
+			if strings.Contains(htmlBody, old) {
+				t.Fatalf("%s still uses %s", kind, old)
+			}
+		}
+	}
+}
+
 func TestBuildReminderTemplate_KeepsNameAndUnsubscribe(t *testing.T) {
 	tpl := BuildReminderTemplate(KindD0, "https://dadiary.vn/check-in", "https://api/unsub?token=abc", "Lan")
 	if !strings.Contains(tpl.Text, "Chào Lan,") {

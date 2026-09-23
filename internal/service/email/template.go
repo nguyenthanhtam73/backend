@@ -25,6 +25,17 @@ type Template struct {
 // Do not load a web font: missing glyphs render as boxes in mail clients.
 const reminderFontStack = "Arial, Helvetica, Roboto, 'Noto Sans', sans-serif"
 
+// Reminder colors are the locked web palette. Muted text is the same teal hue
+// as #0F766E, desaturated so secondary lines stay cool and readable on mint.
+const (
+	reminderPageBackground = "#F3FAF7"
+	reminderCardBackground = "#FFFFFF"
+	reminderTextColor      = "#0F766E"
+	reminderMutedColor     = "#4C7672"
+	reminderButtonColor    = "#14B8A6"
+	reminderButtonText     = "#FFFFFF"
+)
+
 func reminderStyle(rest string) string {
 	style := "font-family:" + reminderFontStack
 	if rest != "" {
@@ -82,9 +93,9 @@ func BuildReminderTemplate(kind Kind, checkInURL, unsubURL, displayName string) 
 	if unsub != "" {
 		unsubHTML = fmt.Sprintf(
 			`<p style="%s">Nếu bạn không muốn nhận email nhắc từ DaDiary, <a href="%s" style="%s">hủy đăng ký tại đây</a>.</p>`,
-			reminderStyle("margin:24px 0 0;font-size:12px;color:#8a7f78;line-height:1.5;"),
+			reminderStyle("margin:24px 0 0;font-size:12px;color:"+reminderMutedColor+";line-height:1.5;"),
 			html.EscapeString(unsub),
-			reminderStyle("color:#8a7f78;"),
+			reminderStyle("color:"+reminderMutedColor+";"),
 		)
 	}
 
@@ -108,20 +119,20 @@ func BuildReminderTemplate(kind Kind, checkInURL, unsubURL, displayName string) 
   </table>
 </body>
 </html>`,
-		reminderStyle("margin:0;padding:0;background:#faf6f2;color:#3d342e;"),
-		reminderStyle("background:#faf6f2;padding:32px 16px;"),
+		reminderStyle("margin:0;padding:0;background:"+reminderPageBackground+";color:"+reminderTextColor+";"),
+		reminderStyle("background:"+reminderPageBackground+";padding:32px 16px;"),
 		reminderStyle(""),
-		reminderStyle("max-width:520px;background:#fff;border-radius:16px;padding:32px 28px;"),
-		reminderStyle("font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:#c4a484;"),
+		reminderStyle("max-width:520px;background:"+reminderCardBackground+";border-radius:16px;padding:32px 28px;"),
+		reminderStyle("font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:"+reminderTextColor+";"),
 		reminderStyle("padding-top:16px;font-size:22px;line-height:1.35;"),
 		safeGreeting,
-		reminderStyle("padding-top:16px;font-size:16px;line-height:1.6;color:#5c524c;"),
+		reminderStyle("padding-top:16px;font-size:16px;line-height:1.6;color:"+reminderTextColor+";"),
 		safeBody,
 		reminderStyle("padding-top:28px;"),
 		safeCTA,
-		reminderStyle("display:inline-block;background:#c4785a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:999px;font-size:15px;"),
+		reminderStyle("display:inline-block;background:"+reminderButtonColor+";color:"+reminderButtonText+";text-decoration:none;padding:12px 22px;border-radius:999px;font-size:15px;"),
 		safeButton,
-		reminderStyle("padding-top:20px;font-size:13px;color:#8a7f78;"),
+		reminderStyle("padding-top:20px;font-size:13px;color:"+reminderMutedColor+";"),
 		safeCTA,
 		unsubHTML,
 	)
