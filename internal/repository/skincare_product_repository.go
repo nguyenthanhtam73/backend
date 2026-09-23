@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/google/uuid"
@@ -120,6 +122,47 @@ func (r *GormSkincareProductRepository) GetByIDForUser(
 		return nil, tx.Error
 	}
 	return &row, nil
+}
+
+// SetInsight writes the cabinet card without touching name, brand, or notes.
+func (r *GormSkincareProductRepository) SetInsight(
+	ctx context.Context,
+	userID, productID uuid.UUID,
+	raw json.RawMessage,
+	at time.Time,
+) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if userID == uuid.Nil || productID == uuid.Nil || len(raw) == 0 {
+		return false, fmt.Errorf("invalid insight")
+	}
+	tx := db.WithContext(ctx).Model(&domain.SkincareProduct{}).
+		Where("id = ? AND user_id = ?", productID, userID).
+		Updates(map[string]any{
+			"insight":    raw,
+			"insight_at": at.UTC(),
+		})
+	if tx.Error != nil {
+		return false, tx.Error
+	}
+	return tx.RowsAffected > 0, nil
+}
+
+// ClearInsight drops a stale card after the product name, brand, category, or notes change.
+func (r *GormSkincareProductRepository) ClearInsight(ctx context.Context, userID, productID uuid.UUID) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	tx := db.WithContext(ctx).Model(&domain.SkincareProduct{}).
+		Where("id = ? AND user_id = ?", productID, userID).
+		Updates(map[string]any{
+			"insight":    gorm.Expr("NULL"),
+			"insight_at": gorm.Expr("NULL"),
+		})
+	return tx.Error
 }
 
 // Update persists field changes on an existing row.

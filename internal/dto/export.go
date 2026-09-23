@@ -44,9 +44,10 @@ type ExportRoutineDay struct {
 
 // ExportWardrobeItem is one shelf product.
 type ExportWardrobeItem struct {
-	Name      string `json:"name"`
-	Brand     string `json:"brand,omitempty"`
-	Category  string `json:"category,omitempty"`
-	OpenedAt  string `json:"opened_at,omitempty"`
-	Notes     string `json:"notes,omitempty"`
+	Name     string                  `json:"name"`
+	Brand    string                  `json:"brand,omitempty"`
+	Category string                  `json:"category,omitempty"`
+	OpenedAt string                  `json:"opened_at,omitempty"`
+	Notes    string                  `json:"notes,omitempty"`
+	Insight  *WardrobeProductInsight `json:"insight,omitempty"`
 }

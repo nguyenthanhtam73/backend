@@ -3,6 +3,7 @@ package wardrobe
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -115,13 +116,23 @@ func (s *Service) Update(
 	if p == nil {
 		return zero, ErrNotFound
 	}
+	identityChanged := shelfIdentityChanged(p, name, brand, category, notes)
 	p.Name = name
 	p.Brand = brand
 	p.Category = category
 	p.Notes = notes
 	p.OpenedAt = opened
+	if identityChanged {
+		p.Insight = nil
+		p.InsightAt = nil
+	}
 	if err := s.products.Update(ctx, p); err != nil {
 		return zero, err
+	}
+	if identityChanged {
+		if err := s.products.ClearInsight(ctx, userID, productID); err != nil {
+			return zero, err
+		}
 	}
 	if s.cache != nil {
 		s.cache.Bust(userID)
@@ -166,6 +177,59 @@ func (s *Service) AssertCanCreate(ctx context.Context, userID uuid.UUID) error {
 	return s.usage.AssertWardrobeCreate(ctx, userID)
 }
 
+// GetOwned loads one product the user owns.
+func (s *Service) GetOwned(ctx context.Context, userID, productID uuid.UUID) (*domain.SkincareProduct, error) {
+	if s == nil || s.products == nil {
+		return nil, fmt.Errorf("%w", ErrUnavailable)
+	}
+	if productID == uuid.Nil {
+		return nil, ErrNotFound
+	}
+	p, err := s.products.GetByIDForUser(ctx, userID, productID)
+	if err != nil {
+		return nil, err
+	}
+	if p == nil {
+		return nil, ErrNotFound
+	}
+	return p, nil
+}
+
+// SaveInsight stores a normalized cabinet card on the product.
+func (s *Service) SaveInsight(
+	ctx context.Context,
+	userID, productID uuid.UUID,
+	insight dto.WardrobeProductInsight,
+) (dto.WardrobeProductResponse, error) {
+	var zero dto.WardrobeProductResponse
+	if s == nil || s.products == nil {
+		return zero, fmt.Errorf("%w", ErrUnavailable)
+	}
+	if strings.TrimSpace(insight.WhatItDoes) == "" {
+		return zero, fmt.Errorf("%w: insight missing what the product does", ErrInvalidInput)
+	}
+	insight.Disclaimer = dto.WardrobeInsightDisclaimer
+	p, err := s.GetOwned(ctx, userID, productID)
+	if err != nil {
+		return zero, err
+	}
+	raw, err := json.Marshal(insight)
+	if err != nil {
+		return zero, err
+	}
+	now := time.Now().UTC()
+	ok, err := s.products.SetInsight(ctx, userID, productID, raw, now)
+	if err != nil {
+		return zero, err
+	}
+	if !ok {
+		return zero, ErrNotFound
+	}
+	p.Insight = raw
+	p.InsightAt = &now
+	return dto.WardrobeProductFromDomain(p), nil
+}
+
 // List returns the user's products (newest first).
 func (s *Service) List(ctx context.Context, userID uuid.UUID) (dto.WardrobeListResponse, error) {
 	var out dto.WardrobeListResponse
@@ -181,6 +245,13 @@ func (s *Service) List(ctx context.Context, userID uuid.UUID) (dto.WardrobeListR
 		out.Products = append(out.Products, dto.WardrobeProductFromDomain(&rows[i]))
 	}
 	return out, nil
+}
+
+func shelfIdentityChanged(p *domain.SkincareProduct, name, brand, category, notes string) bool {
+	if p == nil {
+		return false
+	}
+	return p.Name != name || p.Brand != brand || p.Category != category || p.Notes != notes
 }
 
 func normalizeProductFields(

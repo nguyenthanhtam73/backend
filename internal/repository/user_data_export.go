@@ -118,6 +118,7 @@ func (r *UserDataRepository) ExportBundle(
 		if p.OpenedAt != nil {
 			item.OpenedAt = p.OpenedAt.UTC().Format("2006-01-02")
 		}
+		item.Insight = dto.MapStoredWardrobeInsight(p.Insight)
 		out.Wardrobe = append(out.Wardrobe, item)
 	}
 

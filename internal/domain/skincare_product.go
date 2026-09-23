@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,6 +19,10 @@ type SkincareProduct struct {
 	Notes    string `gorm:"type:text" json:"notes,omitempty"`
 
 	OpenedAt *time.Time `json:"opened_at,omitempty"`
+
+	// Insight is the cabinet card (plain Vietnamese). Written by POST .../insight.
+	Insight   json.RawMessage `gorm:"column:insight;type:jsonb" json:"insight,omitempty"`
+	InsightAt *time.Time      `gorm:"column:insight_at" json:"insight_at,omitempty"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
