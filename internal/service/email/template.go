@@ -25,14 +25,14 @@ type Template struct {
 // Do not load a web font: missing glyphs render as boxes in mail clients.
 const reminderFontStack = "Arial, Helvetica, Roboto, 'Noto Sans', sans-serif"
 
-// Reminder colors match the web app: mint page, white card, deep teal text, teal CTA.
+// Reminder colors are the locked web palette. Muted text is the same teal hue
+// as #0F766E, desaturated so secondary lines stay cool and readable on mint.
 const (
 	reminderPageBackground = "#F3FAF7"
 	reminderCardBackground = "#FFFFFF"
-	reminderTextColor      = "#134E4A"
-	reminderMutedColor     = "#5E7A76"
-	reminderAccentColor    = "#0F766E"
-	reminderButtonColor    = "#0D9488"
+	reminderTextColor      = "#0F766E"
+	reminderMutedColor     = "#4C7672"
+	reminderButtonColor    = "#14B8A6"
 	reminderButtonText     = "#FFFFFF"
 )
 
@@ -123,7 +123,7 @@ func BuildReminderTemplate(kind Kind, checkInURL, unsubURL, displayName string) 
 		reminderStyle("background:"+reminderPageBackground+";padding:32px 16px;"),
 		reminderStyle(""),
 		reminderStyle("max-width:520px;background:"+reminderCardBackground+";border-radius:16px;padding:32px 28px;"),
-		reminderStyle("font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:"+reminderAccentColor+";"),
+		reminderStyle("font-size:13px;letter-spacing:0.08em;text-transform:uppercase;color:"+reminderTextColor+";"),
 		reminderStyle("padding-top:16px;font-size:22px;line-height:1.35;"),
 		safeGreeting,
 		reminderStyle("padding-top:16px;font-size:16px;line-height:1.6;color:"+reminderTextColor+";"),
