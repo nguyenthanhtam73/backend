@@ -21,7 +21,7 @@ type Template struct {
 	HTML    string
 }
 
-// BuildReminderTemplate returns Vietnamese D0/D1 copy (soft tone, no diagnosis).
+// BuildReminderTemplate returns Vietnamese D0/D1 copy (Duo-style, no diagnosis).
 func BuildReminderTemplate(kind Kind, checkInURL, unsubURL, displayName string) Template {
 	name := strings.TrimSpace(displayName)
 	if name == "" {
@@ -36,14 +36,14 @@ func BuildReminderTemplate(kind Kind, checkInURL, unsubURL, displayName string) 
 	var subject, greeting, body, button string
 	switch kind {
 	case KindD1:
-		subject = "DaDiary nhớ bạn — check-in nhẹ một phút thôi"
+		subject = "DaDiary ghé hỏi — hôm nay check-in chưa?"
 		greeting = fmt.Sprintf("Chào %s,", name)
-		body = "Hôm qua bạn đã mở DaDiary. Hôm nay chụp một tấm check-in da nhé — chỉ một phút, không cần hoàn hảo. Mình nhắc nhẹ để đồng hành cùng bạn thôi."
+		body = "Hôm nay thiếu 1 tấm check-in là tiếc. Nhắc nhẹ thôi, không mắng đâu."
 		button = "Check-in da hôm nay"
 	default:
-		subject = "Hôm nay chụp một tấm check-in da nhé"
+		subject = "Streak da chưa mở… chụp 1 tấm là xong ✨"
 		greeting = fmt.Sprintf("Chào %s,", name)
-		body = "Chào mừng bạn đến DaDiary. Dành một phút chụp check-in da hôm nay nhé — chỉ cần ánh sáng đều và một tấm ảnh. Mình nhắc nhẹ thôi."
+		body = "Ê, DaDiary đã sẵn rồi. Chưa check-in thì streak đang chờ mở. Một tấm ảnh thôi — không cần đẹp."
 		button = "Check-in da ngay"
 	}
 
