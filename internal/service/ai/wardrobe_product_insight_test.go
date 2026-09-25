@@ -17,6 +17,12 @@ func TestWardrobeProductInsightPromptLocksCard(t *testing.T) {
 		"no",
 		"nên mua",
 		"chưa nên",
+		"Nên dùng tiếp",
+		"Chưa nên dùng tiếp",
+		"ALREADY OWNS",
+		"skin type, concerns, and goal",
+		"The word \"mua\" is forbidden",
+		"Nên dùng tiếp vì hợp với da dầu và mục tiêu làm sạch mụn.",
 		"actives",
 		"gloss",
 	} {
@@ -26,6 +32,14 @@ func TestWardrobeProductInsightPromptLocksCard(t *testing.T) {
 	}
 	if strings.Contains(strings.ToLower(p), "freeform") {
 		t.Fatal("prompt should not invite a chat reply")
+	}
+	if strings.Contains(p, "not to add another") {
+		t.Fatal("owned-product card must not use the old shopping rule about adding another product")
+	}
+	// Machine tokens stay so the cabinet UI can map them. The sentence under
+	// the label is keep-using copy, not a buy reason.
+	if !strings.Contains(p, `Write exactly "nên mua" or "chưa nên"`) {
+		t.Fatal("prompt must keep the buy.advice tokens the cabinet UI maps")
 	}
 }
 
@@ -44,7 +58,17 @@ func TestBuildWardrobeProductInsightUser_UsesProfileAndCheckIns(t *testing.T) {
 	if !known {
 		t.Fatal("expected skin context")
 	}
-	for _, s := range []string{"Sữa rửa mặt dịu", "CeraVe", "cleanser", "oily", "vùng chữ T còn bóng"} {
+	for _, s := range []string{
+		"already in the user's cabinet",
+		"nên dùng tiếp",
+		"chưa nên dùng tiếp",
+		"Do not recommend buying",
+		"Sữa rửa mặt dịu",
+		"CeraVe",
+		"cleanser",
+		"oily",
+		"vùng chữ T còn bóng",
+	} {
 		if !strings.Contains(text, s) {
 			t.Fatalf("user text missing %q\n%s", s, text)
 		}
