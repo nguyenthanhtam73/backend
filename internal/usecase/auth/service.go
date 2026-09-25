@@ -8,7 +8,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"net/mail"
 	"regexp"
 	"strings"
 	"time"
@@ -75,8 +74,8 @@ func (s *Service) Register(ctx context.Context, req dto.RegisterRequest) (Result
 	if email == "" || password == "" {
 		return zero, appInvalidInput("email and password are required")
 	}
-	if _, err := mail.ParseAddress(email); err != nil {
-		return zero, appInvalidInput("invalid email")
+	if !validAccountEmail(email) {
+		return zero, appInvalidEmail()
 	}
 	if len(password) < minPasswordLen {
 		return zero, appInvalidInput(fmt.Sprintf("password must be at least %d characters", minPasswordLen))

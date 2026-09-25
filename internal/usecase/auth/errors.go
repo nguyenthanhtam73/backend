@@ -11,6 +11,7 @@ import (
 // Prefer returning domain.AppError (via helpers below) from the usecase.
 var (
 	ErrInvalidInput       = errors.New("invalid input")
+	ErrInvalidEmail       = errors.New("invalid email")
 	ErrEmailTaken         = errors.New("email already registered")
 	ErrUsernameTaken      = errors.New("username already taken")
 	ErrInvalidCredentials = errors.New("invalid email or password")
@@ -21,6 +22,13 @@ var (
 	ErrInvalidRefresh     = errors.New("invalid or revoked refresh token")
 )
 
+// InvalidEmailCode is the stable API code for a malformed account email.
+const InvalidEmailCode = "invalid_email"
+
+// InvalidEmailMessage is the Vietnamese message shown when registration email
+// format is rejected.
+const InvalidEmailMessage = "Email chưa đúng, ví dụ: ten@gmail.com"
+
 func appInvalidRefresh() error {
 	return domain.Wrap(ErrInvalidRefresh, http.StatusUnauthorized, "invalid_refresh", ErrInvalidRefresh.Error())
 }
@@ -29,6 +37,10 @@ func appInvalidRefresh() error {
 
 func appInvalidInput(msg string) error {
 	return domain.Wrap(ErrInvalidInput, http.StatusBadRequest, "invalid_input", msg)
+}
+
+func appInvalidEmail() error {
+	return domain.Wrap(ErrInvalidEmail, http.StatusBadRequest, InvalidEmailCode, InvalidEmailMessage)
 }
 
 func appEmailTaken() error {
