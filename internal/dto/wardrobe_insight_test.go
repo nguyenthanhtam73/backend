@@ -118,6 +118,169 @@ func TestParseWardrobeProductInsight_UnknownSkinDoesNotInventFit(t *testing.T) {
 	}
 }
 
+func TestParseWardrobeProductInsight_OwnedReasonDoesNotSayMua(t *testing.T) {
+	// Live cabinet example: the model explained a buy even though the user
+	// already owns the cleanser. The stored/API sentence keeps the skin reason
+	// and drops the shopping word. buy.advice stays the token the UI maps.
+	const before = "Nên mua vì phù hợp với loại da và mục tiêu làm sạch mụn."
+	const after = "Nên dùng tiếp vì phù hợp với loại da và mục tiêu làm sạch mụn."
+	raw := []byte(`{
+		"what_it_does": "Sữa rửa mặt tạo bọt, làm sạch dầu thừa.",
+		"fit": {"verdict": "yes", "reason": "Da dầu và mục tiêu làm sạch mụn, check-in không thấy rát."},
+		"buy": {"advice": "nên mua", "why": "` + before + `"},
+		"actives": [{"name": "Ceramide", "gloss": "nên mua khi da khô"}]
+	}`)
+	if hits := WardrobeInsightMuaHits(raw); len(hits) != 2 {
+		t.Fatalf("stored hits: %+v", hits)
+	}
+	got, err := ParseWardrobeProductInsight(raw, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Buy.Advice != WardrobeBuyYes {
+		t.Fatalf("advice token: %q", got.Buy.Advice)
+	}
+	if got.Buy.Why != after {
+		t.Fatalf("why: %q", got.Buy.Why)
+	}
+	if strings.Contains(strings.ToLower(got.Fit.Reason), "mua") || strings.Contains(strings.ToLower(got.WhatItDoes), "mua") {
+		t.Fatalf("free text still says mua: %+v", got)
+	}
+	if len(got.Actives) != 1 || got.Actives[0].Gloss != "nên dùng tiếp khi da khô" {
+		t.Fatalf("gloss: %+v", got.Actives)
+	}
+	for _, s := range []string{got.WhatItDoes, got.Fit.Reason, got.Buy.Why, got.Actives[0].Gloss} {
+		if copyContainsMua(s) {
+			t.Fatalf("visible copy contains mua: %q", s)
+		}
+	}
+
+	encoded, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hits := WardrobeInsightMuaHits(encoded); len(hits) != 0 {
+		t.Fatalf("rewritten card still flagged: %+v", hits)
+	}
+	again, err := ParseWardrobeProductInsight(encoded, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.Buy.Why != got.Buy.Why || again.Buy.Advice != WardrobeBuyYes {
+		t.Fatalf("second pass changed the card: %+v", again)
+	}
+}
+
+func TestParseWardrobeProductInsight_PauseDoesNotBecomeKeepUsing(t *testing.T) {
+	raw := []byte(`{
+		"what_it_does": "Toner cân bằng.",
+		"fit": {"verdict": "no", "reason": "Nên mua vì giá ổn."},
+		"buy": {"advice": "nên mua", "why": "Nên mua vì giá ổn."}
+	}`)
+	got, err := ParseWardrobeProductInsight(raw, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Buy.Advice != WardrobeBuyNo || got.Fit.Verdict != WardrobeFitNo {
+		t.Fatalf("card: %+v", got)
+	}
+	if got.Buy.Why != insightFallbackBuyNo || got.Fit.Reason != insightFallbackReason {
+		t.Fatalf("pause copy: reason %q why %q", got.Fit.Reason, got.Buy.Why)
+	}
+	if copyContainsMua(got.Buy.Why) || copyContainsMua(got.Fit.Reason) {
+		t.Fatalf("pause copy still says mua: %+v", got)
+	}
+}
+
+func TestParseWardrobeProductInsight_MuaRewriteKeepsMuaSeasonWord(t *testing.T) {
+	raw := []byte(`{
+		"what_it_does": "Kem dưỡng cho mùa hanh.",
+		"fit": {"verdict": "yes", "reason": "Da khô vào mùa hanh, hợp kem dưỡng."},
+		"buy": {"advice": "nên mua", "why": "Nên dùng tiếp vào mùa lạnh."}
+	}`)
+	got, err := ParseWardrobeProductInsight(raw, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WhatItDoes != "Kem dưỡng cho mùa hanh." || got.Fit.Reason != "Da khô vào mùa hanh, hợp kem dưỡng." {
+		t.Fatalf("season words changed: %+v", got)
+	}
+	if got.Buy.Why != "Nên dùng tiếp vào mùa lạnh." || got.Buy.Advice != WardrobeBuyYes {
+		t.Fatalf("buy: %+v", got.Buy)
+	}
+	if hits := WardrobeInsightMuaHits(raw); len(hits) != 0 {
+		t.Fatalf("mùa must not count as mua: %+v", hits)
+	}
+}
+
+func TestParseWardrobeProductInsight_DisplayPhraseMapsToAdviceToken(t *testing.T) {
+	raw := []byte(`{
+		"what_it_does": "Kem chống nắng.",
+		"fit": {"verdict": "yes", "reason": "Da đang ổn."},
+		"buy": {"advice": "nên dùng tiếp", "why": "Hợp với da dầu."}
+	}`)
+	got, err := ParseWardrobeProductInsight(raw, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Buy.Advice != WardrobeBuyYes {
+		t.Fatalf("keep phrase must store the UI token, got %q", got.Buy.Advice)
+	}
+
+	raw = []byte(`{
+		"what_it_does": "Kem chống nắng.",
+		"fit": {"verdict": "yes", "reason": "Da đang ổn."},
+		"buy": {"advice": "Chưa nên dùng tiếp", "why": "Da đang rát."}
+	}`)
+	got, err = ParseWardrobeProductInsight(raw, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Buy.Advice != WardrobeBuyNo {
+		t.Fatalf("pause phrase must stay pause even when fit is yes, got %q", got.Buy.Advice)
+	}
+}
+
+func TestWardrobeInsightMuaHits_IgnoresAdviceToken(t *testing.T) {
+	clean := []byte(`{
+		"what_it_does": "Sữa rửa mặt.",
+		"fit": {"verdict": "yes", "reason": "Da dầu."},
+		"buy": {"advice": "nên mua", "why": "Hợp với da dầu."}
+	}`)
+	if hits := WardrobeInsightMuaHits(clean); len(hits) != 0 {
+		t.Fatalf("advice token alone must not match: %+v", hits)
+	}
+	dirty := []byte(`{
+		"what_it_does": "Sữa rửa mặt.",
+		"fit": {"verdict": "yes", "reason": "Da dầu."},
+		"buy": {"advice": "nên mua", "why": "Nên MUA vì hợp da."},
+		"disclaimer": "không khuyên mua"
+	}`)
+	hits := WardrobeInsightMuaHits(dirty)
+	if len(hits) != 1 || hits[0].Field != "buy.why" || !strings.Contains(strings.ToLower(hits[0].Text), "mua") {
+		t.Fatalf("hits: %+v", hits)
+	}
+	if hits := WardrobeInsightMuaHits([]byte(`{not json`)); hits != nil {
+		t.Fatalf("bad json: %+v", hits)
+	}
+}
+
+func TestServerInsightCopyDoesNotSayMua(t *testing.T) {
+	for _, s := range []string{
+		insightUnknownFitReason,
+		insightUnknownBuyWhy,
+		insightFallbackReason,
+		insightFallbackBuyYes,
+		insightFallbackBuyNo,
+		insightFallbackWhat,
+		WardrobeInsightDisclaimer,
+	} {
+		if copyContainsMua(s) {
+			t.Fatalf("server copy contains mua: %q", s)
+		}
+	}
+}
+
 func TestParseWardrobeProductInsight_RejectsEmptyAndHuge(t *testing.T) {
 	if _, err := ParseWardrobeProductInsight([]byte(`{"fit":{"verdict":"yes"}}`), true); err == nil {
 		t.Fatal("expected missing what_it_does")

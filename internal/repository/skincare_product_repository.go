@@ -150,6 +150,35 @@ func (r *GormSkincareProductRepository) SetInsight(
 	return tx.RowsAffected > 0, nil
 }
 
+// ReplaceInsightCopy writes a cabinet card onto one owned row.
+// Only insight and insight_at change. updated_at, name, brand, notes, and
+// every other column stay as they are. The backfill command uses this so a
+// wording fix does not look like the user edited the product.
+func (r *GormSkincareProductRepository) ReplaceInsightCopy(
+	ctx context.Context,
+	userID, productID uuid.UUID,
+	raw json.RawMessage,
+	at time.Time,
+) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if userID == uuid.Nil || productID == uuid.Nil || len(raw) == 0 {
+		return false, fmt.Errorf("invalid insight")
+	}
+	tx := db.WithContext(ctx).Model(&domain.SkincareProduct{}).
+		Where("id = ? AND user_id = ?", productID, userID).
+		UpdateColumns(map[string]any{
+			"insight":    raw,
+			"insight_at": at.UTC(),
+		})
+	if tx.Error != nil {
+		return false, tx.Error
+	}
+	return tx.RowsAffected > 0, nil
+}
+
 // ClearInsight drops a stale card after the product name, brand, category, or notes change.
 func (r *GormSkincareProductRepository) ClearInsight(ctx context.Context, userID, productID uuid.UUID) error {
 	db, err := r.dbOrErr()
