@@ -265,6 +265,50 @@ func TestWardrobeInsightMuaHits_IgnoresAdviceToken(t *testing.T) {
 	}
 }
 
+func TestRewriteMuaOnlyStandaloneWord(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"Nên mua vì hợp với da dầu.", "Nên dùng tiếp vì hợp với da dầu."},
+		{"Nên MUA vì hợp da.", "Nên Dùng tiếp vì hợp da."},
+		{"Kem dưỡng cho mùa hanh và mụn.", "Kem dưỡng cho mùa hanh và mụn."},
+		{"Muacream dưỡng ẩm nhẹ.", "Muacream dưỡng ẩm nhẹ."},
+		{"SuperMua gel", "SuperMua gel"},
+		{"The Body Shop Coconut Body Butter", "The Body Shop Coconut Body Butter"},
+		{"khuyên mua thêm một lớp", "khuyên dùng tiếp thêm một lớp"},
+	}
+	for _, tc := range cases {
+		if got := rewriteMuaAsDungTiep(tc.in); got != tc.want {
+			t.Fatalf("%q → %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	for _, s := range []string{"Muacream", "SuperMua", "mùa hanh", "mụn viêm", "Coconut Body Butter"} {
+		if copyContainsMua(s) {
+			t.Fatalf("standalone matcher hit %q", s)
+		}
+	}
+	if !copyContainsMua("nên mua thêm") || !copyContainsMua("MUA") {
+		t.Fatal("standalone mua should match")
+	}
+
+	raw := []byte(`{
+		"what_it_does": "Muacream dưỡng ẩm nhẹ.",
+		"fit": {"verdict": "yes", "reason": "Da khô vào mùa hanh."},
+		"buy": {"advice": "nên mua", "why": "Nên dùng tiếp vì da khô."},
+		"actives": [{"name": "Muacream", "gloss": "giữ ẩm nhẹ"}]
+	}`)
+	got, err := ParseWardrobeProductInsight(raw, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WhatItDoes != "Muacream dưỡng ẩm nhẹ." || len(got.Actives) != 1 || got.Actives[0].Name != "Muacream" {
+		t.Fatalf("product name was rewritten: %+v", got)
+	}
+	if copyContainsMua(got.WhatItDoes) || copyContainsMua(got.Actives[0].Gloss) {
+		t.Fatalf("false mua hit: %+v", got)
+	}
+}
+
 func TestServerInsightCopyDoesNotSayMua(t *testing.T) {
 	for _, s := range []string{
 		insightUnknownFitReason,

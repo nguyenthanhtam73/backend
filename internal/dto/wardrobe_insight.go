@@ -224,15 +224,17 @@ func insightWhyFallback(advice string) string {
 	return insightFallbackBuyNo
 }
 
-// muaToken matches the shopping word "mua" in any ASCII case.
-// "mùa" and "mụn" do not match: the vowel is different.
-var muaToken = regexp.MustCompile(`(?i)mua`)
+// muaWord matches the shopping word "mua" only as its own word, in any ASCII case.
+// Go's \b is an ASCII word boundary, so "mua" glued inside another word or an
+// English product name (Muacream, SuperMua) does not match. "mùa" and "mụn"
+// do not match either: the vowel is a different letter.
+var muaWord = regexp.MustCompile(`(?i)\bmua\b`)
 
 // leadingKeepUsing matches a sentence that opens by telling the user to continue.
 var leadingKeepUsing = regexp.MustCompile(`(?i)^\s*nên dùng tiếp\b`)
 
 func copyContainsMua(s string) bool {
-	return muaToken.MatchString(s)
+	return muaWord.MatchString(s)
 }
 
 // rewriteMuaAsDungTiep replaces the word "mua" with "dùng tiếp".
@@ -241,7 +243,7 @@ func rewriteMuaAsDungTiep(s string) string {
 	if !copyContainsMua(s) {
 		return s
 	}
-	s = muaToken.ReplaceAllStringFunc(s, func(m string) string {
+	s = muaWord.ReplaceAllStringFunc(s, func(m string) string {
 		if m != "" && m[0] >= 'A' && m[0] <= 'Z' {
 			return "Dùng tiếp"
 		}
