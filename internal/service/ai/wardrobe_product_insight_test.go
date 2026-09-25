@@ -1,10 +1,12 @@
 package ai
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 )
 
@@ -23,6 +25,11 @@ func TestWardrobeProductInsightPromptLocksCard(t *testing.T) {
 		"skin type, concerns, and goal",
 		"The word \"mua\" is forbidden",
 		"Nên dùng tiếp vì hợp với da dầu và mục tiêu làm sạch mụn.",
+		"chưa có thông tin đầy đủ",
+		"không có thông tin",
+		"chưa đủ thông tin",
+		"body butter",
+		"too heavy",
 		"actives",
 		"gloss",
 	} {
@@ -66,8 +73,9 @@ func TestBuildWardrobeProductInsightUser_UsesProfileAndCheckIns(t *testing.T) {
 		"Sữa rửa mặt dịu",
 		"CeraVe",
 		"cleanser",
-		"oily",
+		"da dầu",
 		"vùng chữ T còn bóng",
+		"skin type is known",
 	} {
 		if !strings.Contains(text, s) {
 			t.Fatalf("user text missing %q\n%s", s, text)
@@ -95,5 +103,47 @@ func TestWardrobeInsightSkinKnown(t *testing.T) {
 	_, known := buildWardrobeProductInsightUser(WardrobeProductInsightRequest{Name: "Kem"})
 	if known {
 		t.Fatal("name alone is not skin context")
+	}
+}
+
+func TestWardrobeInsightChatBodyIsDeterministic(t *testing.T) {
+	cfg := &config.Config{OpenAI: config.OpenAIConfig{Model: "gpt-4o"}}
+	body := wardrobeProductInsightChatBody(cfg, "user text", "")
+	raw, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Model          string  `json:"model"`
+		Temperature    float64 `json:"temperature"`
+		TopP           float64 `json:"top_p"`
+		Seed           int     `json:"seed"`
+		ResponseFormat struct {
+			Type string `json:"type"`
+		} `json:"response_format"`
+		Messages []map[string]string `json:"messages"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "gpt-4o" || got.Temperature != 0 || got.TopP != 1 || got.Seed != wardrobeInsightSeed {
+		t.Fatalf("sampling: model %q temp %v top_p %v seed %d", got.Model, got.Temperature, got.TopP, got.Seed)
+	}
+	if got.ResponseFormat.Type != "json_object" {
+		t.Fatalf("response_format: %+v", got.ResponseFormat)
+	}
+	if len(got.Messages) != 2 {
+		t.Fatalf("messages: %d", len(got.Messages))
+	}
+	corrected := wardrobeProductInsightChatBody(cfg, "user text", "fix the card")
+	raw, err = json.Marshal(corrected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 3 || got.Messages[2]["content"] != "fix the card" {
+		t.Fatalf("correction message: %+v", got.Messages)
 	}
 }

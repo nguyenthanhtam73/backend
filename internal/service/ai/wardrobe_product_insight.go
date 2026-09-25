@@ -55,9 +55,12 @@ The word "mua" is forbidden in what_it_does, fit.reason, buy.why, and actives gl
 "fit.verdict" is exactly yes, maybe, or no.
 "fit.reason": one short sentence using ONLY the skin profile and recent check-ins in the user message. Say how this product fits this person's skin type, concerns, and goal — as a reason to keep using it or to pause. Do not talk about buying.
 - yes only when the product role matches the stated skin type and goal, and recent notes do not show irritation or a reason to pause.
-- no when recent notes show irritation or a raw barrier, or the product role clearly fights the stated skin type or goal.
-- maybe otherwise.
-- If the user message has no skin type and no recent check-in detail, verdict MUST be maybe. Do not invent a skin type.
+- no when recent notes show irritation (rát, kích ứng, châm chích, bong tróc), or the product role clearly fights the stated skin type or goal.
+- A body product (body butter, body lotion, kem dưỡng thể) and a heavy oil or occlusive (coconut oil, shea butter, body butter) for acne-prone skin is no. The reason must say it is too heavy or too occlusive for this person's skin type, concerns, or goal — for example a body butter is too heavy to put on combination skin that wants fewer breakouts.
+- maybe otherwise, when the skin type is known and the product is not a clear mismatch.
+- If SKIN_PROFILE_STATUS says the skin type is not on file, verdict MUST be maybe. Do not invent a skin type.
+- If SKIN_PROFILE_STATUS says the skin type is known, that profile is enough. A missing check-in is not missing skin information. Do not write that there is not enough information about the skin. Never use these phrases: "chưa có thông tin đầy đủ", "không có thông tin", "chưa đủ thông tin", "chưa có thông tin".
+- fit no must name this person's skin type, a concern, or the goal in the reason. A vague "not enough information" line is not a reason.
 "buy.advice" is a machine token the app maps. Write exactly "nên mua" or "chưa nên" — nothing else.
 - "nên mua" means keep using the product they already own. The app shows it as "Nên dùng tiếp".
 - "chưa nên" means not yet. The app shows it as "Chưa nên dùng tiếp".
@@ -66,8 +69,8 @@ The word "mua" is forbidden in what_it_does, fit.reason, buy.why, and actives gl
 - When advice is "nên mua", start from keep using, for example: "Nên dùng tiếp vì hợp với da dầu và mục tiêu làm sạch mụn."
 - When advice is "chưa nên", start from pausing, for example: "Chưa nên dùng tiếp vì da đang rát."
 - no fit → advice "chưa nên".
-- missing skin info → advice "chưa nên".
-- yes fit → advice "nên mua" (keep using), unless recent notes say to pause — then "chưa nên".
+- skin type not on file → advice "chưa nên". A known skin type is not this case.
+- yes or maybe → advice "nên mua" (keep using), unless recent notes show irritation — then "chưa nên", and buy.why must name that irritation (rát, kích ứng). Do not pair yes or maybe with "chưa nên" just because there is no check-in.
 "actives": optional. Include an ingredient only when the product name, brand, category, or notes make that ingredient obvious. Otherwise [].
 Each active has "name" (as printed) and "gloss" (one everyday Vietnamese phrase about what it tends to do, not a medical claim, and not a purchase tip). At most 5.
 
@@ -80,7 +83,20 @@ JSON:
 }`
 }
 
+// Cabinet insight sampling. Temperature 0 and a fixed seed keep the same
+// product + profile on the same card. top_p stays at the API default of 1.
+// response_format is a JSON object. gpt-4o accepts all of these.
+const (
+	wardrobeInsightTemperature = 0.0
+	wardrobeInsightTopP        = 1.0
+	wardrobeInsightSeed        = 16
+	wardrobeInsightMaxTokens   = 900
+)
+
 // GenerateWardrobeProductInsight calls the text model and returns a normalized card.
+// A card that contradicts the saved skin profile is sent back once with a
+// corrective instruction. If that reply still fails, a consistent fallback
+// card is returned instead of the contradictory text.
 func GenerateWardrobeProductInsight(
 	ctx context.Context,
 	cfg *config.Config,
@@ -97,17 +113,31 @@ func GenerateWardrobeProductInsight(
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 2 * time.Minute}
 	}
-	userText, skinKnown := buildWardrobeProductInsightUser(req)
-	body := map[string]any{
-		"model":           cfg.OpenAITextModel(),
-		"temperature":     0.2,
-		"max_tokens":      900,
-		"response_format": map[string]any{"type": "json_object"},
-		"messages": []map[string]any{
-			{"role": "system", "content": WardrobeProductInsightSystemPrompt()},
-			{"role": "user", "content": userText},
-		},
+	facts := assembleWardrobeInsightFacts(req)
+	card, err := completeWardrobeProductInsight(ctx, cfg, httpClient, facts, "")
+	if err != nil {
+		return zero, err
 	}
+	problems := validateWardrobeProductInsight(card, facts)
+	if len(problems) == 0 {
+		return card, nil
+	}
+	retried, retryErr := completeWardrobeProductInsight(ctx, cfg, httpClient, facts, wardrobeInsightCorrection(problems))
+	if retryErr == nil && len(validateWardrobeProductInsight(retried, facts)) == 0 {
+		return retried, nil
+	}
+	return wardrobeInsightFallback(facts), nil
+}
+
+func completeWardrobeProductInsight(
+	ctx context.Context,
+	cfg *config.Config,
+	httpClient *http.Client,
+	facts wardrobeInsightFacts,
+	correction string,
+) (dto.WardrobeProductInsight, error) {
+	var zero dto.WardrobeProductInsight
+	body := wardrobeProductInsightChatBody(cfg, facts.Prompt, correction)
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return zero, err
@@ -139,26 +169,36 @@ func GenerateWardrobeProductInsight(
 	if err != nil {
 		return zero, err
 	}
-	return dto.ParseWardrobeProductInsight(raw, skinKnown)
+	return dto.ParseWardrobeProductInsight(raw, facts.SkinKnown)
+}
+
+// wardrobeProductInsightChatBody is the Chat Completions payload for one card.
+func wardrobeProductInsightChatBody(cfg *config.Config, userText, correction string) map[string]any {
+	messages := []map[string]any{
+		{"role": "system", "content": WardrobeProductInsightSystemPrompt()},
+		{"role": "user", "content": userText},
+	}
+	if strings.TrimSpace(correction) != "" {
+		messages = append(messages, map[string]any{"role": "user", "content": correction})
+	}
+	model := "gpt-4o"
+	if cfg != nil {
+		model = cfg.OpenAITextModel()
+	}
+	return map[string]any{
+		"model":           model,
+		"temperature":     wardrobeInsightTemperature,
+		"top_p":           wardrobeInsightTopP,
+		"seed":            wardrobeInsightSeed,
+		"max_tokens":      wardrobeInsightMaxTokens,
+		"response_format": map[string]any{"type": "json_object"},
+		"messages":        messages,
+	}
 }
 
 func buildWardrobeProductInsightUser(req WardrobeProductInsightRequest) (string, bool) {
-	skin := BuildSkinProfileContext(req.Profile)
-	recent := BuildRecentCheckInsContext(limitRecentForInsight(req.Recent))
-	var b strings.Builder
-	b.WriteString("OWNED: this product is already in the user's cabinet. Judge keep-using (nên dùng tiếp) versus not yet (chưa nên dùng tiếp) for the skin type, concerns, and goal below. Do not recommend buying.\n\n")
-	b.WriteString("PRODUCT (label text only):\n")
-	fmt.Fprintf(&b, "- name: %s\n", oneLineField(req.Name, 200))
-	fmt.Fprintf(&b, "- brand: %s\n", oneLineField(req.Brand, 120))
-	fmt.Fprintf(&b, "- category: %s\n", oneLineField(req.Category, 64))
-	fmt.Fprintf(&b, "- notes: %s\n", oneLineField(req.Notes, 400))
-	b.WriteString("\nSKIN_PROFILE:\n")
-	b.WriteString(skin)
-	if strings.TrimSpace(recent) != "" {
-		b.WriteString("\n")
-		b.WriteString(recent)
-	}
-	return b.String(), wardrobeInsightSkinKnown(skin, recent)
+	facts := assembleWardrobeInsightFacts(req)
+	return facts.Prompt, facts.SkinKnown
 }
 
 func limitRecentForInsight(recent []domain.SkinCheck) []domain.SkinCheck {
