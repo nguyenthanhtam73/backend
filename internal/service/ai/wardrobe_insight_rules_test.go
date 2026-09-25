@@ -116,7 +116,7 @@ func TestWardrobeInsightValidation_ContradictoryBodyButter(t *testing.T) {
 		Profile: reportedComboProfile(),
 	}
 	facts := assembleWardrobeInsightFacts(req)
-	if !facts.SkinTypeKnown || !facts.AcneProne || !facts.HeavyForFace || facts.Irritated {
+	if !facts.SkinTypeKnown || !facts.AcneProne || facts.FaceLimit != acneFaceBodyProduct || facts.Irritated {
 		t.Fatalf("facts: %+v", facts)
 	}
 	card := dto.WardrobeProductInsight{
@@ -136,13 +136,86 @@ func TestWardrobeInsightValidation_ContradictoryBodyButter(t *testing.T) {
 	if fallback.Fit.Verdict != dto.WardrobeFitNo || fallback.Buy.Advice != dto.WardrobeBuyNo {
 		t.Fatalf("body butter should be not a fit: %+v", fallback)
 	}
-	blob := strings.ToLower(fallback.Fit.Reason + " " + fallback.Buy.Why)
-	for _, s := range []string{"nặng", "hỗn hợp", "mụn"} {
+	blob := strings.ToLower(fallback.Fit.Reason + " " + fallback.Buy.Why + " " + fallback.WhatItDoes)
+	for _, s := range []string{"cơ thể", "không nên bôi", "mặt", "hỗn hợp", "mụn"} {
 		if !strings.Contains(blob, s) {
 			t.Fatalf("fallback missing %q: %s", s, blob)
 		}
 	}
+	for _, bad := range []string{"nặng", "bí", "bít"} {
+		if strings.Contains(blob, bad) {
+			t.Fatalf("body product should not be called bad (%q): %s", bad, blob)
+		}
+	}
 	assertNoShoppingOrUnknown(t, fallback)
+}
+
+func TestAcneFaceUseLimit_BodyLabelsAndCoconutOilOnly(t *testing.T) {
+	profile := reportedComboProfile()
+	bodyNames := []string{
+		"Nivea Body Lotion",
+		"Shea Body Butter",
+		"Everyday Body Cream",
+		"Kem dưỡng thể",
+		"Kem body ban đêm",
+	}
+	for _, name := range bodyNames {
+		facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: name, Profile: profile})
+		if facts.FaceLimit != acneFaceBodyProduct {
+			t.Fatalf("%q should be a body product, got %d", name, facts.FaceLimit)
+		}
+	}
+	oil := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: profile})
+	if oil.FaceLimit != acneFaceCoconutOil {
+		t.Fatalf("coconut oil limit: %d", oil.FaceLimit)
+	}
+	oilCard := wardrobeInsightFallback(oil)
+	if oilCard.Fit.Verdict != dto.WardrobeFitNo || oilCard.Buy.Advice != dto.WardrobeBuyNo {
+		t.Fatalf("coconut oil card: %+v", oilCard)
+	}
+	if problems := validateWardrobeProductInsight(oilCard, oil); len(problems) != 0 {
+		t.Fatalf("coconut oil fallback invalid: %v\n%+v", problems, oilCard)
+	}
+	if !strings.Contains(oilCard.Fit.Reason, "dầu dừa") || strings.Contains(oilCard.Fit.Reason, "nặng") {
+		t.Fatalf("coconut oil wording: %s", oilCard.Fit.Reason)
+	}
+	oilEN := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Organic Coconut Oil", Profile: profile})
+	if oilEN.FaceLimit != acneFaceCoconutOil {
+		t.Fatalf("coconut oil EN limit: %d", oilEN.FaceLimit)
+	}
+	// "Coconut" plus "butter" is not a rule. Only a body label or the words "coconut oil" count.
+	plain := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Coconut Butter", Profile: profile})
+	if plain.FaceLimit != acneFaceOK {
+		t.Fatalf("coconut butter without a body label or coconut oil must not be forced off the face, got %d", plain.FaceLimit)
+	}
+}
+
+func TestPetrolatumIsNotForcedOffAcneProneFace(t *testing.T) {
+	profile := reportedComboProfile()
+	for _, name := range []string{
+		"Vaseline Healing Jelly",
+		"White Petrolatum ointment",
+		"Mineral Oil",
+		"Paraffinum Liquidum",
+	} {
+		facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: name, Profile: profile})
+		if facts.FaceLimit != acneFaceOK {
+			t.Fatalf("%q must not be forced to no, got limit %d", name, facts.FaceLimit)
+		}
+		card := dto.WardrobeProductInsight{
+			WhatItDoes: "Kem dưỡng khóa ẩm.",
+			Fit:        dto.WardrobeProductFit{Verdict: dto.WardrobeFitYes, Reason: "Hợp da hỗn hợp đang muốn giảm mụn."},
+			Buy:        dto.WardrobeProductBuy{Advice: dto.WardrobeBuyYes, Why: "Nên dùng tiếp vì hợp da hỗn hợp."},
+			Disclaimer: dto.WardrobeInsightDisclaimer,
+		}
+		if problems := validateWardrobeProductInsight(card, facts); len(problems) != 0 {
+			t.Fatalf("%q was forced off the face: %v", name, problems)
+		}
+		fallback := wardrobeInsightFallback(facts)
+		if fallback.Fit.Verdict == dto.WardrobeFitNo {
+			t.Fatalf("%q fallback must not be a forced no: %+v", name, fallback)
+		}
+	}
 }
 
 func TestWardrobeInsightValidation_FoamingGelStaysConsistent(t *testing.T) {
@@ -152,8 +225,8 @@ func TestWardrobeInsightValidation_FoamingGelStaysConsistent(t *testing.T) {
 		Profile: reportedComboProfile(),
 	}
 	facts := assembleWardrobeInsightFacts(req)
-	if facts.HeavyForFace {
-		t.Fatal("foaming gel must not be treated as a body butter")
+	if facts.FaceLimit != acneFaceOK {
+		t.Fatal("foaming gel must not be treated as a body product")
 	}
 	good := dto.WardrobeProductInsight{
 		WhatItDoes: "Sữa rửa mặt tạo bọt, làm sạch dầu thừa.",

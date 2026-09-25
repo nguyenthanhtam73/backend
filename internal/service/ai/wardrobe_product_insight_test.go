@@ -29,7 +29,8 @@ func TestWardrobeProductInsightPromptLocksCard(t *testing.T) {
 		"không có thông tin",
 		"chưa đủ thông tin",
 		"body butter",
-		"too heavy",
+		"fine for body use",
+		"dầu dừa",
 		"actives",
 		"gloss",
 	} {
