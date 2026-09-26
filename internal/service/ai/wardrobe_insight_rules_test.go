@@ -129,6 +129,10 @@ func TestWardrobeInsightValidation_ContradictoryBodyButter(t *testing.T) {
 	if len(problems) == 0 {
 		t.Fatal("expected the contradictory card to fail")
 	}
+	correction := wardrobeInsightCorrection(problems)
+	if !strings.Contains(correction, "có thể chưa hợp") || strings.Contains(correction, "should not be applied") {
+		t.Fatalf("retry instruction should ask for a hedge:\n%s", correction)
+	}
 	fallback := wardrobeInsightFallback(facts)
 	if again := validateWardrobeProductInsight(fallback, facts); len(again) != 0 {
 		t.Fatalf("fallback still invalid: %v\n%+v", again, fallback)
@@ -137,10 +141,13 @@ func TestWardrobeInsightValidation_ContradictoryBodyButter(t *testing.T) {
 		t.Fatalf("body butter should be not a fit: %+v", fallback)
 	}
 	blob := strings.ToLower(fallback.Fit.Reason + " " + fallback.Buy.Why + " " + fallback.WhatItDoes)
-	for _, s := range []string{"cơ thể", "không nên bôi", "mặt", "hỗn hợp", "mụn"} {
+	for _, s := range []string{"cơ thể", "có thể chưa hợp", "mặt", "hỗn hợp", "mụn", "bạn cân nhắc"} {
 		if !strings.Contains(blob, s) {
 			t.Fatalf("fallback missing %q: %s", s, blob)
 		}
+	}
+	if strings.Contains(blob, "không nên bôi") {
+		t.Fatalf("fallback still commands the user: %s", blob)
 	}
 	for _, bad := range []string{"nặng", "bí", "bít"} {
 		if strings.Contains(blob, bad) {
@@ -178,6 +185,14 @@ func TestAcneFaceUseLimit_BodyLabelsAndCoconutOilOnly(t *testing.T) {
 	}
 	if !strings.Contains(oilCard.Fit.Reason, "dầu dừa") || strings.Contains(oilCard.Fit.Reason, "nặng") {
 		t.Fatalf("coconut oil wording: %s", oilCard.Fit.Reason)
+	}
+	oilBlob := strings.ToLower(oilCard.Fit.Reason + " " + oilCard.Buy.Why)
+	if !strings.Contains(oilBlob, "có thể chưa hợp") || !strings.Contains(oilBlob, "bạn cân nhắc") || strings.Contains(oilBlob, "không nên bôi") {
+		t.Fatalf("coconut oil card should hedge, got %s", oilBlob)
+	}
+	hint, _ := buildWardrobeProductInsightUser(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: profile})
+	if !strings.Contains(hint, "có thể chưa hợp") || strings.Contains(hint, "should not be applied") {
+		t.Fatalf("coconut oil hint should hedge\n%s", hint)
 	}
 	oilEN := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Organic Coconut Oil", Profile: profile})
 	if oilEN.FaceLimit != acneFaceCoconutOil {
@@ -285,6 +300,17 @@ func TestWardrobeInsightValidation_IrritationAllowsPause(t *testing.T) {
 	vague.Buy.Why = "Chưa nên dùng tiếp."
 	if problems := validateWardrobeProductInsight(vague, facts); len(problems) == 0 {
 		t.Fatal("pause without an irritation sentence should fail")
+	}
+	fallback := wardrobeInsightFallback(facts)
+	if fallback.Fit.Verdict != dto.WardrobeFitNo || fallback.Buy.Advice != dto.WardrobeBuyNo {
+		t.Fatalf("irritation fallback: %+v", fallback)
+	}
+	blob := strings.ToLower(fallback.Fit.Reason + " " + fallback.Buy.Why)
+	if !strings.Contains(blob, "có thể chưa hợp") || !strings.Contains(blob, "bạn cân nhắc") {
+		t.Fatalf("irritation fallback should hedge: %s", blob)
+	}
+	if strings.Contains(blob, "nên tạm dừng") || strings.Contains(blob, "không nên") {
+		t.Fatalf("irritation fallback still commands: %s", blob)
 	}
 }
 
