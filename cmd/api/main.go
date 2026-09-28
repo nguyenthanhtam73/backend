@@ -58,6 +58,10 @@ func main() {
 		WriteTimeout: cfg.HTTP.WriteTimeout,
 		// Multipart skin photo uploads need a higher limit than Fiber's default 4MB.
 		BodyLimit: 100 * 1024 * 1024,
+		// With validation on, a missing or malformed header falls back to the
+		// socket peer (local dev).
+		ProxyHeader:        middleware.ClientIPHeader,
+		EnableIPValidation: true,
 	})
 
 	middleware.RegisterDefault(app)
