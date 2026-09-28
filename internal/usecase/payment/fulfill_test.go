@@ -25,6 +25,14 @@ func setupPaymentFulfill(t *testing.T) (*Service, *domain.User, *repository.Gorm
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Shared-cache SQLite fails concurrent write transactions with
+	// SQLITE_LOCKED instead of waiting, so the concurrent-IPN test would flake.
+	// One connection makes them queue the way Postgres row locks do.
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
 	if err := db.AutoMigrate(
 		&domain.User{},
 		&domain.PaymentOrder{},

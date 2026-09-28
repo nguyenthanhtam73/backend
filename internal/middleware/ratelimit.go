@@ -10,6 +10,13 @@ import (
 	"github.com/dadiary/backend/pkg/response"
 )
 
+// ClientIPHeader is the request header the app reads the client IP from
+// (fiber.Config.ProxyHeader). Behind Railway the socket peer is the edge
+// proxy, so without it every guest shares one rate-limit bucket. Railway's
+// edge always overwrites X-Real-IP; X-Forwarded-For keeps client-supplied
+// entries on the left and must not be used here.
+const ClientIPHeader = "X-Real-IP"
+
 // AILimiter returns a per-user / per-IP rate limiter for expensive AI routes.
 //
 // Why per-route limiting instead of a single global limiter:
@@ -22,8 +29,7 @@ import (
 // `max` is the number of requests allowed inside `expiration`. The key is
 // derived from the authenticated user when `RequireAccessJWT` has populated
 // locals; otherwise we fall back to the client IP so unauthenticated bursts
-// still get capped (Fiber's built-in `c.IP()` honours the
-// `X-Forwarded-For` header when running behind a trusted proxy).
+// still get capped (`c.IP()` resolves through ClientIPHeader).
 //
 // On overflow we return our standard JSON error envelope so the frontend's
 // `getApiErrorMessage` helper renders a friendly banner instead of an
