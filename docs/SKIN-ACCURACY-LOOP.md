@@ -118,8 +118,9 @@ Delete the folder when a round is finished:
 Remove-Item -Recurse -Force internal/service/ai/testdata/morphology
 ```
 
-Note that `tmp_test_assets/` already contains user photos committed before this rule
-existed; gitignoring it does not remove them from history.
+`tmp_test_assets/` holds user photos that were committed before this rule existed. The
+folder is now untracked, but the photos remain in git history; only a history rewrite
+(or keeping the repo private) removes them.
 
 ## Asking the user questions
 
