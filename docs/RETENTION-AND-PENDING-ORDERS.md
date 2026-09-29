@@ -58,7 +58,7 @@ Show an in-app nudge when `due` is true. Do not treat `kind=none` as an error.
 The hourly in-process job (same API process — Railway has no separate cron service) refreshes flags then delivers:
 
 - ≤1 `d0` and ≤1 `d1` email per user (`email_send_receipts` claim-before-send)
-- Skip if `checked_in_today`, inactive, invalid address, or `email_unsubscribed_at` is set
+- Skip if `checked_in_today`, inactive, invalid address, `email_unsubscribed_at` is set, or the address is marked undeliverable (`email_reminder_suppressed_at`: Resend HTTP 400/422 immediately, or 3 other 4xx rejections). Network errors, HTTP 5xx, 408, 429, and 401/403 still release the receipt and retry. Changing `users.email` clears the suppression on the next run.
 - CTA: `https://dadiary.vn/check-in` (or `DADIARY_PUBLIC_WEB_URL` + `/check-in`). No magic-link auth exists; the web app is auth-aware if the session cookie is present.
 - Unsubscribe: `GET|POST /api/v1/email/unsubscribe?token=…` (HMAC with `DADIARY_JWT_SECRET`). `List-Unsubscribe` header is set when `DADIARY_PUBLIC_API_URL` is present.
 - Vietnamese copy only; soft DaDiary tone; no diagnosis or cure claims.

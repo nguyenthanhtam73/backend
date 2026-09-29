@@ -166,6 +166,27 @@ func (s *Service) deliverEmail(
 		return
 	}
 
+	hash := email.AddressHash(addr)
+	state := reminderStateFromUser(u)
+	if reminderEmailBlocked(state, hash) {
+		slog.Info("checkin_reminder: email skip — undeliverable address",
+			"user_id", u.ID.String(),
+			"kind", string(kind),
+		)
+		out.EmailSkipped++
+		return
+	}
+	if state.AddressHash != "" && state.AddressHash != hash {
+		if err := s.users.SaveReminderEmailState(ctx, u.ID, 0, "", nil); err != nil {
+			slog.Error("checkin_reminder: email suppression clear failed",
+				"user_id", u.ID.String(),
+				"err", err,
+			)
+		} else {
+			state = reminderEmailState{}
+		}
+	}
+
 	claimed, err := s.emailReceipts.TryClaim(ctx, u.ID, string(kind))
 	if err != nil {
 		slog.Error("checkin_reminder: email claim failed",
@@ -208,6 +229,43 @@ func (s *Service) deliverEmail(
 			out.EmailSkipped++
 			return
 		}
+		class := email.Classify(err)
+		if class == email.FailureTransient {
+			slog.Error("checkin_reminder: email send failed",
+				"user_id", u.ID.String(),
+				"kind", string(kind),
+				"err", err,
+			)
+			out.EmailFailed++
+			return
+		}
+		permanent := class == email.FailurePermanent
+		next, newly := applyReminderEmailRejection(state, hash, permanent, s.clock())
+		if saveErr := s.users.SaveReminderEmailState(
+			ctx, u.ID, next.FailCount, next.AddressHash, next.SuppressedAt,
+		); saveErr != nil {
+			slog.Error("checkin_reminder: email suppression save failed",
+				"user_id", u.ID.String(),
+				"err", saveErr,
+			)
+			slog.Error("checkin_reminder: email send failed",
+				"user_id", u.ID.String(),
+				"kind", string(kind),
+				"err", err,
+			)
+			out.EmailFailed++
+			return
+		}
+		if newly {
+			slog.Warn("checkin_reminder: email address marked undeliverable",
+				"user_id", u.ID.String(),
+				"kind", string(kind),
+				"http_status", email.StatusOf(err),
+				"fail_count", next.FailCount,
+			)
+			out.EmailSkipped++
+			return
+		}
 		slog.Error("checkin_reminder: email send failed",
 			"user_id", u.ID.String(),
 			"kind", string(kind),
@@ -215,6 +273,14 @@ func (s *Service) deliverEmail(
 		)
 		out.EmailFailed++
 		return
+	}
+	if state.FailCount > 0 || state.AddressHash != "" || state.SuppressedAt != nil {
+		if clrErr := s.users.SaveReminderEmailState(ctx, u.ID, 0, "", nil); clrErr != nil {
+			slog.Error("checkin_reminder: email suppression clear failed",
+				"user_id", u.ID.String(),
+				"err", clrErr,
+			)
+		}
 	}
 	out.EmailSent++
 }
