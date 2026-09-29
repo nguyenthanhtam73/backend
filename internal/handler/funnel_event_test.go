@@ -319,6 +319,24 @@ func TestFunnelEvents_RejectsUnknownEventAndOversizedProps(t *testing.T) {
 			code:    "invalid_funnel_event",
 			message: "unknown prop",
 		},
+		{
+			name:    "unknown register prop",
+			body:    funnelBody(domain.FunnelRegisterFormView, "sess-utm-medium", "/register", `{"utm_source":"meta","utm_medium":"cpc"}`),
+			code:    "invalid_funnel_event",
+			message: "unknown prop",
+		},
+		{
+			name:    "non-string utm",
+			body:    funnelBody(domain.FunnelRegisterSubmitAttempt, "sess-utm-num", "/register", `{"utm_source":1}`),
+			code:    "invalid_funnel_event",
+			message: "invalid utm_source",
+		},
+		{
+			name:    "register error missing error_type",
+			body:    funnelBody(domain.FunnelRegisterClientError, "sess-no-err", "/register", `{"utm_source":"meta"}`),
+			code:    "invalid_funnel_event",
+			message: "invalid error_type",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -422,6 +440,87 @@ func TestFunnelEvents_RateLimitPerSession(t *testing.T) {
 	status, raw, _ = postFunnel(t, app, "", "", "", other)
 	if status != http.StatusNoContent {
 		t.Fatalf("other session status=%d body=%s", status, raw)
+	}
+}
+
+func TestFunnelEvents_AcceptsFrontendRegisterPayloads(t *testing.T) {
+	app, db, _ := newFunnelFixture(t, false)
+	long := strings.Repeat("a", 256)
+	dirty := "ig<script>"
+
+	type want struct {
+		session string
+		event   string
+		props   map[string]any
+	}
+	cases := []struct {
+		body string
+		want want
+	}{
+		{
+			body: funnelBody(domain.FunnelRegisterFormView, "reg-view-empty", "/register", `{}`),
+			want: want{session: "reg-view-empty", event: domain.FunnelRegisterFormView, props: map[string]any{}},
+		},
+		{
+			body: funnelBody(domain.FunnelRegisterFormView, "reg-view-utm", "/register", `{"utm_source":"test","utm_campaign":"x"}`),
+			want: want{session: "reg-view-utm", event: domain.FunnelRegisterFormView, props: map[string]any{"utm_source": "test", "utm_campaign": "x"}},
+		},
+		{
+			body: funnelBody(domain.FunnelRegisterSubmitAttempt, "reg-submit-src", "/register", `{"utm_source":"meta"}`),
+			want: want{session: "reg-submit-src", event: domain.FunnelRegisterSubmitAttempt, props: map[string]any{"utm_source": "meta"}},
+		},
+		{
+			body: funnelBody(domain.FunnelRegisterClientError, "reg-err", "/register", `{"utm_source":"test","utm_campaign":"x","error_type":"password_short"}`),
+			want: want{session: "reg-err", event: domain.FunnelRegisterClientError, props: map[string]any{"utm_source": "test", "utm_campaign": "x", "error_type": "password_short"}},
+		},
+		{
+			body: funnelBody(domain.FunnelRegisterClientError, "reg-err-long", "/register", `{"error_type":"email_invalid","utm_source":"`+long+`","utm_campaign":"`+dirty+`"}`),
+			want: want{session: "reg-err-long", event: domain.FunnelRegisterClientError, props: map[string]any{"error_type": "email_invalid", "utm_source": strings.Repeat("a", 200), "utm_campaign": "igscript"}},
+		},
+		{
+			body: funnelBody(domain.FunnelRegisterEmailExists, "reg-exists", "/register", `{"utm_source":"test","utm_campaign":"x"}`),
+			want: want{session: "reg-exists", event: domain.FunnelRegisterEmailExists, props: map[string]any{"utm_source": "test", "utm_campaign": "x"}},
+		},
+		{
+			body: funnelBody(domain.FunnelRegisterEmailExists, "reg-exists-at", "/register", `{"utm_source":"meta","utm_campaign":"person@example.com"}`),
+			want: want{session: "reg-exists-at", event: domain.FunnelRegisterEmailExists, props: map[string]any{"utm_source": "meta"}},
+		},
+	}
+	for _, button := range domain.LandingCTAButtons {
+		cases = append(cases, struct {
+			body string
+			want want
+		}{
+			body: funnelBody(domain.FunnelLandingCTAClick, "cta-"+button, "/", `{"button":"`+button+`"}`),
+			want: want{session: "cta-" + button, event: domain.FunnelLandingCTAClick, props: map[string]any{"button": button}},
+		})
+	}
+	for _, errorType := range domain.RegisterClientErrorTypes {
+		cases = append(cases, struct {
+			body string
+			want want
+		}{
+			body: funnelBody(domain.FunnelRegisterClientError, "err-"+errorType, "/register", `{"error_type":"`+errorType+`"}`),
+			want: want{session: "err-" + errorType, event: domain.FunnelRegisterClientError, props: map[string]any{"error_type": errorType}},
+		})
+	}
+
+	for _, tc := range cases {
+		status, raw, _ := postFunnel(t, app, "", "", "", tc.body)
+		if status != http.StatusNoContent {
+			t.Fatalf("session %s status=%d body=%s", tc.want.session, status, raw)
+		}
+		var row domain.FunnelEvent
+		if err := db.Where("session_id = ?", tc.want.session).First(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+		if row.Event != tc.want.event {
+			t.Fatalf("session %s event=%s", tc.want.session, row.Event)
+		}
+		assertProps(t, row.Props, tc.want.props)
+		if strings.Contains(string(row.Props), "@") {
+			t.Fatalf("session %s stored an email in props %s", tc.want.session, row.Props)
+		}
 	}
 }
 

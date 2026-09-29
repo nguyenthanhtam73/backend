@@ -86,8 +86,10 @@ func parseClientTS(raw string) (time.Time, bool) {
 
 // normalizeFunnelProps accepts a small flat JSON object (scalars only).
 // Omitted and JSON null props are stored as {}.
-// Register and landing events only keep an allow-listed enum. Emails and
-// other form fields are rejected on every event.
+// The four register_* events may also carry optional utm_source and
+// utm_campaign. Those values use the same charset, 200-rune cap, and "@"
+// drop as register attribution. error_type stays a strict enum.
+// Emails and other form fields are rejected on every event.
 func normalizeFunnelProps(event string, raw json.RawMessage) (json.RawMessage, string) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -107,7 +109,9 @@ func normalizeFunnelProps(event string, raw json.RawMessage) (json.RawMessage, s
 		if key == "" || !flatJSONScalar(value) {
 			return nil, "props must be a flat object"
 		}
-		if propCarriesEmailOrForm(key, value) {
+		// utm_source / utm_campaign are sanitized below. An "@" drops that
+		// value, matching attribution, instead of failing the whole event.
+		if propCarriesEmailOrForm(key, value) && !registerAttributionPropKey(key) {
 			return nil, "props must not include an email"
 		}
 	}
@@ -124,17 +128,66 @@ func normalizeFunnelProps(event string, raw json.RawMessage) (json.RawMessage, s
 func validateEventProps(event string, obj map[string]json.RawMessage) string {
 	switch event {
 	case domain.FunnelRegisterClientError:
-		return requireEnumProp(obj, "error_type", domain.RegisterClientErrorTypes, "invalid error_type")
+		return normalizeRegisterEventProps(obj, true)
+	case domain.FunnelRegisterFormView, domain.FunnelRegisterSubmitAttempt, domain.FunnelRegisterEmailExists:
+		return normalizeRegisterEventProps(obj, false)
 	case domain.FunnelLandingCTAClick:
 		return requireEnumProp(obj, "button", domain.LandingCTAButtons, "invalid button")
-	case domain.FunnelRegisterFormView, domain.FunnelRegisterSubmitAttempt, domain.FunnelRegisterEmailExists:
-		if len(obj) != 0 {
-			return "props are not allowed for this event"
-		}
-		return ""
 	default:
 		return ""
 	}
+}
+
+func registerAttributionPropKey(key string) bool {
+	return key == "utm_source" || key == "utm_campaign"
+}
+
+// normalizeRegisterEventProps keeps error_type (when required) and optional
+// utm_source / utm_campaign. Other keys are rejected. Sanitized UTM values
+// are written back; an empty result (including an "@") omits the key.
+func normalizeRegisterEventProps(obj map[string]json.RawMessage, requireErrorType bool) string {
+	if requireErrorType {
+		if msg := enumPropValue(obj, "error_type", domain.RegisterClientErrorTypes, "invalid error_type"); msg != "" {
+			return msg
+		}
+	}
+	for key, raw := range obj {
+		switch key {
+		case "error_type":
+			if !requireErrorType {
+				return "unknown prop"
+			}
+		case "utm_source", "utm_campaign":
+			cleaned, ok := sanitizeRegisterAttributionProp(raw)
+			if !ok {
+				return "invalid " + key
+			}
+			if cleaned == "" {
+				delete(obj, key)
+				continue
+			}
+			encoded, err := json.Marshal(cleaned)
+			if err != nil {
+				return "invalid " + key
+			}
+			obj[key] = encoded
+		default:
+			return "unknown prop"
+		}
+	}
+	return ""
+}
+
+func sanitizeRegisterAttributionProp(raw json.RawMessage) (string, bool) {
+	val := bytes.TrimSpace(raw)
+	if len(val) == 0 || val[0] != '"' {
+		return "", false
+	}
+	var s string
+	if err := json.Unmarshal(val, &s); err != nil {
+		return "", false
+	}
+	return sanitizeAttribution(s), true
 }
 
 func requireEnumProp(obj map[string]json.RawMessage, key string, allowed []string, invalidMsg string) string {
@@ -146,6 +199,10 @@ func requireEnumProp(obj map[string]json.RawMessage, key string, allowed []strin
 			return "unknown prop"
 		}
 	}
+	return enumPropValue(obj, key, allowed, invalidMsg)
+}
+
+func enumPropValue(obj map[string]json.RawMessage, key string, allowed []string, invalidMsg string) string {
 	raw, ok := obj[key]
 	if !ok {
 		return invalidMsg
