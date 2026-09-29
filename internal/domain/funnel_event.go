@@ -18,7 +18,30 @@ const (
 	FunnelCheckinSubmitClicked = "checkin_submit_clicked"
 	FunnelCheckinSubmitSuccess = "checkin_submit_success"
 	FunnelCheckinSubmitError   = "checkin_submit_error"
+
+	FunnelRegisterFormView      = "register_form_view"
+	FunnelRegisterSubmitAttempt = "register_submit_attempt"
+	FunnelRegisterClientError   = "register_client_error"
+	FunnelLandingCTAClick       = "landing_cta_click"
+	FunnelRegisterEmailExists   = "register_email_exists"
 )
+
+// RegisterClientErrorTypes is the only allowed error_type for register_client_error.
+// Values are tokens. Free text, including an email address, is rejected.
+var RegisterClientErrorTypes = []string{
+	"password_short",
+	"email_invalid",
+	"email_empty",
+	"network",
+}
+
+// LandingCTAButtons is the only allowed button for landing_cta_click.
+var LandingCTAButtons = []string{
+	"hero_primary",
+	"header_register",
+	"header_login",
+	"bottom_cta",
+}
 
 // AllFunnelEvents is the allow-list for POST /api/v1/funnel-events.
 var AllFunnelEvents = []string{
@@ -29,6 +52,11 @@ var AllFunnelEvents = []string{
 	FunnelCheckinSubmitClicked,
 	FunnelCheckinSubmitSuccess,
 	FunnelCheckinSubmitError,
+	FunnelRegisterFormView,
+	FunnelRegisterSubmitAttempt,
+	FunnelRegisterClientError,
+	FunnelLandingCTAClick,
+	FunnelRegisterEmailExists,
 }
 
 const (

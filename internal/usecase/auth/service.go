@@ -114,6 +114,9 @@ func (s *Service) Register(ctx context.Context, req dto.RegisterRequest) (Result
 		Provider:     domain.AuthProviderLocal,
 		IsActive:     true,
 	}
+	// First-touch: persist the campaign values sent with this signup.
+	// Email-taken rejects a second register and leaves the original row.
+	req.Attribution.Apply(user)
 
 	if err := s.repo.Create(ctx, user); err != nil {
 		if repository.IsUniqueViolation(err) {

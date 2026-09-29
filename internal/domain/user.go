@@ -75,6 +75,15 @@ type User struct {
 	// EmailUnsubscribedAt is set when the user opts out of outbound reminder email.
 	EmailUnsubscribedAt *time.Time `json:"email_unsubscribed_at,omitempty"`
 
+	// First-touch attribution captured at register. Nil means the client did
+	// not send a value. A later signup for the same email does not overwrite.
+	UTMSource   *string `gorm:"column:utm_source;size:200" json:"-"`
+	UTMMedium   *string `gorm:"column:utm_medium;size:200" json:"-"`
+	UTMCampaign *string `gorm:"column:utm_campaign;size:200" json:"-"`
+	UTMContent  *string `gorm:"column:utm_content;size:200" json:"-"`
+	FBCLID      *string `gorm:"column:fbclid;size:200" json:"-"`
+	TTCLID      *string `gorm:"column:ttclid;size:200" json:"-"`
+
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

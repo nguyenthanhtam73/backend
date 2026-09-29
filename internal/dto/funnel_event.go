@@ -47,7 +47,7 @@ func (r LogFunnelEventRequest) ValidateAndMap(userID uuid.UUID) (*domain.FunnelE
 		return nil, "path is too long"
 	}
 
-	props, msg := normalizeFunnelProps(r.Props)
+	props, msg := normalizeFunnelProps(event, r.Props)
 	if msg != "" {
 		return nil, msg
 	}
@@ -86,10 +86,12 @@ func parseClientTS(raw string) (time.Time, bool) {
 
 // normalizeFunnelProps accepts a small flat JSON object (scalars only).
 // Omitted and JSON null props are stored as {}.
-func normalizeFunnelProps(raw json.RawMessage) (json.RawMessage, string) {
+// Register and landing events only keep an allow-listed enum. Emails and
+// other form fields are rejected on every event.
+func normalizeFunnelProps(event string, raw json.RawMessage) (json.RawMessage, string) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
-		return json.RawMessage(`{}`), ""
+		trimmed = json.RawMessage(`{}`)
 	}
 	if len(trimmed) > domain.MaxFunnelPropsBytes {
 		return nil, "props is too large"
@@ -105,12 +107,75 @@ func normalizeFunnelProps(raw json.RawMessage) (json.RawMessage, string) {
 		if key == "" || !flatJSONScalar(value) {
 			return nil, "props must be a flat object"
 		}
+		if propCarriesEmailOrForm(key, value) {
+			return nil, "props must not include an email"
+		}
+	}
+	if msg := validateEventProps(event, obj); msg != "" {
+		return nil, msg
 	}
 	compact, err := json.Marshal(obj)
 	if err != nil || len(compact) > domain.MaxFunnelPropsBytes {
 		return nil, "props is too large"
 	}
 	return compact, ""
+}
+
+func validateEventProps(event string, obj map[string]json.RawMessage) string {
+	switch event {
+	case domain.FunnelRegisterClientError:
+		return requireEnumProp(obj, "error_type", domain.RegisterClientErrorTypes, "invalid error_type")
+	case domain.FunnelLandingCTAClick:
+		return requireEnumProp(obj, "button", domain.LandingCTAButtons, "invalid button")
+	case domain.FunnelRegisterFormView, domain.FunnelRegisterSubmitAttempt, domain.FunnelRegisterEmailExists:
+		if len(obj) != 0 {
+			return "props are not allowed for this event"
+		}
+		return ""
+	default:
+		return ""
+	}
+}
+
+func requireEnumProp(obj map[string]json.RawMessage, key string, allowed []string, invalidMsg string) string {
+	if len(obj) == 0 {
+		return invalidMsg
+	}
+	for k := range obj {
+		if k != key {
+			return "unknown prop"
+		}
+	}
+	raw, ok := obj[key]
+	if !ok {
+		return invalidMsg
+	}
+	var value string
+	if err := json.Unmarshal(bytes.TrimSpace(raw), &value); err != nil {
+		return invalidMsg
+	}
+	for _, candidate := range allowed {
+		if value == candidate {
+			return ""
+		}
+	}
+	return invalidMsg
+}
+
+func propCarriesEmailOrForm(key string, raw json.RawMessage) bool {
+	switch strings.ToLower(strings.TrimSpace(key)) {
+	case "email", "e-mail", "password", "passwd":
+		return true
+	}
+	val := bytes.TrimSpace(raw)
+	if len(val) == 0 || val[0] != '"' {
+		return false
+	}
+	var s string
+	if err := json.Unmarshal(val, &s); err != nil {
+		return false
+	}
+	return strings.Contains(s, "@")
 }
 
 func flatJSONScalar(raw json.RawMessage) bool {

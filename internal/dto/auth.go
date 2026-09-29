@@ -8,11 +8,23 @@ import (
 
 // RegisterRequest is the JSON body for POST /api/v1/auth/register.
 type RegisterRequest struct {
-	Email          string `json:"email"`
-	Password       string `json:"password"`
-	Username       string `json:"username,omitempty"` // optional; derived from email if empty
-	DisplayName    string `json:"display_name,omitempty"`
-	TurnstileToken string `json:"turnstile_token,omitempty"` // Cloudflare Turnstile widget token when captcha enabled
+	Email          string               `json:"email"`
+	Password       string               `json:"password"`
+	Username       string               `json:"username,omitempty"` // optional; derived from email if empty
+	DisplayName    string               `json:"display_name,omitempty"`
+	TurnstileToken string               `json:"turnstile_token,omitempty"` // Cloudflare Turnstile widget token when captcha enabled
+	Attribution    *RegisterAttribution `json:"attribution,omitempty"`
+}
+
+// RegisterAttribution is the optional first-touch campaign object on register.
+// Unknown JSON keys are ignored. Values are sanitized before they are stored.
+type RegisterAttribution struct {
+	UTMSource   string `json:"utm_source,omitempty"`
+	UTMMedium   string `json:"utm_medium,omitempty"`
+	UTMCampaign string `json:"utm_campaign,omitempty"`
+	UTMContent  string `json:"utm_content,omitempty"`
+	FBCLID      string `json:"fbclid,omitempty"`
+	TTCLID      string `json:"ttclid,omitempty"`
 }
 
 // LoginRequest is the JSON body for POST /api/v1/auth/login.

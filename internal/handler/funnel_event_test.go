@@ -171,7 +171,7 @@ func TestFunnelEvents_AcceptsWithAndWithoutAuth(t *testing.T) {
 		if seen[event] {
 			continue
 		}
-		body := funnelBody(event, "wl-"+event, "/check-in", `{"n":1}`)
+		body := funnelBody(event, "wl-"+event, "/check-in", propsForWhitelist(event))
 		status, raw, _ = postFunnel(t, app, "", "", "", body)
 		if status != http.StatusNoContent {
 			t.Fatalf("event %s status=%d body=%s", event, status, raw)
@@ -295,6 +295,30 @@ func TestFunnelEvents_RejectsUnknownEventAndOversizedProps(t *testing.T) {
 			code:    "invalid_funnel_event",
 			message: "body is too large",
 		},
+		{
+			name:    "bad error_type",
+			body:    funnelBody(domain.FunnelRegisterClientError, "sess-err", "/register", `{"error_type":"password too short"}`),
+			code:    "invalid_funnel_event",
+			message: "invalid error_type",
+		},
+		{
+			name:    "email in props",
+			body:    funnelBody(domain.FunnelRegisterClientError, "sess-email", "/register", `{"error_type":"email_invalid","email":"person@example.com"}`),
+			code:    "invalid_funnel_event",
+			message: "props must not include an email",
+		},
+		{
+			name:    "email string in a prop value",
+			body:    funnelBody(domain.FunnelCheckinPageView, "sess-email-val", "/check-in", `{"note":"person@example.com"}`),
+			code:    "invalid_funnel_event",
+			message: "props must not include an email",
+		},
+		{
+			name:    "unknown landing prop",
+			body:    funnelBody(domain.FunnelLandingCTAClick, "sess-cta", "/", `{"button":"hero_primary","label":"Sign up now"}`),
+			code:    "invalid_funnel_event",
+			message: "unknown prop",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -398,6 +422,19 @@ func TestFunnelEvents_RateLimitPerSession(t *testing.T) {
 	status, raw, _ = postFunnel(t, app, "", "", "", other)
 	if status != http.StatusNoContent {
 		t.Fatalf("other session status=%d body=%s", status, raw)
+	}
+}
+
+func propsForWhitelist(event string) string {
+	switch event {
+	case domain.FunnelRegisterClientError:
+		return `{"error_type":"network"}`
+	case domain.FunnelLandingCTAClick:
+		return `{"button":"hero_primary"}`
+	case domain.FunnelRegisterFormView, domain.FunnelRegisterSubmitAttempt, domain.FunnelRegisterEmailExists:
+		return `{}`
+	default:
+		return `{"n":1}`
 	}
 }
 
