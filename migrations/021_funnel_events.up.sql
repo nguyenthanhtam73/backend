@@ -1,6 +1,9 @@
 -- First-party check-in funnel events (page view through submit).
+-- Numbered 021 so it lands after 020_email_reminder_suppression.
 -- user_id is NULL for guests. Do not add IP or email columns.
--- Schema is also applied via GORM AutoMigrate in repository.AutoMigrate.
+-- Boot schema comes from GORM AutoMigrate in repository.AutoMigrate, which
+-- does not read this directory. Apply this file by hand on Postgres when
+-- that AutoMigrate is not the source of truth.
 
 CREATE TABLE IF NOT EXISTS funnel_events (
     id         UUID PRIMARY KEY,
