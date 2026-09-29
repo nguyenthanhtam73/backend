@@ -8,9 +8,11 @@ import (
 	"os"
 	"os/signal"
 	"path"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/dadiary/backend/internal/clientip"
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/handler"
@@ -52,13 +54,23 @@ func main() {
 		}
 	}
 
-	app := fiber.New(fiber.Config{
+	proxyHeader := cfg.HTTP.TrustedProxyHeader
+	if proxyHeader == "" {
+		proxyHeader = "disabled"
+	}
+	proxyNets := strings.Join(cfg.HTTP.TrustedProxies, ",")
+	if proxyNets == "" {
+		proxyNets = "none"
+	}
+	slog.Info("client_ip", "proxy_header", proxyHeader, "trusted_proxies", proxyNets)
+
+	app := fiber.New(clientip.Apply(fiber.Config{
 		AppName:      "DaDiary API",
 		ReadTimeout:  cfg.HTTP.ReadTimeout,
 		WriteTimeout: cfg.HTTP.WriteTimeout,
 		// Multipart skin photo uploads need a higher limit than Fiber's default 4MB.
 		BodyLimit: 100 * 1024 * 1024,
-	})
+	}, cfg.HTTP.TrustedProxyHeader, cfg.HTTP.TrustedProxies))
 
 	middleware.RegisterDefault(app)
 
