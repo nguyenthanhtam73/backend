@@ -93,6 +93,18 @@ func TestResendClient_ClassifiesHTTPStatus(t *testing.T) {
 		}
 	}
 
+	fromSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"name":"validation_error","message":"Invalid ` + "`from`" + ` field. The email address needs to follow the email@example.com format."}`))
+	}))
+	defer fromSrv.Close()
+	fromClient := NewResendClient("re_test_key", "DaDiary <noreply@dadiary.vn>")
+	fromClient.endpoint = fromSrv.URL
+	fromErr := fromClient.Send(context.Background(), Message{To: "user@example.com", Subject: "s", Text: "t"})
+	if Classify(fromErr) != FailureRejection {
+		t.Fatalf("invalid from class=%v err=%v", Classify(fromErr), fromErr)
+	}
+
 	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	endpoint := srv.URL
 	srv.Close()

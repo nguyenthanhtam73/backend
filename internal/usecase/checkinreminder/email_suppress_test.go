@@ -42,3 +42,12 @@ func TestApplyReminderEmailRejection(t *testing.T) {
 		t.Fatal("same address stays blocked")
 	}
 }
+
+func TestReminderSenderWide(t *testing.T) {
+	if reminderSenderWide(1, 1) || reminderSenderWide(2, 4) || reminderSenderWide(3, 10) {
+		t.Fatal("small or minority failures are still per recipient")
+	}
+	if !reminderSenderWide(4, 10) || !reminderSenderWide(2, 2) || !reminderSenderWide(3, 5) {
+		t.Fatal("more than 3 users, or a majority of the run, is a sender error")
+	}
+}

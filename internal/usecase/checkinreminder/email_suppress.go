@@ -6,9 +6,13 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 )
 
-// reminderEmailSuppressAfter is how many non-permanent rejections (other 4xx)
-// mark an address undeliverable. HTTP 400/422 suppress on the first one.
+// reminderEmailSuppressAfter is how many non-permanent rejections mark an
+// address undeliverable. A confirmed bad recipient suppresses on the first one.
 const reminderEmailSuppressAfter = 3
+
+// reminderSenderWideUsers is the count of distinct recipients sharing one
+// non-recipient error in a single run that means the failure is ours.
+const reminderSenderWideUsers = 3
 
 type reminderEmailState struct {
 	FailCount    int
@@ -56,4 +60,14 @@ func applyReminderEmailRejection(
 		return prev, true
 	}
 	return prev, false
+}
+
+// reminderSenderWide reports that one non-recipient error hit many users in
+// this run: more than reminderSenderWideUsers, or a strict majority of the
+// run's send attempts (and at least two users). One lone failure is not wide.
+func reminderSenderWide(distinctUsers, sendAttempts int) bool {
+	if distinctUsers > reminderSenderWideUsers {
+		return true
+	}
+	return distinctUsers >= 2 && sendAttempts > 0 && distinctUsers*2 > sendAttempts
 }

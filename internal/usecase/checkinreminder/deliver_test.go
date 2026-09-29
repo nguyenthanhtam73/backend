@@ -175,7 +175,7 @@ func TestDeliverDue_PermanentFailureMarksUndeliverable(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
 
-	mailer := &stubMailer{ready: true, sendErr: &email.Failure{Status: 422}}
+	mailer := &stubMailer{ready: true, sendErr: resendFailure(t, 422, "validation_error", resendInvalidTo)}
 	receipts := repository.NewEmailSendReceiptRepository(db)
 	svc.AttachOutbound(mailer, receipts, nil, nil, "https://dadiary.vn/check-in")
 
@@ -408,7 +408,7 @@ func TestDeliverDue_EmailChangeBecomesEligible(t *testing.T) {
 	if _, err := svc.RefreshWindow(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	mailer := &stubMailer{ready: true, sendErr: &email.Failure{Status: 422}}
+	mailer := &stubMailer{ready: true, sendErr: resendFailure(t, 422, "validation_error", resendInvalidTo)}
 	svc.AttachOutbound(mailer, repository.NewEmailSendReceiptRepository(db), nil, nil, "https://dadiary.vn/check-in")
 	if _, err := svc.DeliverDue(context.Background()); err != nil {
 		t.Fatal(err)
@@ -434,6 +434,104 @@ func TestDeliverDue_EmailChangeBecomesEligible(t *testing.T) {
 	got, err := users.GetByID(context.Background(), u.ID)
 	if err != nil || got == nil || got.EmailReminderSuppressedAt != nil || got.EmailReminderHash != "" {
 		t.Fatalf("suppression should clear after the new address: %+v err=%v", got, err)
+	}
+}
+
+const (
+	resendInvalidTo   = "Invalid `to` field. The email address needs to follow the `email@example.com` or `Name <email@example.com>` format."
+	resendInvalidFrom = "Invalid `from` field. The email address needs to follow the `email@example.com` or `Name <email@example.com>` format."
+)
+
+func resendFailure(t *testing.T, status int, name, message string) *email.Failure {
+	t.Helper()
+	raw, err := json.Marshal(map[string]string{"name": name, "message": message})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &email.Failure{Status: status, Body: string(raw)}
+}
+
+func TestDeliverDue_InvalidFromDoesNotSuppressImmediately(t *testing.T) {
+	now := streaktime.Now()
+	svc, users, _, db := setupReminderSvc(t, now)
+	u := createUser(t, users, "from@example.com", StartOfVNDay(now).Add(13*time.Minute))
+	if _, err := svc.RefreshWindow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mailer := &stubMailer{ready: true, sendErr: resendFailure(t, 422, "validation_error", resendInvalidFrom)}
+	svc.AttachOutbound(mailer, repository.NewEmailSendReceiptRepository(db), nil, nil, "https://dadiary.vn/check-in")
+
+	res, err := svc.DeliverDue(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.EmailSent != 0 || res.EmailFailed < 1 || res.EmailSkipped != 0 {
+		t.Fatalf("invalid from should stay on the retry counter: %+v", res)
+	}
+	got, err := users.GetByID(context.Background(), u.ID)
+	if err != nil || got == nil || got.EmailReminderSuppressedAt != nil || got.EmailReminderFailCount != 1 {
+		t.Fatalf("invalid from must count as one strike, not suppress: %+v err=%v", got, err)
+	}
+	if _, err := svc.DeliverDue(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if mailer.Attempts() != 2 {
+		t.Fatalf("attempts=%d", mailer.Attempts())
+	}
+	got, err = users.GetByID(context.Background(), u.ID)
+	if err != nil || got == nil || got.EmailReminderSuppressedAt != nil || got.EmailReminderFailCount != 2 {
+		t.Fatalf("second from error still must not suppress: %+v err=%v", got, err)
+	}
+}
+
+func TestDeliverDue_SenderWideErrorDoesNotCountStrikes(t *testing.T) {
+	now := streaktime.Now()
+	svc, users, _, db := setupReminderSvc(t, now)
+	var created []*domain.User
+	for i, addr := range []string{"a@example.com", "b@example.com", "c@example.com", "d@example.com"} {
+		created = append(created, createUser(t, users, addr, StartOfVNDay(now).Add(time.Duration(20+i)*time.Minute)))
+	}
+	if _, err := svc.RefreshWindow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	mailer := &stubMailer{ready: true, sendErr: resendFailure(t, 422, "validation_error", resendInvalidFrom)}
+	svc.AttachOutbound(mailer, repository.NewEmailSendReceiptRepository(db), nil, nil, "https://dadiary.vn/check-in")
+
+	res, err := svc.DeliverDue(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.EmailFailed != len(created) || res.EmailSent != 0 || mailer.Attempts() != len(created) {
+		t.Fatalf("sender-wide run: %+v attempts=%d", res, mailer.Attempts())
+	}
+	if strings.Count(logs.String(), "sender error, not counting recipient failures") != 1 {
+		t.Fatalf("expected one sender-error line: %s", logs.String())
+	}
+	for _, u := range created {
+		if strings.Contains(logs.String(), u.Email) {
+			t.Fatalf("log contains mailbox %s: %s", u.Email, logs.String())
+		}
+		got, err := users.GetByID(context.Background(), u.ID)
+		if err != nil || got == nil || got.EmailReminderSuppressedAt != nil || got.EmailReminderFailCount != 0 {
+			t.Fatalf("sender error counted against %s: %+v err=%v", u.Email, got, err)
+		}
+	}
+
+	logs.Reset()
+	again, err := svc.DeliverDue(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.EmailFailed != len(created) || mailer.Attempts() != len(created)*2 {
+		t.Fatalf("sender error should keep retrying: %+v attempts=%d", again, mailer.Attempts())
+	}
+	if strings.Count(logs.String(), "sender error, not counting recipient failures") != 1 {
+		t.Fatalf("second run should still log once: %s", logs.String())
 	}
 }
 

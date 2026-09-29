@@ -143,7 +143,7 @@ func (c *ResendClient) Send(ctx context.Context, msg Message) error {
 		"status", resp.StatusCode,
 		"body", string(respBody),
 	)
-	return &Failure{Status: resp.StatusCode}
+	return &Failure{Status: resp.StatusCode, Body: string(respBody)}
 }
 
 func maskEmail(addr string) string {
