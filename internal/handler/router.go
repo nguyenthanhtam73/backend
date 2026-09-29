@@ -83,9 +83,12 @@ const (
 	paywallViewRateMax    = 40
 	paywallViewRateWindow = 15 * time.Minute
 
-	// Check-in funnel ingest is a single insert. Cap per IP and per session.
-	funnelEventRateMax    = 60
-	funnelEventRateWindow = time.Minute
+	// Check-in funnel ingest is a single insert.
+	// Per session_id, plus a process-wide cap. Not per IP: c.IP() is the
+	// Railway proxy address until ProxyHeader is configured.
+	funnelEventRateMax       = 60
+	funnelEventRateWindow    = time.Minute
+	funnelEventGlobalRateMax = 600
 )
 
 // Router wires API v1 routes: health (public), auth (mixed), skin-checks (protected).
@@ -278,7 +281,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		funnelH := NewFunnelEventHandler(funneleventuc.NewService(funnelEventRepo))
 		api.Post("/funnel-events",
 			jwtOptional,
-			middleware.FunnelEventIPLimiter(funnelEventRateMax, funnelEventRateWindow),
+			middleware.FunnelEventGlobalLimiter(funnelEventGlobalRateMax, funnelEventRateWindow),
 			middleware.FunnelEventSessionLimiter(funnelEventRateMax, funnelEventRateWindow),
 			funnelH.Log,
 		)

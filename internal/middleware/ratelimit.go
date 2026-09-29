@@ -85,27 +85,29 @@ func newFunnelLimiter(max int, window time.Duration, key func(*fiber.Ctx) string
 	})
 }
 
-// FunnelEventIPLimiter caps funnel ingest per client IP.
-// The IP is used only as an in-memory bucket key and is not persisted.
-func FunnelEventIPLimiter(max int, window time.Duration) fiber.Handler {
-	return newFunnelLimiter(max, window, func(c *fiber.Ctx) string {
-		return "ip:" + c.IP()
+// FunnelEventGlobalLimiter is a process-wide safety cap for funnel ingest.
+// It does not use c.IP(). Behind Railway that value is the proxy, so a
+// per-IP bucket would be one bucket for every visitor.
+func FunnelEventGlobalLimiter(max int, window time.Duration) fiber.Handler {
+	return newFunnelLimiter(max, window, func(*fiber.Ctx) string {
+		return "global"
 	})
 }
 
 // FunnelEventSessionLimiter caps funnel ingest per client session_id.
-// Requests without a usable session_id share the IP bucket.
+// Requests without a usable session_id share one bucket. This does not
+// call c.IP().
 func FunnelEventSessionLimiter(max int, window time.Duration) fiber.Handler {
 	return newFunnelLimiter(max, window, func(c *fiber.Ctx) string {
 		if sid := funnelSessionID(c); sid != "" {
 			return "sid:" + sid
 		}
-		return "ip:" + c.IP()
+		return "nosession"
 	})
 }
 
 // funnelSessionID reads session_id for the rate-limit key.
-// Oversized bodies are not parsed; those requests fall back to the IP bucket.
+// Oversized bodies are not parsed; those requests use the nosession bucket.
 func funnelSessionID(c *fiber.Ctx) string {
 	body := c.Body()
 	if len(body) == 0 || len(body) > domain.MaxFunnelBodyBytes {

@@ -318,8 +318,8 @@ func TestFunnelEvents_RejectsUnknownEventAndOversizedProps(t *testing.T) {
 }
 
 func TestFunnelEvents_RateLimit(t *testing.T) {
-	if funnelEventRateMax != 60 || funnelEventRateWindow != time.Minute {
-		t.Fatalf("production budget = %d / %s, want 60/min", funnelEventRateMax, funnelEventRateWindow)
+	if funnelEventRateMax != 60 || funnelEventGlobalRateMax != 600 || funnelEventRateWindow != time.Minute {
+		t.Fatalf("production budget = %d/session and %d global per %s", funnelEventRateMax, funnelEventGlobalRateMax, funnelEventRateWindow)
 	}
 	app, db, _ := newFunnelFixture(t, false)
 	body := funnelBody(domain.FunnelCheckinPageView, "sess-rate", "/check-in", `{"n":1}`)
@@ -337,17 +337,43 @@ func TestFunnelEvents_RateLimit(t *testing.T) {
 	if code != "rate_limited" {
 		t.Fatalf("code=%s", code)
 	}
+	// A second session_id is a different bucket. c.IP() is not the key,
+	// so visitors who share Railway's proxy address do not share this cap.
 	rotated := funnelBody(domain.FunnelCheckinPageView, "sess-rotated", "/check-in", `{"n":1}`)
 	status, raw, _ = postFunnel(t, app, "", "", "", rotated)
-	if status != http.StatusTooManyRequests {
+	if status != http.StatusNoContent {
 		t.Fatalf("rotated session status=%d body=%s", status, raw)
 	}
 	var n int64
 	if err := db.Model(&domain.FunnelEvent{}).Count(&n).Error; err != nil {
 		t.Fatal(err)
 	}
-	if n != int64(funnelEventRateMax) {
-		t.Fatalf("rows=%d want %d", n, funnelEventRateMax)
+	if n != int64(funnelEventRateMax+1) {
+		t.Fatalf("rows=%d want %d", n, funnelEventRateMax+1)
+	}
+}
+
+func TestFunnelEvents_GlobalRateLimit(t *testing.T) {
+	db := openFunnelDB(t)
+	h := NewFunnelEventHandler(funneleventuc.NewService(repository.NewFunnelEventRepository(db)))
+	app := fiber.New()
+	app.Post("/api/v1/funnel-events", middleware.FunnelEventGlobalLimiter(2, time.Minute), h.Log)
+
+	for i, sid := range []string{"g-a", "g-b"} {
+		body := funnelBody(domain.FunnelCheckinPageView, sid, "/check-in", `{}`)
+		status, raw, _ := postFunnel(t, app, "", "", "", body)
+		if status != http.StatusNoContent {
+			t.Fatalf("session %d status=%d body=%s", i+1, status, raw)
+		}
+	}
+	body := funnelBody(domain.FunnelCheckinPageView, "g-c", "/check-in", `{}`)
+	status, raw, _ := postFunnel(t, app, "", "", "", body)
+	if status != http.StatusTooManyRequests {
+		t.Fatalf("global cap status=%d body=%s", status, raw)
+	}
+	code, _ := errorFields(t, raw)
+	if code != "rate_limited" {
+		t.Fatalf("code=%s", code)
 	}
 }
 
