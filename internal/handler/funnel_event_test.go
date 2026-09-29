@@ -326,12 +326,6 @@ func TestFunnelEvents_RejectsUnknownEventAndOversizedProps(t *testing.T) {
 			message: "unknown prop",
 		},
 		{
-			name:    "non-string utm",
-			body:    funnelBody(domain.FunnelRegisterSubmitAttempt, "sess-utm-num", "/register", `{"utm_source":1}`),
-			code:    "invalid_funnel_event",
-			message: "invalid utm_source",
-		},
-		{
 			name:    "register error missing error_type",
 			body:    funnelBody(domain.FunnelRegisterClientError, "sess-no-err", "/register", `{"utm_source":"meta"}`),
 			code:    "invalid_funnel_event",
@@ -445,8 +439,8 @@ func TestFunnelEvents_RateLimitPerSession(t *testing.T) {
 
 func TestFunnelEvents_AcceptsFrontendRegisterPayloads(t *testing.T) {
 	app, db, _ := newFunnelFixture(t, false)
-	long := strings.Repeat("a", 256)
-	dirty := "ig<script>"
+	tooLong := strings.Repeat("a", 101)
+	exact := strings.Repeat("b", 100)
 
 	type want struct {
 		session string
@@ -474,8 +468,20 @@ func TestFunnelEvents_AcceptsFrontendRegisterPayloads(t *testing.T) {
 			want: want{session: "reg-err", event: domain.FunnelRegisterClientError, props: map[string]any{"utm_source": "test", "utm_campaign": "x", "error_type": "password_short"}},
 		},
 		{
-			body: funnelBody(domain.FunnelRegisterClientError, "reg-err-long", "/register", `{"error_type":"email_invalid","utm_source":"`+long+`","utm_campaign":"`+dirty+`"}`),
-			want: want{session: "reg-err-long", event: domain.FunnelRegisterClientError, props: map[string]any{"error_type": "email_invalid", "utm_source": strings.Repeat("a", 200), "utm_campaign": "igscript"}},
+			body: funnelBody(domain.FunnelRegisterClientError, "reg-err-drop", "/register", `{"error_type":"email_invalid","utm_source":"`+tooLong+`","utm_campaign":"ig<script>"}`),
+			want: want{session: "reg-err-drop", event: domain.FunnelRegisterClientError, props: map[string]any{"error_type": "email_invalid"}},
+		},
+		{
+			body: funnelBody(domain.FunnelRegisterFormView, "reg-space", "/register", `{"utm_source":"paid social","utm_campaign":"summer%20sale"}`),
+			want: want{session: "reg-space", event: domain.FunnelRegisterFormView, props: map[string]any{}},
+		},
+		{
+			body: funnelBody(domain.FunnelRegisterSubmitAttempt, "reg-100", "/register", `{"utm_source":"`+exact+`"}`),
+			want: want{session: "reg-100", event: domain.FunnelRegisterSubmitAttempt, props: map[string]any{"utm_source": exact}},
+		},
+		{
+			body: funnelBody(domain.FunnelRegisterEmailExists, "reg-num", "/register", `{"utm_source":1,"utm_campaign":"launch"}`),
+			want: want{session: "reg-num", event: domain.FunnelRegisterEmailExists, props: map[string]any{"utm_campaign": "launch"}},
 		},
 		{
 			body: funnelBody(domain.FunnelRegisterEmailExists, "reg-exists", "/register", `{"utm_source":"test","utm_campaign":"x"}`),

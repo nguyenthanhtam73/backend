@@ -1,67 +1,48 @@
 package dto
 
 import (
-	"strings"
-	"unicode"
-	"unicode/utf8"
+	"regexp"
 
 	"github.com/dadiary/backend/internal/domain"
 )
 
-const maxAttributionRunes = 200
+// UTM values must match the whole string: ^[A-Za-z0-9_.-]{1,100}$.
+// Click IDs match ^[A-Za-z0-9_.-]{1,255}$. '.' is allowed because TikTok
+// ttclid values use it. Meta fbclid values from the landing URL are letters,
+// digits, '_' and '-' and still match. A miss is dropped, not rewritten.
 
-// Apply writes sanitized first-touch values onto a new user.
-// A nil attribution leaves the columns unset. Values that contain "@"
-// are dropped so an email address is never stored in these columns.
+var (
+	utmValuePattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,100}$`)
+	clickIDPattern  = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,255}$`)
+)
+
+// Apply writes first-touch values that pass validation onto a new user.
+// A nil attribution leaves the columns unset. A value that fails its pattern
+// is stored as NULL, and the rest of the register still succeeds.
 func (a *RegisterAttribution) Apply(user *domain.User) {
 	if a == nil || user == nil {
 		return
 	}
-	user.UTMSource = attributionPtr(a.UTMSource)
-	user.UTMMedium = attributionPtr(a.UTMMedium)
-	user.UTMCampaign = attributionPtr(a.UTMCampaign)
-	user.UTMContent = attributionPtr(a.UTMContent)
-	user.FBCLID = attributionPtr(a.FBCLID)
-	user.TTCLID = attributionPtr(a.TTCLID)
+	user.UTMSource = acceptedUTM(a.UTMSource)
+	user.UTMMedium = acceptedUTM(a.UTMMedium)
+	user.UTMCampaign = acceptedUTM(a.UTMCampaign)
+	user.UTMContent = acceptedUTM(a.UTMContent)
+	user.FBCLID = acceptedClickID(a.FBCLID)
+	user.TTCLID = acceptedClickID(a.TTCLID)
 }
 
-func attributionPtr(raw string) *string {
-	v := sanitizeAttribution(raw)
-	if v == "" {
+func acceptedUTM(raw string) *string {
+	return acceptedMatch(raw, utmValuePattern)
+}
+
+func acceptedClickID(raw string) *string {
+	return acceptedMatch(raw, clickIDPattern)
+}
+
+func acceptedMatch(raw string, pattern *regexp.Regexp) *string {
+	if !pattern.MatchString(raw) {
 		return nil
 	}
+	v := raw
 	return &v
-}
-
-// sanitizeAttribution trims, strips characters outside the campaign charset,
-// and truncates to 200 runes. An "@" drops the whole value.
-func sanitizeAttribution(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || strings.Contains(raw, "@") {
-		return ""
-	}
-	var b strings.Builder
-	b.Grow(len(raw))
-	for _, r := range raw {
-		if attributionRuneOK(r) {
-			b.WriteRune(r)
-		}
-	}
-	out := b.String()
-	if utf8.RuneCountInString(out) <= maxAttributionRunes {
-		return out
-	}
-	return string([]rune(out)[:maxAttributionRunes])
-}
-
-func attributionRuneOK(r rune) bool {
-	if unicode.IsLetter(r) || unicode.IsDigit(r) {
-		return true
-	}
-	switch r {
-	case '-', '_', '.', ':', '+', '/', '~', '%':
-		return true
-	default:
-		return false
-	}
 }

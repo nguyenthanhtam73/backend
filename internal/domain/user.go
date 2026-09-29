@@ -76,13 +76,14 @@ type User struct {
 	EmailUnsubscribedAt *time.Time `json:"email_unsubscribed_at,omitempty"`
 
 	// First-touch attribution captured at register. Nil means the client did
-	// not send a value. A later signup for the same email does not overwrite.
-	UTMSource   *string `gorm:"column:utm_source;size:200" json:"-"`
-	UTMMedium   *string `gorm:"column:utm_medium;size:200" json:"-"`
-	UTMCampaign *string `gorm:"column:utm_campaign;size:200" json:"-"`
-	UTMContent  *string `gorm:"column:utm_content;size:200" json:"-"`
-	FBCLID      *string `gorm:"column:fbclid;size:200" json:"-"`
-	TTCLID      *string `gorm:"column:ttclid;size:200" json:"-"`
+	// not send a value, or the value failed validation and was dropped.
+	// A later signup for the same email does not overwrite.
+	UTMSource   *string `gorm:"column:utm_source;size:100" json:"-"`
+	UTMMedium   *string `gorm:"column:utm_medium;size:100" json:"-"`
+	UTMCampaign *string `gorm:"column:utm_campaign;size:100" json:"-"`
+	UTMContent  *string `gorm:"column:utm_content;size:100" json:"-"`
+	FBCLID      *string `gorm:"column:fbclid;size:255" json:"-"`
+	TTCLID      *string `gorm:"column:ttclid;size:255" json:"-"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
