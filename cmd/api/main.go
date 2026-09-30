@@ -33,8 +33,10 @@ import (
 
 func main() {
 	// Every slog site (including error strings that embed an address) goes
-	// through logmask. GORM and the access logger redact on their own writers.
-	slog.SetDefault(slog.New(logmask.NewHandler(slog.Default().Handler())))
+	// through logmask. The text handler is built directly so log.Printf,
+	// which slog.SetDefault routes into this logger, cannot deadlock.
+	// GORM and the access logger redact on their own writers.
+	slog.SetDefault(logmask.NewProcessLogger(os.Stdout))
 
 	cfg, err := config.Load(".env")
 	if err != nil {

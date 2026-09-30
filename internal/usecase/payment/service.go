@@ -551,19 +551,13 @@ func (s *Service) fulfillPaidOrder(
 
 // notifyPaymentSuccess pings ops (Telegram/Slack) for each paid fulfill.
 // UniqueSuffix=invoice so every real payment notifies (not shared 15m spam bucket).
-// Entire notify (optional email lookup + alert.Send) runs in a background goroutine
-// so the IPN handler returns immediately.
+// The send runs in a background goroutine so the IPN handler returns immediately.
+// The payer is identified by user_id and invoice; the email is never included.
 func (s *Service) notifyPaymentSuccess(_ context.Context, order *domain.PaymentOrder, plan domain.PlanTier) {
 	if s == nil || order == nil {
 		return
 	}
-	userID := order.UserID
-	invoice := order.InvoiceNumber
-	orderID := order.ID.String()
-	amount := order.AmountVND
-	interval := string(order.BillingInterval)
-	planStr := string(plan)
-	users := s.users
+	ev := paymentSuccessAlert(order, plan)
 	alerter := s.alerter
 
 	go func() {
@@ -572,37 +566,40 @@ func (s *Service) notifyPaymentSuccess(_ context.Context, order *domain.PaymentO
 				slog.Error("payment: success notify panic", "recover", fmt.Sprint(r))
 			}
 		}()
-		userLabel := userID.String()
-		if users != nil {
-			if u, err := users.GetByID(context.Background(), userID); err == nil && u != nil {
-				if e := strings.TrimSpace(u.Email); e != "" {
-					userLabel = e
-				}
-			}
-		}
-		msg := fmt.Sprintf(
-			"User %s nâng cấp %s thành công, amount %d VND (%s)",
-			userLabel, planStr, amount, interval,
-		)
-		alert.Send(context.Background(), alerter, alert.Event{
-			Key:          alert.KeyPaymentSuccess,
-			UniqueSuffix: invoice,
-			Title:        "Payment success",
-			Level:        alert.LevelInfo,
-			Message:      msg,
-			Detail:       "invoice=" + invoice,
-			Fields: map[string]any{
-				"reason":   alert.KeyPaymentSuccess,
-				"user_id":  userID.String(),
-				"user":     userLabel,
-				"plan":     planStr,
-				"amount":   amount,
-				"interval": interval,
-				"invoice":  invoice,
-				"order_id": orderID,
-			},
-		})
+		alert.Send(context.Background(), alerter, ev)
 	}()
+}
+
+// paymentSuccessAlert is the Slack and Telegram payload for a paid order.
+// Both sinks render it with alert formatText. The payer email is omitted;
+// user_id and the invoice (the merchant payment code) identify the payment.
+func paymentSuccessAlert(order *domain.PaymentOrder, plan domain.PlanTier) alert.Event {
+	userID := order.UserID.String()
+	invoice := order.InvoiceNumber
+	planStr := string(plan)
+	amount := order.AmountVND
+	interval := string(order.BillingInterval)
+	msg := fmt.Sprintf(
+		"User %s nâng cấp %s thành công, amount %d VND (%s), invoice %s",
+		userID, planStr, amount, interval, invoice,
+	)
+	return alert.Event{
+		Key:          alert.KeyPaymentSuccess,
+		UniqueSuffix: invoice,
+		Title:        "Payment success",
+		Level:        alert.LevelInfo,
+		Message:      msg,
+		Detail:       "invoice=" + invoice,
+		Fields: map[string]any{
+			"reason":   alert.KeyPaymentSuccess,
+			"user_id":  userID,
+			"plan":     planStr,
+			"amount":   amount,
+			"interval": interval,
+			"invoice":  invoice,
+			"order_id": order.ID.String(),
+		},
+	}
 }
 
 // webhookFail logs Error and optionally sends an ops alert, then returns err unchanged.

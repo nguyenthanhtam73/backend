@@ -3,9 +3,11 @@ package alert
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -239,5 +241,97 @@ func TestFanoutDoesNotBlockOnSlowSink(t *testing.T) {
 	case <-started:
 	case <-time.After(2 * time.Second):
 		t.Fatal("remote send never started")
+	}
+}
+
+// paymentSuccessFixture is the ops payload shape from payment.paymentSuccessAlert.
+// Slack's text field and Telegram's text field are both formatText of this event.
+func paymentSuccessFixture() Event {
+	const (
+		userID  = "11111111-1111-1111-1111-111111111111"
+		invoice = "DD-PAY-CODE-1"
+	)
+	return Event{
+		Key:          KeyPaymentSuccess,
+		UniqueSuffix: invoice,
+		Title:        "Payment success",
+		Level:        LevelInfo,
+		Message: fmt.Sprintf(
+			"User %s nâng cấp %s thành công, amount %d VND (%s), invoice %s",
+			userID, "premium", 99000, "monthly", invoice,
+		),
+		Detail: "invoice=" + invoice,
+		Fields: map[string]any{
+			"reason":   KeyPaymentSuccess,
+			"user_id":  userID,
+			"plan":     "premium",
+			"amount":   int64(99000),
+			"interval": "monthly",
+			"invoice":  invoice,
+			"order_id": "22222222-2222-2222-2222-222222222222",
+		},
+	}
+}
+
+func TestFormatTextPaymentSuccessOmitsEmail(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rawEmail = "payer@gmail.com"
+		userID   = "11111111-1111-1111-1111-111111111111"
+		invoice  = "DD-PAY-CODE-1"
+	)
+	ev := paymentSuccessFixture()
+	text := formatText(ev)
+	assertPaymentSuccessText(t, text, userID, invoice, rawEmail, ev.Message)
+	if _, ok := ev.Fields["user"]; ok {
+		t.Fatal("user field must not be sent")
+	}
+
+	var slackBody []byte
+	slack := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		slackBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(slack.Close)
+
+	f := New(Config{HTTPClient: slack.Client()})
+	if !f.postSlack(context.Background(), slack.URL, ev) {
+		t.Fatal("slack post failed")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(slackBody, &payload); err != nil {
+		t.Fatal(err)
+	}
+	slackText, _ := payload["text"].(string)
+	assertPaymentSuccessText(t, slackText, userID, invoice, rawEmail, ev.Message)
+	raw, _ := json.Marshal(payload["fields"])
+	if strings.Contains(string(raw), rawEmail) || strings.Contains(string(raw), "@") {
+		t.Fatalf("email in slack fields: %s", raw)
+	}
+	fields, _ := payload["fields"].(map[string]any)
+	if fields["user_id"] != userID || fields["invoice"] != invoice {
+		t.Fatalf("slack fields=%v", fields)
+	}
+
+	tgBody, err := telegramBody("ops", ev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tg map[string]any
+	if err := json.Unmarshal(tgBody, &tg); err != nil {
+		t.Fatal(err)
+	}
+	tgText, _ := tg["text"].(string)
+	assertPaymentSuccessText(t, tgText, userID, invoice, rawEmail, ev.Message)
+}
+
+func assertPaymentSuccessText(t *testing.T, text, userID, invoice, rawEmail, message string) {
+	t.Helper()
+	if !strings.Contains(text, message) || !strings.Contains(text, userID) || !strings.Contains(text, invoice) {
+		t.Fatalf("slack/telegram text missing user_id, invoice, or message:\n%s", text)
+	}
+	if strings.Contains(text, rawEmail) || strings.Contains(text, "@") {
+		t.Fatalf("email in slack/telegram text:\n%s", text)
 	}
 }

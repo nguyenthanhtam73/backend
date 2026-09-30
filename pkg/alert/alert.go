@@ -351,15 +351,19 @@ func (f *Fanout) postSlack(ctx context.Context, url string, e Event) bool {
 
 func (f *Fanout) postTelegram(ctx context.Context, token, chatID string, e Event) bool {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
-	body, err := json.Marshal(map[string]any{
-		"chat_id": chatID,
-		"text":    formatText(e),
-	})
+	body, err := telegramBody(chatID, e)
 	if err != nil {
 		slog.Error("alert: marshal telegram body failed", "error", err.Error())
 		return false
 	}
 	return f.doPOST(ctx, apiURL, "application/json", body, "telegram")
+}
+
+func telegramBody(chatID string, e Event) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"chat_id": chatID,
+		"text":    formatText(e),
+	})
 }
 
 func (f *Fanout) doPOST(ctx context.Context, url, contentType string, body []byte, sink string) bool {
