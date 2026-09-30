@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -318,9 +319,24 @@ func normalizePayload(p NotificationPayload) (NotificationPayload, error) {
 	return p, nil
 }
 
+// endpointSuffix keeps the push host and the last four characters of the URL.
+// The path is a device token; logging more of it would store that credential.
 func endpointSuffix(endpoint string) string {
-	if len(endpoint) <= 48 {
-		return endpoint
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return ""
 	}
-	return "…" + endpoint[len(endpoint)-48:]
+	host := ""
+	if u, err := url.Parse(endpoint); err == nil {
+		host = u.Host
+	}
+	const n = 4
+	tail := "****"
+	if len(endpoint) > n {
+		tail = endpoint[len(endpoint)-n:]
+	}
+	if host == "" {
+		return "…" + tail
+	}
+	return host + "/…" + tail
 }

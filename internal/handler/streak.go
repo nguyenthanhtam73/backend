@@ -7,6 +7,7 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/logmask"
 	"github.com/dadiary/backend/internal/middleware"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	streakuc "github.com/dadiary/backend/internal/usecase/streak"
@@ -160,7 +161,7 @@ func (h *StreakHandler) AdminReconcile(c *fiber.Ctx) error {
 	adminEmail, _ := c.Locals("auth_user_email").(string)
 	slog.Info("streak reconcile: admin request",
 		"admin_user_id", adminID,
-		"admin_email", adminEmail,
+		"admin_email", logmask.MaskEmail(adminEmail),
 		"target_user_id", targetID,
 		"action", "reconcile",
 	)
@@ -169,7 +170,7 @@ func (h *StreakHandler) AdminReconcile(c *fiber.Ctx) error {
 	if err != nil {
 		slog.Warn("streak reconcile: failed",
 			"admin_user_id", adminID,
-			"admin_email", adminEmail,
+			"admin_email", logmask.MaskEmail(adminEmail),
 			"target_user_id", targetID,
 			"err", err,
 		)
@@ -182,7 +183,7 @@ func (h *StreakHandler) AdminReconcile(c *fiber.Ctx) error {
 
 	slog.Info("streak reconcile: admin success",
 		"admin_user_id", adminID,
-		"admin_email", adminEmail,
+		"admin_email", logmask.MaskEmail(adminEmail),
 		"target_user_id", targetID,
 		"days_replayed", result.DaysReplayed,
 		"before_current", result.Before.CurrentStreak,
@@ -207,7 +208,7 @@ func (h *StreakHandler) AdminReconcile(c *fiber.Ctx) error {
 		DaysReplayed:          result.DaysReplayed,
 		FreezesPreserved:      result.FreezesPreserved,
 		FreezeBridgesInvented: result.FreezeBridgesInvented,
-		Note: "Replay uses FreezesAvailable=0 so historical 1-day gaps reset the streak instead of inventing freeze bridges. After reconcile, current/longest may be lower than a live history that had real auto-freezes — that is intentional for honest repair.",
+		Note:                  "Replay uses FreezesAvailable=0 so historical 1-day gaps reset the streak instead of inventing freeze bridges. After reconcile, current/longest may be lower than a live history that had real auto-freezes — that is intentional for honest repair.",
 		Before:                result.Before,
 		After:                 result.After,
 	})

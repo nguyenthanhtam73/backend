@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 )
 
 // CoachPersonalizationResult scores how well a coach output references persona signals.
@@ -320,6 +321,7 @@ func outputHasWarmEncouragement(text string) bool {
 	}
 	return false
 }
+
 // appear in coach output (situation_analysis + concern_alignment).
 func CountVisionDetailCitations(visionJSON string, out *CoachStructuredOutput) int {
 	if out == nil || strings.TrimSpace(visionJSON) == "" {
@@ -501,8 +503,8 @@ func LogCoachOutput(pipeline, personaID string, out *CoachStructuredOutput) {
 		"improvements", len(out.Improvements),
 		"care_suggestions", len(out.CareSuggestions),
 		"routine_hints", len(out.RoutineHints),
-		"situation_analysis", truncateRunes(out.SituationAnalysis, 200),
-		"summary_notes", truncateRunes(out.SummaryNotes, 160),
+		"situation_analysis_runes", utf8.RuneCountInString(out.SituationAnalysis),
+		"summary_notes_runes", utf8.RuneCountInString(out.SummaryNotes),
 	)
 }
 
@@ -543,8 +545,8 @@ func LogSuggestedRoutineOutput(personaID string, r SuggestedRoutine) {
 		"prompt_version", CoachDailyPromptVersion,
 		"morning_steps", len(r.Morning),
 		"evening_steps", len(r.Evening),
-		"rationale", truncateRunes(r.Rationale, 200),
-		"encouragement", truncateRunes(r.Encouragement, 160),
+		"rationale_runes", utf8.RuneCountInString(r.Rationale),
+		"encouragement_runes", utf8.RuneCountInString(r.Encouragement),
 	)
 }
 

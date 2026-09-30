@@ -12,6 +12,7 @@ import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/logmask"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -26,10 +27,10 @@ var (
 
 // Service searches users and applies audited plan_tier changes.
 type Service struct {
-	db     *gorm.DB
-	users  *repository.GormUserRepository
-	logs   *repository.PlanChangeLogRepository
-	cfg    *config.Config
+	db    *gorm.DB
+	users *repository.GormUserRepository
+	logs  *repository.PlanChangeLogRepository
+	cfg   *config.Config
 }
 
 // NewService wires admin user dependencies.
@@ -181,7 +182,7 @@ func (s *Service) UpdatePlan(
 
 	slog.Info("admin: plan_tier changed",
 		"actor_user_id", actorID.String(),
-		"actor_email", actorEmail,
+		"actor_email", logmask.MaskEmail(actorEmail),
 		"target_user_id", targetID.String(),
 		"from_plan", string(from),
 		"to_plan", string(to),

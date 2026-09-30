@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/logmask"
 	"github.com/dadiary/backend/internal/repository"
 )
 
@@ -124,6 +126,11 @@ func (s *Service) Register(ctx context.Context, req dto.RegisterRequest) (Result
 		}
 		return zero, appDatabase(err)
 	}
+
+	slog.Info("auth: registered",
+		"user_id", user.ID.String(),
+		"email", logmask.MaskEmail(email),
+	)
 
 	return s.issueResult(ctx, user)
 }

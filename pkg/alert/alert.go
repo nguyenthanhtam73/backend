@@ -24,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dadiary/backend/internal/logmask"
 )
 
 // Level is the severity of an ops alert.
@@ -285,6 +287,20 @@ func (f *Fanout) deliverRemotes(ctx context.Context, e Event) bool {
 	return attempted && anyOK
 }
 
+func redactLoggedValue(v any) any {
+	switch t := v.(type) {
+	case string:
+		return logmask.Redact(t)
+	case error:
+		if t == nil {
+			return t
+		}
+		return logmask.Redact(t.Error())
+	default:
+		return v
+	}
+}
+
 func logConsole(e Event) {
 	attrs := make([]any, 0, 6+len(e.Fields)*2)
 	attrs = append(attrs, "alert_title", e.Title, "alert_level", string(e.Level))
@@ -295,13 +311,13 @@ func logConsole(e Event) {
 		attrs = append(attrs, "alert_unique", e.UniqueSuffix)
 	}
 	if e.Message != "" {
-		attrs = append(attrs, "message", e.Message)
+		attrs = append(attrs, "message", logmask.Redact(e.Message))
 	}
 	if e.Detail != "" {
-		attrs = append(attrs, "detail", e.Detail)
+		attrs = append(attrs, "detail", logmask.Redact(e.Detail))
 	}
 	for k, v := range e.Fields {
-		attrs = append(attrs, k, v)
+		attrs = append(attrs, k, redactLoggedValue(v))
 	}
 	msg := "ops_alert"
 	if e.Title != "" {

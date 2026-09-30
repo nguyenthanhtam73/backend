@@ -14,6 +14,7 @@ import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/handler"
+	"github.com/dadiary/backend/internal/logmask"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/scheduler"
@@ -31,6 +32,10 @@ import (
 )
 
 func main() {
+	// Every slog site (including error strings that embed an address) goes
+	// through logmask. GORM and the access logger redact on their own writers.
+	slog.SetDefault(slog.New(logmask.NewHandler(slog.Default().Handler())))
+
 	cfg, err := config.Load(".env")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
