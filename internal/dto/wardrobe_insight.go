@@ -10,12 +10,13 @@ import (
 
 // Cabinet card copy is plain Vietnamese. The frontend /cabinet card reads these
 // keys as-is: what_it_does, fit.verdict (yes|maybe|no), fit.reason,
-// buy.advice (nên mua|chưa nên), buy.why, actives[].name, actives[].gloss,
+// buy.advice (nên mua|chưa nên|chưa biết), buy.why, actives[].name, actives[].gloss,
 // disclaimer.
 //
-// buy.advice stays the machine tokens "nên mua" and "chưa nên". The live
-// cabinet UI maps "nên mua" → "Nên dùng tiếp" and "chưa nên" → "Chưa nên dùng tiếp"
-// (frontend ownedInsightUse). Free-text fields explain that keep-using
+// buy.advice stays a machine token. The live cabinet UI maps
+// "nên mua" → "Nên dùng tiếp", "chưa nên" → "Chưa nên dùng tiếp", and
+// "chưa biết" → "Chưa biết có nên dùng tiếp" (frontend ownedInsightUse).
+// "chưa biết" is only the not-enough-info card. Free-text fields explain the
 // decision and must not contain the word "mua".
 
 const (
@@ -26,13 +27,14 @@ const (
 	WardrobeFitMaybe = "maybe"
 	WardrobeFitNo    = "no"
 
-	WardrobeBuyYes = "nên mua"
-	WardrobeBuyNo  = "chưa nên"
+	WardrobeBuyYes     = "nên mua"
+	WardrobeBuyNo      = "chưa nên"
+	WardrobeBuyUnknown = "chưa biết"
 )
 
 const (
 	insightUnknownFitReason = "Chưa đủ thông tin để so. Soi da một lần để app trả lời rõ hơn."
-	insightUnknownBuyWhy    = "Chưa đủ thông tin da để biết có nên dùng tiếp."
+	insightUnknownBuyWhy    = "Để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng."
 	insightFallbackReason   = "Chưa đủ chi tiết để chắc hơn."
 	insightFallbackBuyYes   = "Hướng hợp với da đang có."
 	insightFallbackBuyNo    = "Nên chờ thêm trước khi dùng tiếp."
@@ -63,10 +65,10 @@ type WardrobeProductFit struct {
 }
 
 // WardrobeProductBuy is the keep-using line on an owned-product card.
-// Advice is still the machine token "nên mua" | "chưa nên" so existing clients
-// can map it. Why is the plain-language sentence under that label.
+// Advice is the machine token "nên mua" | "chưa nên" | "chưa biết".
+// Why is the plain-language sentence under that label.
 type WardrobeProductBuy struct {
-	Advice string `json:"advice"` // nên mua | chưa nên
+	Advice string `json:"advice"` // nên mua | chưa nên | chưa biết
 	Why    string `json:"why"`
 }
 
@@ -95,8 +97,8 @@ type wardrobeInsightPayload struct {
 
 // ParseWardrobeProductInsight turns model JSON into the cabinet card.
 // skinKnown is false when the profile has no skin type / notes / concerns and
-// there are no recent check-ins — the card then stays "maybe" / "chưa nên"
-// instead of inventing a fit.
+// there are no recent check-ins — the card then stays "maybe" / "chưa biết"
+// instead of inventing a fit or telling the user to stop.
 func ParseWardrobeProductInsight(raw []byte, skinKnown bool) (WardrobeProductInsight, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
@@ -142,7 +144,7 @@ func normalizeWardrobeProductInsight(payload wardrobeInsightPayload, skinKnown b
 
 	if !skinKnown {
 		verdict = WardrobeFitMaybe
-		advice = WardrobeBuyNo
+		advice = WardrobeBuyUnknown
 		reason = insightUnknownFitReason
 		why = insightUnknownBuyWhy
 	}
@@ -218,10 +220,14 @@ func normalizeActives(in []struct {
 }
 
 func insightWhyFallback(advice string) string {
-	if advice == WardrobeBuyYes {
+	switch advice {
+	case WardrobeBuyYes:
 		return insightFallbackBuyYes
+	case WardrobeBuyUnknown:
+		return insightUnknownBuyWhy
+	default:
+		return insightFallbackBuyNo
 	}
-	return insightFallbackBuyNo
 }
 
 // muaWord matches the shopping word "mua" only as its own word, in any ASCII case.
@@ -331,6 +337,9 @@ func normalizeBuyAdvice(raw string) string {
 		return WardrobeBuyYes
 	case "chưa nên", "chua nen", "chưa nên dùng tiếp", "chua nen dung tiep", "not_yet", "wait", "skip", "no":
 		return WardrobeBuyNo
+	case "chưa biết", "chua biet":
+		// Not-enough-info token. Must stay distinct from "chưa nên".
+		return WardrobeBuyUnknown
 	}
 	if strings.Contains(s, "chưa nên") || strings.Contains(s, "chua nen") {
 		return WardrobeBuyNo

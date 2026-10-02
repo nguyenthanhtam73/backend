@@ -718,6 +718,11 @@ func validateWardrobeProductInsight(card dto.WardrobeProductInsight, facts wardr
 		return nil
 	}
 	var problems []string
+	// "chưa biết" is set by the server when the profile is empty. A model
+	// reply that uses it while any skin information is on file is not stored.
+	if card.Buy.Advice == dto.WardrobeBuyUnknown {
+		problems = append(problems, `buy.advice must be "nên mua" or "chưa nên" when the profile or a check-in is known. Do not write "chưa biết".`)
+	}
 	problems = append(problems, insightCopyProblems(card, facts)...)
 	if facts.SkinTypeKnown {
 		for _, text := range insightCardTexts(card) {
@@ -956,7 +961,7 @@ func unknownSkinFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight 
 		return dto.WardrobeProductInsight{
 			WhatItDoes: what,
 			Fit:        dto.WardrobeProductFit{Verdict: dto.WardrobeFitMaybe, Reason: "Chưa đủ thông tin để so. Soi da một lần để app trả lời rõ hơn."},
-			Buy:        dto.WardrobeProductBuy{Advice: dto.WardrobeBuyNo, Why: "Chưa đủ thông tin da để biết có nên dùng tiếp."},
+			Buy:        dto.WardrobeProductBuy{Advice: dto.WardrobeBuyUnknown, Why: "Để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng."},
 			Disclaimer: dto.WardrobeInsightDisclaimer,
 		}
 	}

@@ -1,7 +1,7 @@
 // refresh-cabinet-insights rewrites cabinet cards whose free text still talks
 // about buying. Cabinet rows are products the user already owns. The machine
-// token buy.advice stays "nên mua" / "chưa nên" (the app maps those to
-// "Nên dùng tiếp" / "Chưa nên dùng tiếp"). This command only selects rows
+// token buy.advice stays "nên mua" / "chưa nên" / "chưa biết" (the app maps
+// those to keep, pause, or unknown). This command only selects rows
 // whose reason, what-it-does, or ingredient name/gloss contains the word "mua".
 //
 // Dry run is the default: it lists affected rows, does not call the model,

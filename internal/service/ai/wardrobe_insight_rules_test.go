@@ -457,11 +457,14 @@ func TestGoalOnlyProfileSentence(t *testing.T) {
 	}
 
 	empty := wardrobeInsightFallback(assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Kem"}))
-	if empty.Fit.Reason != "Chưa đủ thông tin để so. Soi da một lần để app trả lời rõ hơn." || empty.Buy.Why != "Chưa đủ thông tin da để biết có nên dùng tiếp." {
+	if empty.Fit.Reason != "Chưa đủ thông tin để so. Soi da một lần để app trả lời rõ hơn." || empty.Buy.Why != "Để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng." {
 		t.Fatalf("empty profile copy changed: %+v", empty)
 	}
-	if empty.Fit.Verdict != dto.WardrobeFitMaybe || empty.Buy.Advice != dto.WardrobeBuyNo {
+	if empty.Fit.Verdict != dto.WardrobeFitMaybe || empty.Buy.Advice != dto.WardrobeBuyUnknown {
 		t.Fatalf("empty profile verdict: %+v", empty)
+	}
+	if strings.Contains(empty.Buy.Why, "Soi da một lần") {
+		t.Fatalf("empty profile why repeats the reason: %s", empty.Buy.Why)
 	}
 
 	// Another acne goal keeps the same face-limit shape, with that goal filled in.
@@ -573,11 +576,51 @@ func TestWardrobeInsightFallback_UnknownSkinStaysMaybe(t *testing.T) {
 		t.Fatal("empty profile")
 	}
 	card := wardrobeInsightFallback(facts)
-	if card.Fit.Verdict != dto.WardrobeFitMaybe || card.Buy.Advice != dto.WardrobeBuyNo {
+	if card.Fit.Verdict != dto.WardrobeFitMaybe || card.Buy.Advice != dto.WardrobeBuyUnknown {
 		t.Fatalf("unknown card: %+v", card)
 	}
-	if card.Buy.Advice != "chưa nên" && card.Buy.Advice != "nên mua" {
+	if card.Buy.Advice != "chưa biết" {
 		t.Fatalf("advice token drifted: %q", card.Buy.Advice)
+	}
+	if card.Buy.Why != "Để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng." {
+		t.Fatalf("unknown why: %q", card.Buy.Why)
+	}
+}
+
+func TestKnownSkinRejectsModelUnknownAdvice(t *testing.T) {
+	raw := []byte(`{
+		"what_it_does": "Kem dưỡng thường dùng để dưỡng ẩm cho da.",
+		"fit": {"verdict": "maybe", "reason": "Phù hợp với da hỗn hợp và mục tiêu giảm mụn."},
+		"buy": {"advice": "chưa biết", "why": "Để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng."}
+	}`)
+	got, err := dto.ParseWardrobeProductInsight(raw, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Buy.Advice != dto.WardrobeBuyUnknown {
+		t.Fatalf("token must round-trip, got %q", got.Buy.Advice)
+	}
+	facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{
+		Name:    "Kem dưỡng",
+		Profile: reportedComboProfile(),
+	})
+	if !facts.SkinKnown {
+		t.Fatal("combo profile should be known")
+	}
+	if problems := validateWardrobeProductInsight(got, facts); len(problems) == 0 {
+		t.Fatal("a profile with skin information must not keep model advice chưa biết")
+	}
+	verbose := []byte(`{
+		"what_it_does": "Kem dưỡng thường dùng để dưỡng ẩm cho da.",
+		"fit": {"verdict": "yes", "reason": "Phù hợp với da hỗn hợp và mục tiêu giảm mụn."},
+		"buy": {"advice": "chưa biết có nên dùng tiếp", "why": "Nên dùng tiếp vì hợp với da hỗn hợp và mục tiêu giảm mụn."}
+	}`)
+	parsed, err := dto.ParseWardrobeProductInsight(verbose, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Buy.Advice == dto.WardrobeBuyUnknown {
+		t.Fatal("a longer phrase must not become the unknown token")
 	}
 }
 
