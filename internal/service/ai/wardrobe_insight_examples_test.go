@@ -215,6 +215,12 @@ func TestPorePhraseStaysHedgedAndSkinLimited(t *testing.T) {
 	if !hasVietnameseWord("kem này bí và nặng", "bí") {
 		t.Fatal("standalone bí should match")
 	}
+	if !insightCallsProductHeavy("kem này bí") {
+		t.Fatal("standalone bí should still call the product bad")
+	}
+	if insightCallsProductHeavy("thấy bí da hay nổi mụn thì tạm dừng") {
+		t.Fatal("bí da is a skin feeling, not a label on the product")
+	}
 
 	dry := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{
 		Name:    "Kem dưỡng",
