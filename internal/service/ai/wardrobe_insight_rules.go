@@ -135,12 +135,16 @@ func renderWardrobeInsightPrompt(req WardrobeProductInsightRequest, facts wardro
 		b.WriteString("\nRECENT_CHECK_INS: none. There is no recent irritation note. Do not invent irritation, and do not treat the empty check-in list as unknown skin.\n")
 	}
 	if facts.AcneProne && facts.FaceLimit == acneFaceBodyProduct {
-		fmt.Fprintf(&b, "\nPRODUCT_FIT_HINT: this product is labeled for body use, and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". It is fine for body use. Hedge with \"có thể chưa hợp\", \"có thể khiến\", or \"bạn cân nhắc\". Do not command them (no \"không nên bôi lên mặt\"). Do not say the product is bad, nặng, or occlusive. You may say it is khá đặc and có thể bít lỗ chân lông, and the sentence must include \"mặt\". Do not write a brand name. what_it_does must be %q. fit.reason must be %q. buy.why must be %q.\n",
+		fmt.Fprintf(&b, "\nPRODUCT_FIT_HINT: this product is labeled for body use, and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". It is fine for body use. Hedge with \"có thể chưa hợp\", \"có thể khiến\", or \"bạn cân nhắc\". Do not command them (no \"không nên bôi lên mặt\"). Do not say the product is bad, nặng, or occlusive. You may say it is khá đặc and có thể bít lỗ chân lông. Include the word \"mặt\" in fit.reason or buy.why. Do not write a brand name. what_it_does must be %q. fit.reason must be %q. buy.why must be %q.\n",
 			exampleBodyWhat, bodyFaceReason(facts), exampleBodyWhy)
 	}
 	if facts.AcneProne && facts.FaceLimit == acneFaceCoconutOil {
-		fmt.Fprintf(&b, "\nPRODUCT_FIT_HINT: this is coconut oil (dầu dừa), and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". Hedge with \"có thể chưa hợp\", \"có thể khiến\", or \"bạn cân nhắc\". Do not command them (no \"không nên bôi lên mặt\"). Do not say the oil is bad, nặng, or occlusive. You may say it is khá đặc and có thể bít lỗ chân lông, and the sentence must include \"mặt\". Do not write a brand name. what_it_does must be %q. fit.reason must be %q. buy.why must be %q. actives must include one item named %q with gloss %q.\n",
+		fmt.Fprintf(&b, "\nPRODUCT_FIT_HINT: this is coconut oil (dầu dừa), and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". Hedge with \"có thể chưa hợp\", \"có thể khiến\", or \"bạn cân nhắc\". Do not command them (no \"không nên bôi lên mặt\"). Do not say the oil is bad, nặng, or occlusive. You may say it is khá đặc and có thể bít lỗ chân lông. Include the word \"mặt\" in fit.reason or buy.why. Do not write a brand name. what_it_does must be %q. fit.reason must be %q. buy.why must be %q. actives must include one item named %q with gloss %q.\n",
 			exampleCoconutWhat, coconutFaceReason(facts), exampleCoconutWhy, coconutActiveName, exampleCoconutGloss)
+	}
+	if goalOnlyCardRequired(facts) {
+		fmt.Fprintf(&b, "\nPRODUCT_FIT_HINT: only the goal is known; skin type is not on file. fit.verdict must be maybe. buy.advice must be \"chưa nên\". Do not invent a skin type. fit.reason must be %q. buy.why must be %q.\n",
+			goalOnlyFitReason, goalOnlyBuyWhy)
 	}
 	return b.String()
 }
@@ -304,6 +308,11 @@ const (
 	// returns this when the saved skin type is da hỗn hợp.
 	exampleCoconutReason = "Dầu dừa khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp với da mặt hỗn hợp dễ nổi mụn của bạn."
 	exampleBodyReason    = "Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp với da mặt hỗn hợp dễ nổi mụn của bạn."
+
+	// Goal known, skin type not on file, product not limited for an acne-prone face.
+	// The same two sentences are used for every goal.
+	goalOnlyFitReason = "Chưa rõ loại da của bạn. Cứ dùng và để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng."
+	goalOnlyBuyWhy    = "Chưa chắc, vì app chưa biết loại da của bạn. Soi da một lần để app trả lời rõ hơn."
 )
 
 func acneFacePhrase(facts wardrobeInsightFacts) string {
@@ -323,11 +332,11 @@ func acneFacePhrase(facts wardrobeInsightFacts) string {
 }
 
 // faceLimitEnding is the clause after "nên". When the skin type is missing and
-// only the goal is known, "của bạn" must not stick to the goal
-// ("mục tiêu giảm mụn của bạn"). The skin-type sentence stays the approved one.
+// a goal is known, the goal fills "nếu bạn đang muốn …". The skin-type sentence
+// stays the approved one.
 func faceLimitEnding(facts wardrobeInsightFacts) string {
 	if strings.TrimSpace(facts.SkinType) == "" && strings.TrimSpace(facts.Goal) != "" {
-		return "với mục tiêu " + lowerFirst(facts.Goal) + " thì có thể chưa hợp với da mặt của bạn."
+		return "có thể chưa hợp nếu bạn đang muốn " + lowerFirst(facts.Goal) + "."
 	}
 	return "có thể chưa hợp với " + acneFacePhrase(facts) + " của bạn."
 }
@@ -547,7 +556,7 @@ func negativeLineHedged(card dto.WardrobeProductInsight) bool {
 	if insightCommandsUser(blob) {
 		return false
 	}
-	return strings.Contains(blob, "có thể") || strings.Contains(blob, "bạn cân nhắc")
+	return strings.Contains(blob, "có thể") || strings.Contains(blob, "bạn cân nhắc") || strings.Contains(blob, "chưa chắc")
 }
 
 func recentShowsIrritation(recent []domain.SkinCheck) bool {
@@ -722,6 +731,11 @@ func validateWardrobeProductInsight(card dto.WardrobeProductInsight, facts wardr
 			problems = append(problems, faceLimitProblem(facts))
 		}
 	}
+	if goalOnlyCardRequired(facts) {
+		if card.Fit.Verdict != dto.WardrobeFitMaybe || card.Buy.Advice != dto.WardrobeBuyNo || card.Fit.Reason != goalOnlyFitReason || card.Buy.Why != goalOnlyBuyWhy {
+			problems = append(problems, fmt.Sprintf(`Skin type is not on file and only the goal is known. fit.verdict must be maybe and buy.advice must be "chưa nên". fit.reason must be %q. buy.why must be %q.`, goalOnlyFitReason, goalOnlyBuyWhy))
+		}
+	}
 	if !negativeLineHedged(card) {
 		problems = append(problems, `Negative fit.reason and buy.why must hedge with "có thể chưa hợp", "có thể khiến", or "bạn cân nhắc". Do not command the user ("không nên bôi", "đừng bôi", "phải ngừng").`)
 	}
@@ -786,19 +800,31 @@ func wardrobeInsightFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsi
 	}
 }
 
+// goalOnlyCardRequired is a profile with a goal, no skin type, and no
+// acne-prone face limit. Irritation still uses its own card.
+func goalOnlyCardRequired(facts wardrobeInsightFacts) bool {
+	if facts.SkinTypeKnown || facts.Irritated || strings.TrimSpace(facts.Goal) == "" {
+		return false
+	}
+	if facts.AcneProne && facts.FaceLimit != acneFaceOK {
+		return false
+	}
+	return true
+}
+
 // goalOnlyFallback is the card when the profile has a goal and no skin type.
 // Verdict stays maybe / "chưa nên" — the same as an unknown skin type.
+// The two sentences do not name the goal; every goal shares them.
 func goalOnlyFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
-	goal := lowerFirst(facts.Goal)
 	return dto.WardrobeProductInsight{
 		WhatItDoes: fallbackWhatItDoes(facts),
 		Fit: dto.WardrobeProductFit{
 			Verdict: dto.WardrobeFitMaybe,
-			Reason:  "Chưa rõ loại da. Với mục tiêu " + goal + ", bạn cân nhắc theo dõi thêm.",
+			Reason:  goalOnlyFitReason,
 		},
 		Buy: dto.WardrobeProductBuy{
 			Advice: dto.WardrobeBuyNo,
-			Why:    "Có thể chưa chắc lúc này, vì chưa rõ loại da.",
+			Why:    goalOnlyBuyWhy,
 		},
 		Disclaimer: dto.WardrobeInsightDisclaimer,
 	}
@@ -806,10 +832,10 @@ func goalOnlyFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
 
 func faceLimitProblem(facts wardrobeInsightFacts) string {
 	if facts.FaceLimit == acneFaceCoconutOil {
-		return fmt.Sprintf(`This is coconut oil (dầu dừa) and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Hedge the reason ("có thể chưa hợp", "có thể khiến", "bạn cân nhắc"). Do not command them ("không nên bôi lên mặt"). Do not say the oil is bad, nặng, or occlusive. You may say khá đặc and có thể bít lỗ chân lông. The reason must include the word "mặt" and one plain why. what_it_does must be %q. fit.reason must be %q. buy.why must be %q. Include one active named %q with gloss %q. Do not write a brand name.`,
+		return fmt.Sprintf(`This is coconut oil (dầu dừa) and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Hedge the reason ("có thể chưa hợp", "có thể khiến", "bạn cân nhắc"). Do not command them ("không nên bôi lên mặt"). Do not say the oil is bad, nặng, or occlusive. You may say khá đặc and có thể bít lỗ chân lông. fit.reason or buy.why must include the word "mặt" and one plain why. what_it_does must be %q. fit.reason must be %q. buy.why must be %q. Include one active named %q with gloss %q. Do not write a brand name.`,
 			exampleCoconutWhat, coconutFaceReason(facts), exampleCoconutWhy, coconutActiveName, exampleCoconutGloss)
 	}
-	return fmt.Sprintf(`This product is labeled for body use and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Say it is a body product, fine for the body, and that it may not suit their face. Hedge the reason ("có thể chưa hợp", "có thể khiến", "bạn cân nhắc"). Do not command them ("không nên bôi lên mặt"). Do not say the product is bad, nặng, or occlusive. You may say khá đặc and có thể bít lỗ chân lông. The reason must include the word "mặt" and one plain why. what_it_does must be %q. fit.reason must be %q. buy.why must be %q. Do not write a brand name.`,
+	return fmt.Sprintf(`This product is labeled for body use and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Say it is a body product, fine for the body, and that it may not suit their face. Hedge the reason ("có thể chưa hợp", "có thể khiến", "bạn cân nhắc"). Do not command them ("không nên bôi lên mặt"). Do not say the product is bad, nặng, or occlusive. You may say khá đặc and có thể bít lỗ chân lông. fit.reason or buy.why must include the word "mặt" and one plain why. what_it_does must be %q. fit.reason must be %q. buy.why must be %q. Do not write a brand name.`,
 		exampleBodyWhat, bodyFaceReason(facts), exampleBodyWhy)
 }
 

@@ -394,10 +394,8 @@ func TestWardrobeInsightValidation_NotAFitNeedsProfileAnchor(t *testing.T) {
 
 func TestGoalOnlyProfileSentence(t *testing.T) {
 	const (
-		coconutReason = "Dầu dừa khá đặc, dễ bít lỗ chân lông, nên với mục tiêu giảm mụn thì có thể chưa hợp với da mặt của bạn."
-		bodyReason    = "Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên với mục tiêu giảm mụn thì có thể chưa hợp với da mặt của bạn."
-		otherReason   = "Chưa rõ loại da. Với mục tiêu giảm mụn, bạn cân nhắc theo dõi thêm."
-		otherWhy      = "Có thể chưa chắc lúc này, vì chưa rõ loại da."
+		coconutReason = "Dầu dừa khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp nếu bạn đang muốn giảm mụn."
+		bodyReason    = "Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp nếu bạn đang muốn giảm mụn."
 		awkward       = "da mặt dễ nổi mụn, mục tiêu"
 	)
 	for _, goal := range []string{"Giảm mụn", "clear_acne"} {
@@ -441,7 +439,7 @@ func TestGoalOnlyProfileSentence(t *testing.T) {
 		if washCard.Fit.Verdict != dto.WardrobeFitMaybe || washCard.Buy.Advice != dto.WardrobeBuyNo {
 			t.Fatalf("goal-only cleanser verdict: %+v", washCard)
 		}
-		if washCard.WhatItDoes != exampleCleanserWhat || washCard.Fit.Reason != otherReason || washCard.Buy.Why != otherWhy {
+		if washCard.WhatItDoes != exampleCleanserWhat || washCard.Fit.Reason != goalOnlyFitReason || washCard.Buy.Why != goalOnlyBuyWhy {
 			t.Fatalf("goal-only cleanser copy:\nwhat %q\nreason %q\nwhy %q", washCard.WhatItDoes, washCard.Fit.Reason, washCard.Buy.Why)
 		}
 		if strings.Contains(washCard.Fit.Reason, awkward) || strings.Contains(washCard.Fit.Reason+washCard.Buy.Why, "trị mụn") {
@@ -464,6 +462,41 @@ func TestGoalOnlyProfileSentence(t *testing.T) {
 	}
 	if empty.Fit.Verdict != dto.WardrobeFitMaybe || empty.Buy.Advice != dto.WardrobeBuyNo {
 		t.Fatalf("empty profile verdict: %+v", empty)
+	}
+
+	// Another acne goal keeps the same face-limit shape, with that goal filled in.
+	custom := goalOnlyProfile("Giảm mụn đầu đen")
+	customOil := wardrobeInsightFallback(assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: custom}))
+	customBody := wardrobeInsightFallback(assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Kem dưỡng thể", Profile: custom}))
+	if customOil.Fit.Reason != "Dầu dừa khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp nếu bạn đang muốn giảm mụn đầu đen." {
+		t.Fatalf("custom goal coconut: %s", customOil.Fit.Reason)
+	}
+	if customBody.Fit.Reason != "Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp nếu bạn đang muốn giảm mụn đầu đen." {
+		t.Fatalf("custom goal body: %s", customBody.Fit.Reason)
+	}
+	if customOil.Fit.Verdict != dto.WardrobeFitNo || customBody.Buy.Advice != dto.WardrobeBuyNo {
+		t.Fatalf("custom goal verdicts: oil %+v body %+v", customOil.Fit, customBody.Buy)
+	}
+
+	// Goals that do not make the face acne-prone share the cleanser sentences, unchanged.
+	for _, goal := range []string{"glow", "barrier", "anti_aging"} {
+		profile := goalOnlyProfile(goal)
+		for _, name := range []string{"Dầu dừa nguyên chất", "Sữa rửa mặt tạo bọt"} {
+			facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: name, Profile: profile})
+			if facts.AcneProne || facts.SkinTypeKnown {
+				t.Fatalf("%s %q should not be acne-prone with a known skin type: %+v", name, goal, facts)
+			}
+			card := wardrobeInsightFallback(facts)
+			if card.Fit.Verdict != dto.WardrobeFitMaybe || card.Buy.Advice != dto.WardrobeBuyNo {
+				t.Fatalf("%s %q verdict: %+v", name, goal, card)
+			}
+			if card.Fit.Reason != goalOnlyFitReason || card.Buy.Why != goalOnlyBuyWhy {
+				t.Fatalf("%s %q copy:\nreason %q\nwhy %q", name, goal, card.Fit.Reason, card.Buy.Why)
+			}
+			if problems := validateWardrobeProductInsight(card, facts); len(problems) != 0 {
+				t.Fatalf("%s %q invalid: %v", name, goal, problems)
+			}
+		}
 	}
 }
 
