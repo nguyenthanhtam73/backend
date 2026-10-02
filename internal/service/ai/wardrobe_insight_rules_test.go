@@ -392,6 +392,126 @@ func TestWardrobeInsightValidation_NotAFitNeedsProfileAnchor(t *testing.T) {
 	}
 }
 
+func TestGoalOnlyProfileSentence(t *testing.T) {
+	const (
+		coconutReason = "Dầu dừa khá đặc, dễ bít lỗ chân lông, nên với mục tiêu giảm mụn thì có thể chưa hợp với da mặt của bạn."
+		bodyReason    = "Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên với mục tiêu giảm mụn thì có thể chưa hợp với da mặt của bạn."
+		otherReason   = "Chưa rõ loại da. Với mục tiêu giảm mụn, bạn cân nhắc theo dõi thêm."
+		otherWhy      = "Có thể chưa chắc lúc này, vì chưa rõ loại da."
+		awkward       = "da mặt dễ nổi mụn, mục tiêu"
+	)
+	for _, goal := range []string{"Giảm mụn", "clear_acne"} {
+		profile := goalOnlyProfile(goal)
+		oil := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: profile})
+		if oil.SkinType != "" || oil.SkinTypeKnown || !oil.SkinKnown || !oil.AcneProne || oil.Goal != "Giảm mụn" {
+			t.Fatalf("goal-only facts for %q: %+v", goal, oil)
+		}
+		oilCard := wardrobeInsightFallback(oil)
+		if oilCard.Fit.Verdict != dto.WardrobeFitNo || oilCard.Buy.Advice != dto.WardrobeBuyNo {
+			t.Fatalf("goal-only coconut verdict: %+v", oilCard)
+		}
+		if oilCard.WhatItDoes != exampleCoconutWhat || oilCard.Buy.Why != exampleCoconutWhy || oilCard.Fit.Reason != coconutReason {
+			t.Fatalf("goal-only coconut copy:\nwhat %q\nreason %q\nwhy %q", oilCard.WhatItDoes, oilCard.Fit.Reason, oilCard.Buy.Why)
+		}
+		if len(oilCard.Actives) != 1 || oilCard.Actives[0].Name != coconutActiveName || oilCard.Actives[0].Gloss != exampleCoconutGloss {
+			t.Fatalf("approved coconut gloss drifted: %+v", oilCard.Actives)
+		}
+		if strings.Contains(oilCard.Fit.Reason, awkward) || strings.Contains(oilCard.Fit.Reason, "mục tiêu giảm mụn của bạn") {
+			t.Fatalf("awkward goal-only reason: %s", oilCard.Fit.Reason)
+		}
+		if problems := validateWardrobeProductInsight(oilCard, oil); len(problems) != 0 {
+			t.Fatalf("goal-only coconut invalid: %v", problems)
+		}
+		hint, _ := buildWardrobeProductInsightUser(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: profile})
+		if !strings.Contains(hint, coconutReason) || !strings.Contains(hint, exampleCoconutGloss) || strings.Contains(hint, awkward) {
+			t.Fatalf("goal-only hint:\n%s", hint)
+		}
+
+		body := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Kem dưỡng thể", Profile: profile})
+		bodyCard := wardrobeInsightFallback(body)
+		if bodyCard.Fit.Reason != bodyReason || bodyCard.Fit.Verdict != dto.WardrobeFitNo || bodyCard.Buy.Advice != dto.WardrobeBuyNo {
+			t.Fatalf("goal-only body: %+v", bodyCard)
+		}
+		if problems := validateWardrobeProductInsight(bodyCard, body); len(problems) != 0 {
+			t.Fatalf("goal-only body invalid: %v", problems)
+		}
+
+		wash := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Sữa rửa mặt tạo bọt", Profile: profile})
+		washCard := wardrobeInsightFallback(wash)
+		if washCard.Fit.Verdict != dto.WardrobeFitMaybe || washCard.Buy.Advice != dto.WardrobeBuyNo {
+			t.Fatalf("goal-only cleanser verdict: %+v", washCard)
+		}
+		if washCard.WhatItDoes != exampleCleanserWhat || washCard.Fit.Reason != otherReason || washCard.Buy.Why != otherWhy {
+			t.Fatalf("goal-only cleanser copy:\nwhat %q\nreason %q\nwhy %q", washCard.WhatItDoes, washCard.Fit.Reason, washCard.Buy.Why)
+		}
+		if strings.Contains(washCard.Fit.Reason, awkward) || strings.Contains(washCard.Fit.Reason+washCard.Buy.Why, "trị mụn") {
+			t.Fatalf("goal-only cleanser wording: %+v", washCard)
+		}
+		if problems := validateWardrobeProductInsight(washCard, wash); len(problems) != 0 {
+			t.Fatalf("goal-only cleanser invalid: %v", problems)
+		}
+	}
+
+	combo := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: reportedComboProfile()})
+	comboCard := wardrobeInsightFallback(combo)
+	if comboCard.Fit.Reason != exampleCoconutReason || comboCard.WhatItDoes != exampleCoconutWhat || comboCard.Actives[0].Gloss != exampleCoconutGloss {
+		t.Fatalf("combo coconut wording changed: %+v", comboCard)
+	}
+
+	empty := wardrobeInsightFallback(assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Kem"}))
+	if empty.Fit.Reason != "Chưa có loại da hoặc check-in gần đây để so." || empty.Buy.Why != "Chưa đủ thông tin da để biết có nên dùng tiếp." {
+		t.Fatalf("empty profile copy changed: %+v", empty)
+	}
+	if empty.Fit.Verdict != dto.WardrobeFitMaybe || empty.Buy.Advice != dto.WardrobeBuyNo {
+		t.Fatalf("empty profile verdict: %+v", empty)
+	}
+}
+
+func goalOnlyProfile(goal string) *domain.SkinProfile {
+	snap, _ := json.Marshal(map[string]any{"goal": goal})
+	return &domain.SkinProfile{OnboardingSnapshot: snap}
+}
+
+// TestActiveNameAndGlossStaySeparate locks the cabinet payload: name and gloss
+// are separate fields. The live line "Dầu dừa. dưỡng ẩm..." is not produced here.
+func TestActiveNameAndGlossStaySeparate(t *testing.T) {
+	facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{
+		Name:    "Dầu dừa nguyên chất",
+		Profile: reportedComboProfile(),
+	})
+	card := wardrobeInsightFallback(facts)
+	if len(card.Actives) != 1 {
+		t.Fatalf("actives: %+v", card.Actives)
+	}
+	active := card.Actives[0]
+	if active.Name != "Dầu dừa" || strings.HasSuffix(active.Name, ".") || strings.HasPrefix(active.Gloss, ".") {
+		t.Fatalf("name/gloss punctuation: %+v", active)
+	}
+	if active.Gloss != exampleCoconutGloss {
+		t.Fatalf("gloss %q", active.Gloss)
+	}
+	raw, err := json.Marshal(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	glitch := active.Name + ". " + active.Gloss
+	if strings.Contains(string(raw), glitch) || strings.Contains(string(raw), active.Name+".") {
+		t.Fatalf("payload joined name and gloss: %s", raw)
+	}
+	var payload struct {
+		Actives []struct {
+			Name  string `json:"name"`
+			Gloss string `json:"gloss"`
+		} `json:"actives"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Actives) != 1 || payload.Actives[0].Name != active.Name || payload.Actives[0].Gloss != active.Gloss {
+		t.Fatalf("round trip: %+v", payload.Actives)
+	}
+}
+
 func TestWardrobeInsightFallback_UnknownSkinStaysMaybe(t *testing.T) {
 	facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Kem"})
 	if facts.SkinKnown || facts.SkinTypeKnown {

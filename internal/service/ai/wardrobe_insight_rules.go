@@ -315,8 +315,6 @@ func acneFacePhrase(facts wardrobeInsightFacts) string {
 		return "da mặt " + skin + " dễ nổi mụn"
 	case skin != "":
 		return "da mặt " + skin
-	case facts.Goal != "":
-		return "da mặt dễ nổi mụn, mục tiêu " + lowerFirst(facts.Goal)
 	case len(facts.Concerns) > 0:
 		return "da mặt dễ nổi mụn (" + joinVietnamese(facts.Concerns) + ")"
 	default:
@@ -324,12 +322,22 @@ func acneFacePhrase(facts wardrobeInsightFacts) string {
 	}
 }
 
+// faceLimitEnding is the clause after "nên". When the skin type is missing and
+// only the goal is known, "của bạn" must not stick to the goal
+// ("mục tiêu giảm mụn của bạn"). The skin-type sentence stays the approved one.
+func faceLimitEnding(facts wardrobeInsightFacts) string {
+	if strings.TrimSpace(facts.SkinType) == "" && strings.TrimSpace(facts.Goal) != "" {
+		return "với mục tiêu " + lowerFirst(facts.Goal) + " thì có thể chưa hợp với da mặt của bạn."
+	}
+	return "có thể chưa hợp với " + acneFacePhrase(facts) + " của bạn."
+}
+
 func coconutFaceReason(facts wardrobeInsightFacts) string {
-	return fmt.Sprintf("Dầu dừa khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp với %s của bạn.", acneFacePhrase(facts))
+	return "Dầu dừa khá đặc, dễ bít lỗ chân lông, nên " + faceLimitEnding(facts)
 }
 
 func bodyFaceReason(facts wardrobeInsightFacts) string {
-	return fmt.Sprintf("Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp với %s của bạn.", acneFacePhrase(facts))
+	return "Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên " + faceLimitEnding(facts)
 }
 
 func fallbackWhatItDoes(facts wardrobeInsightFacts) string {
@@ -718,7 +726,9 @@ func validateWardrobeProductInsight(card dto.WardrobeProductInsight, facts wardr
 		problems = append(problems, `Negative fit.reason and buy.why must hedge with "có thể chưa hợp", "có thể khiến", or "bạn cân nhắc". Do not command the user ("không nên bôi", "đừng bôi", "phải ngừng").`)
 	}
 	keepish := card.Fit.Verdict == dto.WardrobeFitYes || card.Fit.Verdict == dto.WardrobeFitMaybe
-	if keepish && card.Buy.Advice == dto.WardrobeBuyNo && !cardMentionsIrritation(card) {
+	// Skin type not on file is already required to be maybe + "chưa nên".
+	// That pairing is only a contradiction once the skin type itself is known.
+	if facts.SkinTypeKnown && keepish && card.Buy.Advice == dto.WardrobeBuyNo && !cardMentionsIrritation(card) {
 		problems = append(problems, "fit is yes or maybe, so buy.advice must be \"nên mua\" (keep using) unless fit.reason or buy.why names current irritation (rát, kích ứng). Do not pair a possible fit with \"chưa nên\" just because a check-in is missing.")
 	}
 	return problems
@@ -769,8 +779,28 @@ func wardrobeInsightFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsi
 		return irritationFallback(facts)
 	case facts.SkinTypeKnown:
 		return keepUsingFallback(facts)
+	case strings.TrimSpace(facts.Goal) != "":
+		return goalOnlyFallback(facts)
 	default:
 		return unknownSkinFallback(facts)
+	}
+}
+
+// goalOnlyFallback is the card when the profile has a goal and no skin type.
+// Verdict stays maybe / "chưa nên" — the same as an unknown skin type.
+func goalOnlyFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
+	goal := lowerFirst(facts.Goal)
+	return dto.WardrobeProductInsight{
+		WhatItDoes: fallbackWhatItDoes(facts),
+		Fit: dto.WardrobeProductFit{
+			Verdict: dto.WardrobeFitMaybe,
+			Reason:  "Chưa rõ loại da. Với mục tiêu " + goal + ", bạn cân nhắc theo dõi thêm.",
+		},
+		Buy: dto.WardrobeProductBuy{
+			Advice: dto.WardrobeBuyNo,
+			Why:    "Có thể chưa chắc lúc này, vì chưa rõ loại da.",
+		},
+		Disclaimer: dto.WardrobeInsightDisclaimer,
 	}
 }
 
