@@ -116,8 +116,19 @@ func TestParseWardrobeProductInsight_UnknownSkinDoesNotInventFit(t *testing.T) {
 	if strings.Contains(got.Buy.Why, "Soi da một lần") {
 		t.Fatalf("continue line should not repeat the soi-da sentence: %q", got.Buy.Why)
 	}
-	if got.Buy.Advice != WardrobeBuyNo || got.Buy.Why != insightUnknownBuyWhy {
+	if insightUnknownBuyWhy != "Để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng." {
+		t.Fatalf("unknown-skin why: %q", insightUnknownBuyWhy)
+	}
+	if got.Buy.Advice != WardrobeBuyUnknown || got.Buy.Why != insightUnknownBuyWhy {
 		t.Fatalf("buy: %+v", got.Buy)
+	}
+	stored, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := MapStoredWardrobeInsight(stored)
+	if again == nil || again.Buy.Advice != WardrobeBuyUnknown || again.Buy.Advice == WardrobeBuyNo {
+		t.Fatalf("stored unknown advice was remapped: %+v", again)
 	}
 	if got.Disclaimer != WardrobeInsightDisclaimer {
 		t.Fatalf("disclaimer: %q", got.Disclaimer)
