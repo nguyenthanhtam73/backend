@@ -478,23 +478,45 @@ func TestGoalOnlyProfileSentence(t *testing.T) {
 		t.Fatalf("custom goal verdicts: oil %+v body %+v", customOil.Fit, customBody.Buy)
 	}
 
-	// Goals that do not make the face acne-prone share the cleanser sentences, unchanged.
+	// A non-acne goal stays maybe. Coconut oil and body cream get their own
+	// reason. The foaming cleanser keeps "Cứ dùng". The why is shared.
+	nonAcne := []struct {
+		name   string
+		reason string
+	}{
+		{"Dầu dừa nguyên chất", goalOnlyCoconutReason},
+		{"Organic Coconut Oil", goalOnlyCoconutReason},
+		{"Kem dưỡng thể", goalOnlyBodyReason},
+		{"Everyday Body Cream", goalOnlyBodyReason},
+		{"Sữa rửa mặt tạo bọt", goalOnlyFitReason},
+	}
 	for _, goal := range []string{"glow", "barrier", "anti_aging"} {
 		profile := goalOnlyProfile(goal)
-		for _, name := range []string{"Dầu dừa nguyên chất", "Sữa rửa mặt tạo bọt"} {
-			facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: name, Profile: profile})
+		for _, tc := range nonAcne {
+			facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: tc.name, Profile: profile})
 			if facts.AcneProne || facts.SkinTypeKnown {
-				t.Fatalf("%s %q should not be acne-prone with a known skin type: %+v", name, goal, facts)
+				t.Fatalf("%s %q should not be acne-prone with a known skin type: %+v", tc.name, goal, facts)
 			}
 			card := wardrobeInsightFallback(facts)
 			if card.Fit.Verdict != dto.WardrobeFitMaybe || card.Buy.Advice != dto.WardrobeBuyNo {
-				t.Fatalf("%s %q verdict: %+v", name, goal, card)
+				t.Fatalf("%s %q verdict: %+v", tc.name, goal, card)
 			}
-			if card.Fit.Reason != goalOnlyFitReason || card.Buy.Why != goalOnlyBuyWhy {
-				t.Fatalf("%s %q copy:\nreason %q\nwhy %q", name, goal, card.Fit.Reason, card.Buy.Why)
+			if card.Fit.Reason != tc.reason || card.Buy.Why != goalOnlyBuyWhy {
+				t.Fatalf("%s %q copy:\nreason %q\nwhy %q", tc.name, goal, card.Fit.Reason, card.Buy.Why)
+			}
+			if tc.reason == goalOnlyFitReason {
+				if !strings.Contains(card.Fit.Reason, "Cứ dùng") {
+					t.Fatalf("cleanser should keep the trial sentence: %s", card.Fit.Reason)
+				}
+			} else if strings.Contains(card.Fit.Reason, "Cứ dùng") {
+				t.Fatalf("%s should not use the cleanser sentence: %s", tc.name, card.Fit.Reason)
 			}
 			if problems := validateWardrobeProductInsight(card, facts); len(problems) != 0 {
-				t.Fatalf("%s %q invalid: %v", name, goal, problems)
+				t.Fatalf("%s %q invalid: %v", tc.name, goal, problems)
+			}
+			hint, _ := buildWardrobeProductInsightUser(WardrobeProductInsightRequest{Name: tc.name, Profile: profile})
+			if !strings.Contains(hint, tc.reason) || !strings.Contains(hint, goalOnlyBuyWhy) {
+				t.Fatalf("%s %q hint missing the maybe-card sentences\n%s", tc.name, goal, hint)
 			}
 		}
 	}

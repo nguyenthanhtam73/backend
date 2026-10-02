@@ -143,8 +143,8 @@ func renderWardrobeInsightPrompt(req WardrobeProductInsightRequest, facts wardro
 			exampleCoconutWhat, coconutFaceReason(facts), exampleCoconutWhy, coconutActiveName, exampleCoconutGloss)
 	}
 	if goalOnlyCardRequired(facts) {
-		fmt.Fprintf(&b, "\nPRODUCT_FIT_HINT: only the goal is known; skin type is not on file. fit.verdict must be maybe. buy.advice must be \"chưa nên\". Do not invent a skin type. fit.reason must be %q. buy.why must be %q.\n",
-			goalOnlyFitReason, goalOnlyBuyWhy)
+		fmt.Fprintf(&b, "\nPRODUCT_FIT_HINT: only the goal is known; skin type is not on file. fit.verdict must be maybe. buy.advice must be \"chưa nên\". Do not invent a skin type. fit.reason must be %q. buy.why must be %q. \"bí da\" here is the skin feeling, not a word for the product.\n",
+			goalOnlyFitReasonFor(facts), goalOnlyBuyWhy)
 	}
 	return b.String()
 }
@@ -309,10 +309,12 @@ const (
 	exampleCoconutReason = "Dầu dừa khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp với da mặt hỗn hợp dễ nổi mụn của bạn."
 	exampleBodyReason    = "Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp với da mặt hỗn hợp dễ nổi mụn của bạn."
 
-	// Goal known, skin type not on file, product not limited for an acne-prone face.
-	// The same two sentences are used for every goal.
-	goalOnlyFitReason = "Chưa rõ loại da của bạn. Cứ dùng và để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng."
-	goalOnlyBuyWhy    = "Chưa chắc, vì app chưa biết loại da của bạn. Soi da một lần để app trả lời rõ hơn."
+	// Goal known, skin type not on file, and this product is not kept off an
+	// acne-prone face. The why is shared. The reason depends on the product.
+	goalOnlyFitReason     = "Chưa rõ loại da của bạn. Cứ dùng và để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng."
+	goalOnlyCoconutReason = "Chưa rõ loại da của bạn. Dầu dừa khá đặc, nếu bôi mặt thì thử một vùng nhỏ trước, thấy bí da hay nổi mụn thì tạm dừng."
+	goalOnlyBodyReason    = "Chưa rõ loại da của bạn. Kem dưỡng thể thường đặc hơn kem dưỡng mặt, nếu bôi mặt thì thử một vùng nhỏ trước, thấy bí da hay nổi mụn thì tạm dừng."
+	goalOnlyBuyWhy        = "Chưa chắc, vì app chưa biết loại da của bạn. Soi da một lần để app trả lời rõ hơn."
 )
 
 func acneFacePhrase(facts wardrobeInsightFacts) string {
@@ -440,12 +442,14 @@ func insightCommandsUser(blob string) bool {
 }
 
 // insightCallsProductHeavy rejects words that call the product bad.
-// "bí" is its own word. It must not match inside "bít".
+// "bí" is its own word. It must not match inside "bít". "bí da" is the skin
+// feeling in the goal-only trial line, not a label on the product.
 func insightCallsProductHeavy(blob string) bool {
 	blob = strings.ToLower(blob)
 	if strings.Contains(blob, "nặng") || strings.Contains(blob, "occlusive") {
 		return true
 	}
+	blob = strings.ReplaceAll(blob, "bí da", " ")
 	return hasVietnameseWord(blob, "bí")
 }
 
@@ -732,8 +736,9 @@ func validateWardrobeProductInsight(card dto.WardrobeProductInsight, facts wardr
 		}
 	}
 	if goalOnlyCardRequired(facts) {
-		if card.Fit.Verdict != dto.WardrobeFitMaybe || card.Buy.Advice != dto.WardrobeBuyNo || card.Fit.Reason != goalOnlyFitReason || card.Buy.Why != goalOnlyBuyWhy {
-			problems = append(problems, fmt.Sprintf(`Skin type is not on file and only the goal is known. fit.verdict must be maybe and buy.advice must be "chưa nên". fit.reason must be %q. buy.why must be %q.`, goalOnlyFitReason, goalOnlyBuyWhy))
+		reason := goalOnlyFitReasonFor(facts)
+		if card.Fit.Verdict != dto.WardrobeFitMaybe || card.Buy.Advice != dto.WardrobeBuyNo || card.Fit.Reason != reason || card.Buy.Why != goalOnlyBuyWhy {
+			problems = append(problems, fmt.Sprintf(`Skin type is not on file and only the goal is known. fit.verdict must be maybe and buy.advice must be "chưa nên". fit.reason must be %q. buy.why must be %q.`, reason, goalOnlyBuyWhy))
 		}
 	}
 	if !negativeLineHedged(card) {
@@ -812,15 +817,29 @@ func goalOnlyCardRequired(facts wardrobeInsightFacts) bool {
 	return true
 }
 
+// goalOnlyFitReasonFor picks the maybe-card reason. "Cứ dùng" is only the
+// foaming cleanser. Coconut oil and a body product each have their own line.
+// Any other product keeps the cleanser line.
+func goalOnlyFitReasonFor(facts wardrobeInsightFacts) string {
+	switch facts.FaceLimit {
+	case acneFaceCoconutOil:
+		return goalOnlyCoconutReason
+	case acneFaceBodyProduct:
+		return goalOnlyBodyReason
+	default:
+		return goalOnlyFitReason
+	}
+}
+
 // goalOnlyFallback is the card when the profile has a goal and no skin type.
 // Verdict stays maybe / "chưa nên" — the same as an unknown skin type.
-// The two sentences do not name the goal; every goal shares them.
+// The why is shared. The reason depends on the product kind.
 func goalOnlyFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
 	return dto.WardrobeProductInsight{
 		WhatItDoes: fallbackWhatItDoes(facts),
 		Fit: dto.WardrobeProductFit{
 			Verdict: dto.WardrobeFitMaybe,
-			Reason:  goalOnlyFitReason,
+			Reason:  goalOnlyFitReasonFor(facts),
 		},
 		Buy: dto.WardrobeProductBuy{
 			Advice: dto.WardrobeBuyNo,
