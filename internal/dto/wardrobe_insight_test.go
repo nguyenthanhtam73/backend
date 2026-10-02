@@ -107,8 +107,14 @@ func TestParseWardrobeProductInsight_UnknownSkinDoesNotInventFit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if insightUnknownFitReason != "Chưa đủ thông tin để so. Soi da một lần để app trả lời rõ hơn." {
+		t.Fatalf("unknown-skin reason: %q", insightUnknownFitReason)
+	}
 	if got.Fit.Verdict != WardrobeFitMaybe || got.Fit.Reason != insightUnknownFitReason {
 		t.Fatalf("fit: %+v", got.Fit)
+	}
+	if strings.Contains(got.Buy.Why, "Soi da một lần") {
+		t.Fatalf("continue line should not repeat the soi-da sentence: %q", got.Buy.Why)
 	}
 	if got.Buy.Advice != WardrobeBuyNo || got.Buy.Why != insightUnknownBuyWhy {
 		t.Fatalf("buy: %+v", got.Buy)
