@@ -74,6 +74,15 @@ type User struct {
 	OnboardingSkipped bool `gorm:"not null;default:false" json:"onboarding_skipped"`
 	// EmailUnsubscribedAt is set when the user opts out of outbound reminder email.
 	EmailUnsubscribedAt *time.Time `json:"email_unsubscribed_at,omitempty"`
+	// EmailReminderFailCount counts non-transient D0/D1 reminder rejections for
+	// EmailReminderHash. Reset when that address changes.
+	EmailReminderFailCount int `gorm:"not null;default:0" json:"-"`
+	// EmailReminderHash is the SHA-256 hex of the normalized address those
+	// failures belong to. Empty means no failures are tracked.
+	EmailReminderHash string `gorm:"size:64;not null;default:''" json:"-"`
+	// EmailReminderSuppressedAt stops reminder email to EmailReminderHash.
+	// A later change to Email clears it on the next send attempt.
+	EmailReminderSuppressedAt *time.Time `json:"-"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
