@@ -31,7 +31,7 @@ const (
 )
 
 const (
-	insightUnknownFitReason = "Chưa có loại da hoặc check-in gần đây để so."
+	insightUnknownFitReason = "Chưa đủ thông tin để so. Soi da một lần để app trả lời rõ hơn."
 	insightUnknownBuyWhy    = "Chưa đủ thông tin da để biết có nên dùng tiếp."
 	insightFallbackReason   = "Chưa đủ chi tiết để chắc hơn."
 	insightFallbackBuyYes   = "Hướng hợp với da đang có."

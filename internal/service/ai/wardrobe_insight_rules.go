@@ -955,7 +955,7 @@ func unknownSkinFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight 
 	if err != nil {
 		return dto.WardrobeProductInsight{
 			WhatItDoes: what,
-			Fit:        dto.WardrobeProductFit{Verdict: dto.WardrobeFitMaybe, Reason: "Chưa có loại da hoặc check-in gần đây để so."},
+			Fit:        dto.WardrobeProductFit{Verdict: dto.WardrobeFitMaybe, Reason: "Chưa đủ thông tin để so. Soi da một lần để app trả lời rõ hơn."},
 			Buy:        dto.WardrobeProductBuy{Advice: dto.WardrobeBuyNo, Why: "Chưa đủ thông tin da để biết có nên dùng tiếp."},
 			Disclaimer: dto.WardrobeInsightDisclaimer,
 		}

@@ -457,7 +457,7 @@ func TestGoalOnlyProfileSentence(t *testing.T) {
 	}
 
 	empty := wardrobeInsightFallback(assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Kem"}))
-	if empty.Fit.Reason != "Chưa có loại da hoặc check-in gần đây để so." || empty.Buy.Why != "Chưa đủ thông tin da để biết có nên dùng tiếp." {
+	if empty.Fit.Reason != "Chưa đủ thông tin để so. Soi da một lần để app trả lời rõ hơn." || empty.Buy.Why != "Chưa đủ thông tin da để biết có nên dùng tiếp." {
 		t.Fatalf("empty profile copy changed: %+v", empty)
 	}
 	if empty.Fit.Verdict != dto.WardrobeFitMaybe || empty.Buy.Advice != dto.WardrobeBuyNo {
