@@ -126,10 +126,10 @@ func renderWardrobeInsightPrompt(req WardrobeProductInsightRequest, facts wardro
 		b.WriteString("\nRECENT_CHECK_INS: none. There is no recent irritation note. Do not invent irritation, and do not treat the empty check-in list as unknown skin.\n")
 	}
 	if facts.AcneProne && facts.FaceLimit == acneFaceBodyProduct {
-		b.WriteString("\nPRODUCT_FIT_HINT: this product is labeled for body use, and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". Say it is a body product, fine for the body, and should not be applied to their face. Do not say the product is bad, too heavy, or occlusive. Name their skin type, concern, or goal.\n")
+		b.WriteString("\nPRODUCT_FIT_HINT: this product is labeled for body use, and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". Say it is a body product, fine for the body, and that it may not suit their face. Hedge fit.reason and buy.why with \"có thể chưa hợp\", \"có thể khiến\", or \"bạn cân nhắc\". Do not command them (no \"không nên bôi lên mặt\"). Do not say the product is bad, too heavy, or occlusive. Name their skin type, concern, or goal.\n")
 	}
 	if facts.AcneProne && facts.FaceLimit == acneFaceCoconutOil {
-		b.WriteString("\nPRODUCT_FIT_HINT: this is coconut oil (dầu dừa), and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". Say dầu dừa should not be applied to their face. Do not say the oil is a bad product. Name their skin type, concern, or goal.\n")
+		b.WriteString("\nPRODUCT_FIT_HINT: this is coconut oil (dầu dừa), and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". Say dầu dừa có thể chưa hợp with their face. Hedge fit.reason and buy.why with \"có thể chưa hợp\", \"có thể khiến\", or \"bạn cân nhắc\". Do not command them (no \"không nên bôi lên mặt\"). Do not say the oil is a bad product. Name their skin type, concern, or goal.\n")
 	}
 	return b.String()
 }
@@ -467,9 +467,9 @@ func wardrobeInsightFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsi
 
 func faceLimitProblem(limit acneFaceLimit) string {
 	if limit == acneFaceCoconutOil {
-		return `This is coconut oil (dầu dừa) and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Say dầu dừa should not be applied to their face, and name their skin type, concern, or goal. Do not say the oil is bad, too heavy, or occlusive.`
+		return `This is coconut oil (dầu dừa) and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Say dầu dừa có thể chưa hợp with their face, and name their skin type, concern, or goal. Hedge the reason ("có thể chưa hợp", "có thể khiến", "bạn cân nhắc"). Do not command them ("không nên bôi lên mặt"). Do not say the oil is bad, too heavy, or occlusive.`
 	}
-	return `This product is labeled for body use and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Say it is a body product, fine for the body, and should not be applied to their face. Name their skin type, concern, or goal. Do not say the product is bad, too heavy, or occlusive.`
+	return `This product is labeled for body use and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Say it is a body product, fine for the body, and that it may not suit their face. Hedge the reason ("có thể chưa hợp", "có thể khiến", "bạn cân nhắc"). Do not command them ("không nên bôi lên mặt"). Name their skin type, concern, or goal. Do not say the product is bad, too heavy, or occlusive.`
 }
 
 func faceLimitReasonOK(card dto.WardrobeProductInsight, limit acneFaceLimit) bool {
@@ -501,12 +501,12 @@ func faceLimitFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
 		face = fmt.Sprintf("da mặt bạn dễ nổi mụn (%s)", joinVietnamese(facts.Concerns))
 	}
 	what := "Kem dưỡng cho cơ thể."
-	reason := fmt.Sprintf("Đây là kem dưỡng cho cơ thể, không nên bôi lên mặt vì %s.", face)
-	why := fmt.Sprintf("Chưa nên dùng tiếp trên mặt. Dùng cho cơ thể thì được, còn %s thì không nên bôi lên mặt.", face)
+	reason := fmt.Sprintf("Đây là kem dưỡng cho cơ thể, có thể chưa hợp khi bôi lên mặt vì %s.", face)
+	why := fmt.Sprintf("Bạn cân nhắc tạm dừng trên mặt. Dùng cho cơ thể thì được, còn với %s thì có thể chưa hợp.", face)
 	if facts.FaceLimit == acneFaceCoconutOil {
 		what = "Dầu dừa."
-		reason = fmt.Sprintf("Đây là dầu dừa, không nên bôi lên mặt vì %s.", face)
-		why = fmt.Sprintf("Chưa nên dùng tiếp trên mặt. Dầu dừa dùng chỗ khác thì được, còn %s thì không nên bôi lên mặt.", face)
+		reason = fmt.Sprintf("Đây là dầu dừa, có thể chưa hợp với da mặt bạn vì %s.", face)
+		why = fmt.Sprintf("Bạn cân nhắc tạm dừng trên mặt. Dầu dừa dùng chỗ khác thì được, còn với %s thì có thể khiến da dễ nổi mụn hơn.", face)
 	}
 	return dto.WardrobeProductInsight{
 		WhatItDoes: what,
@@ -525,11 +525,11 @@ func irritationFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
 		WhatItDoes: "Sản phẩm đang có trong tủ đồ.",
 		Fit: dto.WardrobeProductFit{
 			Verdict: dto.WardrobeFitNo,
-			Reason:  who + " đang có dấu hiệu rát hoặc kích ứng gần đây, nên tạm dừng sản phẩm này.",
+			Reason:  who + " có dấu hiệu rát hoặc kích ứng gần đây, bạn cân nhắc tạm dừng sản phẩm này.",
 		},
 		Buy: dto.WardrobeProductBuy{
 			Advice: dto.WardrobeBuyNo,
-			Why:    "Chưa nên dùng tiếp vì da đang rát hoặc kích ứng.",
+			Why:    "Có thể chưa hợp lúc này vì da đang rát hoặc kích ứng, bạn cân nhắc tạm dừng.",
 		},
 		Disclaimer: dto.WardrobeInsightDisclaimer,
 	}
