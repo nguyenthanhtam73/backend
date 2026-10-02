@@ -122,11 +122,11 @@ func TestParseWardrobeProductInsight_OwnedReasonDoesNotSayMua(t *testing.T) {
 	// Live cabinet example: the model explained a buy even though the user
 	// already owns the cleanser. The stored/API sentence keeps the skin reason
 	// and drops the shopping word. buy.advice stays the token the UI maps.
-	const before = "Nên mua vì phù hợp với loại da và mục tiêu làm sạch mụn."
-	const after = "Nên dùng tiếp vì phù hợp với loại da và mục tiêu làm sạch mụn."
+	const before = "Nên mua vì phù hợp với loại da và mục tiêu giảm mụn."
+	const after = "Nên dùng tiếp vì phù hợp với loại da và mục tiêu giảm mụn."
 	raw := []byte(`{
 		"what_it_does": "Sữa rửa mặt tạo bọt, làm sạch dầu thừa.",
-		"fit": {"verdict": "yes", "reason": "Da dầu và mục tiêu làm sạch mụn, check-in không thấy rát."},
+		"fit": {"verdict": "yes", "reason": "Da dầu và mục tiêu giảm mụn, check-in không thấy rát."},
 		"buy": {"advice": "nên mua", "why": "` + before + `"},
 		"actives": [{"name": "Ceramide", "gloss": "nên mua khi da khô"}]
 	}`)

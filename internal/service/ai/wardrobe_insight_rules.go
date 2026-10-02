@@ -28,7 +28,12 @@ type wardrobeInsightFacts struct {
 	Irritated     bool
 	// FaceLimit is set when this owned product should not be put on acne-prone facial skin.
 	// Body-labeled products and coconut oil only. Petrolatum, vaseline, and mineral oil are not limited here.
-	FaceLimit acneFaceLimit
+	FaceLimit   acneFaceLimit
+	ProductName string
+	Brand       string
+	Category    string
+	// ClogProne is the user's skin, not the product: mụn ẩn, lỗ chân lông bít, comedones.
+	ClogProne bool
 }
 
 // acneFaceLimit is why an owned product should stay off an acne-prone face.
@@ -42,6 +47,9 @@ const (
 
 func assembleWardrobeInsightFacts(req WardrobeProductInsightRequest) wardrobeInsightFacts {
 	var facts wardrobeInsightFacts
+	facts.ProductName = strings.TrimSpace(req.Name)
+	facts.Brand = strings.TrimSpace(req.Brand)
+	facts.Category = strings.TrimSpace(req.Category)
 	skinRaw, goalRaw, skillRaw, notes, sensitivity := "", "", "", "", ""
 	var concernRaws []string
 	if p := req.Profile; p != nil {
@@ -83,6 +91,7 @@ func assembleWardrobeInsightFacts(req WardrobeProductInsightRequest) wardrobeIns
 	facts.SkinTypeKnown = facts.SkinType != ""
 	facts.Anchors = wardrobeInsightAnchors(facts.SkinType, facts.Goal, facts.Concerns)
 	facts.AcneProne = wardrobeAcneProne(facts.SkinType, facts.Goal, notes, strings.Join(facts.Concerns, " "), strings.Join(concernRaws, " "), goalRaw)
+	facts.ClogProne = wardrobeClogProne(notes, strings.Join(facts.Concerns, " "), strings.Join(concernRaws, " "), goalRaw, facts.Goal)
 	facts.Irritated = recentShowsIrritation(limitRecentForInsight(req.Recent))
 	facts.FaceLimit = acneFaceUseLimit(req.Name, req.Brand, req.Category, req.Notes)
 
@@ -126,10 +135,12 @@ func renderWardrobeInsightPrompt(req WardrobeProductInsightRequest, facts wardro
 		b.WriteString("\nRECENT_CHECK_INS: none. There is no recent irritation note. Do not invent irritation, and do not treat the empty check-in list as unknown skin.\n")
 	}
 	if facts.AcneProne && facts.FaceLimit == acneFaceBodyProduct {
-		b.WriteString("\nPRODUCT_FIT_HINT: this product is labeled for body use, and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". Say it is a body product, fine for the body, and that it may not suit their face. Hedge fit.reason and buy.why with \"có thể chưa hợp\", \"có thể khiến\", or \"bạn cân nhắc\". Do not command them (no \"không nên bôi lên mặt\"). Do not say the product is bad, too heavy, or occlusive. Name their skin type, concern, or goal.\n")
+		fmt.Fprintf(&b, "\nPRODUCT_FIT_HINT: this product is labeled for body use, and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". It is fine for body use. Hedge with \"có thể chưa hợp\", \"có thể khiến\", or \"bạn cân nhắc\". Do not command them (no \"không nên bôi lên mặt\"). Do not say the product is bad, nặng, or occlusive. You may say it is khá đặc and có thể bít lỗ chân lông, and the sentence must include \"mặt\". Do not write a brand name. what_it_does must be %q. fit.reason must be %q. buy.why must be %q.\n",
+			exampleBodyWhat, bodyFaceReason(facts), exampleBodyWhy)
 	}
 	if facts.AcneProne && facts.FaceLimit == acneFaceCoconutOil {
-		b.WriteString("\nPRODUCT_FIT_HINT: this is coconut oil (dầu dừa), and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". Say dầu dừa có thể chưa hợp with their face. Hedge fit.reason and buy.why with \"có thể chưa hợp\", \"có thể khiến\", or \"bạn cân nhắc\". Do not command them (no \"không nên bôi lên mặt\"). Do not say the oil is a bad product. Name their skin type, concern, or goal.\n")
+		fmt.Fprintf(&b, "\nPRODUCT_FIT_HINT: this is coconut oil (dầu dừa), and this person's face is acne-prone. fit.verdict must be no. buy.advice must be \"chưa nên\". Hedge with \"có thể chưa hợp\", \"có thể khiến\", or \"bạn cân nhắc\". Do not command them (no \"không nên bôi lên mặt\"). Do not say the oil is bad, nặng, or occlusive. You may say it is khá đặc and có thể bít lỗ chân lông, and the sentence must include \"mặt\". Do not write a brand name. what_it_does must be %q. fit.reason must be %q. buy.why must be %q. actives must include one item named %q with gloss %q.\n",
+			exampleCoconutWhat, coconutFaceReason(facts), exampleCoconutWhy, coconutActiveName, exampleCoconutGloss)
 	}
 	return b.String()
 }
@@ -259,6 +270,276 @@ func wardrobeAcneProne(parts ...string) bool {
 		}
 	}
 	return false
+}
+
+// wardrobeClogProne is about the user's skin (clogged pores, closed comedones),
+// not about a product that might clog pores.
+func wardrobeClogProne(parts ...string) bool {
+	blob := strings.ToLower(strings.Join(parts, " "))
+	for _, cue := range []string{"mụn ẩn", "mun an", "bít tắc", "bit tac", "comedone", "clogged pore", "lỗ chân lông bít"} {
+		if strings.Contains(blob, cue) {
+			return true
+		}
+	}
+	return false
+}
+
+// Cabinet card examples. The system prompt, the per-profile hint, the retry
+// instruction, and the fallback card all use these sentences, so a line the
+// model is told to copy is a line the checker accepts.
+const (
+	exampleKeepReason   = "Phù hợp với da hỗn hợp và mục tiêu giảm mụn."
+	exampleKeepWhy      = "Nên dùng tiếp vì hợp với da dầu và mục tiêu giảm mụn."
+	examplePauseWhy     = "Có thể chưa hợp lúc này vì da đang rát, bạn cân nhắc tạm dừng."
+	exampleCoconutWhat  = "Dầu dừa thường dùng để dưỡng ẩm cho da."
+	exampleCoconutWhy   = "Bạn cân nhắc tạm dừng trên da mặt, vì dầu dừa khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp."
+	exampleCoconutGloss = "dưỡng ẩm, nhưng khá đặc nên có thể bít lỗ chân lông trên da mặt"
+	coconutActiveName   = "Dầu dừa"
+	exampleBodyWhat     = "Kem dưỡng cho cơ thể thường dùng để dưỡng ẩm cho da."
+	exampleBodyWhy      = "Bạn cân nhắc tạm dừng trên da mặt, còn dùng cho cơ thể thì được."
+	exampleCleanserWhat = "Sữa rửa mặt tạo bọt, giúp làm sạch dầu thừa, dành cho da dầu và dễ nổi mụn."
+	exampleGenericWhat  = "Sản phẩm này thường dùng để chăm da hằng ngày."
+
+	// Spec sentence for the combination, acne-prone profile. coconutFaceReason
+	// returns this when the saved skin type is da hỗn hợp.
+	exampleCoconutReason = "Dầu dừa khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp với da mặt hỗn hợp dễ nổi mụn của bạn."
+	exampleBodyReason    = "Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp với da mặt hỗn hợp dễ nổi mụn của bạn."
+)
+
+func acneFacePhrase(facts wardrobeInsightFacts) string {
+	skin := strings.TrimSpace(strings.ToLower(facts.SkinType))
+	skin = strings.TrimPrefix(skin, "da ")
+	skin = strings.TrimSpace(skin)
+	switch {
+	case skin != "" && (facts.AcneProne || facts.ClogProne):
+		return "da mặt " + skin + " dễ nổi mụn"
+	case skin != "":
+		return "da mặt " + skin
+	case facts.Goal != "":
+		return "da mặt dễ nổi mụn, mục tiêu " + lowerFirst(facts.Goal)
+	case len(facts.Concerns) > 0:
+		return "da mặt dễ nổi mụn (" + joinVietnamese(facts.Concerns) + ")"
+	default:
+		return "da mặt dễ nổi mụn"
+	}
+}
+
+func coconutFaceReason(facts wardrobeInsightFacts) string {
+	return fmt.Sprintf("Dầu dừa khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp với %s của bạn.", acneFacePhrase(facts))
+}
+
+func bodyFaceReason(facts wardrobeInsightFacts) string {
+	return fmt.Sprintf("Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp với %s của bạn.", acneFacePhrase(facts))
+}
+
+func fallbackWhatItDoes(facts wardrobeInsightFacts) string {
+	if facts.FaceLimit == acneFaceCoconutOil {
+		return exampleCoconutWhat
+	}
+	if facts.FaceLimit == acneFaceBodyProduct {
+		return exampleBodyWhat
+	}
+	blob := strings.ToLower(strings.Join([]string{facts.ProductName, facts.Category}, " "))
+	switch {
+	case isFoamingCleanser(blob):
+		return exampleCleanserWhat
+	case isCleanserText(blob):
+		return "Sữa rửa mặt thường dùng để làm sạch bụi và dầu thừa trên da."
+	case containsAny(blob, "chống nắng", "chong nang", "sunscreen", "spf"):
+		return "Kem chống nắng thường dùng để bảo vệ da khỏi nắng."
+	case containsAny(blob, "serum", "tinh chất", "tinh chat"):
+		return "Serum thường dùng để dưỡng thêm cho da."
+	case containsAny(blob, "kem dưỡng", "kem duong", "moisturizer", "dưỡng ẩm", "duong am"):
+		return "Kem dưỡng thường dùng để dưỡng ẩm cho da."
+	default:
+		return exampleGenericWhat
+	}
+}
+
+func isFoamingCleanser(blob string) bool {
+	if !containsAny(blob, "foaming", "tạo bọt", "tao bot") {
+		return false
+	}
+	return isCleanserText(blob) || containsAny(blob, "gel", "foam")
+}
+
+func isCleanserText(blob string) bool {
+	return containsAny(blob,
+		"cleanser", "cleansing", "face wash", "foaming",
+		"sữa rửa", "sua rua", "rửa mặt", "rua mat", "gel rửa",
+	)
+}
+
+func whatItDoesHasPurpose(what string) bool {
+	w := strings.ToLower(what)
+	for _, cue := range []string{
+		"thường dùng", "dùng để", "giúp ", "dành cho", "dưỡng ẩm", "làm sạch",
+		"bảo vệ", "làm dịu", "khóa ẩm", "chăm da",
+	} {
+		if strings.Contains(w, cue) {
+			return true
+		}
+	}
+	return false
+}
+
+func insightSkinTypeAsEffect(blob string) bool {
+	blob = strings.ToLower(blob)
+	for _, p := range []string{
+		"làm sạch da dầu",
+		"làm sạch da khô",
+		"làm sạch da hỗn hợp",
+		"làm sạch da nhạy",
+		"làm sạch da mụn",
+		"khiến da dễ nổi mụn",
+		"làm da dễ nổi mụn",
+		"làm cho da dễ nổi mụn",
+	} {
+		if strings.Contains(blob, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func insightRewritesGoal(blob string) bool {
+	blob = strings.ToLower(blob)
+	for _, p := range []string{"làm sạch mụn", "trị mụn", "hết mụn"} {
+		if strings.Contains(blob, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func insightCommandsUser(blob string) bool {
+	blob = strings.ToLower(blob)
+	for _, p := range []string{"không nên bôi", "đừng bôi", "phải ngừng", "cấm bôi", "cấm dùng"} {
+		if strings.Contains(blob, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// insightCallsProductHeavy rejects words that call the product bad.
+// "bí" is its own word. It must not match inside "bít".
+func insightCallsProductHeavy(blob string) bool {
+	blob = strings.ToLower(blob)
+	if strings.Contains(blob, "nặng") || strings.Contains(blob, "occlusive") {
+		return true
+	}
+	return hasVietnameseWord(blob, "bí")
+}
+
+func hasVietnameseWord(blob, word string) bool {
+	blob = strings.ToLower(blob)
+	word = strings.ToLower(strings.TrimSpace(word))
+	if word == "" {
+		return false
+	}
+	b := []rune(blob)
+	w := []rune(word)
+	for i := 0; i+len(w) <= len(b); i++ {
+		if i > 0 && unicode.IsLetter(b[i-1]) {
+			continue
+		}
+		match := true
+		for j := range w {
+			if b[i+j] != w[j] {
+				match = false
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+		end := i + len(w)
+		if end < len(b) && unicode.IsLetter(b[end]) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func cardEchoesBrand(card dto.WardrobeProductInsight, brand string) bool {
+	brand = strings.TrimSpace(brand)
+	// Three ASCII letters in a row skips Vietnamese product words such as "Dầu dừa",
+	// which the card is supposed to say, and still catches CeraVe, Nivea, The Body Shop.
+	if !looksLikeBrandToken(brand) {
+		return false
+	}
+	blob := strings.ToLower(strings.Join(insightCardTexts(card), " "))
+	return strings.Contains(blob, strings.ToLower(brand))
+}
+
+func looksLikeBrandToken(s string) bool {
+	run := 0
+	for _, r := range s {
+		if r <= unicode.MaxASCII && unicode.IsLetter(r) {
+			run++
+			if run >= 3 {
+				return true
+			}
+			continue
+		}
+		run = 0
+	}
+	return false
+}
+
+func poreTalkOK(card dto.WardrobeProductInsight, facts wardrobeInsightFacts) bool {
+	blob := strings.ToLower(card.Fit.Reason + " " + card.Buy.Why)
+	if insightCallsProductHeavy(blob) {
+		return false
+	}
+	if !strings.Contains(blob, "bít") {
+		return true
+	}
+	if !strings.Contains(blob, "có thể") {
+		return false
+	}
+	return facts.AcneProne || facts.ClogProne
+}
+
+func activeGlossPoreOK(card dto.WardrobeProductInsight) bool {
+	for _, a := range card.Actives {
+		g := strings.ToLower(a.Name + " " + a.Gloss)
+		if strings.Contains(g, "bít") && !strings.Contains(strings.ToLower(a.Gloss), "có thể") {
+			return false
+		}
+		if insightCallsProductHeavy(g) || insightSkinTypeAsEffect(g) || insightRewritesGoal(g) {
+			return false
+		}
+	}
+	return true
+}
+
+func coconutActiveOK(card dto.WardrobeProductInsight) bool {
+	for _, a := range card.Actives {
+		name := strings.ToLower(a.Name)
+		gloss := strings.ToLower(a.Gloss)
+		if (strings.Contains(name, "dừa") || strings.Contains(name, "coconut")) &&
+			strings.Contains(gloss, "dưỡng") &&
+			strings.Contains(gloss, "có thể") &&
+			strings.Contains(gloss, "bít") &&
+			strings.Contains(gloss, "lỗ chân lông") {
+			return true
+		}
+	}
+	return false
+}
+
+func negativeLineHedged(card dto.WardrobeProductInsight) bool {
+	if card.Fit.Verdict != dto.WardrobeFitNo && card.Buy.Advice != dto.WardrobeBuyNo {
+		return true
+	}
+	blob := strings.ToLower(card.Fit.Reason + " " + card.Buy.Why)
+	if insightCommandsUser(blob) {
+		return false
+	}
+	return strings.Contains(blob, "có thể") || strings.Contains(blob, "bạn cân nhắc")
 }
 
 func recentShowsIrritation(recent []domain.SkinCheck) bool {
@@ -416,6 +697,7 @@ func validateWardrobeProductInsight(card dto.WardrobeProductInsight, facts wardr
 		return nil
 	}
 	var problems []string
+	problems = append(problems, insightCopyProblems(card, facts)...)
 	if facts.SkinTypeKnown {
 		for _, text := range insightCardTexts(card) {
 			if insightTextInsufficient(text) {
@@ -429,12 +711,39 @@ func validateWardrobeProductInsight(card dto.WardrobeProductInsight, facts wardr
 	}
 	if facts.AcneProne && facts.FaceLimit != acneFaceOK {
 		if card.Fit.Verdict != dto.WardrobeFitNo || card.Buy.Advice != dto.WardrobeBuyNo || !faceLimitReasonOK(card, facts.FaceLimit) {
-			problems = append(problems, faceLimitProblem(facts.FaceLimit))
+			problems = append(problems, faceLimitProblem(facts))
 		}
+	}
+	if !negativeLineHedged(card) {
+		problems = append(problems, `Negative fit.reason and buy.why must hedge with "có thể chưa hợp", "có thể khiến", or "bạn cân nhắc". Do not command the user ("không nên bôi", "đừng bôi", "phải ngừng").`)
 	}
 	keepish := card.Fit.Verdict == dto.WardrobeFitYes || card.Fit.Verdict == dto.WardrobeFitMaybe
 	if keepish && card.Buy.Advice == dto.WardrobeBuyNo && !cardMentionsIrritation(card) {
 		problems = append(problems, "fit is yes or maybe, so buy.advice must be \"nên mua\" (keep using) unless fit.reason or buy.why names current irritation (rát, kích ứng). Do not pair a possible fit with \"chưa nên\" just because a check-in is missing.")
+	}
+	return problems
+}
+
+func insightCopyProblems(card dto.WardrobeProductInsight, facts wardrobeInsightFacts) []string {
+	var problems []string
+	if !whatItDoesHasPurpose(card.WhatItDoes) {
+		problems = append(problems, `what_it_does must be one full short sentence saying what kind of product it is and what it is for, never only the name. Example: "`+exampleCoconutWhat+`".`)
+	}
+	blob := strings.ToLower(strings.Join(insightCardTexts(card), " "))
+	if insightSkinTypeAsEffect(blob) {
+		problems = append(problems, `Skin-type words describe this person's skin or who the product is for, never what the product does. Write "dành cho da dầu và dễ nổi mụn", not "giúp làm sạch da dầu và dễ nổi mụn".`)
+	}
+	if insightRewritesGoal(blob) {
+		problems = append(problems, `When you name the goal, copy it exactly. Write "mục tiêu giảm mụn". Do not write "làm sạch mụn", "trị mụn", or "hết mụn".`)
+	}
+	if cardEchoesBrand(card, facts.Brand) {
+		problems = append(problems, "Do not write a brand name in any string. Describe the product by what it is (dầu dừa, sữa rửa mặt, kem dưỡng).")
+	}
+	if !poreTalkOK(card, facts) {
+		problems = append(problems, `You may say "khá đặc, dễ bít lỗ chân lông" only together with "có thể", and only when this person is acne-prone (dễ nổi mụn) or gets clogged pores. Do not say nặng, bí, or occlusive. Do not call the product bad.`)
+	}
+	if !activeGlossPoreOK(card) {
+		problems = append(problems, `An ingredient gloss may say "có thể bít lỗ chân lông" only with the word "có thể". Do not say nặng, bí, or occlusive.`)
 	}
 	return problems
 }
@@ -461,59 +770,61 @@ func wardrobeInsightFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsi
 	case facts.SkinTypeKnown:
 		return keepUsingFallback(facts)
 	default:
-		return unknownSkinFallback()
+		return unknownSkinFallback(facts)
 	}
 }
 
-func faceLimitProblem(limit acneFaceLimit) string {
-	if limit == acneFaceCoconutOil {
-		return `This is coconut oil (dầu dừa) and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Say dầu dừa có thể chưa hợp with their face, and name their skin type, concern, or goal. Hedge the reason ("có thể chưa hợp", "có thể khiến", "bạn cân nhắc"). Do not command them ("không nên bôi lên mặt"). Do not say the oil is bad, too heavy, or occlusive.`
+func faceLimitProblem(facts wardrobeInsightFacts) string {
+	if facts.FaceLimit == acneFaceCoconutOil {
+		return fmt.Sprintf(`This is coconut oil (dầu dừa) and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Hedge the reason ("có thể chưa hợp", "có thể khiến", "bạn cân nhắc"). Do not command them ("không nên bôi lên mặt"). Do not say the oil is bad, nặng, or occlusive. You may say khá đặc and có thể bít lỗ chân lông. The reason must include the word "mặt" and one plain why. what_it_does must be %q. fit.reason must be %q. buy.why must be %q. Include one active named %q with gloss %q. Do not write a brand name.`,
+			exampleCoconutWhat, coconutFaceReason(facts), exampleCoconutWhy, coconutActiveName, exampleCoconutGloss)
 	}
-	return `This product is labeled for body use and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Say it is a body product, fine for the body, and that it may not suit their face. Hedge the reason ("có thể chưa hợp", "có thể khiến", "bạn cân nhắc"). Do not command them ("không nên bôi lên mặt"). Name their skin type, concern, or goal. Do not say the product is bad, too heavy, or occlusive.`
+	return fmt.Sprintf(`This product is labeled for body use and this person's face is acne-prone. fit.verdict must be no and buy.advice must be "chưa nên". Say it is a body product, fine for the body, and that it may not suit their face. Hedge the reason ("có thể chưa hợp", "có thể khiến", "bạn cân nhắc"). Do not command them ("không nên bôi lên mặt"). Do not say the product is bad, nặng, or occlusive. You may say khá đặc and có thể bít lỗ chân lông. The reason must include the word "mặt" and one plain why. what_it_does must be %q. fit.reason must be %q. buy.why must be %q. Do not write a brand name.`,
+		exampleBodyWhat, bodyFaceReason(facts), exampleBodyWhy)
 }
 
 func faceLimitReasonOK(card dto.WardrobeProductInsight, limit acneFaceLimit) bool {
 	blob := strings.ToLower(card.Fit.Reason + " " + card.Buy.Why)
-	for _, bad := range []string{"nặng", "bí", "bít", "occlusive"} {
-		if strings.Contains(blob, bad) {
-			return false
-		}
+	if insightCommandsUser(blob) || insightCallsProductHeavy(blob) {
+		return false
 	}
-	if !strings.Contains(blob, "mặt") {
+	// "có thể" is the hedge. "mặt" is required so a reason about "da bạn" cannot
+	// sneak past. "bít lỗ chân lông" is the plain why, and only counts when hedged.
+	if !strings.Contains(blob, "mặt") || !strings.Contains(blob, "có thể") {
+		return false
+	}
+	if !strings.Contains(blob, "bít") || !strings.Contains(blob, "lỗ chân lông") {
 		return false
 	}
 	if limit == acneFaceCoconutOil {
-		return strings.Contains(blob, "dừa") || strings.Contains(blob, "coconut")
+		if !(strings.Contains(blob, "dừa") || strings.Contains(blob, "coconut")) || !coconutActiveOK(card) {
+			return false
+		}
+		return true
 	}
-	return strings.Contains(blob, "cơ thể") || strings.Contains(blob, "dưỡng thể") || strings.Contains(blob, "body")
+	return strings.Contains(blob, "cơ thể") || strings.Contains(blob, "dưỡng thể") || strings.Contains(blob, "dưỡng thân") || strings.Contains(blob, "body")
 }
 
 func faceLimitFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
-	face := "da mặt bạn dễ nổi mụn"
-	switch {
-	case facts.SkinType != "" && facts.Goal != "":
-		face = fmt.Sprintf("%s của bạn dễ nổi mụn và đang muốn %s", facts.SkinType, lowerFirst(facts.Goal))
-	case facts.SkinType != "":
-		face = fmt.Sprintf("%s của bạn dễ nổi mụn", facts.SkinType)
-	case facts.Goal != "":
-		face = fmt.Sprintf("da mặt bạn dễ nổi mụn và đang muốn %s", lowerFirst(facts.Goal))
-	case len(facts.Concerns) > 0:
-		face = fmt.Sprintf("da mặt bạn dễ nổi mụn (%s)", joinVietnamese(facts.Concerns))
-	}
-	what := "Kem dưỡng cho cơ thể."
-	reason := fmt.Sprintf("Đây là kem dưỡng cho cơ thể, có thể chưa hợp khi bôi lên mặt vì %s.", face)
-	why := fmt.Sprintf("Bạn cân nhắc tạm dừng trên mặt. Dùng cho cơ thể thì được, còn với %s thì có thể chưa hợp.", face)
+	reason := bodyFaceReason(facts)
+	why := exampleBodyWhy
 	if facts.FaceLimit == acneFaceCoconutOil {
-		what = "Dầu dừa."
-		reason = fmt.Sprintf("Đây là dầu dừa, có thể chưa hợp với da mặt bạn vì %s.", face)
-		why = fmt.Sprintf("Bạn cân nhắc tạm dừng trên mặt. Dầu dừa dùng chỗ khác thì được, còn với %s thì có thể khiến da dễ nổi mụn hơn.", face)
+		reason = coconutFaceReason(facts)
+		why = exampleCoconutWhy
 	}
-	return dto.WardrobeProductInsight{
-		WhatItDoes: what,
+	card := dto.WardrobeProductInsight{
+		WhatItDoes: fallbackWhatItDoes(facts),
 		Fit:        dto.WardrobeProductFit{Verdict: dto.WardrobeFitNo, Reason: reason},
 		Buy:        dto.WardrobeProductBuy{Advice: dto.WardrobeBuyNo, Why: why},
 		Disclaimer: dto.WardrobeInsightDisclaimer,
 	}
+	if facts.FaceLimit == acneFaceCoconutOil {
+		card.Actives = []dto.WardrobeProductActive{{
+			Name:  coconutActiveName,
+			Gloss: exampleCoconutGloss,
+		}}
+	}
+	return card
 }
 
 func irritationFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
@@ -522,7 +833,7 @@ func irritationFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
 		who = upperFirst(strings.TrimSpace(facts.SkinType))
 	}
 	return dto.WardrobeProductInsight{
-		WhatItDoes: "Sản phẩm đang có trong tủ đồ.",
+		WhatItDoes: fallbackWhatItDoes(facts),
 		Fit: dto.WardrobeProductFit{
 			Verdict: dto.WardrobeFitNo,
 			Reason:  who + " có dấu hiệu rát hoặc kích ứng gần đây, bạn cân nhắc tạm dừng sản phẩm này.",
@@ -552,7 +863,7 @@ func keepUsingFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
 		why = fmt.Sprintf("Có thể dùng tiếp và theo dõi, vì %s và chưa có dấu hiệu kích ứng.", facts.SkinType)
 	}
 	return dto.WardrobeProductInsight{
-		WhatItDoes: "Sản phẩm đang có trong tủ đồ.",
+		WhatItDoes: fallbackWhatItDoes(facts),
 		Fit: dto.WardrobeProductFit{
 			Verdict: dto.WardrobeFitMaybe,
 			Reason:  head + ". Chưa thấy da đang rát, có thể dùng tiếp và theo dõi.",
@@ -562,8 +873,8 @@ func keepUsingFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
 	}
 }
 
-func unknownSkinFallback() dto.WardrobeProductInsight {
-	const what = "Sản phẩm đang có trong tủ đồ."
+func unknownSkinFallback(facts wardrobeInsightFacts) dto.WardrobeProductInsight {
+	what := fallbackWhatItDoes(facts)
 	raw := []byte(`{"what_it_does":"` + what + `","fit":{"verdict":"yes","reason":"x"},"buy":{"advice":"nên mua","why":"x"}}`)
 	card, err := dto.ParseWardrobeProductInsight(raw, false)
 	if err != nil {
