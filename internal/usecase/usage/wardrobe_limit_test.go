@@ -46,8 +46,8 @@ func TestWardrobeFeatureDTO_FreeSlots(t *testing.T) {
 }
 
 func TestFreeWardrobeProductLimit(t *testing.T) {
-	if FreeWardrobeProductLimit != 3 {
-		t.Fatalf("expected FreeWardrobeProductLimit=3, got %d", FreeWardrobeProductLimit)
+	if FreeWardrobeProductLimit != 10 {
+		t.Fatalf("expected FreeWardrobeProductLimit=10, got %d", FreeWardrobeProductLimit)
 	}
 }
 

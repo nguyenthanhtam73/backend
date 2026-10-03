@@ -25,7 +25,8 @@ const (
 	// FreeWardrobeProductLimit is how many shelf items Free users may create.
 	// Premium / Premium+ are unlimited. Edit/delete are allowed on every plan
 	// (ownership is enforced in the wardrobe usecase).
-	FreeWardrobeProductLimit = 3
+	// GET /me/usage (and the dashboard usage block) report this number.
+	FreeWardrobeProductLimit = 10
 )
 
 var (
