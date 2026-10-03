@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
 )
@@ -43,7 +44,7 @@ type ProgressEntry struct {
 	UserNote  string                `json:"user_note,omitempty"`
 	Tags      []string              `json:"tags,omitempty"`     // conditions tags chosen by user
 	Symptoms  []string              `json:"symptoms,omitempty"` // signal/symptom tags
-	ImageURLs []string              `json:"image_urls"`         // already prefixed with `/uploads/`
+	ImageURLs []string              `json:"image_urls"`         // `/uploads/<key>?exp=&sig=` when a signer is configured
 	Status    string                `json:"status"`             // pending|processing|completed|failed
 	Gauges    *SkinCoachScoreGauges `json:"gauges,omitempty"`
 	Snippet   string                `json:"snippet,omitempty"` // 1-line coach summary for the card preview
@@ -83,7 +84,7 @@ type MonthlyComparison struct {
 	HydrationDelta *float64 `json:"hydration_delta,omitempty"`
 	ClarityDelta   *float64 `json:"clarity_delta,omitempty"`
 	BarrierDelta   *float64 `json:"barrier_delta,omitempty"`
-	Trend          string   `json:"trend"`               // overall trend label: "up" | "flat" | "down"
+	Trend          string   `json:"trend"`                  // overall trend label: "up" | "flat" | "down"
 	HeadlinePct    *int     `json:"headline_pct,omitempty"` // signed percent change on Overall, suitable for "+18%"
 }
 
@@ -132,7 +133,7 @@ func newProgressEntry(c *domain.SkinCheck, uploadPublicPrefix string) ProgressEn
 		if uploadPublicPrefix == "" {
 			urls = append(urls, "/"+clean)
 		} else {
-			urls = append(urls, "/"+path.Join(strings.Trim(uploadPublicPrefix, "/"), clean))
+			urls = append(urls, mediaurl.SignClientURL("/"+path.Join(strings.Trim(uploadPublicPrefix, "/"), clean)))
 		}
 	}
 	entry := ProgressEntry{
@@ -201,9 +202,9 @@ func truncateLine(s string, max int) string {
 // blob so we do not duplicate gauge-extraction logic.
 func computeProgressSummary(rows []domain.SkinCheck) ProgressSummaryData {
 	type acc struct {
-		count                                       int
-		overSum, hydrSum, clarSum, barrSum          float64
-		overCount, hydrCount, clarCount, barrCount  int
+		count                                      int
+		overSum, hydrSum, clarSum, barrSum         float64
+		overCount, hydrCount, clarCount, barrCount int
 	}
 	buckets := make(map[string]*acc)
 	tagCounts := make(map[string]int)

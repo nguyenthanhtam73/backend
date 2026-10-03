@@ -10,6 +10,7 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/dadiary/backend/internal/service/analysis"
 	"github.com/dadiary/backend/internal/storage"
 	"github.com/google/uuid"
@@ -136,7 +137,7 @@ func (s *Service) skinCheckResponse(check *domain.SkinCheck) dto.CreateSkinCheck
 		if clean == "" {
 			continue
 		}
-		publicURLs = append(publicURLs, "/"+path.Join("uploads", clean))
+		publicURLs = append(publicURLs, mediaurl.SignClientURL("/"+path.Join("uploads", clean)))
 	}
 	return dto.NewCreateSkinCheckResponse(check, check.Analysis, publicURLs)
 }
