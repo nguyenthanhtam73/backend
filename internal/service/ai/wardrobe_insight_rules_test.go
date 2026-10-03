@@ -129,6 +129,10 @@ func TestWardrobeInsightValidation_ContradictoryBodyButter(t *testing.T) {
 	if len(problems) == 0 {
 		t.Fatal("expected the contradictory card to fail")
 	}
+	correction := wardrobeInsightCorrection(problems)
+	if !strings.Contains(correction, "có thể chưa hợp") || strings.Contains(correction, "should not be applied") {
+		t.Fatalf("retry instruction should ask for a hedge:\n%s", correction)
+	}
 	fallback := wardrobeInsightFallback(facts)
 	if again := validateWardrobeProductInsight(fallback, facts); len(again) != 0 {
 		t.Fatalf("fallback still invalid: %v\n%+v", again, fallback)
@@ -137,15 +141,32 @@ func TestWardrobeInsightValidation_ContradictoryBodyButter(t *testing.T) {
 		t.Fatalf("body butter should be not a fit: %+v", fallback)
 	}
 	blob := strings.ToLower(fallback.Fit.Reason + " " + fallback.Buy.Why + " " + fallback.WhatItDoes)
-	for _, s := range []string{"cơ thể", "không nên bôi", "mặt", "hỗn hợp", "mụn"} {
+	for _, s := range []string{"cơ thể", "có thể chưa hợp", "mặt", "hỗn hợp", "mụn", "bạn cân nhắc"} {
 		if !strings.Contains(blob, s) {
 			t.Fatalf("fallback missing %q: %s", s, blob)
 		}
 	}
-	for _, bad := range []string{"nặng", "bí", "bít"} {
+	if strings.Contains(blob, "không nên bôi") {
+		t.Fatalf("fallback still commands the user: %s", blob)
+	}
+	for _, s := range []string{"bít", "lỗ chân lông", "có thể"} {
+		if !strings.Contains(blob, s) {
+			t.Fatalf("body fallback missing the plain why %q: %s", s, blob)
+		}
+	}
+	if fallback.WhatItDoes != exampleBodyWhat || fallback.Fit.Reason != exampleBodyReason || fallback.Buy.Why != exampleBodyWhy {
+		t.Fatalf("body fallback copy:\nwhat %q\nreason %q\nwhy %q", fallback.WhatItDoes, fallback.Fit.Reason, fallback.Buy.Why)
+	}
+	if len(fallback.Actives) != 0 {
+		t.Fatalf("body product with no obvious single ingredient should not invent actives: %+v", fallback.Actives)
+	}
+	for _, bad := range []string{"nặng", "occlusive", "the body shop", "khiến da dễ nổi mụn"} {
 		if strings.Contains(blob, bad) {
 			t.Fatalf("body product should not be called bad (%q): %s", bad, blob)
 		}
+	}
+	if hasVietnameseWord(blob, "bí") {
+		t.Fatalf("standalone bí still calls the product bad: %s", blob)
 	}
 	assertNoShoppingOrUnknown(t, fallback)
 }
@@ -176,8 +197,28 @@ func TestAcneFaceUseLimit_BodyLabelsAndCoconutOilOnly(t *testing.T) {
 	if problems := validateWardrobeProductInsight(oilCard, oil); len(problems) != 0 {
 		t.Fatalf("coconut oil fallback invalid: %v\n%+v", problems, oilCard)
 	}
-	if !strings.Contains(oilCard.Fit.Reason, "dầu dừa") || strings.Contains(oilCard.Fit.Reason, "nặng") {
-		t.Fatalf("coconut oil wording: %s", oilCard.Fit.Reason)
+	if oilCard.WhatItDoes != exampleCoconutWhat || oilCard.Fit.Reason != exampleCoconutReason || oilCard.Buy.Why != exampleCoconutWhy {
+		t.Fatalf("coconut fallback copy:\nwhat %q\nreason %q\nwhy %q", oilCard.WhatItDoes, oilCard.Fit.Reason, oilCard.Buy.Why)
+	}
+	if len(oilCard.Actives) != 1 || oilCard.Actives[0].Name != coconutActiveName || oilCard.Actives[0].Gloss != exampleCoconutGloss {
+		t.Fatalf("coconut active: %+v", oilCard.Actives)
+	}
+	if strings.Contains(oilCard.Fit.Reason, "nặng") || strings.Contains(strings.ToLower(oilCard.Buy.Why), "khiến da dễ nổi mụn") {
+		t.Fatalf("coconut oil wording: reason %s why %s", oilCard.Fit.Reason, oilCard.Buy.Why)
+	}
+	oilBlob := strings.ToLower(oilCard.Fit.Reason + " " + oilCard.Buy.Why + " " + oilCard.WhatItDoes)
+	if !strings.Contains(oilBlob, "có thể chưa hợp") || !strings.Contains(oilBlob, "bạn cân nhắc") || strings.Contains(oilBlob, "không nên bôi") {
+		t.Fatalf("coconut oil card should hedge, got %s", oilBlob)
+	}
+	for _, a := range oilCard.Actives {
+		oilBlob += " " + strings.ToLower(a.Gloss)
+	}
+	if strings.Contains(oilBlob, "nặng") || hasVietnameseWord(oilBlob, "bí") {
+		t.Fatalf("coconut card calls the oil bad: %s", oilBlob)
+	}
+	hint, _ := buildWardrobeProductInsightUser(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: profile})
+	if !strings.Contains(hint, exampleCoconutReason) || !strings.Contains(hint, "bít lỗ chân lông") || !strings.Contains(hint, "mặt") || strings.Contains(hint, "should not be applied") {
+		t.Fatalf("coconut oil hint should include a passing sentence\n%s", hint)
 	}
 	oilEN := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Organic Coconut Oil", Profile: profile})
 	if oilEN.FaceLimit != acneFaceCoconutOil {
@@ -256,6 +297,35 @@ func TestWardrobeInsightValidation_FoamingGelStaysConsistent(t *testing.T) {
 	if !strings.Contains(strings.ToLower(fallback.Fit.Reason), "hỗn hợp") || !strings.Contains(strings.ToLower(fallback.Fit.Reason), "mụn") {
 		t.Fatalf("fallback should name the profile: %+v", fallback)
 	}
+	if fallback.WhatItDoes != exampleCleanserWhat {
+		t.Fatalf("foaming cleanser what: %q", fallback.WhatItDoes)
+	}
+	useLine := strings.ToLower(fallback.Fit.Reason + " " + fallback.Buy.Why)
+	if !strings.Contains(useLine, "mục tiêu giảm mụn") || strings.Contains(useLine, "làm sạch mụn") {
+		t.Fatalf("goal line: %s", useLine)
+	}
+	if strings.Contains(strings.ToLower(fallback.WhatItDoes+" "+useLine), "la roche-posay") {
+		t.Fatalf("fallback copied the brand: %+v", fallback)
+	}
+	readsAsEffect := dto.WardrobeProductInsight{
+		WhatItDoes: "Sữa rửa mặt tạo bọt giúp làm sạch da dầu và dễ nổi mụn.",
+		Fit:        good.Fit,
+		Buy:        good.Buy,
+		Disclaimer: dto.WardrobeInsightDisclaimer,
+	}
+	if problems := validateWardrobeProductInsight(readsAsEffect, facts); len(problems) == 0 {
+		t.Fatal("skin-type words must not read as what the product does")
+	}
+	rewrittenGoal := good
+	rewrittenGoal.Buy.Why = "Nên dùng tiếp vì hợp với da hỗn hợp và mục tiêu làm sạch mụn."
+	if problems := validateWardrobeProductInsight(rewrittenGoal, facts); len(problems) == 0 {
+		t.Fatal("goal must stay mục tiêu giảm mụn")
+	}
+	branded := good
+	branded.WhatItDoes = "Sữa rửa mặt La Roche-Posay thường dùng để làm sạch dầu thừa."
+	if problems := validateWardrobeProductInsight(branded, facts); len(problems) == 0 {
+		t.Fatal("brand name must not pass")
+	}
 	assertNoShoppingOrUnknown(t, fallback)
 }
 
@@ -272,9 +342,9 @@ func TestWardrobeInsightValidation_IrritationAllowsPause(t *testing.T) {
 		t.Fatal("expected irritation")
 	}
 	paused := dto.WardrobeProductInsight{
-		WhatItDoes: "Sữa rửa mặt tạo bọt.",
-		Fit:        dto.WardrobeProductFit{Verdict: dto.WardrobeFitMaybe, Reason: "Da hỗn hợp đang rát sau lần rửa gần đây."},
-		Buy:        dto.WardrobeProductBuy{Advice: dto.WardrobeBuyNo, Why: "Chưa nên dùng tiếp vì da đang rát."},
+		WhatItDoes: exampleCleanserWhat,
+		Fit:        dto.WardrobeProductFit{Verdict: dto.WardrobeFitMaybe, Reason: "Da hỗn hợp có dấu hiệu rát gần đây, bạn cân nhắc tạm dừng."},
+		Buy:        dto.WardrobeProductBuy{Advice: dto.WardrobeBuyNo, Why: examplePauseWhy},
 		Disclaimer: dto.WardrobeInsightDisclaimer,
 	}
 	if problems := validateWardrobeProductInsight(paused, facts); len(problems) != 0 {
@@ -285,6 +355,17 @@ func TestWardrobeInsightValidation_IrritationAllowsPause(t *testing.T) {
 	vague.Buy.Why = "Chưa nên dùng tiếp."
 	if problems := validateWardrobeProductInsight(vague, facts); len(problems) == 0 {
 		t.Fatal("pause without an irritation sentence should fail")
+	}
+	fallback := wardrobeInsightFallback(facts)
+	if fallback.Fit.Verdict != dto.WardrobeFitNo || fallback.Buy.Advice != dto.WardrobeBuyNo {
+		t.Fatalf("irritation fallback: %+v", fallback)
+	}
+	blob := strings.ToLower(fallback.Fit.Reason + " " + fallback.Buy.Why)
+	if !strings.Contains(blob, "có thể chưa hợp") || !strings.Contains(blob, "bạn cân nhắc") {
+		t.Fatalf("irritation fallback should hedge: %s", blob)
+	}
+	if strings.Contains(blob, "nên tạm dừng") || strings.Contains(blob, "không nên") {
+		t.Fatalf("irritation fallback still commands: %s", blob)
 	}
 }
 
@@ -303,10 +384,189 @@ func TestWardrobeInsightValidation_NotAFitNeedsProfileAnchor(t *testing.T) {
 		t.Fatal("not-a-fit without the person's skin should fail")
 	}
 	specific := vague
-	specific.Fit.Reason = "Kem này nặng và bí với da hỗn hợp đang muốn giảm mụn."
-	specific.Buy.Why = "Chưa nên dùng tiếp vì dễ làm da hỗn hợp bị bít mụn."
+	specific.WhatItDoes = "Kem dưỡng thường dùng để dưỡng ẩm cho da."
+	specific.Fit.Reason = "Kem này khá đặc, có thể dễ bít lỗ chân lông với da hỗn hợp, mục tiêu giảm mụn."
+	specific.Buy.Why = "Bạn cân nhắc tạm dừng, vì có thể chưa hợp với da hỗn hợp."
 	if problems := validateWardrobeProductInsight(specific, facts); len(problems) != 0 {
 		t.Fatalf("specific not-a-fit should pass: %v", problems)
+	}
+}
+
+func TestGoalOnlyProfileSentence(t *testing.T) {
+	const (
+		coconutReason = "Dầu dừa khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp nếu bạn đang muốn giảm mụn."
+		bodyReason    = "Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp nếu bạn đang muốn giảm mụn."
+		awkward       = "da mặt dễ nổi mụn, mục tiêu"
+	)
+	for _, goal := range []string{"Giảm mụn", "clear_acne"} {
+		profile := goalOnlyProfile(goal)
+		oil := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: profile})
+		if oil.SkinType != "" || oil.SkinTypeKnown || !oil.SkinKnown || !oil.AcneProne || oil.Goal != "Giảm mụn" {
+			t.Fatalf("goal-only facts for %q: %+v", goal, oil)
+		}
+		oilCard := wardrobeInsightFallback(oil)
+		if oilCard.Fit.Verdict != dto.WardrobeFitNo || oilCard.Buy.Advice != dto.WardrobeBuyNo {
+			t.Fatalf("goal-only coconut verdict: %+v", oilCard)
+		}
+		if oilCard.WhatItDoes != exampleCoconutWhat || oilCard.Buy.Why != exampleCoconutWhy || oilCard.Fit.Reason != coconutReason {
+			t.Fatalf("goal-only coconut copy:\nwhat %q\nreason %q\nwhy %q", oilCard.WhatItDoes, oilCard.Fit.Reason, oilCard.Buy.Why)
+		}
+		if len(oilCard.Actives) != 1 || oilCard.Actives[0].Name != coconutActiveName || oilCard.Actives[0].Gloss != exampleCoconutGloss {
+			t.Fatalf("approved coconut gloss drifted: %+v", oilCard.Actives)
+		}
+		if strings.Contains(oilCard.Fit.Reason, awkward) || strings.Contains(oilCard.Fit.Reason, "mục tiêu giảm mụn của bạn") {
+			t.Fatalf("awkward goal-only reason: %s", oilCard.Fit.Reason)
+		}
+		if problems := validateWardrobeProductInsight(oilCard, oil); len(problems) != 0 {
+			t.Fatalf("goal-only coconut invalid: %v", problems)
+		}
+		hint, _ := buildWardrobeProductInsightUser(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: profile})
+		if !strings.Contains(hint, coconutReason) || !strings.Contains(hint, exampleCoconutGloss) || strings.Contains(hint, awkward) {
+			t.Fatalf("goal-only hint:\n%s", hint)
+		}
+
+		body := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Kem dưỡng thể", Profile: profile})
+		bodyCard := wardrobeInsightFallback(body)
+		if bodyCard.Fit.Reason != bodyReason || bodyCard.Fit.Verdict != dto.WardrobeFitNo || bodyCard.Buy.Advice != dto.WardrobeBuyNo {
+			t.Fatalf("goal-only body: %+v", bodyCard)
+		}
+		if problems := validateWardrobeProductInsight(bodyCard, body); len(problems) != 0 {
+			t.Fatalf("goal-only body invalid: %v", problems)
+		}
+
+		wash := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Sữa rửa mặt tạo bọt", Profile: profile})
+		washCard := wardrobeInsightFallback(wash)
+		if washCard.Fit.Verdict != dto.WardrobeFitMaybe || washCard.Buy.Advice != dto.WardrobeBuyNo {
+			t.Fatalf("goal-only cleanser verdict: %+v", washCard)
+		}
+		if washCard.WhatItDoes != exampleCleanserWhat || washCard.Fit.Reason != goalOnlyFitReason || washCard.Buy.Why != goalOnlyBuyWhy {
+			t.Fatalf("goal-only cleanser copy:\nwhat %q\nreason %q\nwhy %q", washCard.WhatItDoes, washCard.Fit.Reason, washCard.Buy.Why)
+		}
+		if strings.Contains(washCard.Fit.Reason, awkward) || strings.Contains(washCard.Fit.Reason+washCard.Buy.Why, "trị mụn") {
+			t.Fatalf("goal-only cleanser wording: %+v", washCard)
+		}
+		if problems := validateWardrobeProductInsight(washCard, wash); len(problems) != 0 {
+			t.Fatalf("goal-only cleanser invalid: %v", problems)
+		}
+	}
+
+	combo := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: reportedComboProfile()})
+	comboCard := wardrobeInsightFallback(combo)
+	if comboCard.Fit.Reason != exampleCoconutReason || comboCard.WhatItDoes != exampleCoconutWhat || comboCard.Actives[0].Gloss != exampleCoconutGloss {
+		t.Fatalf("combo coconut wording changed: %+v", comboCard)
+	}
+
+	empty := wardrobeInsightFallback(assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Kem"}))
+	if empty.Fit.Reason != "Chưa đủ thông tin để so. Soi da một lần để app trả lời rõ hơn." || empty.Buy.Why != "Để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng." {
+		t.Fatalf("empty profile copy changed: %+v", empty)
+	}
+	if empty.Fit.Verdict != dto.WardrobeFitMaybe || empty.Buy.Advice != dto.WardrobeBuyUnknown {
+		t.Fatalf("empty profile verdict: %+v", empty)
+	}
+	if strings.Contains(empty.Buy.Why, "Soi da một lần") {
+		t.Fatalf("empty profile why repeats the reason: %s", empty.Buy.Why)
+	}
+
+	// Another acne goal keeps the same face-limit shape, with that goal filled in.
+	custom := goalOnlyProfile("Giảm mụn đầu đen")
+	customOil := wardrobeInsightFallback(assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Dầu dừa nguyên chất", Profile: custom}))
+	customBody := wardrobeInsightFallback(assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: "Kem dưỡng thể", Profile: custom}))
+	if customOil.Fit.Reason != "Dầu dừa khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp nếu bạn đang muốn giảm mụn đầu đen." {
+		t.Fatalf("custom goal coconut: %s", customOil.Fit.Reason)
+	}
+	if customBody.Fit.Reason != "Kem dưỡng cho cơ thể khá đặc, dễ bít lỗ chân lông, nên có thể chưa hợp nếu bạn đang muốn giảm mụn đầu đen." {
+		t.Fatalf("custom goal body: %s", customBody.Fit.Reason)
+	}
+	if customOil.Fit.Verdict != dto.WardrobeFitNo || customBody.Buy.Advice != dto.WardrobeBuyNo {
+		t.Fatalf("custom goal verdicts: oil %+v body %+v", customOil.Fit, customBody.Buy)
+	}
+
+	// A non-acne goal stays maybe. Coconut oil and body cream get their own
+	// reason. The foaming cleanser keeps "Cứ dùng". The why is shared.
+	nonAcne := []struct {
+		name   string
+		reason string
+	}{
+		{"Dầu dừa nguyên chất", goalOnlyCoconutReason},
+		{"Organic Coconut Oil", goalOnlyCoconutReason},
+		{"Kem dưỡng thể", goalOnlyBodyReason},
+		{"Everyday Body Cream", goalOnlyBodyReason},
+		{"Sữa rửa mặt tạo bọt", goalOnlyFitReason},
+	}
+	for _, goal := range []string{"glow", "barrier", "anti_aging"} {
+		profile := goalOnlyProfile(goal)
+		for _, tc := range nonAcne {
+			facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{Name: tc.name, Profile: profile})
+			if facts.AcneProne || facts.SkinTypeKnown {
+				t.Fatalf("%s %q should not be acne-prone with a known skin type: %+v", tc.name, goal, facts)
+			}
+			card := wardrobeInsightFallback(facts)
+			if card.Fit.Verdict != dto.WardrobeFitMaybe || card.Buy.Advice != dto.WardrobeBuyNo {
+				t.Fatalf("%s %q verdict: %+v", tc.name, goal, card)
+			}
+			if card.Fit.Reason != tc.reason || card.Buy.Why != goalOnlyBuyWhy {
+				t.Fatalf("%s %q copy:\nreason %q\nwhy %q", tc.name, goal, card.Fit.Reason, card.Buy.Why)
+			}
+			if tc.reason == goalOnlyFitReason {
+				if !strings.Contains(card.Fit.Reason, "Cứ dùng") {
+					t.Fatalf("cleanser should keep the trial sentence: %s", card.Fit.Reason)
+				}
+			} else if strings.Contains(card.Fit.Reason, "Cứ dùng") {
+				t.Fatalf("%s should not use the cleanser sentence: %s", tc.name, card.Fit.Reason)
+			}
+			if problems := validateWardrobeProductInsight(card, facts); len(problems) != 0 {
+				t.Fatalf("%s %q invalid: %v", tc.name, goal, problems)
+			}
+			hint, _ := buildWardrobeProductInsightUser(WardrobeProductInsightRequest{Name: tc.name, Profile: profile})
+			if !strings.Contains(hint, tc.reason) || !strings.Contains(hint, goalOnlyBuyWhy) {
+				t.Fatalf("%s %q hint missing the maybe-card sentences\n%s", tc.name, goal, hint)
+			}
+		}
+	}
+}
+
+func goalOnlyProfile(goal string) *domain.SkinProfile {
+	snap, _ := json.Marshal(map[string]any{"goal": goal})
+	return &domain.SkinProfile{OnboardingSnapshot: snap}
+}
+
+// TestActiveNameAndGlossStaySeparate locks the cabinet payload: name and gloss
+// are separate fields. The live line "Dầu dừa. dưỡng ẩm..." is not produced here.
+func TestActiveNameAndGlossStaySeparate(t *testing.T) {
+	facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{
+		Name:    "Dầu dừa nguyên chất",
+		Profile: reportedComboProfile(),
+	})
+	card := wardrobeInsightFallback(facts)
+	if len(card.Actives) != 1 {
+		t.Fatalf("actives: %+v", card.Actives)
+	}
+	active := card.Actives[0]
+	if active.Name != "Dầu dừa" || strings.HasSuffix(active.Name, ".") || strings.HasPrefix(active.Gloss, ".") {
+		t.Fatalf("name/gloss punctuation: %+v", active)
+	}
+	if active.Gloss != exampleCoconutGloss {
+		t.Fatalf("gloss %q", active.Gloss)
+	}
+	raw, err := json.Marshal(card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	glitch := active.Name + ". " + active.Gloss
+	if strings.Contains(string(raw), glitch) || strings.Contains(string(raw), active.Name+".") {
+		t.Fatalf("payload joined name and gloss: %s", raw)
+	}
+	var payload struct {
+		Actives []struct {
+			Name  string `json:"name"`
+			Gloss string `json:"gloss"`
+		} `json:"actives"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Actives) != 1 || payload.Actives[0].Name != active.Name || payload.Actives[0].Gloss != active.Gloss {
+		t.Fatalf("round trip: %+v", payload.Actives)
 	}
 }
 
@@ -316,11 +576,51 @@ func TestWardrobeInsightFallback_UnknownSkinStaysMaybe(t *testing.T) {
 		t.Fatal("empty profile")
 	}
 	card := wardrobeInsightFallback(facts)
-	if card.Fit.Verdict != dto.WardrobeFitMaybe || card.Buy.Advice != dto.WardrobeBuyNo {
+	if card.Fit.Verdict != dto.WardrobeFitMaybe || card.Buy.Advice != dto.WardrobeBuyUnknown {
 		t.Fatalf("unknown card: %+v", card)
 	}
-	if card.Buy.Advice != "chưa nên" && card.Buy.Advice != "nên mua" {
+	if card.Buy.Advice != "chưa biết" {
 		t.Fatalf("advice token drifted: %q", card.Buy.Advice)
+	}
+	if card.Buy.Why != "Để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng." {
+		t.Fatalf("unknown why: %q", card.Buy.Why)
+	}
+}
+
+func TestKnownSkinRejectsModelUnknownAdvice(t *testing.T) {
+	raw := []byte(`{
+		"what_it_does": "Kem dưỡng thường dùng để dưỡng ẩm cho da.",
+		"fit": {"verdict": "maybe", "reason": "Phù hợp với da hỗn hợp và mục tiêu giảm mụn."},
+		"buy": {"advice": "chưa biết", "why": "Để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng."}
+	}`)
+	got, err := dto.ParseWardrobeProductInsight(raw, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Buy.Advice != dto.WardrobeBuyUnknown {
+		t.Fatalf("token must round-trip, got %q", got.Buy.Advice)
+	}
+	facts := assembleWardrobeInsightFacts(WardrobeProductInsightRequest{
+		Name:    "Kem dưỡng",
+		Profile: reportedComboProfile(),
+	})
+	if !facts.SkinKnown {
+		t.Fatal("combo profile should be known")
+	}
+	if problems := validateWardrobeProductInsight(got, facts); len(problems) == 0 {
+		t.Fatal("a profile with skin information must not keep model advice chưa biết")
+	}
+	verbose := []byte(`{
+		"what_it_does": "Kem dưỡng thường dùng để dưỡng ẩm cho da.",
+		"fit": {"verdict": "yes", "reason": "Phù hợp với da hỗn hợp và mục tiêu giảm mụn."},
+		"buy": {"advice": "chưa biết có nên dùng tiếp", "why": "Nên dùng tiếp vì hợp với da hỗn hợp và mục tiêu giảm mụn."}
+	}`)
+	parsed, err := dto.ParseWardrobeProductInsight(verbose, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Buy.Advice == dto.WardrobeBuyUnknown {
+		t.Fatal("a longer phrase must not become the unknown token")
 	}
 }
 

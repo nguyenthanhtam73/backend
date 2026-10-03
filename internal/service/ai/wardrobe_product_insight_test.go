@@ -24,7 +24,19 @@ func TestWardrobeProductInsightPromptLocksCard(t *testing.T) {
 		"ALREADY OWNS",
 		"skin type, concerns, and goal",
 		"The word \"mua\" is forbidden",
-		"Nên dùng tiếp vì hợp với da dầu và mục tiêu làm sạch mụn.",
+		exampleKeepWhy,
+		exampleKeepReason,
+		"có thể chưa hợp",
+		"có thể khiến",
+		"bạn cân nhắc",
+		exampleCoconutReason,
+		exampleCoconutWhy,
+		exampleCoconutWhat,
+		exampleCoconutGloss,
+		exampleCleanserWhat,
+		examplePauseWhy,
+		exampleBodyReason,
+		exampleBodyWhy,
 		"chưa có thông tin đầy đủ",
 		"không có thông tin",
 		"chưa đủ thông tin",
@@ -33,9 +45,23 @@ func TestWardrobeProductInsightPromptLocksCard(t *testing.T) {
 		"dầu dừa",
 		"actives",
 		"gloss",
+		`"fit": {"verdict": "yes|maybe|no", "reason": "string"}`,
+		`"buy": {"advice": "nên mua|chưa nên", "why": "string"}`,
 	} {
 		if !strings.Contains(p, s) {
 			t.Fatalf("prompt missing %q", s)
+		}
+	}
+	for _, banned := range []string{
+		"không nên bôi lên mặt vì",
+		"should not be applied",
+		"Chưa nên dùng tiếp vì da đang rát.",
+		"mục tiêu làm sạch mụn",
+		"Dầu dừa có thể chưa hợp với da bạn vì da hỗn hợp dễ nổi mụn.",
+		"Đây là kem dưỡng cho cơ thể, có thể chưa hợp khi bôi lên mặt vì da mặt bạn dễ nổi mụn.",
+	} {
+		if strings.Contains(p, banned) {
+			t.Fatalf("prompt still teaches an absolute reason %q", banned)
 		}
 	}
 	if strings.Contains(strings.ToLower(p), "freeform") {

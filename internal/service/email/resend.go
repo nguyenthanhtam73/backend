@@ -129,7 +129,7 @@ func (c *ResendClient) Send(ctx context.Context, msg Message) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		slog.Error("email: resend transport failed", "to", maskEmail(to), "err", err)
-		return fmt.Errorf("%w: %v", ErrSendFailed, err)
+		return &Failure{cause: err}
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
@@ -143,7 +143,7 @@ func (c *ResendClient) Send(ctx context.Context, msg Message) error {
 		"status", resp.StatusCode,
 		"body", string(respBody),
 	)
-	return fmt.Errorf("%w: HTTP %d", ErrSendFailed, resp.StatusCode)
+	return &Failure{Status: resp.StatusCode, Body: string(respBody)}
 }
 
 func maskEmail(addr string) string {
