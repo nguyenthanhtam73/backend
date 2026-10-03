@@ -84,6 +84,18 @@ type User struct {
 	// A later change to Email clears it on the next send attempt.
 	EmailReminderSuppressedAt *time.Time `json:"-"`
 
+	// First-touch attribution captured at register. Nil means the client did
+	// not send a value, or the value was dropped (it contained '@', or a
+	// click id failed its pattern). UTM text is trimmed, sanitized, and
+	// truncated to 100 runes. A later signup for the same email does not
+	// overwrite these columns. fbclid is 256 characters to match the frontend.
+	UTMSource   *string `gorm:"column:utm_source;size:100" json:"-"`
+	UTMMedium   *string `gorm:"column:utm_medium;size:100" json:"-"`
+	UTMCampaign *string `gorm:"column:utm_campaign;size:100" json:"-"`
+	UTMContent  *string `gorm:"column:utm_content;size:100" json:"-"`
+	FBCLID      *string `gorm:"column:fbclid;size:256" json:"-"`
+	TTCLID      *string `gorm:"column:ttclid;size:255" json:"-"`
+
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

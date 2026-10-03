@@ -18,7 +18,30 @@ const (
 	FunnelCheckinSubmitClicked = "checkin_submit_clicked"
 	FunnelCheckinSubmitSuccess = "checkin_submit_success"
 	FunnelCheckinSubmitError   = "checkin_submit_error"
+
+	FunnelRegisterFormView      = "register_form_view"
+	FunnelRegisterSubmitAttempt = "register_submit_attempt"
+	FunnelRegisterClientError   = "register_client_error"
+	FunnelLandingCTAClick       = "landing_cta_click"
+	FunnelRegisterEmailExists   = "register_email_exists"
 )
+
+// RegisterClientErrorTypes is the only allowed error_type for register_client_error.
+// Values are tokens. Free text, including an email address, is rejected.
+var RegisterClientErrorTypes = []string{
+	"password_short",
+	"email_invalid",
+	"email_empty",
+	"network",
+}
+
+// LandingCTAButtons is the only allowed button for landing_cta_click.
+var LandingCTAButtons = []string{
+	"hero_primary",
+	"header_register",
+	"header_login",
+	"bottom_cta",
+}
 
 // AllFunnelEvents is the allow-list for POST /api/v1/funnel-events.
 var AllFunnelEvents = []string{
@@ -29,6 +52,11 @@ var AllFunnelEvents = []string{
 	FunnelCheckinSubmitClicked,
 	FunnelCheckinSubmitSuccess,
 	FunnelCheckinSubmitError,
+	FunnelRegisterFormView,
+	FunnelRegisterSubmitAttempt,
+	FunnelRegisterClientError,
+	FunnelLandingCTAClick,
+	FunnelRegisterEmailExists,
 }
 
 const (
@@ -67,9 +95,16 @@ type FunnelEvent struct {
 	Event     string          `gorm:"column:event;size:40;not null;index:idx_funnel_events_event_server,priority:1" json:"event"`
 	Path      string          `gorm:"column:path;size:200;not null" json:"path"`
 	Props     json.RawMessage `gorm:"column:props;type:jsonb;not null" json:"props"`
-	ClientTS  time.Time       `gorm:"column:client_ts;not null" json:"client_ts"`
-	ServerTS  time.Time       `gorm:"column:server_ts;not null;index:idx_funnel_events_user_server,priority:2;index:idx_funnel_events_event_server,priority:2" json:"server_ts"`
-	UserAgent string          `gorm:"column:user_agent;size:256;not null" json:"user_agent,omitempty"`
+	// Attribution copied from props when the client sent it. Nil when the key
+	// was omitted or the value was dropped. Meta ads use utm_content
+	// (video_tu_do) and Meta appends fbclid.
+	UTMSource   *string   `gorm:"column:utm_source;size:100" json:"-"`
+	UTMCampaign *string   `gorm:"column:utm_campaign;size:100" json:"-"`
+	UTMContent  *string   `gorm:"column:utm_content;size:100" json:"-"`
+	FBCLID      *string   `gorm:"column:fbclid;size:256" json:"-"`
+	ClientTS    time.Time `gorm:"column:client_ts;not null" json:"client_ts"`
+	ServerTS    time.Time `gorm:"column:server_ts;not null;index:idx_funnel_events_user_server,priority:2;index:idx_funnel_events_event_server,priority:2" json:"server_ts"`
+	UserAgent   string    `gorm:"column:user_agent;size:256;not null" json:"user_agent,omitempty"`
 }
 
 // TableName is the funnel_events table.
