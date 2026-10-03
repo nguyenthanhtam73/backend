@@ -91,6 +91,11 @@ const (
 	funnelEventRateMax       = 60
 	funnelEventRateWindow    = time.Minute
 	funnelEventGlobalRateMax = 600
+
+	// Account deletion re-checks the password. Cap guesses so a stolen access
+	// token cannot brute-force it. Count failures: a wrong password is the attack.
+	accountDeleteRateMax    = 5
+	accountDeleteRateWindow = 15 * time.Minute
 )
 
 // funnelEventHandlers is the POST /funnel-events chain.
@@ -113,8 +118,13 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 
 	// Per-route JWT only. Do NOT use api.Group("", jwt): in Fiber that registers USE on
 	// /api/v1 and runs auth before public routes like POST /auth/register.
-	jwt := middleware.RequireAccessJWT(tok)
-	jwtOptional := middleware.OptionalAccessJWT(tok)
+	// Lookup rejects access tokens after the account row is gone (DELETE /me).
+	var userLookup middleware.UserLookup
+	if db != nil {
+		userLookup = repository.NewUserRepository(db).GetByID
+	}
+	jwt := middleware.RequireAccessJWT(tok, userLookup)
+	jwtOptional := middleware.OptionalAccessJWT(tok, userLookup)
 
 	// Auth — Domain → AuthRepository → AuthUsecase → Handler
 	var authSvc *authuc.Usecase
@@ -323,6 +333,9 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		mdh := NewMeDataHandler(userDataSvc)
 		api.Get("/me/export", jwt, mdh.Export)
 		api.Delete("/me/data", jwt, mdh.Delete)
+		// DELETE /me removes the account. Limiter runs after JWT so the bucket is per user.
+		accountDeleteLimit := middleware.AILimiter(accountDeleteRateMax, accountDeleteRateWindow)
+		api.Delete("/me", jwt, accountDeleteLimit, mdh.DeleteAccount)
 
 		// Routine Management — daily AM/PM skincare routines, AI suggestion,
 		// and history for the progress view. The skinCheck repo is reused
