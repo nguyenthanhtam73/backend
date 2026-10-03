@@ -314,22 +314,16 @@ func TestFunnelEvents_RejectsUnknownEventAndOversizedProps(t *testing.T) {
 			message: "props must not include an email",
 		},
 		{
-			name:    "unknown landing prop",
-			body:    funnelBody(domain.FunnelLandingCTAClick, "sess-cta", "/", `{"button":"hero_primary","label":"Sign up now"}`),
-			code:    "invalid_funnel_event",
-			message: "unknown prop",
-		},
-		{
-			name:    "unknown register prop",
-			body:    funnelBody(domain.FunnelRegisterFormView, "sess-utm-medium", "/register", `{"utm_source":"meta","utm_medium":"cpc"}`),
-			code:    "invalid_funnel_event",
-			message: "unknown prop",
-		},
-		{
 			name:    "register error missing error_type",
 			body:    funnelBody(domain.FunnelRegisterClientError, "sess-no-err", "/register", `{"utm_source":"meta"}`),
 			code:    "invalid_funnel_event",
 			message: "invalid error_type",
+		},
+		{
+			name:    "invalid landing button",
+			body:    funnelBody(domain.FunnelLandingCTAClick, "sess-bad-button", "/", `{"button":"not_a_button","utm_medium":"cpc"}`),
+			code:    "invalid_funnel_event",
+			message: "invalid button",
 		},
 	}
 	for _, tc := range cases {
@@ -469,7 +463,7 @@ func TestFunnelEvents_AcceptsFrontendRegisterPayloads(t *testing.T) {
 		},
 		{
 			body: funnelBody(domain.FunnelRegisterClientError, "reg-err-drop", "/register", `{"error_type":"email_invalid","utm_source":"`+tooLong+`","utm_campaign":"ig<script>"}`),
-			want: want{session: "reg-err-drop", event: domain.FunnelRegisterClientError, props: map[string]any{"error_type": "email_invalid", "utm_source": strings.Repeat("a", 100)}},
+			want: want{session: "reg-err-drop", event: domain.FunnelRegisterClientError, props: map[string]any{"error_type": "email_invalid", "utm_source": strings.Repeat("a", 100), "utm_campaign": "igscript"}},
 		},
 		{
 			body: funnelBody(domain.FunnelRegisterFormView, "reg-space", "/register", `{"utm_source":"paid social","utm_campaign":"summer%20sale"}`),
@@ -527,6 +521,63 @@ func TestFunnelEvents_AcceptsFrontendRegisterPayloads(t *testing.T) {
 		if strings.Contains(string(row.Props), "@") {
 			t.Fatalf("session %s stored an email in props %s", tc.want.session, row.Props)
 		}
+	}
+}
+
+func TestFunnelEvents_IgnoresUnknownRegisterAndLandingKeys(t *testing.T) {
+	app, db, _ := newFunnelFixture(t, false)
+	cases := []struct {
+		session string
+		body    string
+		props   map[string]any
+	}{
+		{
+			session: "reg-unknown",
+			body:    funnelBody(domain.FunnelRegisterFormView, "reg-unknown", "/register", `{"utm_source":"meta","utm_medium":"cpc","ttclid":"E.C.P.1"}`),
+			props:   map[string]any{"utm_source": "meta"},
+		},
+		{
+			session: "cta-unknown",
+			body:    funnelBody(domain.FunnelLandingCTAClick, "cta-unknown", "/", `{"button":"hero_primary","label":"Sign up now","utm_medium":"cpc"}`),
+			props:   map[string]any{"button": "hero_primary"},
+		},
+	}
+	for _, tc := range cases {
+		status, raw, _ := postFunnel(t, app, "", "", "", tc.body)
+		if status != http.StatusNoContent {
+			t.Fatalf("session %s status=%d body=%s", tc.session, status, raw)
+		}
+		var row domain.FunnelEvent
+		if err := db.Where("session_id = ?", tc.session).First(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+		assertProps(t, row.Props, tc.props)
+		stored := string(row.Props)
+		for _, dropped := range []string{"utm_medium", "ttclid", "label", "cpc", "Sign up"} {
+			if strings.Contains(stored, dropped) {
+				t.Fatalf("session %s stored %q in %s", tc.session, dropped, stored)
+			}
+		}
+	}
+}
+
+func TestFunnelEvents_RegisterCampaignSanitizedOnce(t *testing.T) {
+	app, db, _ := newFunnelFixture(t, false)
+	// "C%2B%2B" is percent-encoding for "C++". One sanitizeUTM pass decodes
+	// %2B to '+' and keeps it, because '+' is an allowed rune. A second pass
+	// would treat that raw '+' as a query space and store "C".
+	body := funnelBody(domain.FunnelRegisterFormView, "reg-cpp", "/register", `{"utm_campaign":"C%2B%2B"}`)
+	status, raw, _ := postFunnel(t, app, "", "", "", body)
+	if status != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", status, raw)
+	}
+	var row domain.FunnelEvent
+	if err := db.Where("session_id = ?", "reg-cpp").First(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertProps(t, row.Props, map[string]any{"utm_campaign": "C++"})
+	if row.UTMCampaign == nil || *row.UTMCampaign != "C++" {
+		t.Fatalf("utm_campaign=%v, want C++", row.UTMCampaign)
 	}
 }
 

@@ -59,8 +59,9 @@ func TestRegister_PersistsFirstTouchAttribution(t *testing.T) {
 	if stored.FBCLID == nil || *stored.FBCLID != strings.Repeat("c", 256) {
 		t.Fatalf("fbclid=%v", stored.FBCLID)
 	}
-	if stored.TTCLID != nil {
-		t.Fatalf("ttclid with ~ stored: %s", *stored.TTCLID)
+	// '~' is not in the click-id alphabet, so it is stripped and the rest is kept.
+	if stored.TTCLID == nil || *stored.TTCLID != "tt.clid1" {
+		t.Fatalf("ttclid=%v", stored.TTCLID)
 	}
 	for _, field := range []*string{stored.UTMCampaign, stored.FBCLID} {
 		if field != nil && strings.Contains(*field, "@") {

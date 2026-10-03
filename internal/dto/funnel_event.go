@@ -91,8 +91,11 @@ func parseClientTS(raw string) (time.Time, bool) {
 // Omitted and JSON null props are stored as {}.
 // Register, landing, and check-in events may carry optional utm_source,
 // utm_campaign, utm_content, and fbclid. A value that fails sanitizing is
-// omitted. error_type and button stay strict enums and still reject the
-// event when they are invalid.
+// omitted. Attribution values are sanitized once, in rewriteAttributionProps,
+// including on register events. error_type and button stay strict enums and
+// still reject the event when they are invalid. Keys outside the allow-list
+// on register and landing events are dropped and the event is still stored.
+// Check-in events do not use that allow-list; extra flat keys are kept.
 // Emails and other form fields are rejected on every event. The @ check is
 // skipped only for attribution keys on register events, which are sanitized
 // below. On every other event an attribution value that contains @ is
@@ -179,7 +182,8 @@ func registerAttributionPropKey(key string) bool {
 }
 
 // normalizeLandingProps requires button and allows the same optional
-// attribution keys as register events. Other keys are rejected.
+// attribution keys as register events. Other keys are dropped. button stays
+// a strict enum and still rejects the event when it is missing or invalid.
 func normalizeLandingProps(obj map[string]json.RawMessage) string {
 	if msg := enumPropValue(obj, "button", domain.LandingCTAButtons, "invalid button"); msg != "" {
 		return msg
@@ -188,42 +192,32 @@ func normalizeLandingProps(obj map[string]json.RawMessage) string {
 		switch key {
 		case "button", "utm_source", "utm_campaign", "utm_content", "fbclid":
 		default:
-			return "unknown prop"
+			delete(obj, key)
 		}
 	}
 	return ""
 }
 
 // normalizeRegisterEventProps keeps error_type (when required) and optional
-// utm_source, utm_campaign, utm_content, and fbclid. Other keys are rejected.
-// An attribution value that fails sanitizing is omitted; the event is still
-// accepted.
+// utm_source, utm_campaign, utm_content, and fbclid. Other keys are dropped.
+// Attribution values were already sanitized once in rewriteAttributionProps;
+// sanitizing again would decode a kept '+' (from %2B) into a space.
+// error_type stays a strict enum when this event requires it.
 func normalizeRegisterEventProps(obj map[string]json.RawMessage, requireErrorType bool) string {
 	if requireErrorType {
 		if msg := enumPropValue(obj, "error_type", domain.RegisterClientErrorTypes, "invalid error_type"); msg != "" {
 			return msg
 		}
 	}
-	for key, raw := range obj {
+	for key := range obj {
 		switch key {
+		case "utm_source", "utm_campaign", "utm_content", "fbclid":
 		case "error_type":
 			if !requireErrorType {
-				return "unknown prop"
-			}
-		case "utm_source", "utm_campaign", "utm_content", "fbclid":
-			cleaned := funnelAttributionValue(key, raw)
-			if cleaned == "" {
 				delete(obj, key)
-				continue
 			}
-			encoded, err := json.Marshal(cleaned)
-			if err != nil {
-				delete(obj, key)
-				continue
-			}
-			obj[key] = encoded
 		default:
-			return "unknown prop"
+			delete(obj, key)
 		}
 	}
 	return ""

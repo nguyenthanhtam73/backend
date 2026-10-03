@@ -26,8 +26,14 @@ func TestSanitizeUTM(t *testing.T) {
 		{name: "percent encoding", in: "Da%20m%E1%BB%A5n", want: "Da mụn"},
 		{name: "encoded literal plus kept", in: "Da%2Bmụn", want: "Da+mụn"},
 		{name: "trimmed", in: "  video_tu_do  ", want: "video_tu_do"},
-		{name: "html dropped", in: "ig<script>", want: ""},
+		{name: "html tags stripped", in: "ig<script>", want: "igscript"},
 		{name: "percent-encoded email dropped", in: "a%40b.com", want: ""},
+		{name: "odd chars stripped", in: "Da*mụn%", want: "Damụn"},
+		{name: "emoji stripped", in: "Da😀mụn", want: "Damụn"},
+		{name: "at sign still drops the whole value", in: "da*@mụn", want: ""},
+		{name: "only odd chars omitted", in: "***😀", want: ""},
+		{name: "nfd vietnamese kept", in: "Da mu\u031bn", want: "Da mu\u031bn"},
+		{name: "nfd vietnamese with odd chars", in: "Da*mu\u031bn%", want: "Damu\u031bn"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -96,5 +102,51 @@ func TestAttributionApply_SanitizesUTMAndClickIDs(t *testing.T) {
 	(&RegisterAttribution{FBCLID: strings.Repeat("c", 257)}).Apply(over)
 	if over.FBCLID != nil {
 		t.Fatalf("257-char fbclid stored: len=%d", len(*over.FBCLID))
+	}
+
+	stripped := &domain.User{}
+	(&RegisterAttribution{
+		FBCLID: "IwAR0*abc😀",
+		TTCLID: "E.C.P~abc",
+	}).Apply(stripped)
+	if stripped.FBCLID == nil || *stripped.FBCLID != "IwAR0abc" {
+		t.Fatalf("fbclid=%v", stripped.FBCLID)
+	}
+	if stripped.TTCLID == nil || *stripped.TTCLID != "E.C.Pabc" {
+		t.Fatalf("ttclid=%v", stripped.TTCLID)
+	}
+
+	emailClick := &domain.User{}
+	(&RegisterAttribution{FBCLID: "IwAR0@abc", TTCLID: "tt@clid"}).Apply(emailClick)
+	if emailClick.FBCLID != nil || emailClick.TTCLID != nil {
+		t.Fatalf("click id with @ stored: fb=%v tt=%v", emailClick.FBCLID, emailClick.TTCLID)
+	}
+
+	// A disallowed character does not change the length cap: 256 allowed
+	// runes plus one emoji is kept; 257 allowed runes are still dropped.
+	withEmoji := &domain.User{}
+	(&RegisterAttribution{FBCLID: strings.Repeat("c", 256) + "😀"}).Apply(withEmoji)
+	if withEmoji.FBCLID == nil || *withEmoji.FBCLID != strings.Repeat("c", 256) {
+		t.Fatalf("fbclid with emoji=%v", withEmoji.FBCLID)
+	}
+}
+
+func TestSanitizeUTM_KeepsNFDByteForByte(t *testing.T) {
+	nfc := "Da mụn"
+	nfd := "Da mu\u031bn" // u + combining horn, not the precomposed ụ
+	if nfc == nfd {
+		t.Fatal("fixture collapsed NFD into NFC")
+	}
+	if got := sanitizeUTM(nfc); got != nfc {
+		t.Fatalf("NFC changed: %q (%x)", got, []byte(got))
+	}
+	got := sanitizeUTM(nfd)
+	if got != nfd || string([]byte(got)) != nfd {
+		t.Fatalf("NFD changed: got %q (%x) want %q (%x)", got, []byte(got), nfd, []byte(nfd))
+	}
+	stripped := sanitizeUTM("Da*mu\u031bn%")
+	want := "Damu\u031bn"
+	if stripped != want {
+		t.Fatalf("got %q (%x) want %q (%x)", stripped, []byte(stripped), want, []byte(want))
 	}
 }
