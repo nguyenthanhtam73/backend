@@ -42,7 +42,9 @@ func (r LogFunnelEventRequest) ValidateAndMap(userID uuid.UUID) (*domain.FunnelE
 		return nil, "session_id is invalid"
 	}
 
-	path := strings.TrimSpace(r.Path)
+	// Drop ?query and #fragment before the length check so emails and tokens
+	// in the URL are not stored and do not inflate the path cap.
+	path := stripFunnelPath(strings.TrimSpace(r.Path))
 	if utf8.RuneCountInString(path) > domain.MaxFunnelPathRunes {
 		return nil, "path is too long"
 	}
@@ -355,6 +357,14 @@ func flatJSONScalar(raw json.RawMessage) bool {
 	default:
 		return true
 	}
+}
+
+// stripFunnelPath keeps the path only. The first ? or # starts the query or fragment.
+func stripFunnelPath(path string) string {
+	if i := strings.IndexAny(path, "?#"); i >= 0 {
+		return path[:i]
+	}
+	return path
 }
 
 func printableToken(s string) bool {

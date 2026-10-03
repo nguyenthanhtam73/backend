@@ -86,8 +86,9 @@ func newFunnelLimiter(max int, window time.Duration, key func(*fiber.Ctx) string
 }
 
 // FunnelEventGlobalLimiter is a process-wide safety cap for funnel ingest.
-// It does not use c.IP(). Behind Railway that value is the proxy, so a
-// per-IP bucket would be one bucket for every visitor.
+// Mount it after FunnelEventSessionLimiter so requests that limiter rejects
+// are never counted here. It does not use c.IP(). Behind Railway that value
+// is the proxy, so a per-IP bucket would be one bucket for every visitor.
 func FunnelEventGlobalLimiter(max int, window time.Duration) fiber.Handler {
 	return newFunnelLimiter(max, window, func(*fiber.Ctx) string {
 		return "global"
@@ -95,33 +96,63 @@ func FunnelEventGlobalLimiter(max int, window time.Duration) fiber.Handler {
 }
 
 // FunnelEventSessionLimiter caps funnel ingest per client session_id.
-// Requests without a usable session_id share one bucket. This does not
-// call c.IP().
+// A missing or invalid session_id is rejected here and does not call next,
+// so a following global limiter is not charged. Oversized or non-JSON bodies
+// share one bucket. This does not call c.IP().
 func FunnelEventSessionLimiter(max int, window time.Duration) fiber.Handler {
-	return newFunnelLimiter(max, window, func(c *fiber.Ctx) string {
+	inner := newFunnelLimiter(max, window, func(c *fiber.Ctx) string {
 		if sid := funnelSessionID(c); sid != "" {
 			return "sid:" + sid
 		}
 		return "nosession"
 	})
+	return func(c *fiber.Ctx) error {
+		if _, msg, readable := classifyFunnelSession(c.Body()); readable && msg != "" {
+			return response.Error(c, fiber.StatusBadRequest, "invalid_funnel_event", msg)
+		}
+		return inner(c)
+	}
 }
 
 // funnelSessionID reads session_id for the rate-limit key.
-// Oversized bodies are not parsed; those requests use the nosession bucket.
+// Oversized, non-JSON, and invalid session ids are not used as keys.
 func funnelSessionID(c *fiber.Ctx) string {
-	body := c.Body()
+	sid, _, _ := classifyFunnelSession(c.Body())
+	return sid
+}
+
+// classifyFunnelSession parses session_id for limiting.
+// readable is false for an empty, oversized, or non-JSON body; those requests
+// are left to the handler. When readable is true and msg is set, session_id
+// is missing or invalid and the request must be rejected before later limiters.
+func classifyFunnelSession(body []byte) (sid, msg string, readable bool) {
 	if len(body) == 0 || len(body) > domain.MaxFunnelBodyBytes {
-		return ""
+		return "", "", false
 	}
 	var probe struct {
 		SessionID string `json:"session_id"`
 	}
 	if err := json.Unmarshal(body, &probe); err != nil {
-		return ""
+		return "", "", false
 	}
-	sid := strings.TrimSpace(probe.SessionID)
-	if sid == "" || utf8.RuneCountInString(sid) > domain.MaxFunnelSessionIDRunes {
-		return ""
+	sid = strings.TrimSpace(probe.SessionID)
+	switch {
+	case sid == "":
+		return "", "session_id is required", true
+	case utf8.RuneCountInString(sid) > domain.MaxFunnelSessionIDRunes:
+		return "", "session_id is too long", true
+	case !funnelSessionPrintable(sid):
+		return "", "session_id is invalid", true
+	default:
+		return sid, "", true
 	}
-	return sid
+}
+
+func funnelSessionPrintable(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }

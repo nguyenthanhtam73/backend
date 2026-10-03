@@ -665,3 +665,113 @@ func assertProps(t *testing.T, raw json.RawMessage, want map[string]any) {
 		}
 	}
 }
+
+func TestFunnelEvents_StripsQueryAndFragmentFromStoredPath(t *testing.T) {
+	app, db, _ := newFunnelFixture(t, false)
+	body := funnelBody(
+		domain.FunnelCheckinPageView,
+		"path-sess",
+		"/check-in?email=a@b.com&token=secret#step",
+		`{}`,
+	)
+	status, raw, _ := postFunnel(t, app, "", "", "", body)
+	if status != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", status, raw)
+	}
+	var row domain.FunnelEvent
+	if err := db.Where("session_id = ?", "path-sess").First(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.Path != "/check-in" {
+		t.Fatalf("path=%q", row.Path)
+	}
+}
+
+func TestFunnelEvents_SessionFloodDoesNotSpendGlobalBudget(t *testing.T) {
+	db := openFunnelDB(t)
+	h := NewFunnelEventHandler(funneleventuc.NewService(repository.NewFunnelEventRepository(db)))
+	app := fiber.New()
+	// Global room is one past the session cap. The extra rejects below would
+	// fill that room if the global limiter ran first.
+	const sessionMax = 2
+	const globalMax = 3
+	app.Post("/api/v1/funnel-events", funnelEventHandlers(
+		func(c *fiber.Ctx) error { return c.Next() },
+		h.Log,
+		sessionMax,
+		globalMax,
+		time.Minute,
+	)...)
+
+	flood := funnelBody(domain.FunnelCheckinPageView, "flood-sess", "/check-in", `{}`)
+	for i := 0; i < sessionMax; i++ {
+		status, raw, _ := postFunnel(t, app, "", "", "", flood)
+		if status != http.StatusNoContent {
+			t.Fatalf("allowed %d status=%d body=%s", i+1, status, raw)
+		}
+	}
+	for i := 0; i < globalMax; i++ {
+		status, raw, _ := postFunnel(t, app, "", "", "", flood)
+		if status != http.StatusTooManyRequests {
+			t.Fatalf("flood %d status=%d body=%s", i+1, status, raw)
+		}
+		code, _ := errorFields(t, raw)
+		if code != "rate_limited" {
+			t.Fatalf("code=%s body=%s", code, raw)
+		}
+	}
+	other := funnelBody(domain.FunnelCheckinPageView, "other-sess", "/check-in", `{}`)
+	status, raw, _ := postFunnel(t, app, "", "", "", other)
+	if status != http.StatusNoContent {
+		t.Fatalf("other session status=%d body=%s", status, raw)
+	}
+}
+
+func TestFunnelEvents_InvalidSessionDoesNotSpendGlobalBudget(t *testing.T) {
+	db := openFunnelDB(t)
+	h := NewFunnelEventHandler(funneleventuc.NewService(repository.NewFunnelEventRepository(db)))
+	app := fiber.New()
+	app.Post("/api/v1/funnel-events", funnelEventHandlers(
+		func(c *fiber.Ctx) error { return c.Next() },
+		h.Log,
+		5,
+		1,
+		time.Minute,
+	)...)
+
+	cases := []struct {
+		name string
+		sid  string
+		msg  string
+	}{
+		{name: "missing", sid: "", msg: "session_id is required"},
+		{name: "blank", sid: "   ", msg: "session_id is required"},
+		{name: "too long", sid: strings.Repeat("s", domain.MaxFunnelSessionIDRunes+1), msg: "session_id is too long"},
+		{name: "control", sid: "bad\nsid", msg: "session_id is invalid"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := funnelBody(domain.FunnelCheckinPageView, tc.sid, "/check-in?token=secret", `{}`)
+			status, raw, _ := postFunnel(t, app, "", "", "", body)
+			if status != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%s", status, raw)
+			}
+			code, msg := errorFields(t, raw)
+			if code != "invalid_funnel_event" || msg != tc.msg {
+				t.Fatalf("error=%s %q", code, msg)
+			}
+		})
+	}
+	var n int64
+	if err := db.Model(&domain.FunnelEvent{}).Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("invalid sessions were stored: %d", n)
+	}
+	ok := funnelBody(domain.FunnelCheckinPageView, "good-sess", "/check-in", `{}`)
+	status, raw, _ := postFunnel(t, app, "", "", "", ok)
+	if status != http.StatusNoContent {
+		t.Fatalf("valid session status=%d body=%s", status, raw)
+	}
+}
