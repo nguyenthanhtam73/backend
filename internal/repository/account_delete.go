@@ -49,10 +49,13 @@ func (r *UserDataRepository) FindUser(ctx context.Context, userID uuid.UUID) (*d
 //
 // Anonymized: funnel_events (user_id NULL, props scrubbed), paywall_views
 // (user_id NULL), email_send_receipts (user_id replaced), usage_events
-// (user_id replaced), payment_orders (user_id NULL, invoice rotated, custom
-// data and webhook cleared; amounts and dates kept), payment_ops_events
-// (invoice number moved with the order), plan_change_logs (user ids NULL,
-// this account's actor email cleared).
+// (user_id replaced), payment_orders (user_id NULL, custom data and webhook
+// cleared; invoice number, amounts, and dates kept), payment_ops_events
+// (invoice number unchanged), plan_change_logs (user ids NULL, this
+// account's actor email cleared).
+//
+// Nullability of payment_orders.user_id and plan_change_logs user ids is
+// applied once at startup (migration 024). This path only reads that state.
 //
 // There is no device-token table and no email-verification or password-reset
 // token table. First-touch attribution columns live on users and go away
@@ -65,6 +68,9 @@ func (r *UserDataRepository) DeleteAccount(ctx context.Context, userID uuid.UUID
 	}
 	if userID == uuid.Nil {
 		return nil, fmt.Errorf("user id required")
+	}
+	if err := accountDeletionSchemaReady(db); err != nil {
+		return nil, err
 	}
 
 	var keys []string
@@ -224,41 +230,16 @@ func anonymizeFunnelEvents(tx *gorm.DB, userID uuid.UUID, email string) error {
 }
 
 func anonymizePaymentOrders(tx *gorm.DB, userID uuid.UUID) error {
-	if err := ensureNullable(tx, "payment_orders", "user_id"); err != nil {
-		return err
-	}
-	var orders []domain.PaymentOrder
-	// Unscoped: a soft-deleted order still references the user and would block
-	// removing the account when a foreign key is present.
-	if err := tx.Unscoped().Where("user_id = ?", userID).Find(&orders).Error; err != nil {
-		return err
-	}
-	for i := range orders {
-		next := anonymousInvoice()
-		old := orders[i].InvoiceNumber
-		if err := tx.Exec(
-			`UPDATE payment_orders SET user_id = NULL, invoice_number = ?, custom_data = '', raw_webhook = '' WHERE id = ?`,
-			next, orders[i].ID,
-		).Error; err != nil {
-			return err
-		}
-		if old == "" {
-			continue
-		}
-		if err := tx.Exec(
-			`UPDATE payment_ops_events SET invoice_number = ? WHERE invoice_number = ?`,
-			next, old,
-		).Error; err != nil {
-			return err
-		}
-	}
-	return nil
+	// Raw SQL so soft-deleted orders are included. invoice_number stays so
+	// SePay reconciliation and a late webhook can still find the row.
+	// payment_ops_events keep that same invoice number.
+	return tx.Exec(
+		`UPDATE payment_orders SET user_id = NULL, custom_data = '', raw_webhook = '' WHERE user_id = ?`,
+		userID,
+	).Error
 }
 
 func anonymizePlanChangeLogs(tx *gorm.DB, userID uuid.UUID, email string) error {
-	if err := ensureNullable(tx, "plan_change_logs", "user_id", "actor_user_id"); err != nil {
-		return err
-	}
 	var logs []domain.PlanChangeLog
 	q := tx.Where("user_id = ? OR actor_user_id = ?", userID, userID)
 	if email != "" {
@@ -294,10 +275,6 @@ func anonymizePlanChangeLogs(tx *gorm.DB, userID uuid.UUID, email string) error 
 	).Error
 }
 
-func anonymousInvoice() string {
-	return "ANON-" + strings.ReplaceAll(uuid.New().String(), "-", "")
-}
-
 func scrubPersonal(raw, email string, userID uuid.UUID) string {
 	if raw == "" {
 		return raw
@@ -325,35 +302,4 @@ func personalNeedles(email string, userID uuid.UUID) []string {
 		parts = append(parts, strings.ToUpper(short), short)
 	}
 	return parts
-}
-
-func ensureNullable(tx *gorm.DB, table string, columns ...string) error {
-	if tx.Dialector.Name() != "postgres" {
-		return nil
-	}
-	if !safeIdent(table) {
-		return fmt.Errorf("unsafe table name")
-	}
-	for _, column := range columns {
-		if !safeIdent(column) {
-			return fmt.Errorf("unsafe column name")
-		}
-		q := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL", table, column)
-		if err := tx.Exec(q).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func safeIdent(name string) bool {
-	if name == "" {
-		return false
-	}
-	for _, r := range name {
-		if (r < 'a' || r > 'z') && r != '_' {
-			return false
-		}
-	}
-	return true
 }

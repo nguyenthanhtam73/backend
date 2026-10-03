@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"strings"
+
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/repository"
@@ -241,5 +243,71 @@ func TestFulfillPaidOrder_SetsSubscriptionActive(t *testing.T) {
 	}
 	if got.PlanExpiresAt == nil {
 		t.Fatal("missing plan_expires_at")
+	}
+}
+
+func TestFulfillPaidOrder_DeletedUserRecordsPaymentWithoutGrant(t *testing.T) {
+	svc, user, _ := setupPaymentFulfill(t)
+	short := strings.ToUpper(strings.ReplaceAll(user.ID.String(), "-", ""))[:8]
+	invoice := "DD-" + short + "-1710000000-ORPHAN1"
+	seedOrder(t, svc, user.ID, invoice, domain.PlanPremium, domain.BillingMonthly, 99000)
+
+	if err := svc.db.Exec(
+		`UPDATE payment_orders SET user_id = NULL, custom_data = '', raw_webhook = '' WHERE invoice_number = ?`,
+		invoice,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.db.Unscoped().Where("id = ?", user.ID).Delete(&domain.User{}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	payload := IPNPayload{NotificationType: "ORDER_PAID"}
+	payload.Order.OrderInvoiceNumber = invoice
+	payload.Order.OrderStatus = "CAPTURED"
+	payload.Order.OrderAmount = "99000"
+	payload.Order.ID = "ord-" + invoice
+	payload.Transaction.TransactionID = "tx-" + invoice
+	payload.Customer.CustomerID = user.ID.String()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.HandleSePayWebhook(context.Background(), "spsk_test", raw); err != nil {
+		t.Fatal(err)
+	}
+
+	saved, err := svc.orders.GetByInvoiceNumber(context.Background(), invoice)
+	if err != nil || saved == nil {
+		t.Fatalf("order: %v", err)
+	}
+	if saved.Status != domain.PaymentPaid || saved.PaidAt == nil {
+		t.Fatalf("status=%s paid_at=%v", saved.Status, saved.PaidAt)
+	}
+	if saved.UserID != uuid.Nil {
+		t.Fatalf("user_id resurrected: %s", saved.UserID)
+	}
+	if saved.InvoiceNumber != invoice {
+		t.Fatalf("invoice=%s", saved.InvoiceNumber)
+	}
+	if saved.SePayTransactionID != "tx-"+invoice {
+		t.Fatalf("transaction=%s", saved.SePayTransactionID)
+	}
+	if saved.AmountVND != 99000 {
+		t.Fatalf("amount=%d", saved.AmountVND)
+	}
+
+	var usersN, subsN, logsN int64
+	if err := svc.db.Model(&domain.User{}).Count(&usersN).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.db.Model(&domain.Subscription{}).Count(&subsN).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.db.Model(&domain.PlanChangeLog{}).Count(&logsN).Error; err != nil {
+		t.Fatal(err)
+	}
+	if usersN != 0 || subsN != 0 || logsN != 0 {
+		t.Fatalf("created rows users=%d subs=%d logs=%d", usersN, subsN, logsN)
 	}
 }

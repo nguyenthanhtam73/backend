@@ -290,15 +290,15 @@ func TestDeleteAccount_Contract(t *testing.T) {
 	if saved.CustomData != "" || saved.RawWebhook != "" {
 		t.Fatalf("payment payload left custom=%q webhook=%q", saved.CustomData, saved.RawWebhook)
 	}
-	if strings.Contains(saved.InvoiceNumber, short) || strings.Contains(strings.ToLower(saved.InvoiceNumber), email) {
-		t.Fatalf("invoice still linked: %s", saved.InvoiceNumber)
+	if saved.InvoiceNumber != invoice {
+		t.Fatalf("invoice changed: got %s want %s", saved.InvoiceNumber, invoice)
 	}
 	var ops domain.PaymentOpsEvent
 	if err := db.Where("kind = ?", domain.OpsKindPaymentSuccess).First(&ops).Error; err != nil {
 		t.Fatal(err)
 	}
-	if ops.InvoiceNumber != saved.InvoiceNumber {
-		t.Fatalf("ops invoice=%s order invoice=%s", ops.InvoiceNumber, saved.InvoiceNumber)
+	if ops.InvoiceNumber != invoice {
+		t.Fatalf("ops invoice=%s want %s", ops.InvoiceNumber, invoice)
 	}
 
 	var receipt domain.EmailSendReceipt

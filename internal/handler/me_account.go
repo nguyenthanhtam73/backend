@@ -29,6 +29,9 @@ func (h *MeDataHandler) DeleteAccount(c *fiber.Ctx) error {
 		return err
 	}
 	if err := h.svc.DeleteAccount(c.UserContext(), uid, password); err != nil {
+		if errors.Is(err, userdatauc.ErrSchemaNotReady) {
+			return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "account deletion is temporarily unavailable")
+		}
 		if errors.Is(err, userdatauc.ErrUnavailable) {
 			return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", err.Error())
 		}

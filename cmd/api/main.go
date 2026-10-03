@@ -50,6 +50,14 @@ func main() {
 		if migErr := repository.AutoMigrate(db); migErr != nil {
 			fmt.Fprintf(os.Stderr, "migrate: %v\n", migErr)
 		}
+		// Migration 024 drops NOT NULL. AutoMigrate cannot. Run it here, before
+		// Listen, so the ACCESS EXCLUSIVE lock is not held during a DELETE /me.
+		if schemaErr := repository.ApplyAccountDeletionSchema(db); schemaErr != nil {
+			slog.Error("account deletion schema: migration 024 failed", "error", schemaErr)
+			fmt.Fprintf(os.Stderr, "migration 024: %v\n", schemaErr)
+		} else {
+			slog.Info("account deletion schema: migration 024 applied")
+		}
 	}
 
 	app := fiber.New(fiber.Config{

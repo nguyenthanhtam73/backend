@@ -513,6 +513,16 @@ func (s *Service) fulfillPaidOrder(
 			return nil
 		}
 
+		// Detached by account deletion. Record the capture and stop.
+		// Do not look up customer_id to recreate the account or grant a plan.
+		if marked.UserID == uuid.Nil {
+			slog.Info("payment: orphan order paid; recorded without a plan grant",
+				"order_id", marked.ID.String(),
+				"invoice", marked.InvoiceNumber,
+			)
+			return nil
+		}
+
 		// 2) Renew / first paid upgrade via SubscriptionService (same tx).
 		if s.subs != nil {
 			_, err := s.subs.ApplyRenewalTx(tx, subscriptionuc.RenewalInput{
@@ -531,6 +541,18 @@ func (s *Service) fulfillPaidOrder(
 	})
 	if err != nil {
 		return err
+	}
+
+	if order.UserID == uuid.Nil {
+		slog.Info("payment: orphan order paid; recorded without a plan grant",
+			"order_id", order.ID.String(),
+			"invoice", order.InvoiceNumber,
+			"amount", order.AmountVND,
+		)
+		if s.monitor != nil {
+			s.monitor.RecordSuccess(ctx, order.InvoiceNumber)
+		}
+		return nil
 	}
 
 	slog.Info("payment: fulfill success",

@@ -51,6 +51,9 @@ func (s *Service) DeleteAccount(ctx context.Context, userID uuid.UUID, password 
 		if errors.Is(err, repository.ErrAccountNotFound) {
 			return ErrInvalidUser
 		}
+		if errors.Is(err, repository.ErrAccountDeletionSchema) {
+			return ErrSchemaNotReady
+		}
 		return fmt.Errorf("delete account: %w", err)
 	}
 	s.removeStoredPhotos(ctx, userID, keys)
