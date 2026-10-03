@@ -107,11 +107,28 @@ func TestParseWardrobeProductInsight_UnknownSkinDoesNotInventFit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if insightUnknownFitReason != "Chưa đủ thông tin để so. Soi da một lần để app trả lời rõ hơn." {
+		t.Fatalf("unknown-skin reason: %q", insightUnknownFitReason)
+	}
 	if got.Fit.Verdict != WardrobeFitMaybe || got.Fit.Reason != insightUnknownFitReason {
 		t.Fatalf("fit: %+v", got.Fit)
 	}
-	if got.Buy.Advice != WardrobeBuyNo || got.Buy.Why != insightUnknownBuyWhy {
+	if strings.Contains(got.Buy.Why, "Soi da một lần") {
+		t.Fatalf("continue line should not repeat the soi-da sentence: %q", got.Buy.Why)
+	}
+	if insightUnknownBuyWhy != "Để ý da vài tuần, thấy khô rát hay nổi mụn thêm thì tạm dừng." {
+		t.Fatalf("unknown-skin why: %q", insightUnknownBuyWhy)
+	}
+	if got.Buy.Advice != WardrobeBuyUnknown || got.Buy.Why != insightUnknownBuyWhy {
 		t.Fatalf("buy: %+v", got.Buy)
+	}
+	stored, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := MapStoredWardrobeInsight(stored)
+	if again == nil || again.Buy.Advice != WardrobeBuyUnknown || again.Buy.Advice == WardrobeBuyNo {
+		t.Fatalf("stored unknown advice was remapped: %+v", again)
 	}
 	if got.Disclaimer != WardrobeInsightDisclaimer {
 		t.Fatalf("disclaimer: %q", got.Disclaimer)
@@ -122,11 +139,11 @@ func TestParseWardrobeProductInsight_OwnedReasonDoesNotSayMua(t *testing.T) {
 	// Live cabinet example: the model explained a buy even though the user
 	// already owns the cleanser. The stored/API sentence keeps the skin reason
 	// and drops the shopping word. buy.advice stays the token the UI maps.
-	const before = "Nên mua vì phù hợp với loại da và mục tiêu làm sạch mụn."
-	const after = "Nên dùng tiếp vì phù hợp với loại da và mục tiêu làm sạch mụn."
+	const before = "Nên mua vì phù hợp với loại da và mục tiêu giảm mụn."
+	const after = "Nên dùng tiếp vì phù hợp với loại da và mục tiêu giảm mụn."
 	raw := []byte(`{
 		"what_it_does": "Sữa rửa mặt tạo bọt, làm sạch dầu thừa.",
-		"fit": {"verdict": "yes", "reason": "Da dầu và mục tiêu làm sạch mụn, check-in không thấy rát."},
+		"fit": {"verdict": "yes", "reason": "Da dầu và mục tiêu giảm mụn, check-in không thấy rát."},
 		"buy": {"advice": "nên mua", "why": "` + before + `"},
 		"actives": [{"name": "Ceramide", "gloss": "nên mua khi da khô"}]
 	}`)

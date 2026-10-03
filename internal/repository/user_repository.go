@@ -134,6 +134,36 @@ func (r *GormUserRepository) SetEmailUnsubscribedAt(
 		Update("email_unsubscribed_at", at).Error
 }
 
+// SaveReminderEmailState writes D0/D1 reminder suppression for one user.
+// A nil suppressedAt clears email_reminder_suppressed_at. An empty addressHash
+// clears the tracked address (the mailbox changed, or a send succeeded).
+func (r *GormUserRepository) SaveReminderEmailState(
+	ctx context.Context,
+	userID uuid.UUID,
+	failCount int,
+	addressHash string,
+	suppressedAt *time.Time,
+) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	if failCount < 0 {
+		failCount = 0
+	}
+	return db.WithContext(ctx).Exec(
+		`UPDATE users
+		 SET email_reminder_fail_count = ?,
+		     email_reminder_hash = ?,
+		     email_reminder_suppressed_at = ?
+		 WHERE id = ? AND deleted_at IS NULL`,
+		failCount, addressHash, suppressedAt, userID,
+	).Error
+}
+
 // SetOnboardingSkipped updates users.onboarding_skipped for the given account.
 func (r *GormUserRepository) SetOnboardingSkipped(ctx context.Context, userID uuid.UUID, skipped bool) error {
 	db, err := r.dbOrErr()

@@ -42,7 +42,7 @@ func NewWardrobeHandler(svc *wardrobeuc.Service, cfg *config.Config) *WardrobeHa
 }
 
 // AttachSkinSources wires profile + recent check-ins into the cabinet card.
-// Both may be nil; the card then stays "maybe" / "chưa nên" instead of guessing a skin type.
+// Both may be nil; the card then stays "maybe" / "chưa biết" instead of guessing a skin type.
 func (h *WardrobeHandler) AttachSkinSources(
 	profiles *repository.GormSkinProfileRepository,
 	checks *repository.GormSkinCheckRepository,
