@@ -15,11 +15,11 @@ type ExportUserDataResponse struct {
 
 // ExportSkinProfile is a privacy-safe profile snapshot for export.
 type ExportSkinProfile struct {
-	SkinType        string   `json:"skin_type,omitempty"`
-	Undertone       string   `json:"undertone,omitempty"`
-	Concerns        []string `json:"concerns,omitempty"`
-	Goals           []string `json:"goals,omitempty"`
-	SensitivityNotes string  `json:"sensitivity_notes,omitempty"`
+	SkinType         string   `json:"skin_type,omitempty"`
+	Undertone        string   `json:"undertone,omitempty"`
+	Concerns         []string `json:"concerns,omitempty"`
+	Goals            []string `json:"goals,omitempty"`
+	SensitivityNotes string   `json:"sensitivity_notes,omitempty"`
 }
 
 // ExportSkinCheck is one check-in row without raw image bytes.
@@ -30,6 +30,8 @@ type ExportSkinCheck struct {
 	UserNote   string   `json:"user_note,omitempty"`
 	Conditions []string `json:"conditions,omitempty"`
 	Symptoms   []string `json:"symptoms,omitempty"`
+	// ImageURLs are storage keys (not fetchable /uploads links). Photo bytes
+	// are omitted. Opening a photo still requires a signed URL from the app.
 	ImageURLs  []string `json:"image_urls,omitempty"`
 	CoachNotes string   `json:"coach_notes,omitempty"`
 }

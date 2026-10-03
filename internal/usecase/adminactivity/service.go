@@ -96,19 +96,31 @@ func toCheckInDTO(c *domain.SkinCheck) dto.AdminActivityCheckIn {
 	if c == nil {
 		return dto.AdminActivityCheckIn{}
 	}
-	urls := dto.BuildPublicUploadURLs(c.ImageURLs)
-	item := dto.AdminActivityCheckIn{
+	n := photoCount(c.ImageURLs)
+	return dto.AdminActivityCheckIn{
 		UserID:      c.UserID.String(),
 		Username:    c.User.Username,
 		Email:       c.User.Email,
 		DisplayName: c.User.DisplayName,
 		CheckID:     c.ID.String(),
-		HasPhotos:   len(urls) > 0,
-		PhotoCount:  len(urls),
-		PhotoURLs:   urls,
+		HasPhotos:   n > 0,
+		PhotoCount:  n,
 		CreatedAt:   c.CreatedAt.UTC().Format(time.RFC3339),
 	}
-	return item
+}
+
+func photoCount(raw json.RawMessage) int {
+	rels, err := dto.DecodeStringSlice(raw)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, rel := range rels {
+		if strings.TrimSpace(rel) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 func toProductUseDTO(r *domain.RoutineEntry) (dto.AdminActivityProductUse, bool) {

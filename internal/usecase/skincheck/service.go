@@ -14,6 +14,7 @@ import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/moderation"
 	"github.com/dadiary/backend/internal/storage"
@@ -257,7 +258,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 	publicURLs := make([]string, 0, len(relPaths))
 	for _, rel := range relPaths {
 		clean := storage.CleanKey(rel)
-		publicURLs = append(publicURLs, "/"+path.Join("uploads", clean))
+		publicURLs = append(publicURLs, mediaurl.SignClientURL("/"+path.Join("uploads", clean)))
 	}
 
 	if s.analyzer != nil {

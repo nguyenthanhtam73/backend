@@ -13,15 +13,16 @@ type AdminActivityResponse struct {
 
 // AdminActivityCheckIn is one skin check-in on the requested day.
 type AdminActivityCheckIn struct {
-	UserID      string   `json:"user_id"`
-	Username    string   `json:"username"`
-	Email       string   `json:"email"`
-	DisplayName string   `json:"display_name,omitempty"`
-	CheckID     string   `json:"check_id"`
-	HasPhotos   bool     `json:"has_photos"`
-	PhotoCount  int      `json:"photo_count"`
-	PhotoURLs   []string `json:"photo_urls"`
-	CreatedAt   string   `json:"created_at"`
+	UserID      string `json:"user_id"`
+	Username    string `json:"username"`
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name,omitempty"`
+	CheckID     string `json:"check_id"`
+	HasPhotos   bool   `json:"has_photos"`
+	PhotoCount  int    `json:"photo_count"`
+	// Photo URLs are not returned. Staff see that a check-in has photos, not
+	// the photos. Only the owner receives a signed /uploads URL.
+	CreatedAt string `json:"created_at"`
 }
 
 // AdminActivityProductUse is a routine row where the user ticked at least one step.

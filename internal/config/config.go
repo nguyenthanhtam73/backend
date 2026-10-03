@@ -23,6 +23,7 @@ type Config struct {
 	HTTP       HTTPConfig       `mapstructure:"http"`
 	Database   DatabaseConfig   `mapstructure:"database"`
 	JWT        JWTConfig        `mapstructure:"jwt"`
+	Media      MediaConfig      `mapstructure:"media"`
 	Upload     UploadConfig     `mapstructure:"upload"`
 	Storage    StorageConfig    `mapstructure:"storage"`
 	OpenAI     OpenAIConfig     `mapstructure:"openai"`
@@ -184,8 +185,9 @@ type UploadConfig struct {
 // StorageConfig selects where uploaded photos are persisted.
 //
 // Driver is "local" (default; files under Upload.Dir) or "r2" (Cloudflare R2).
-// Regardless of driver, public image URLs stay "/uploads/<key>"; the API proxies
-// R2 bytes so the frontend and stored DB paths never change.
+// Regardless of driver, client image URLs stay "/uploads/<key>" plus a
+// short-lived signature (DADIARY_MEDIA_URL_TTL, default 1h). The API reads
+// object bytes itself; the browser never receives a permanent object URL.
 type StorageConfig struct {
 	Driver string   `mapstructure:"driver"` // local | r2
 	R2     R2Config `mapstructure:"r2"`
@@ -257,6 +259,21 @@ type JWTConfig struct {
 	RefreshTTL time.Duration `mapstructure:"refresh_ttl"`
 }
 
+// MediaConfig signs short-lived URLs for user photos under /uploads.
+//
+// SigningKey (DADIARY_MEDIA_SIGNING_KEY) is optional. When it is empty the
+// API derives an HMAC key from DADIARY_JWT_SECRET (see internal/mediaurl),
+// so production keeps working without a new variable. Set a dedicated key
+// to rotate photo URLs without invalidating login sessions.
+//
+// URLTTLRaw is DADIARY_MEDIA_URL_TTL (Go duration, default 1h, max 168h).
+// URLTTL is the parsed value.
+type MediaConfig struct {
+	SigningKey string        `mapstructure:"signing_key"`
+	URLTTLRaw  string        `mapstructure:"url_ttl"`
+	URLTTL     time.Duration `mapstructure:"-"`
+}
+
 // Load reads config from optional .env (repo root), config.yaml, and DADIARY_* env vars.
 func Load(relativeEnvPath string) (*Config, error) {
 	// Optional; ignore missing files. Try CWD and repo root (when `go run` from backend/).
@@ -275,6 +292,8 @@ func Load(relativeEnvPath string) (*Config, error) {
 	// Explicit binds for common 12-factor names (clearer than nested env mapping).
 	_ = v.BindEnv("database.url", "DADIARY_DATABASE_URL")
 	_ = v.BindEnv("jwt.secret", "DADIARY_JWT_SECRET")
+	_ = v.BindEnv("media.signing_key", "DADIARY_MEDIA_SIGNING_KEY")
+	_ = v.BindEnv("media.url_ttl", "DADIARY_MEDIA_URL_TTL")
 	_ = v.BindEnv("http.port", "DADIARY_HTTP_PORT")
 	_ = v.BindEnv("http.read_timeout", "DADIARY_HTTP_READ_TIMEOUT")
 	_ = v.BindEnv("http.write_timeout", "DADIARY_HTTP_WRITE_TIMEOUT")
@@ -365,6 +384,16 @@ func Load(relativeEnvPath string) (*Config, error) {
 	}
 	if cfg.JWT.RefreshTTL == 0 {
 		cfg.JWT.RefreshTTL = 7 * 24 * time.Hour
+	}
+	cfg.Media.SigningKey = strings.TrimSpace(cfg.Media.SigningKey)
+	if raw := strings.TrimSpace(cfg.Media.URLTTLRaw); raw == "" {
+		cfg.Media.URLTTL = time.Hour
+	} else {
+		d, err := time.ParseDuration(raw)
+		if err != nil || d <= 0 {
+			return nil, fmt.Errorf("media url ttl %q: want a positive Go duration (example 1h)", raw)
+		}
+		cfg.Media.URLTTL = d
 	}
 	if strings.TrimSpace(cfg.Upload.Dir) == "" {
 		cfg.Upload.Dir = "./data/uploads"

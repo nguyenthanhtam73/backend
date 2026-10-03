@@ -29,6 +29,7 @@ Flip helper (rejects sandbox keys): `backend/scripts/flip-sepay-production.ps1`.
 
 - [ ] `DADIARY_ENV=production` (or equivalent host env)
 - [ ] Strong `DADIARY_JWT_SECRET` (rotate if it was ever shared / committed)
+- [ ] User photos are signed (`/uploads/…?exp=&sig=`). Optional `DADIARY_MEDIA_SIGNING_KEY`; if unset the HMAC key is derived from `DADIARY_JWT_SECRET`. Default TTL `DADIARY_MEDIA_URL_TTL=1h`
 - [ ] `DADIARY_ADMIN_EMAILS` set to real full-admin emails only
 - [ ] `DADIARY_SKIN_REVIEW_EMAILS` set for skin-review-only operators (optional)
 - [ ] `DADIARY_E2E_SECRET` **empty / unset** on production (no force-plan helpers)

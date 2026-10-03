@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/mediaurl"
 )
 
 // RegisterRequest is the JSON body for POST /api/v1/auth/register.
@@ -124,7 +125,7 @@ func UserFromDomainWithAdmin(u *domain.User, isAdmin bool) UserPublic {
 		Email:              u.Email,
 		Username:           u.Username,
 		DisplayName:        u.DisplayName,
-		AvatarURL:          u.AvatarURL,
+		AvatarURL:          mediaurl.SignClientURL(u.AvatarURL),
 		Provider:           string(u.Provider),
 		IsActive:           u.IsActive,
 		PlanTier:           string(domain.EffectivePlanTierWithGrace(u, now, grace)),

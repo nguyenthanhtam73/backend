@@ -3,6 +3,7 @@ package adminactivity
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,8 +89,15 @@ func TestForDate_CheckInPhotoAndProductTick(t *testing.T) {
 	if out.CheckInCount != 1 || out.CheckInPhotoCount != 1 {
 		t.Fatalf("check-ins=%d photos=%d", out.CheckInCount, out.CheckInPhotoCount)
 	}
-	if out.CheckIns[0].Username != "photo_user" || !out.CheckIns[0].HasPhotos {
+	if out.CheckIns[0].Username != "photo_user" || !out.CheckIns[0].HasPhotos || out.CheckIns[0].PhotoCount != 1 {
 		t.Fatalf("check-in=%+v", out.CheckIns[0])
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "photo_urls") || strings.Contains(string(raw), "/uploads/") || strings.Contains(string(raw), "a.jpg") {
+		t.Fatalf("admin activity leaked a photo url: %s", raw)
 	}
 	if out.ProductUsageCount != 1 {
 		t.Fatalf("product usage=%d", out.ProductUsageCount)
