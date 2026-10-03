@@ -84,12 +84,27 @@ const (
 	paywallViewRateWindow = 15 * time.Minute
 
 	// Check-in funnel ingest is a single insert.
-	// Per session_id, plus a process-wide cap. Not per IP: c.IP() is the
-	// Railway proxy address until ProxyHeader is configured.
+	// Per session_id, plus a process-wide cap. The session limiter is mounted
+	// first (see funnelEventHandlers) so its rejects do not spend the global
+	// budget. Not per IP: c.IP() is the Railway proxy address until ProxyHeader
+	// is configured.
 	funnelEventRateMax       = 60
 	funnelEventRateWindow    = time.Minute
 	funnelEventGlobalRateMax = 600
 )
+
+// funnelEventHandlers is the POST /funnel-events chain.
+// The per-session limiter runs before the process-wide cap. Requests it
+// rejects, including a missing or invalid session_id, never reach the global
+// limiter. Do not insert c.IP() here: behind Railway that is the proxy.
+func funnelEventHandlers(auth fiber.Handler, log fiber.Handler, sessionMax, globalMax int, window time.Duration) []fiber.Handler {
+	return []fiber.Handler{
+		auth,
+		middleware.FunnelEventSessionLimiter(sessionMax, window),
+		middleware.FunnelEventGlobalLimiter(globalMax, window),
+		log,
+	}
+}
 
 // Router wires API v1 routes: health (public), auth (mixed), skin-checks (protected).
 func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service, store storage.Storage) {
@@ -279,12 +294,13 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 
 		// Optional auth: guests are stored with a NULL user_id. Never 401 for a missing token.
 		funnelH := NewFunnelEventHandler(funneleventuc.NewService(funnelEventRepo))
-		api.Post("/funnel-events",
+		api.Post("/funnel-events", funnelEventHandlers(
 			jwtOptional,
-			middleware.FunnelEventGlobalLimiter(funnelEventGlobalRateMax, funnelEventRateWindow),
-			middleware.FunnelEventSessionLimiter(funnelEventRateMax, funnelEventRateWindow),
 			funnelH.Log,
-		)
+			funnelEventRateMax,
+			funnelEventGlobalRateMax,
+			funnelEventRateWindow,
+		)...)
 
 		fbSvc := aifeedbackuc.NewService(fbRepo, memCache)
 		fbh := NewAIFeedbackHandler(fbSvc)
