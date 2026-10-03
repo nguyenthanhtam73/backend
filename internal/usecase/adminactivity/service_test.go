@@ -96,7 +96,13 @@ func TestForDate_CheckInPhotoAndProductTick(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(raw), "photo_urls") || strings.Contains(string(raw), "/uploads/") || strings.Contains(string(raw), "a.jpg") {
+	if out.CheckIns[0].PhotoURLs == nil || len(out.CheckIns[0].PhotoURLs) != 0 {
+		t.Fatalf("photo_urls=%v", out.CheckIns[0].PhotoURLs)
+	}
+	if !strings.Contains(string(raw), `"photo_urls":[]`) {
+		t.Fatalf("photo_urls missing from JSON: %s", raw)
+	}
+	if strings.Contains(string(raw), "/uploads/") || strings.Contains(string(raw), "a.jpg") {
 		t.Fatalf("admin activity leaked a photo url: %s", raw)
 	}
 	if out.ProductUsageCount != 1 {

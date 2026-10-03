@@ -12,6 +12,8 @@ database:
   url: "postgres://dadiary:dadiary@localhost:5433/dadiary?sslmode=disable"
 
 jwt:
+  # Local placeholder. DADIARY_ENV=production refuses to boot on this value.
+  # Production also requires DADIARY_MEDIA_SIGNING_KEY (openssl rand -base64 48).
   secret: "change-me-in-production-use-long-random-string"
   access_ttl: 24h
   refresh_ttl: 168h

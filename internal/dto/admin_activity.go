@@ -20,9 +20,11 @@ type AdminActivityCheckIn struct {
 	CheckID     string `json:"check_id"`
 	HasPhotos   bool   `json:"has_photos"`
 	PhotoCount  int    `json:"photo_count"`
-	// Photo URLs are not returned. Staff see that a check-in has photos, not
-	// the photos. Only the owner receives a signed /uploads URL.
-	CreatedAt string `json:"created_at"`
+	// PhotoURLs is always an empty array. Staff see that a check-in has
+	// photos (has_photos / photo_count), not the photos themselves. The
+	// field is present so admin clients can read photo_urls.length.
+	PhotoURLs []string `json:"photo_urls"`
+	CreatedAt string   `json:"created_at"`
 }
 
 // AdminActivityProductUse is a routine row where the user ticked at least one step.

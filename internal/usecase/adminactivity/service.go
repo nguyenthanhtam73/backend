@@ -94,7 +94,7 @@ func parseActivityDate(raw string) (time.Time, error) {
 
 func toCheckInDTO(c *domain.SkinCheck) dto.AdminActivityCheckIn {
 	if c == nil {
-		return dto.AdminActivityCheckIn{}
+		return dto.AdminActivityCheckIn{PhotoURLs: []string{}}
 	}
 	n := photoCount(c.ImageURLs)
 	return dto.AdminActivityCheckIn{
@@ -105,6 +105,7 @@ func toCheckInDTO(c *domain.SkinCheck) dto.AdminActivityCheckIn {
 		CheckID:     c.ID.String(),
 		HasPhotos:   n > 0,
 		PhotoCount:  n,
+		PhotoURLs:   []string{},
 		CreatedAt:   c.CreatedAt.UTC().Format(time.RFC3339),
 	}
 }

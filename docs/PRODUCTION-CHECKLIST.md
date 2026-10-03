@@ -28,8 +28,8 @@ Flip helper (rejects sandbox keys): `backend/scripts/flip-sepay-production.ps1`.
 ## 2. Env production (no sandbox secrets)
 
 - [ ] `DADIARY_ENV=production` (or equivalent host env)
-- [ ] Strong `DADIARY_JWT_SECRET` (rotate if it was ever shared / committed)
-- [ ] User photos are signed (`/uploads/…?exp=&sig=`). Optional `DADIARY_MEDIA_SIGNING_KEY`; if unset the HMAC key is derived from `DADIARY_JWT_SECRET`. Default TTL `DADIARY_MEDIA_URL_TTL=1h`
+- [ ] Strong `DADIARY_JWT_SECRET` (rotate if it was ever shared / committed). Production refuses to start if it is the config.yaml placeholder `change-me-in-production-use-long-random-string`, another known placeholder, or shorter than 32 bytes.
+- [ ] `DADIARY_MEDIA_SIGNING_KEY` is set on the API host (`openssl rand -base64 48`). Required when `DADIARY_ENV=production`: at least 32 bytes, and it must not equal `DADIARY_JWT_SECRET`. Dev-only fallback to the JWT secret does not run in production. Default photo URL TTL `DADIARY_MEDIA_URL_TTL=1h`.
 - [ ] `DADIARY_ADMIN_EMAILS` set to real full-admin emails only
 - [ ] `DADIARY_SKIN_REVIEW_EMAILS` set for skin-review-only operators (optional)
 - [ ] `DADIARY_E2E_SECRET` **empty / unset** on production (no force-plan helpers)

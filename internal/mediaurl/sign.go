@@ -57,12 +57,11 @@ func Default() *Signer { return defaultSigner.Load() }
 // New builds a signer.
 //
 // signingKey is DADIARY_MEDIA_SIGNING_KEY. When it is empty, the key is
-// derived from jwtSecret (DADIARY_JWT_SECRET) so production keeps signing
-// without a new variable. The JWT secret itself is not used as the HMAC key:
-// the derived key is HMAC-SHA256(jwtSecret, "dadiary-media-url-v1").
-// Rotating the dedicated media key invalidates photo URLs without logging
-// every user out; rotating the JWT secret does both when no dedicated key
-// is set.
+// derived from jwtSecret (DADIARY_JWT_SECRET) for development and tests only.
+// Production refuses to start without its own media key (see
+// config.ValidateStartupSecrets) and must not reach this fallback.
+// The JWT secret itself is not used as the HMAC key: the derived key is
+// HMAC-SHA256(jwtSecret, "dadiary-media-url-v1").
 //
 // ttl <= 0 becomes DefaultTTL. ttl above MaxTTL is clamped.
 func New(signingKey, jwtSecret string, ttl time.Duration) *Signer {
