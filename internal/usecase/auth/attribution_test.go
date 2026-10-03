@@ -16,15 +16,16 @@ func TestRegister_PersistsFirstTouchAttribution(t *testing.T) {
 	uc.AttachSessions(newMemSessions())
 
 	var req dto.RegisterRequest
+	longSource := strings.Repeat("a", 150)
 	raw := `{
 		"email":"ada@example.com",
 		"password":"password1",
 		"attribution":{
-			"utm_source":"` + strings.Repeat("a", 101) + `",
+			"utm_source":"` + longSource + `",
 			"utm_medium":"paid social",
 			"utm_campaign":"launch",
 			"utm_content":"person@example.com",
-			"fbclid":"IwAR0abc_def-123",
+			"fbclid":"` + strings.Repeat("c", 256) + `",
 			"ttclid":"tt.clid~1",
 			"email":"hidden@example.com"
 		}
@@ -43,11 +44,11 @@ func TestRegister_PersistsFirstTouchAttribution(t *testing.T) {
 	if stored.Email != "ada@example.com" {
 		t.Fatalf("email=%s", stored.Email)
 	}
-	if stored.UTMSource != nil {
-		t.Fatalf("101-char utm_source stored: %s", *stored.UTMSource)
+	if stored.UTMSource == nil || *stored.UTMSource != strings.Repeat("a", 100) {
+		t.Fatalf("utm_source=%v", stored.UTMSource)
 	}
-	if stored.UTMMedium != nil {
-		t.Fatalf("spaced utm_medium stored: %s", *stored.UTMMedium)
+	if stored.UTMMedium == nil || *stored.UTMMedium != "paid social" {
+		t.Fatalf("utm_medium=%v", stored.UTMMedium)
 	}
 	if stored.UTMCampaign == nil || *stored.UTMCampaign != "launch" {
 		t.Fatalf("utm_campaign=%v", stored.UTMCampaign)
@@ -55,7 +56,7 @@ func TestRegister_PersistsFirstTouchAttribution(t *testing.T) {
 	if stored.UTMContent != nil {
 		t.Fatalf("email-like utm_content stored: %s", *stored.UTMContent)
 	}
-	if stored.FBCLID == nil || *stored.FBCLID != "IwAR0abc_def-123" {
+	if stored.FBCLID == nil || *stored.FBCLID != strings.Repeat("c", 256) {
 		t.Fatalf("fbclid=%v", stored.FBCLID)
 	}
 	if stored.TTCLID != nil {
@@ -79,13 +80,13 @@ func TestRegister_PersistsFirstTouchAttribution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if still.UTMSource != nil {
-		t.Fatalf("dropped utm_source written on retry: %v", still.UTMSource)
+	if still.UTMSource == nil || *still.UTMSource != strings.Repeat("a", 100) {
+		t.Fatalf("first touch utm_source overwritten: %v", still.UTMSource)
 	}
 	if still.UTMCampaign == nil || *still.UTMCampaign != "launch" {
 		t.Fatalf("first touch overwritten: %v", still.UTMCampaign)
 	}
-	if still.FBCLID == nil || *still.FBCLID != "IwAR0abc_def-123" {
+	if still.FBCLID == nil || *still.FBCLID != strings.Repeat("c", 256) {
 		t.Fatalf("fbclid overwritten: %v", still.FBCLID)
 	}
 }

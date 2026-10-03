@@ -95,9 +95,16 @@ type FunnelEvent struct {
 	Event     string          `gorm:"column:event;size:40;not null;index:idx_funnel_events_event_server,priority:1" json:"event"`
 	Path      string          `gorm:"column:path;size:200;not null" json:"path"`
 	Props     json.RawMessage `gorm:"column:props;type:jsonb;not null" json:"props"`
-	ClientTS  time.Time       `gorm:"column:client_ts;not null" json:"client_ts"`
-	ServerTS  time.Time       `gorm:"column:server_ts;not null;index:idx_funnel_events_user_server,priority:2;index:idx_funnel_events_event_server,priority:2" json:"server_ts"`
-	UserAgent string          `gorm:"column:user_agent;size:256;not null" json:"user_agent,omitempty"`
+	// Attribution copied from props when the client sent it. Nil when the key
+	// was omitted or the value was dropped. Meta ads use utm_content
+	// (video_tu_do) and Meta appends fbclid.
+	UTMSource   *string   `gorm:"column:utm_source;size:100" json:"-"`
+	UTMCampaign *string   `gorm:"column:utm_campaign;size:100" json:"-"`
+	UTMContent  *string   `gorm:"column:utm_content;size:100" json:"-"`
+	FBCLID      *string   `gorm:"column:fbclid;size:256" json:"-"`
+	ClientTS    time.Time `gorm:"column:client_ts;not null" json:"client_ts"`
+	ServerTS    time.Time `gorm:"column:server_ts;not null;index:idx_funnel_events_user_server,priority:2;index:idx_funnel_events_event_server,priority:2" json:"server_ts"`
+	UserAgent   string    `gorm:"column:user_agent;size:256;not null" json:"user_agent,omitempty"`
 }
 
 // TableName is the funnel_events table.

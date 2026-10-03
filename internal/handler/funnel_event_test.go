@@ -469,11 +469,11 @@ func TestFunnelEvents_AcceptsFrontendRegisterPayloads(t *testing.T) {
 		},
 		{
 			body: funnelBody(domain.FunnelRegisterClientError, "reg-err-drop", "/register", `{"error_type":"email_invalid","utm_source":"`+tooLong+`","utm_campaign":"ig<script>"}`),
-			want: want{session: "reg-err-drop", event: domain.FunnelRegisterClientError, props: map[string]any{"error_type": "email_invalid"}},
+			want: want{session: "reg-err-drop", event: domain.FunnelRegisterClientError, props: map[string]any{"error_type": "email_invalid", "utm_source": strings.Repeat("a", 100)}},
 		},
 		{
 			body: funnelBody(domain.FunnelRegisterFormView, "reg-space", "/register", `{"utm_source":"paid social","utm_campaign":"summer%20sale"}`),
-			want: want{session: "reg-space", event: domain.FunnelRegisterFormView, props: map[string]any{}},
+			want: want{session: "reg-space", event: domain.FunnelRegisterFormView, props: map[string]any{"utm_source": "paid social", "utm_campaign": "summer sale"}},
 		},
 		{
 			body: funnelBody(domain.FunnelRegisterSubmitAttempt, "reg-100", "/register", `{"utm_source":"`+exact+`"}`),
@@ -527,6 +527,102 @@ func TestFunnelEvents_AcceptsFrontendRegisterPayloads(t *testing.T) {
 		if strings.Contains(string(row.Props), "@") {
 			t.Fatalf("session %s stored an email in props %s", tc.want.session, row.Props)
 		}
+	}
+}
+
+func TestFunnelEvents_CheckinDropsEmailUTMSource(t *testing.T) {
+	app, db, _ := newFunnelFixture(t, false)
+	body := funnelBody(domain.FunnelCheckinPageView, "checkin-at", "/check-in", `{"utm_source":"a@b.com","has_photo":false}`)
+	status, raw, _ := postFunnel(t, app, "", "", "", body)
+	if status != http.StatusNoContent {
+		t.Fatalf("status=%d body=%s", status, raw)
+	}
+	var row domain.FunnelEvent
+	if err := db.Where("session_id = ?", "checkin-at").First(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertProps(t, row.Props, map[string]any{"has_photo": false})
+	if row.UTMSource != nil || row.UTMCampaign != nil || row.UTMContent != nil || row.FBCLID != nil {
+		t.Fatalf("attribution columns=%v %v %v %v", row.UTMSource, row.UTMCampaign, row.UTMContent, row.FBCLID)
+	}
+	if strings.Contains(string(row.Props), "utm_source") || strings.Contains(string(row.Props), "@") {
+		t.Fatalf("stored utm_source %s", row.Props)
+	}
+}
+
+func TestFunnelEvents_StoresUTMContentAndFBCLID(t *testing.T) {
+	app, db, _ := newFunnelFixture(t, false)
+	fbclid := strings.Repeat("f", 256)
+	body := funnelBody(
+		domain.FunnelCheckinPageView,
+		"checkin-meta",
+		"/check-in",
+		`{"utm_content":"video_tu_do","utm_source":"Da mụn","fbclid":"`+fbclid+`"}`,
+	)
+	status, raw, _ := postFunnel(t, app, "", "", "", body)
+	if status != http.StatusNoContent {
+		t.Fatalf("checkin status=%d body=%s", status, raw)
+	}
+	var row domain.FunnelEvent
+	if err := db.Where("session_id = ?", "checkin-meta").First(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertProps(t, row.Props, map[string]any{
+		"utm_content": "video_tu_do",
+		"utm_source":  "Da mụn",
+		"fbclid":      fbclid,
+	})
+	if row.UTMContent == nil || *row.UTMContent != "video_tu_do" {
+		t.Fatalf("utm_content=%v", row.UTMContent)
+	}
+	if row.UTMSource == nil || *row.UTMSource != "Da mụn" {
+		t.Fatalf("utm_source=%v", row.UTMSource)
+	}
+	if row.FBCLID == nil || *row.FBCLID != fbclid {
+		t.Fatalf("fbclid len=%v", row.FBCLID)
+	}
+
+	reg := funnelBody(
+		domain.FunnelRegisterFormView,
+		"reg-meta",
+		"/register",
+		`{"utm_content":"video_tu_do","utm_campaign":"Da+mụn","fbclid":"`+fbclid+`"}`,
+	)
+	status, raw, _ = postFunnel(t, app, "", "", "", reg)
+	if status != http.StatusNoContent {
+		t.Fatalf("register status=%d body=%s", status, raw)
+	}
+	var regRow domain.FunnelEvent
+	if err := db.Where("session_id = ?", "reg-meta").First(&regRow).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertProps(t, regRow.Props, map[string]any{
+		"utm_content":  "video_tu_do",
+		"utm_campaign": "Da mụn",
+		"fbclid":       fbclid,
+	})
+	if regRow.UTMCampaign == nil || *regRow.UTMCampaign != "Da mụn" {
+		t.Fatalf("utm_campaign=%v", regRow.UTMCampaign)
+	}
+	if regRow.FBCLID == nil || len(*regRow.FBCLID) != 256 {
+		t.Fatalf("fbclid=%v", regRow.FBCLID)
+	}
+
+	tooLong := funnelBody(domain.FunnelCheckinPageView, "checkin-fb-long", "/check-in", `{"fbclid":"`+strings.Repeat("f", 257)+`","utm_content":"video_tu_do"}`)
+	status, raw, _ = postFunnel(t, app, "", "", "", tooLong)
+	if status != http.StatusNoContent {
+		t.Fatalf("long fbclid status=%d body=%s", status, raw)
+	}
+	var longRow domain.FunnelEvent
+	if err := db.Where("session_id = ?", "checkin-fb-long").First(&longRow).Error; err != nil {
+		t.Fatal(err)
+	}
+	assertProps(t, longRow.Props, map[string]any{"utm_content": "video_tu_do"})
+	if longRow.FBCLID != nil {
+		t.Fatalf("257-char fbclid stored")
+	}
+	if longRow.UTMContent == nil || *longRow.UTMContent != "video_tu_do" {
+		t.Fatalf("utm_content=%v", longRow.UTMContent)
 	}
 }
 

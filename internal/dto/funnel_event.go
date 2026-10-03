@@ -64,6 +64,7 @@ func (r LogFunnelEventRequest) ValidateAndMap(userID uuid.UUID) (*domain.FunnelE
 		Props:     props,
 		ClientTS:  clientTS,
 	}
+	row.UTMSource, row.UTMCampaign, row.UTMContent, row.FBCLID = attributionColumns(props)
 	if userID != uuid.Nil {
 		id := userID
 		row.UserID = &id
@@ -86,10 +87,14 @@ func parseClientTS(raw string) (time.Time, bool) {
 
 // normalizeFunnelProps accepts a small flat JSON object (scalars only).
 // Omitted and JSON null props are stored as {}.
-// The four register_* events may also carry optional utm_source and
-// utm_campaign. A value that fails the UTM pattern is omitted. error_type
-// stays a strict enum and still rejects the event when it is invalid.
-// Emails and other form fields are rejected on every event.
+// Register, landing, and check-in events may carry optional utm_source,
+// utm_campaign, utm_content, and fbclid. A value that fails sanitizing is
+// omitted. error_type and button stay strict enums and still reject the
+// event when they are invalid.
+// Emails and other form fields are rejected on every event. The @ check is
+// skipped only for attribution keys on register events, which are sanitized
+// below. On every other event an attribution value that contains @ is
+// omitted and the event is still stored.
 func normalizeFunnelProps(event string, raw json.RawMessage) (json.RawMessage, string) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("null")) {
@@ -109,12 +114,19 @@ func normalizeFunnelProps(event string, raw json.RawMessage) (json.RawMessage, s
 		if key == "" || !flatJSONScalar(value) {
 			return nil, "props must be a flat object"
 		}
-		// utm_source / utm_campaign are checked below. A value that fails the
-		// pattern is omitted instead of failing the whole event.
-		if propCarriesEmailOrForm(key, value) && !registerAttributionPropKey(key) {
+		// Skip the blanket @ rejection only for attribution keys on register
+		// events. Those keys are sanitized below, and a value that contains
+		// @ is omitted. Every other event drops an attribution value that
+		// contains @ here, so checkin_page_view does not store it.
+		if propCarriesEmailOrForm(key, value) && !registerEventSkipsEmailCheck(event, key) {
+			if registerAttributionPropKey(key) {
+				delete(obj, key)
+				continue
+			}
 			return nil, "props must not include an email"
 		}
 	}
+	rewriteAttributionProps(obj)
 	if msg := validateEventProps(event, obj); msg != "" {
 		return nil, msg
 	}
@@ -132,19 +144,58 @@ func validateEventProps(event string, obj map[string]json.RawMessage) string {
 	case domain.FunnelRegisterFormView, domain.FunnelRegisterSubmitAttempt, domain.FunnelRegisterEmailExists:
 		return normalizeRegisterEventProps(obj, false)
 	case domain.FunnelLandingCTAClick:
-		return requireEnumProp(obj, "button", domain.LandingCTAButtons, "invalid button")
+		return normalizeLandingProps(obj)
 	default:
 		return ""
 	}
 }
 
+func isRegisterFunnelEvent(event string) bool {
+	switch event {
+	case domain.FunnelRegisterFormView, domain.FunnelRegisterSubmitAttempt,
+		domain.FunnelRegisterClientError, domain.FunnelRegisterEmailExists:
+		return true
+	default:
+		return false
+	}
+}
+
+// registerEventSkipsEmailCheck is true only while a register event still
+// carries an attribution key. The sanitizer then drops values that contain @.
+// Other events do not skip, so an @ in utm_source is removed before insert.
+func registerEventSkipsEmailCheck(event, key string) bool {
+	return isRegisterFunnelEvent(event) && registerAttributionPropKey(key)
+}
+
 func registerAttributionPropKey(key string) bool {
-	return key == "utm_source" || key == "utm_campaign"
+	switch key {
+	case "utm_source", "utm_campaign", "utm_content", "fbclid":
+		return true
+	default:
+		return false
+	}
+}
+
+// normalizeLandingProps requires button and allows the same optional
+// attribution keys as register events. Other keys are rejected.
+func normalizeLandingProps(obj map[string]json.RawMessage) string {
+	if msg := enumPropValue(obj, "button", domain.LandingCTAButtons, "invalid button"); msg != "" {
+		return msg
+	}
+	for key := range obj {
+		switch key {
+		case "button", "utm_source", "utm_campaign", "utm_content", "fbclid":
+		default:
+			return "unknown prop"
+		}
+	}
+	return ""
 }
 
 // normalizeRegisterEventProps keeps error_type (when required) and optional
-// utm_source / utm_campaign. Other keys are rejected. A UTM value that fails
-// ^[A-Za-z0-9_.-]{1,100}$ is omitted; the event is still accepted.
+// utm_source, utm_campaign, utm_content, and fbclid. Other keys are rejected.
+// An attribution value that fails sanitizing is omitted; the event is still
+// accepted.
 func normalizeRegisterEventProps(obj map[string]json.RawMessage, requireErrorType bool) string {
 	if requireErrorType {
 		if msg := enumPropValue(obj, "error_type", domain.RegisterClientErrorTypes, "invalid error_type"); msg != "" {
@@ -157,8 +208,8 @@ func normalizeRegisterEventProps(obj map[string]json.RawMessage, requireErrorTyp
 			if !requireErrorType {
 				return "unknown prop"
 			}
-		case "utm_source", "utm_campaign":
-			cleaned := funnelUTMValue(raw)
+		case "utm_source", "utm_campaign", "utm_content", "fbclid":
+			cleaned := funnelAttributionValue(key, raw)
 			if cleaned == "" {
 				delete(obj, key)
 				continue
@@ -176,9 +227,31 @@ func normalizeRegisterEventProps(obj map[string]json.RawMessage, requireErrorTyp
 	return ""
 }
 
-// funnelUTMValue returns the string when it matches the UTM pattern.
+// rewriteAttributionProps sanitizes attribution keys on every event.
+// A value that fails is omitted. The rest of the object is left as sent.
+func rewriteAttributionProps(obj map[string]json.RawMessage) {
+	for _, key := range []string{"utm_source", "utm_campaign", "utm_content", "fbclid"} {
+		raw, ok := obj[key]
+		if !ok {
+			continue
+		}
+		cleaned := funnelAttributionValue(key, raw)
+		if cleaned == "" {
+			delete(obj, key)
+			continue
+		}
+		encoded, err := json.Marshal(cleaned)
+		if err != nil {
+			delete(obj, key)
+			continue
+		}
+		obj[key] = encoded
+	}
+}
+
+// funnelAttributionValue returns the sanitized string for an attribution key.
 // Non-strings and values that fail validation are dropped.
-func funnelUTMValue(raw json.RawMessage) string {
+func funnelAttributionValue(key string, raw json.RawMessage) string {
 	val := bytes.TrimSpace(raw)
 	if len(val) == 0 || val[0] != '"' {
 		return ""
@@ -187,11 +260,39 @@ func funnelUTMValue(raw json.RawMessage) string {
 	if err := json.Unmarshal(val, &s); err != nil {
 		return ""
 	}
-	kept := acceptedUTM(s)
+	var kept *string
+	if key == "fbclid" {
+		kept = acceptedFBCLID(s)
+	} else {
+		kept = acceptedUTM(s)
+	}
 	if kept == nil {
 		return ""
 	}
 	return *kept
+}
+
+func attributionColumns(props json.RawMessage) (source, campaign, content, fbclid *string) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(props, &obj); err != nil {
+		return nil, nil, nil, nil
+	}
+	return storedStringProp(obj, "utm_source"),
+		storedStringProp(obj, "utm_campaign"),
+		storedStringProp(obj, "utm_content"),
+		storedStringProp(obj, "fbclid")
+}
+
+func storedStringProp(obj map[string]json.RawMessage, key string) *string {
+	raw, ok := obj[key]
+	if !ok {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(bytes.TrimSpace(raw), &s); err != nil || s == "" {
+		return nil
+	}
+	return &s
 }
 
 func requireEnumProp(obj map[string]json.RawMessage, key string, allowed []string, invalidMsg string) string {
