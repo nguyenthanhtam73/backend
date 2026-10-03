@@ -25,6 +25,7 @@ import (
 	checkinreminderuc "github.com/dadiary/backend/internal/usecase/checkinreminder"
 	dashboarduc "github.com/dadiary/backend/internal/usecase/dashboard"
 	feedbackuc "github.com/dadiary/backend/internal/usecase/feedback"
+	funneleventuc "github.com/dadiary/backend/internal/usecase/funnelevent"
 	paymentuc "github.com/dadiary/backend/internal/usecase/payment"
 	paywallviewuc "github.com/dadiary/backend/internal/usecase/paywallview"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
@@ -81,6 +82,13 @@ const (
 	// Paywall impression ingest is cheap, but public (JWT optional). Cap bursts.
 	paywallViewRateMax    = 40
 	paywallViewRateWindow = 15 * time.Minute
+
+	// Check-in funnel ingest is a single insert.
+	// Per session_id, plus a process-wide cap. Not per IP: c.IP() is the
+	// Railway proxy address until ProxyHeader is configured.
+	funnelEventRateMax       = 60
+	funnelEventRateWindow    = time.Minute
+	funnelEventGlobalRateMax = 600
 )
 
 // Router wires API v1 routes: health (public), auth (mixed), skin-checks (protected).
@@ -152,6 +160,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		wardRepo := repository.NewSkincareProductRepository(db)
 		affiliateRepo := repository.NewAffiliateClickRepository(db)
 		paywallViewRepo := repository.NewPaywallViewRepository(db)
+		funnelEventRepo := repository.NewFunnelEventRepository(db)
 		// One in-process memory cache shared by all services that read or
 		// invalidate the long-term USER_MEMORY block. 5-minute TTL +
 		// explicit bust from each write path keeps results fresh without
@@ -267,6 +276,15 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		paywallViewLimit := middleware.AILimiter(paywallViewRateMax, paywallViewRateWindow)
 		paywallViewH := NewPaywallViewHandler(paywallviewuc.NewService(paywallViewRepo))
 		api.Post("/analytics/paywall-view", jwtOptional, paywallViewLimit, paywallViewH.Log)
+
+		// Optional auth: guests are stored with a NULL user_id. Never 401 for a missing token.
+		funnelH := NewFunnelEventHandler(funneleventuc.NewService(funnelEventRepo))
+		api.Post("/funnel-events",
+			jwtOptional,
+			middleware.FunnelEventGlobalLimiter(funnelEventGlobalRateMax, funnelEventRateWindow),
+			middleware.FunnelEventSessionLimiter(funnelEventRateMax, funnelEventRateWindow),
+			funnelH.Log,
+		)
 
 		fbSvc := aifeedbackuc.NewService(fbRepo, memCache)
 		fbh := NewAIFeedbackHandler(fbSvc)

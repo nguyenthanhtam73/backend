@@ -40,6 +40,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.SkincareProduct{},
 		&domain.AffiliateClick{},
 		&domain.PaywallView{},
+		&domain.FunnelEvent{},
 		&domain.ProgressLog{},
 		&domain.AIUserFeedback{},
 		&domain.Feedback{},

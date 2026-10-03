@@ -1,12 +1,16 @@
 package middleware
 
 import (
+	"encoding/json"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/google/uuid"
 
+	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/pkg/response"
 )
 
@@ -54,4 +58,70 @@ func AILimiter(max int, expiration time.Duration) fiber.Handler {
 		// burn OpenAI/Anthropic credit indefinitely without hitting 429.
 		SkipFailedRequests: false,
 	})
+}
+
+func funnelLimitReached(c *fiber.Ctx) error {
+	return response.Error(
+		c,
+		fiber.StatusTooManyRequests,
+		"rate_limited",
+		"Too many requests. Please slow down for a minute and try again.",
+	)
+}
+
+func newFunnelLimiter(max int, window time.Duration, key func(*fiber.Ctx) string) fiber.Handler {
+	if max <= 0 {
+		max = 60
+	}
+	if window < time.Second {
+		window = time.Minute
+	}
+	return limiter.New(limiter.Config{
+		Max:                max,
+		Expiration:         window,
+		KeyGenerator:       key,
+		LimitReached:       funnelLimitReached,
+		SkipFailedRequests: false,
+	})
+}
+
+// FunnelEventGlobalLimiter is a process-wide safety cap for funnel ingest.
+// It does not use c.IP(). Behind Railway that value is the proxy, so a
+// per-IP bucket would be one bucket for every visitor.
+func FunnelEventGlobalLimiter(max int, window time.Duration) fiber.Handler {
+	return newFunnelLimiter(max, window, func(*fiber.Ctx) string {
+		return "global"
+	})
+}
+
+// FunnelEventSessionLimiter caps funnel ingest per client session_id.
+// Requests without a usable session_id share one bucket. This does not
+// call c.IP().
+func FunnelEventSessionLimiter(max int, window time.Duration) fiber.Handler {
+	return newFunnelLimiter(max, window, func(c *fiber.Ctx) string {
+		if sid := funnelSessionID(c); sid != "" {
+			return "sid:" + sid
+		}
+		return "nosession"
+	})
+}
+
+// funnelSessionID reads session_id for the rate-limit key.
+// Oversized bodies are not parsed; those requests use the nosession bucket.
+func funnelSessionID(c *fiber.Ctx) string {
+	body := c.Body()
+	if len(body) == 0 || len(body) > domain.MaxFunnelBodyBytes {
+		return ""
+	}
+	var probe struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(body, &probe); err != nil {
+		return ""
+	}
+	sid := strings.TrimSpace(probe.SessionID)
+	if sid == "" || utf8.RuneCountInString(sid) > domain.MaxFunnelSessionIDRunes {
+		return ""
+	}
+	return sid
 }
