@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/dadiary/backend/internal/logmask"
 )
 
 var (
@@ -146,10 +148,7 @@ func (c *ResendClient) Send(ctx context.Context, msg Message) error {
 	return &Failure{Status: resp.StatusCode, Body: string(respBody)}
 }
 
+// maskEmail is the log-only address form. Delivery still uses the full address.
 func maskEmail(addr string) string {
-	at := strings.Index(addr, "@")
-	if at <= 1 {
-		return "***"
-	}
-	return addr[:1] + "***" + addr[at:]
+	return logmask.MaskEmail(addr)
 }

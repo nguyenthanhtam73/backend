@@ -24,6 +24,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/dadiary/backend/internal/logmask"
 )
 
 // Level is the severity of an ops alert.
@@ -285,6 +287,20 @@ func (f *Fanout) deliverRemotes(ctx context.Context, e Event) bool {
 	return attempted && anyOK
 }
 
+func redactLoggedValue(v any) any {
+	switch t := v.(type) {
+	case string:
+		return logmask.Redact(t)
+	case error:
+		if t == nil {
+			return t
+		}
+		return logmask.Redact(t.Error())
+	default:
+		return v
+	}
+}
+
 func logConsole(e Event) {
 	attrs := make([]any, 0, 6+len(e.Fields)*2)
 	attrs = append(attrs, "alert_title", e.Title, "alert_level", string(e.Level))
@@ -295,13 +311,13 @@ func logConsole(e Event) {
 		attrs = append(attrs, "alert_unique", e.UniqueSuffix)
 	}
 	if e.Message != "" {
-		attrs = append(attrs, "message", e.Message)
+		attrs = append(attrs, "message", logmask.Redact(e.Message))
 	}
 	if e.Detail != "" {
-		attrs = append(attrs, "detail", e.Detail)
+		attrs = append(attrs, "detail", logmask.Redact(e.Detail))
 	}
 	for k, v := range e.Fields {
-		attrs = append(attrs, k, v)
+		attrs = append(attrs, k, redactLoggedValue(v))
 	}
 	msg := "ops_alert"
 	if e.Title != "" {
@@ -335,15 +351,19 @@ func (f *Fanout) postSlack(ctx context.Context, url string, e Event) bool {
 
 func (f *Fanout) postTelegram(ctx context.Context, token, chatID string, e Event) bool {
 	apiURL := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", token)
-	body, err := json.Marshal(map[string]any{
-		"chat_id": chatID,
-		"text":    formatText(e),
-	})
+	body, err := telegramBody(chatID, e)
 	if err != nil {
 		slog.Error("alert: marshal telegram body failed", "error", err.Error())
 		return false
 	}
 	return f.doPOST(ctx, apiURL, "application/json", body, "telegram")
+}
+
+func telegramBody(chatID string, e Event) ([]byte, error) {
+	return json.Marshal(map[string]any{
+		"chat_id": chatID,
+		"text":    formatText(e),
+	})
 }
 
 func (f *Fanout) doPOST(ctx context.Context, url, contentType string, body []byte, sink string) bool {

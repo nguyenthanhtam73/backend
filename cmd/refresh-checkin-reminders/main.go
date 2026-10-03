@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/logmask"
 	"github.com/dadiary/backend/internal/repository"
 	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/streaktime"
@@ -112,7 +113,7 @@ func main() {
 		}
 		if shown < limit {
 			fmt.Printf("  %s  user=%s  kind=%s  signup=%s  checked_in_today=%v\n",
-				u.ID.String()[:8], u.Email, state.Kind, state.SignupDate, state.CheckedInToday)
+				u.ID.String()[:8], logmask.MaskEmail(u.Email), state.Kind, state.SignupDate, state.CheckedInToday)
 			shown++
 		}
 	}
