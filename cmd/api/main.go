@@ -224,7 +224,7 @@ func startCheckInReminderJob(ctx context.Context, cfg *config.Config, db *gorm.D
 	}
 	jobLocks := repository.NewPushJobLockRepository(db)
 	scheduler.NewCheckInReminderJob(svc, jobLocks).Start(ctx)
-	// D1 and Day-3 emails wait for 19:30 ICT. D0 stays on the hourly job above.
+	// D1 and Day-3 emails send only from 19:30 until 21:30 ICT. D0 stays on the hourly job above.
 	scheduler.NewEveningCheckInEmailJob(svc, jobLocks).Start(ctx)
 }
 

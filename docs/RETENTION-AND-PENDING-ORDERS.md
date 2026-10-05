@@ -59,7 +59,7 @@ Show an in-app nudge when `due` is true. Do not treat `kind=none` as an error.
 Two in-process jobs (Railway has no separate cron service):
 
 1. **Hourly** — refresh signup-anchored flags, send ≤1 `d0` email, and send typed D0/D1 push. Does **not** send the D1 email (that used to go out on the first tick after VN midnight).
-2. **19:30 Asia/Ho_Chi_Minh** (`evening_checkin_email_job`, checks every 30 minutes, once per VN civil day, including a restart after 19:30). Sends:
+2. **19:30–21:30 Asia/Ho_Chi_Minh** (`evening_checkin_email_job`, checks every 30 minutes). Sends only when local time is **>= 19:30 and < 21:30**. A restart inside that window still sends once. A wake at **21:30 or later** closes that Vietnam civil day without sending and does not leave the send pending for midnight. Sends:
 
 | Kind | When (VN calendar) | Who | CTA |
 |------|--------------------|-----|-----|
