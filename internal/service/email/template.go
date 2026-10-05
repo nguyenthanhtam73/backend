@@ -3,6 +3,7 @@ package email
 import (
 	"fmt"
 	"html"
+	"net/url"
 	"strings"
 )
 
@@ -12,6 +13,7 @@ type Kind string
 const (
 	KindD0 Kind = "d0"
 	KindD1 Kind = "d1"
+	KindD3 Kind = "d3"
 )
 
 // Template is rendered copy for one reminder email.
@@ -56,6 +58,7 @@ func BuildReminderTemplate(kind Kind, checkInURL, unsubURL, displayName string) 
 	if cta == "" {
 		cta = "https://dadiary.vn/check-in"
 	}
+	cta = withEmailSrc(cta, kind)
 	unsub := strings.TrimSpace(unsubURL)
 
 	var subject, greeting, body, button string
@@ -64,6 +67,11 @@ func BuildReminderTemplate(kind Kind, checkInURL, unsubURL, displayName string) 
 		subject = "DaDiary ghé hỏi — trời đổi, hôm nay check-in chưa?"
 		greeting = fmt.Sprintf("Chào %s,", name)
 		body = "Thời tiết đổi, da cần được quan tâm hơn. Nhắc nhẹ thôi, không mắng đâu."
+		button = "Check-in da hôm nay"
+	case KindD3:
+		subject = "DaDiary ghé lại — hôm qua chưa thấy bạn"
+		greeting = fmt.Sprintf("Chào %s,", name)
+		body = "Ba hôm trước bạn đã check-in. Hôm qua chưa thấy bạn. Một tấm ảnh hôm nay là đủ — không cần đẹp."
 		button = "Check-in da hôm nay"
 	default:
 		subject = "Streak da chưa mở… trời đổi, chụp 1 tấm là xong ✨"
@@ -140,4 +148,29 @@ func BuildReminderTemplate(kind Kind, checkInURL, unsubURL, displayName string) 
 	)
 
 	return Template{Subject: subject, Text: text, HTML: htmlBody}
+}
+
+// withEmailSrc appends the campaign src used to join opens and clicks.
+// D0 stays a bare check-in URL. D1 and D3 get ?src=email_d1 / email_d3.
+func withEmailSrc(raw string, kind Kind) string {
+	var src string
+	switch kind {
+	case KindD1:
+		src = "email_d1"
+	case KindD3:
+		src = "email_d3"
+	default:
+		return raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		if strings.Contains(raw, "?") {
+			return raw + "&src=" + src
+		}
+		return raw + "?src=" + src
+	}
+	q := u.Query()
+	q.Set("src", src)
+	u.RawQuery = q.Encode()
+	return u.String()
 }

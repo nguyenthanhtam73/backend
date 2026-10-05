@@ -16,7 +16,7 @@ func TestResendClient_NotConfigured(t *testing.T) {
 	if c.Configured() {
 		t.Fatal("empty client should not be configured")
 	}
-	err := c.Send(context.Background(), Message{To: "a@b.com", Subject: "s", Text: "t"})
+	_, err := c.Send(context.Background(), Message{To: "a@b.com", Subject: "s", Text: "t"})
 	if err != ErrNotConfigured {
 		t.Fatalf("err=%v", err)
 	}
@@ -36,7 +36,7 @@ func TestResendClient_SendPostsJSON(t *testing.T) {
 
 	c := NewResendClient("re_test_key", "DaDiary <noreply@dadiary.vn>")
 	c.endpoint = srv.URL
-	err := c.Send(context.Background(), Message{
+	id, err := c.Send(context.Background(), Message{
 		To:          "user@example.com",
 		Subject:     "Streak da chưa mở… trời đổi, chụp 1 tấm là xong ✨",
 		Text:        "body",
@@ -45,6 +45,9 @@ func TestResendClient_SendPostsJSON(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if id != "re_test" {
+		t.Fatalf("resend id=%q", id)
 	}
 	if gotAuth != "Bearer re_test_key" {
 		t.Fatalf("auth=%q", gotAuth)
@@ -76,7 +79,7 @@ func TestResendClient_ClassifiesHTTPStatus(t *testing.T) {
 		}))
 		c := NewResendClient("re_test_key", "DaDiary <noreply@dadiary.vn>")
 		c.endpoint = srv.URL
-		err := c.Send(context.Background(), Message{
+		_, err := c.Send(context.Background(), Message{
 			To:      "danghaiduong@1995",
 			Subject: "subject",
 			Text:    "body",
@@ -100,7 +103,7 @@ func TestResendClient_ClassifiesHTTPStatus(t *testing.T) {
 	defer fromSrv.Close()
 	fromClient := NewResendClient("re_test_key", "DaDiary <noreply@dadiary.vn>")
 	fromClient.endpoint = fromSrv.URL
-	fromErr := fromClient.Send(context.Background(), Message{To: "user@example.com", Subject: "s", Text: "t"})
+	_, fromErr := fromClient.Send(context.Background(), Message{To: "user@example.com", Subject: "s", Text: "t"})
 	if Classify(fromErr) != FailureRejection {
 		t.Fatalf("invalid from class=%v err=%v", Classify(fromErr), fromErr)
 	}
@@ -110,7 +113,7 @@ func TestResendClient_ClassifiesHTTPStatus(t *testing.T) {
 	srv.Close()
 	c := NewResendClient("re_test_key", "DaDiary <noreply@dadiary.vn>")
 	c.endpoint = endpoint
-	err := c.Send(context.Background(), Message{To: "a@b.com", Subject: "s", Text: "t"})
+	_, err := c.Send(context.Background(), Message{To: "a@b.com", Subject: "s", Text: "t"})
 	if Classify(err) != FailureTransient {
 		t.Fatalf("transport class=%v err=%v", Classify(err), err)
 	}

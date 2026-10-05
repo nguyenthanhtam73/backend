@@ -130,7 +130,10 @@ func (s *Service) DeliverDue(ctx context.Context) (DeliveryResult, error) {
 			continue
 		}
 
-		if emailReady {
+		// D0 email stays on this hourly pass (same-day signup, no check-in).
+		// D1 email moved to the 19:30 ICT job and is anchored on first check-in,
+		// not this signup-day flag.
+		if kind == KindD0 && emailReady {
 			s.deliverEmail(ctx, u, kind, &out, &scratch)
 		} else {
 			out.EmailSkipped++
@@ -233,7 +236,7 @@ func (s *Service) deliverEmail(
 	if scratch != nil {
 		scratch.sendAttempts++
 	}
-	err = s.mailer.Send(ctx, email.Message{
+	providerID, err := s.mailer.Send(ctx, email.Message{
 		To:          addr,
 		Subject:     tpl.Subject,
 		Text:        tpl.Text,
@@ -279,6 +282,15 @@ func (s *Service) deliverEmail(
 			err:   err,
 		}, class == email.FailurePermanent, out)
 		return
+	}
+	if providerID != "" {
+		if setErr := s.emailReceipts.SetResendEmailID(ctx, u.ID, string(kind), providerID); setErr != nil {
+			slog.Error("checkin_reminder: store resend email id failed",
+				"user_id", u.ID.String(),
+				"kind", string(kind),
+				"err", setErr,
+			)
+		}
 	}
 	if state.FailCount > 0 || state.AddressHash != "" || state.SuppressedAt != nil {
 		if clrErr := s.users.SaveReminderEmailState(ctx, u.ID, 0, "", nil); clrErr != nil {
