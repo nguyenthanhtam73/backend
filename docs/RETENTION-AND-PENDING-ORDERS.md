@@ -178,4 +178,4 @@ GROUP BY kind, due;
 | `DADIARY_PENDING_ORDER_EXPIRY_ENABLED` | true | Boot + daily pending expire |
 | `DADIARY_PENDING_ORDER_TTL_HOURS` | 72 | Local pending TTL (24–168) |
 
-Schema: `018_email_receipts_and_unsub`, plus `024_reminder_engagement` (`resend_email_id`, `email_engagement_events`, push opt-in columns, `push_click_events`). Do not invent `RESEND_API_KEY` or the webhook secret.
+Schema: `018_email_receipts_and_unsub`, plus `025_reminder_engagement` (`resend_email_id`, `email_engagement_events`, push opt-in columns, `push_click_events`). Do not invent `RESEND_API_KEY` or the webhook secret.
