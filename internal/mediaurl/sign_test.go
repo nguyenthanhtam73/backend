@@ -8,6 +8,28 @@ import (
 	"time"
 )
 
+func TestNew_BothKeysEmptyFailsClosed(t *testing.T) {
+	for _, pair := range [][2]string{{"", ""}, {"  ", "\t"}, {"", "   "}} {
+		s := New(pair[0], pair[1], time.Hour)
+		if s != nil {
+			t.Fatalf("New(%q, %q) returned a signer", pair[0], pair[1])
+		}
+		key := "11111111-1111-1111-1111-111111111111/a.jpg"
+		if got := s.SignedPath(key); got != "" {
+			t.Fatalf("nil signer issued %q", got)
+		}
+		if got := s.SignedPathAt(key, time.Now()); got != "" {
+			t.Fatalf("nil signer issued %q", got)
+		}
+		if s.Valid(key, "9999999999", "abcd", time.Now()) {
+			t.Fatal("nil signer accepted a signature")
+		}
+		if s.TTL() != DefaultTTL {
+			t.Fatalf("nil TTL=%s", s.TTL())
+		}
+	}
+}
+
 func TestNew_DerivesFromJWTSecret(t *testing.T) {
 	derived := New("", "jwt-secret", 0)
 	if derived == nil {

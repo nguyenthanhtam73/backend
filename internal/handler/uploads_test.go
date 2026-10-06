@@ -14,7 +14,9 @@ import (
 	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/storage"
+	"github.com/dadiary/backend/internal/token"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
 
 // TestUploads_PlainLegacyURLReturns404 is the old public contract: a bare
@@ -32,11 +34,14 @@ func TestUploads_PlainLegacyURLReturns404(t *testing.T) {
 		t.Fatal(err)
 	}
 	signer := mediaurl.New("test-media-key", "", time.Hour)
+	tok := testTokenService(t)
+	owner := uuid.MustParse("550e8400-e29b-41d4-a716-446655440000")
+	access := bearerFor(t, tok, owner)
 	app := fiber.New()
-	RegisterUploads(app, store, signer)
+	RegisterUploads(app, store, signer, tok)
 
 	plain := "/uploads/" + key
-	res, body := do(t, app, http.MethodGet, plain, "")
+	res, body := do(t, app, http.MethodGet, plain, "", "")
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("plain legacy url status=%d body=%q", res.StatusCode, body)
 	}
@@ -44,7 +49,7 @@ func TestUploads_PlainLegacyURLReturns404(t *testing.T) {
 		t.Fatalf("plain url returned bytes: %q", body)
 	}
 
-	res, body = do(t, app, http.MethodGet, signer.SignedPath(key), "")
+	res, body = do(t, app, http.MethodGet, signer.SignedPath(key), "", access)
 	if res.StatusCode != http.StatusOK || string(body) != "face" {
 		t.Fatalf("signed same key status=%d body=%q", res.StatusCode, body)
 	}
@@ -72,12 +77,14 @@ func TestUploads_SignedAccess(t *testing.T) {
 	}
 
 	signer := mediaurl.New("test-media-key", "", time.Hour)
+	tok := testTokenService(t)
+	accessA := bearerFor(t, tok, uuid.MustParse(userA))
 	app := fiber.New()
 	middleware.RegisterDefault(app)
-	RegisterUploads(app, store, signer)
+	RegisterUploads(app, store, signer, tok)
 
 	valid := signer.SignedPath(keyA)
-	res, body := do(t, app, http.MethodGet, valid, "https://dadiary.vn")
+	res, body := do(t, app, http.MethodGet, valid, "https://dadiary.vn", accessA)
 	if res.StatusCode != http.StatusOK || string(body) != "photo-a" {
 		t.Fatalf("valid status=%d body=%q", res.StatusCode, body)
 	}
@@ -91,7 +98,7 @@ func TestUploads_SignedAccess(t *testing.T) {
 		t.Fatal("wildcard CORS on a user photo")
 	}
 
-	res, body = do(t, app, http.MethodGet, "/uploads/"+keyA, "")
+	res, body = do(t, app, http.MethodGet, "/uploads/"+keyA, "", "")
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("unsigned status=%d body=%q", res.StatusCode, body)
 	}
@@ -100,13 +107,13 @@ func TestUploads_SignedAccess(t *testing.T) {
 	}
 
 	expired := signer.SignedPathAt(keyA, time.Now().Add(-2*time.Hour))
-	res, _ = do(t, app, http.MethodGet, expired, "")
+	res, _ = do(t, app, http.MethodGet, expired, "", accessA)
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("expired status=%d", res.StatusCode)
 	}
 
 	tampered := valid[:len(valid)-1] + flip(valid[len(valid)-1])
-	res, _ = do(t, app, http.MethodGet, tampered, "")
+	res, _ = do(t, app, http.MethodGet, tampered, "", accessA)
 	if res.StatusCode != http.StatusNotFound {
 		t.Fatalf("tampered status=%d", res.StatusCode)
 	}
@@ -116,7 +123,7 @@ func TestUploads_SignedAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	forged := "/uploads/" + keyB + "?" + u.RawQuery
-	res, body = do(t, app, http.MethodGet, forged, "")
+	res, body = do(t, app, http.MethodGet, forged, "", accessA)
 	if res.StatusCode != http.StatusNotFound || strings.Contains(string(body), "photo-b") {
 		t.Fatalf("cross-user status=%d body=%q", res.StatusCode, body)
 	}
@@ -126,13 +133,13 @@ func TestUploads_SignedAccess(t *testing.T) {
 		"/uploads/%2e%2e/secret",
 		"/uploads/" + keyA + "/../../" + keyB + "?" + u.RawQuery,
 	} {
-		res, body = do(t, app, http.MethodGet, p, "")
+		res, body = do(t, app, http.MethodGet, p, "", accessA)
 		if res.StatusCode != http.StatusNotFound || strings.Contains(string(body), "photo-") {
 			t.Fatalf("traversal %s status=%d body=%q", p, res.StatusCode, body)
 		}
 	}
 
-	res, body = do(t, app, http.MethodGet, "/uploads/brand/logo.png", "")
+	res, body = do(t, app, http.MethodGet, "/uploads/brand/logo.png", "", "")
 	if res.StatusCode != http.StatusOK || string(body) != "logo" {
 		t.Fatalf("brand status=%d body=%q", res.StatusCode, body)
 	}
@@ -141,11 +148,14 @@ func TestUploads_SignedAccess(t *testing.T) {
 	}
 }
 
-func do(t *testing.T, app *fiber.App, method, target, origin string) (*http.Response, []byte) {
+func do(t *testing.T, app *fiber.App, method, target, origin, authorization string) (*http.Response, []byte) {
 	t.Helper()
 	req := httptest.NewRequest(method, target, nil)
 	if origin != "" {
 		req.Header.Set("Origin", origin)
+	}
+	if authorization != "" {
+		req.Header.Set("Authorization", authorization)
 	}
 	res, err := app.Test(req, -1)
 	if err != nil {
@@ -157,6 +167,180 @@ func do(t *testing.T, app *fiber.App, method, target, origin string) (*http.Resp
 		t.Fatal(err)
 	}
 	return res, body
+}
+
+func TestUploads_MissingSigningKeyAndJWTFailClosed(t *testing.T) {
+	key := "11111111-1111-1111-1111-111111111111/a.jpg"
+	signer := mediaurl.New("", "", time.Hour)
+	if signer != nil {
+		t.Fatal("empty signing key and empty JWT secret produced a signer")
+	}
+	if got := signer.SignedPath(key); got != "" {
+		t.Fatalf("issued a url with no key: %q", got)
+	}
+	if signer.Valid(key, "9999999999", "00", time.Now()) {
+		t.Fatal("empty keys accepted a signature")
+	}
+
+	mediaurl.SetDefault(nil)
+	t.Cleanup(func() { mediaurl.SetDefault(nil) })
+	issued := mediaurl.SignClientURL("/uploads/" + key)
+	if strings.Contains(issued, "sig=") || strings.Contains(issued, "exp=") {
+		t.Fatalf("no signer minted a signature: %s", issued)
+	}
+
+	dir := t.TempDir()
+	store, err := storage.New(&config.Config{Upload: config.UploadConfig{Dir: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(context.Background(), key, []byte("secret-face"), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	app := fiber.New()
+	RegisterUploads(app, store, nil, nil)
+
+	for _, target := range []string{
+		"/uploads/" + key,
+		issued,
+		"/uploads/" + key + "?exp=9999999999&sig=00",
+	} {
+		res, body := do(t, app, http.MethodGet, target, "", "")
+		if res.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s status=%d body=%q", target, res.StatusCode, body)
+		}
+		if strings.Contains(string(body), "secret-face") {
+			t.Fatalf("%s served the photo: %q", target, body)
+		}
+	}
+}
+
+func TestUploads_ProtectedPhotoRequiresOwnerJWT(t *testing.T) {
+	dir := t.TempDir()
+	store, err := storage.New(&config.Config{Upload: config.UploadConfig{Dir: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownerID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	otherID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	key := ownerID.String() + "/a.jpg"
+	shareKey := "2026/10/03/admin-skin-review-public/slug__" + ownerID.String() + "/x.jpg"
+	ctx := context.Background()
+	if err := store.Save(ctx, key, []byte("photo-a"), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(ctx, shareKey, []byte("blurred"), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	signer := mediaurl.New("test-media-key-at-least-32-bytes!!", "", time.Hour)
+	tok := testTokenService(t)
+	app := fiber.New()
+	RegisterUploads(app, store, signer, tok)
+
+	signed := signer.SignedPath(key)
+	res, body := do(t, app, http.MethodGet, signed, "", "")
+	if res.StatusCode != http.StatusUnauthorized || strings.Contains(string(body), "photo-a") {
+		t.Fatalf("no jwt status=%d body=%q", res.StatusCode, body)
+	}
+	res, body = do(t, app, http.MethodGet, signed, "", "Bearer not-a-jwt")
+	if res.StatusCode != http.StatusUnauthorized || strings.Contains(string(body), "photo-a") {
+		t.Fatalf("invalid jwt status=%d body=%q", res.StatusCode, body)
+	}
+	res, body = do(t, app, http.MethodGet, signed, "", bearerFor(t, tok, otherID))
+	if res.StatusCode != http.StatusNotFound || strings.Contains(string(body), "photo-a") {
+		t.Fatalf("other user status=%d body=%q", res.StatusCode, body)
+	}
+	res, body = do(t, app, http.MethodGet, signed, "", bearerFor(t, tok, ownerID))
+	if res.StatusCode != http.StatusOK || string(body) != "photo-a" {
+		t.Fatalf("owner status=%d body=%q", res.StatusCode, body)
+	}
+
+	// A configured signer with no token service must not panic or serve the photo.
+	bare := fiber.New()
+	RegisterUploads(bare, store, signer, nil)
+	res, body = do(t, bare, http.MethodGet, signed, "", bearerFor(t, tok, ownerID))
+	if res.StatusCode != http.StatusUnauthorized || strings.Contains(string(body), "photo-a") {
+		t.Fatalf("nil token service status=%d body=%q", res.StatusCode, body)
+	}
+
+	// Blurred public-share objects stay signature-only so a scraper can fetch them.
+	share := signer.SignedPath(shareKey)
+	res, body = do(t, app, http.MethodGet, share, "", "")
+	if res.StatusCode != http.StatusOK || string(body) != "blurred" {
+		t.Fatalf("public share status=%d body=%q", res.StatusCode, body)
+	}
+}
+
+func TestUploads_JWTSecretFallbackSigns(t *testing.T) {
+	const jwtSecret = "jwt-secret-at-least-32-bytes-long!!"
+	derived := mediaurl.New("", jwtSecret, time.Hour)
+	if derived == nil {
+		t.Fatal("expected a signer derived from the JWT secret")
+	}
+	raw := mediaurl.New(jwtSecret, "", time.Hour)
+	ownerID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	key := ownerID.String() + "/a.jpg"
+	signed := derived.SignedPath(key)
+	if signed == "" || !strings.Contains(signed, "sig=") {
+		t.Fatalf("fallback issued %q", signed)
+	}
+	u, err := url.Parse(signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.Valid(key, u.Query().Get("exp"), u.Query().Get("sig"), time.Now()) {
+		t.Fatal("fallback HMAC key equals the raw JWT secret")
+	}
+	if !derived.Valid(key, u.Query().Get("exp"), u.Query().Get("sig"), time.Now()) {
+		t.Fatal("derived signer rejected its own url")
+	}
+
+	dir := t.TempDir()
+	store, err := storage.New(&config.Config{Upload: config.UploadConfig{Dir: dir}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(context.Background(), key, []byte("photo-a"), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
+	tok := testTokenService(t)
+	app := fiber.New()
+	RegisterUploads(app, store, derived, tok)
+
+	res, body := do(t, app, http.MethodGet, "/uploads/"+key, "", "")
+	if res.StatusCode != http.StatusNotFound || strings.Contains(string(body), "photo-a") {
+		t.Fatalf("unsigned status=%d body=%q", res.StatusCode, body)
+	}
+	res, body = do(t, app, http.MethodGet, signed, "", "")
+	if res.StatusCode != http.StatusUnauthorized || strings.Contains(string(body), "photo-a") {
+		t.Fatalf("signed without jwt status=%d body=%q", res.StatusCode, body)
+	}
+	res, body = do(t, app, http.MethodGet, signed, "", bearerFor(t, tok, ownerID))
+	if res.StatusCode != http.StatusOK || string(body) != "photo-a" {
+		t.Fatalf("owner status=%d body=%q", res.StatusCode, body)
+	}
+}
+
+func testTokenService(t *testing.T) *token.Service {
+	t.Helper()
+	svc, err := token.NewService(config.JWTConfig{
+		Secret:     "jwt-secret-at-least-32-bytes-long!!",
+		AccessTTL:  time.Hour,
+		RefreshTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return svc
+}
+
+func bearerFor(t *testing.T, svc *token.Service, userID uuid.UUID) string {
+	t.Helper()
+	access, err := svc.SignAccess(userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "Bearer " + access
 }
 
 func flip(b byte) string {

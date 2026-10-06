@@ -20,6 +20,13 @@ func TestValidateStartupSecrets(t *testing.T) {
 		wantSub string
 	}{
 		{
+			name:    "prod missing jwt secret",
+			env:     "production",
+			jwt:     "",
+			media:   goodMediaKey,
+			wantSub: "DADIARY_JWT_SECRET is missing",
+		},
+		{
 			name:    "prod default jwt secret",
 			env:     "production",
 			jwt:     defaultJWTSecret,

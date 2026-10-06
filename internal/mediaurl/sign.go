@@ -97,9 +97,11 @@ func (s *Signer) TTL() time.Duration {
 }
 
 // SignedPath returns a relative URL valid for TTL from now.
+// A nil signer or a signer with an empty key returns "" — it does not mint
+// an HMAC and it does not hand back the old public /uploads path.
 func (s *Signer) SignedPath(objectKey string) string {
-	if s == nil {
-		return unsignedPath(objectKey)
+	if s == nil || len(s.secret) == 0 {
+		return ""
 	}
 	return s.SignedPathAt(objectKey, s.now())
 }
@@ -115,7 +117,7 @@ func (s *Signer) SignedPathAt(objectKey string, now time.Time) string {
 		return "/uploads/" + key
 	}
 	if s == nil || len(s.secret) == 0 {
-		return "/uploads/" + key
+		return ""
 	}
 	if now.IsZero() {
 		now = time.Now()
@@ -205,6 +207,20 @@ func ScopeForKey(objectKey string) string {
 		}
 	}
 	return ""
+}
+
+// OwnerID returns the user id bound into objectKey.
+// Public-share keys and keys with no user id return false.
+func OwnerID(objectKey string) (uuid.UUID, bool) {
+	scope := ScopeForKey(objectKey)
+	if scope == "" || scope == publicScope {
+		return uuid.Nil, false
+	}
+	id, err := uuid.Parse(scope)
+	if err != nil || id == uuid.Nil {
+		return uuid.Nil, false
+	}
+	return id, true
 }
 
 // SignClientURL turns a stored upload reference into the URL clients should
@@ -305,12 +321,4 @@ func canonicalKey(raw string) (string, bool) {
 		return "", false
 	}
 	return key, true
-}
-
-func unsignedPath(objectKey string) string {
-	key, ok := canonicalKey(objectKey)
-	if !ok {
-		return ""
-	}
-	return "/uploads/" + key
 }
