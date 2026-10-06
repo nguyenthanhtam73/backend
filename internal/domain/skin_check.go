@@ -31,6 +31,11 @@ type SkinCheck struct {
 	EnvironmentNote string          `gorm:"size:128" json:"environment_note,omitempty"`  // sleep, stress, manual weather note
 	Visibility      CheckVisibility `gorm:"size:16;default:private" json:"visibility"`
 	CheckDate       time.Time       `gorm:"type:date;not null;index;index:idx_skin_checks_user_check_date,priority:2" json:"check_date"`
+	// ClientKind selects the coach voice for this check. "android" is the polite
+	// mình/bạn voice required for the Play app. Anything else, including empty,
+	// is the existing web voice. Existing rows default to web (AutoMigrate and
+	// migrations/026_skin_check_client_kind.up.sql). Not part of the public API.
+	ClientKind string `gorm:"column:client_kind;size:16;not null;default:'web'" json:"-"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

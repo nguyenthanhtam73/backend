@@ -15,6 +15,7 @@ import (
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/analysis"
 	"github.com/dadiary/backend/internal/storage"
+	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	"github.com/dadiary/backend/pkg/response"
@@ -171,6 +172,9 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 		Visibility:      vis,
 		Images:          images,
 		SkipMode:        skipMode && len(images) == 0,
+		// Header only. climate_context.client ("dadiary-android") is not a voice
+		// selector — same exact-value rule as refresh sessions.
+		ClientKind: authuc.ResolveClientKind(c.Get(authuc.ClientHeader), ""),
 	}
 
 	res, err := h.svc.Create(c.UserContext(), userID, in)
@@ -232,7 +236,9 @@ func (h *SkinCheckHandler) Reanalyze(c *fiber.Ctx) error {
 	if err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_id", "skin check id must be a valid uuid")
 	}
-	res, err := h.svc.Reanalyze(c.UserContext(), userID, id)
+	// Current header upgrades a web check to the polite voice. A missing or
+	// non-android header keeps the stored kind (never downgrades).
+	res, err := h.svc.Reanalyze(c.UserContext(), userID, id, authuc.ResolveClientKind(c.Get(authuc.ClientHeader), ""))
 	if err != nil {
 		return mapSkinCheckError(c, err)
 	}

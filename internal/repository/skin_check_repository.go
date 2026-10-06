@@ -634,6 +634,21 @@ func (r *GormSkinCheckRepository) ListFunnelCheckDates(ctx context.Context) ([]F
 	return rows, err
 }
 
+// SetClientKind stores the coach-voice client for one skin check.
+// kind is normalized to "android" or "web" by the caller.
+func (r *GormSkinCheckRepository) SetClientKind(ctx context.Context, id uuid.UUID, kind string) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if id == uuid.Nil {
+		return fmt.Errorf("skin check id required")
+	}
+	return db.WithContext(ctx).Model(&domain.SkinCheck{}).
+		Where("id = ?", id).
+		Update("client_kind", kind).Error
+}
+
 // SaveAnalysis updates an existing analysis row.
 func (r *GormSkinCheckRepository) SaveAnalysis(ctx context.Context, a *domain.SkinAnalysis) error {
 	db, err := r.dbOrErr()

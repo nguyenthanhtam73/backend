@@ -161,6 +161,22 @@ func ResolveCoachSkillLevel(check *domain.SkinCheck, profile *domain.SkinProfile
 	return "intermediate"
 }
 
+// GetCoachPromptForClient selects the daily coach system prompt for a stored
+// skin-check client kind. The exact value "android" (surrounding space trimmed,
+// same rule as refresh sessions) uses the polite mình/bạn voice. Every other
+// value, including empty, returns today's web prompt unchanged.
+func GetCoachPromptForClient(skillLevel, clientKind string) string {
+	if IsAndroidCoachVoice(clientKind) {
+		return androidCoachPrompt(skillLevel)
+	}
+	return GetCoachPrompt(skillLevel)
+}
+
+// IsAndroidCoachVoice reports whether clientKind selects the polite Play-store voice.
+func IsAndroidCoachVoice(clientKind string) bool {
+	return domain.NormalizeRefreshClient(clientKind) == domain.RefreshClientAndroid
+}
+
 func normalizeCoachSkillTag(raw string) string {
 	s := strings.ToLower(strings.TrimSpace(raw))
 	switch s {

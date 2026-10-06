@@ -24,23 +24,45 @@ func coachMemoryTurnChecklist(userContext string) string {
 	return coachTurnChecklist(userContext, false)
 }
 
+func coachMemoryTurnChecklistForVoice(userContext, clientKind string) string {
+	return coachTurnChecklistForVoice(userContext, false, clientKind)
+}
+
 // coachTurnChecklist appends required pre-flight checks before JSON output.
 // hasVision is true when VISION_SUMMARY_JSON was produced successfully for this turn.
+// The no-argument form is the web voice (unchanged).
 func coachTurnChecklist(userContext string, hasVision bool) string {
+	return coachTurnChecklistForVoice(userContext, hasVision, "")
+}
+
+func coachTurnChecklistForVoice(userContext string, hasVision bool, clientKind string) string {
 	if strings.Contains(userContext, "no saved memory yet") && !hasVision {
 		return ""
 	}
+	polite := IsAndroidCoachVoice(clientKind)
 	var b strings.Builder
 	b.WriteString("\n\nCOACH CHECKLIST (required — verify before JSON):\n")
 	if hasVision {
-		b.WriteString("- ≥4–5 photo details (region+cue+degree/count) — MUST open \"Mày thấy hôm nay…\" OR \"Đm da mày hôm nay…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh tao thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; NO lists/report tone.\n")
+		if polite {
+			b.WriteString("- ≥4–5 photo details (region+cue+degree/count) — MUST open \"Mình thấy hôm nay…\" OR \"Hôm nay da bạn…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; polite mình/bạn, NO tao/mày, NO profanity, NO lists/report tone.\n")
+		} else {
+			b.WriteString("- ≥4–5 photo details (region+cue+degree/count) — MUST open \"Mày thấy hôm nay…\" OR \"Đm da mày hôm nay…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh tao thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; NO lists/report tone.\n")
+		}
 		b.WriteString("- BAN ALL vague: \"da hỗn hợp\", \"da dễ nổi mụn\", \"dễ nổi mụn\", \"da hơi khô\", \"sản phẩm nhẹ nhàng\", \"chăm sóc nhẹ\".\n")
 	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" callback in situation_analysis — teasing OK.\n")
+		if polite {
+			b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" callback in situation_analysis — warm, no teasing.\n")
+		} else {
+			b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" callback in situation_analysis — teasing OK.\n")
+		}
 	}
 	if hasVision || strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- EMOTION: sarcastic/teasing Gen Z buddy (mỉa mai + châm chọc) + useful tips + buddy closing (may still be mildly sarcastic) — never cold/clinical/report.\n")
+		if polite {
+			b.WriteString("- EMOTION: warm polite mình/bạn (no sarcasm, no profanity) + useful tips + kind closing — never cold/clinical/report.\n")
+		} else {
+			b.WriteString("- EMOTION: sarcastic/teasing Gen Z buddy (mỉa mai + châm chọc) + useful tips + buddy closing (may still be mildly sarcastic) — never cold/clinical/report.\n")
+		}
 		b.WriteString("- TIPS: concrete step+region+role — NOT vague product advice.\n")
 		if MaxCoachValidationRetries > 0 {
 			b.WriteString(fmt.Sprintf("- Self-check: ≥4 vision specifics · zero banned phrases · validation will retry up to %d× if vague.\n", MaxCoachValidationRetries))
@@ -96,15 +118,32 @@ func needsCoachOutputRetry(visionRaw, userContext string, out *CoachStructuredOu
 
 // coachOutputRetryPrompt builds a validation failure appendix for coach re-generation.
 func coachOutputRetryPrompt(visionRaw, userContext string, attempt int) string {
+	return coachOutputRetryPromptForVoice(visionRaw, userContext, attempt, "")
+}
+
+func coachOutputRetryPromptForVoice(visionRaw, userContext string, attempt int, clientKind string) string {
+	polite := IsAndroidCoachVoice(clientKind)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("\n\nVALIDATION FAILED (attempt %d/%d): Regenerate the FULL JSON.\n", attempt, MaxCoachValidationRetries))
 	b.WriteString(fmt.Sprintf("- ≥%d photo-specific details with region+cue+degree (counts OK: \"2-3 nốt đỏ ở cằm\").\n", MinVisionDetailCitations))
-	b.WriteString("- MUST open situation_analysis with \"Mày thấy hôm nay…\" OR \"Đm da mày hôm nay…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh tao thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\".\n")
+	if polite {
+		b.WriteString("- MUST open situation_analysis with \"Mình thấy hôm nay…\" OR \"Hôm nay da bạn…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\". No tao/mày, no profanity.\n")
+	} else {
+		b.WriteString("- MUST open situation_analysis with \"Mày thấy hôm nay…\" OR \"Đm da mày hôm nay…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh tao thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\".\n")
+	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
-		b.WriteString("- MUST include \"So với lần trước…\" history callback (teasing OK).\n")
+		if polite {
+			b.WriteString("- MUST include \"So với lần trước…\" history callback (warm, no teasing).\n")
+		} else {
+			b.WriteString("- MUST include \"So với lần trước…\" history callback (teasing OK).\n")
+		}
 	}
 	b.WriteString("- BAN: \"da hỗn hợp\", \"da dễ nổi mụn\", \"dễ nổi mụn\", \"sản phẩm nhẹ nhàng\", vague dryness without region.\n")
-	b.WriteString("- Tips must be concrete (step + region + product role). Sarcastic buddy tone + useful closing. NO report tone.\n")
+	if polite {
+		b.WriteString("- Tips must be concrete (step + region + product role). Polite mình/bạn tone + useful closing. NO report tone.\n")
+	} else {
+		b.WriteString("- Tips must be concrete (step + region + product role). Sarcastic buddy tone + useful closing. NO report tone.\n")
+	}
 	if strings.TrimSpace(visionRaw) != "" {
 		b.WriteString("- Weave cues from VISION_SUMMARY_JSON — do not invent details not in photo.\n")
 	}

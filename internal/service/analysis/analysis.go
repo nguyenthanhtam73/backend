@@ -246,6 +246,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		"vision_memory_parallel_ms", parallelMs,
 		"coach_ms", coachMs,
 		"vision_status", visionStatus,
+		"client_kind", domain.NormalizeRefreshClient(o.ClientKind),
 		"total_ms", totalMs,
 		"avg_total_ms", avgTotalMs,
 		"sample_count", sampleCount,
@@ -280,6 +281,18 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		labels["care_phase"] = phase
 	}
 	ai.ApplyPhotoEvidenceToScores(labels, ai.ClassifyCheckInPhotoEvidence(visionStatus, visionRaw))
+	if ai.IsAndroidCoachVoice(o.ClientKind) {
+		// Coach prose is already rewritten in the prompt pipeline. The photo note
+		// is copied from vision after that, so scrub it here before the row is saved.
+		if n, ok := labels["photo_limited_note"].(string); ok {
+			cleaned := strings.TrimSpace(ai.SanitizeAndroidVoiceText(n))
+			if cleaned == "" {
+				delete(labels, "photo_limited_note")
+			} else {
+				labels["photo_limited_note"] = cleaned
+			}
+		}
+	}
 	ss, _ := json.Marshal(labels)
 
 	str, _ := json.Marshal(parsed.Strengths)
