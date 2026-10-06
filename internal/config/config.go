@@ -131,8 +131,9 @@ type CheckInReminderConfig struct {
 // EmailConfig is the Resend ESP. Both ResendAPIKey and From must be set to send.
 // Accepts RESEND_API_KEY / EMAIL_FROM or DADIARY_RESEND_API_KEY / DADIARY_EMAIL_FROM.
 type EmailConfig struct {
-	ResendAPIKey string `mapstructure:"resend_api_key"` // RESEND_API_KEY / DADIARY_RESEND_API_KEY
-	From         string `mapstructure:"from"`           // EMAIL_FROM / DADIARY_EMAIL_FROM
+	ResendAPIKey  string `mapstructure:"resend_api_key"` // RESEND_API_KEY / DADIARY_RESEND_API_KEY
+	From          string `mapstructure:"from"`           // EMAIL_FROM / DADIARY_EMAIL_FROM
+	WebhookSecret string `mapstructure:"webhook_secret"` // DADIARY_RESEND_WEBHOOK_SECRET / RESEND_WEBHOOK_SECRET
 }
 
 // PendingOrderExpiryConfig is local hygiene for leftover SePay checkouts.
@@ -334,6 +335,7 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("checkin_reminder.enabled", "DADIARY_CHECKIN_REMINDER_ENABLED")
 	_ = v.BindEnv("email.resend_api_key", "DADIARY_RESEND_API_KEY")
 	_ = v.BindEnv("email.from", "DADIARY_EMAIL_FROM")
+	_ = v.BindEnv("email.webhook_secret", "DADIARY_RESEND_WEBHOOK_SECRET")
 	_ = v.BindEnv("public_api_url", "DADIARY_PUBLIC_API_URL")
 	_ = v.BindEnv("pending_order_expiry.enabled", "DADIARY_PENDING_ORDER_EXPIRY_ENABLED")
 	_ = v.BindEnv("pending_order_expiry.ttl_hours", "DADIARY_PENDING_ORDER_TTL_HOURS")
@@ -478,6 +480,11 @@ func Load(relativeEnvPath string) (*Config, error) {
 		cfg.Email.From,
 		os.Getenv("DADIARY_EMAIL_FROM"),
 		os.Getenv("EMAIL_FROM"),
+	)
+	cfg.Email.WebhookSecret = firstNonEmpty(
+		cfg.Email.WebhookSecret,
+		os.Getenv("DADIARY_RESEND_WEBHOOK_SECRET"),
+		os.Getenv("RESEND_WEBHOOK_SECRET"),
 	)
 	cfg.PublicAPIURL = strings.TrimRight(firstNonEmpty(
 		cfg.PublicAPIURL,

@@ -21,8 +21,10 @@ const (
 )
 
 // CheckInReminderJob recomputes D0/D1 flags every Vietnam hour, then fans out
-// outbound email + typed d0_reminder / d1_reminder push. GET /me/check-in-reminder
-// still computes live for the in-app banner.
+// the D0 email (same-day signup, no check-in yet) plus typed d0_reminder /
+// d1_reminder push. D1 and Day-3 emails are not sent here — see
+// EveningCheckInEmailJob (19:30 Asia/Ho_Chi_Minh). GET /me/check-in-reminder
+// still computes the signup-anchored in-app banner live.
 type CheckInReminderJob struct {
 	svc   *checkinreminderuc.Service
 	locks JobLockStore

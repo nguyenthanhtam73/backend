@@ -1,5 +1,7 @@
 // refresh-checkin-reminders recomputes D0/D1 first-check-in flags and, with
-// --apply, fans out outbound email + typed D0/D1 push (idempotent).
+// --apply, fans out the D0 email + typed D0/D1 push (idempotent).
+// D1 and Day-3 emails are not sent here; the API process sends those at
+// 19:30 Asia/Ho_Chi_Minh.
 //
 // Marks users who signed up today or yesterday (Vietnam civil day) and have
 // not checked in today. Safe to re-run. Default is dry-run (prints who would

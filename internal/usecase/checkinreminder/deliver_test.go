@@ -27,17 +27,17 @@ type stubMailer struct {
 
 func (m *stubMailer) Configured() bool { return m != nil && m.ready }
 
-func (m *stubMailer) Send(_ context.Context, msg email.Message) error {
+func (m *stubMailer) Send(_ context.Context, msg email.Message) (string, error) {
 	m.mu.Lock()
 	m.attempts++
 	if m.sendErr != nil {
 		err := m.sendErr
 		m.mu.Unlock()
-		return err
+		return "", err
 	}
 	m.sent = append(m.sent, msg)
 	m.mu.Unlock()
-	return nil
+	return "re_stub", nil
 }
 
 func (m *stubMailer) Attempts() int {
