@@ -199,7 +199,7 @@ const CheckInDetailJSONFields = `Also include these photo check-in keys:
   "zone_notes": [
     {
       "zone": <"forehead"|"nose"|"left_cheek"|"right_cheek"|"chin"|"around_mouth"|"jawline"|"under_eyes"|"neck"|"other" — ONLY a zone listed in VISION zone_observations or in the close-up photo meta. Never invent a zone that is not visible.>,
-      "note": <ONE short sentence. Say only what the skin looks like, using "trông giống" (VI) or "looks like" (EN). Never name a disease or give a diagnosis. If the sentence would name a disease, invent a zone, or otherwise break this rule, omit this WHOLE item. Do not shorten the sentence to hide the problem.>,
+      "note": <ONE short sentence. Say only what the skin looks like, using "trông giống" (VI) or "looks like" (EN). Never name a disease or give a diagnosis. Never write "hàng rào", "hàng rào da", or "hàng rào bảo vệ" — say "lớp bảo vệ da". If the sentence would name a disease, invent a zone, or otherwise break this rule, omit this WHOLE item. Do not shorten the sentence to hide the problem.>,
       "severity": <"mild"|"moderate"|"pronounced" — how visible the sign is>
     }
   ],
@@ -207,11 +207,12 @@ const CheckInDetailJSONFields = `Also include these photo check-in keys:
     "overall": <ONE short sentence: why the overall score is where it is today. Cite one photo or tag cue. Add a short "chưa chắc" clause when PHOTO_EVIDENCE is limited or skip.>,
     "hydration": <ONE short sentence: why the hydration score is where it is today. Same rules as overall.>,
     "clarity": <ONE short sentence: why the clarity score is where it is today. Same rules as overall.>,
-    "barrier": <ONE short sentence: why the barrier score is where it is today. Same rules as overall.>
+    "barrier": <ONE short sentence: why the lớp bảo vệ da score is where it is today. Same rules as overall. Say "lớp bảo vệ da", never "hàng rào" / "hàng rào da" / "hàng rào bảo vệ".>
   }
 }
 zone_notes: max 5, one short sentence each. Empty array when PHOTO_EVIDENCE=skip.
-skin_score_notes: all 4 keys, including overall. One short sentence each. Do not put these sentences under the numeric skin_scores keys.`
+skin_score_notes: all 4 keys, including overall. One short sentence each. Do not put these sentences under the numeric skin_scores keys.
+Never write "hàng rào", "hàng rào da", or "hàng rào bảo vệ" in zone_notes, skin_score_notes, or clarify questions. Use "lớp bảo vệ da" (the app's name for that score). Do not write "lớp bảo vệ da da".`
 
 // DefaultMedicalDisclaimerVI used when the model omits an explicit disclaimer.
 const DefaultMedicalDisclaimerVI = "Đây chỉ là gợi ý tham khảo từ ảnh/check-in — không thay thế tư vấn bác sĩ da liễu."

@@ -167,6 +167,9 @@ func TestCheckInDetailBlock_PhotoCheckInOnly(t *testing.T) {
 	if !strings.Contains(CheckInDetailJSONFields, `"overall"`) || !strings.Contains(CheckInDetailJSONFields, "trông giống") {
 		t.Fatal("detail schema missing overall or trông giống")
 	}
+	if !strings.Contains(CheckInDetailJSONFields, "lớp bảo vệ da") || !strings.Contains(CheckInDetailJSONFields, "hàng rào") {
+		t.Fatal("detail schema must name lớp bảo vệ da and forbid hàng rào")
+	}
 	if strings.Contains(CoachOutputJSONSchemaBlock, `"zone_notes"`) || strings.Contains(coachOutputJSONSchemaBlockAndroid, `"zone_notes"`) {
 		t.Fatal("shared coach schema must not carry the photo-only block")
 	}
@@ -181,6 +184,85 @@ func TestCheckInDetailBlock_PhotoCheckInOnly(t *testing.T) {
 	_, androidDaily := buildDailyFeedbackPromptForClient("Hôm nay da ổn", "beginner", domain.RefreshClientAndroid)
 	if strings.Contains(androidDaily, `"zone_notes"`) {
 		t.Fatal("android daily feedback picked up zone_notes")
+	}
+}
+
+func TestNewCheckInFields_NeverContainHangRao(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ in, want string }{
+		{"Má trông giống hàng rào da yếu.", "Má trông giống lớp bảo vệ da yếu."},
+		{"Má trông giống hàng rào da da.", "Má trông giống lớp bảo vệ da."},
+		{"hàng rào bảo vệ đang mỏng", "lớp bảo vệ da đang mỏng"},
+		{"hàng rào bảo vệ da đang mỏng", "lớp bảo vệ da đang mỏng"},
+		{"Hàng rào hơi yếu.", "Lớp bảo vệ da hơi yếu."},
+		{"HÀNG RÀO DA yếu", "LỚP BẢO VỆ DA yếu"},
+		{"lớp bảo vệ da ổn", "lớp bảo vệ da ổn"},
+		{"Má của mày trông giống mụn ẩn.", "Má của mày trông giống mụn ẩn."},
+	}
+	for _, tc := range cases {
+		got := rewriteBarrierWording(tc.in)
+		if got != tc.want {
+			t.Fatalf("rewrite %q => %q, want %q", tc.in, got, tc.want)
+		}
+		if strings.Contains(strings.ToLower(got), "hàng rào") {
+			t.Fatalf("rewrite still says hàng rào: %q", got)
+		}
+	}
+	if got := SanitizeAndroidVoiceText("Má hàng rào da yếu"); got != "Má hàng rào da yếu" {
+		t.Fatalf("existing android sanitizer changed %q", got)
+	}
+	existing := &CoachStructuredOutput{SituationAnalysis: "Hàng rào da yếu, mày ơi."}
+	SanitizeAndroidCoachOutput(existing)
+	if !strings.Contains(existing.SituationAnalysis, "hàng rào") && !strings.Contains(existing.SituationAnalysis, "Hàng rào") {
+		t.Fatalf("existing coach field was rewritten: %q", existing.SituationAnalysis)
+	}
+
+	vision := `{"zone_observations":[{"zone":"left_cheek","cue":"nốt nhỏ màu da","severity":"mild"}]}`
+	parsed := &CoachStructuredOutput{
+		ZoneNotesRaw: mustRawJSON(t, []map[string]string{{
+			"zone": "left_cheek", "note": "Má của mày trông giống hàng rào da yếu.", "severity": "mild",
+		}}),
+		SkinScoreNotesRaw: mustRawJSON(t, map[string]string{
+			"overall":   "Tổng thể thấp vì hàng rào da.",
+			"hydration": "Độ ẩm thấp vì hàng rào bảo vệ mỏng.",
+			"clarity":   "Màu đều.",
+			"barrier":   "HÀNG RÀO đang yếu.",
+		}),
+	}
+	for _, client := range []string{domain.RefreshClientWeb, domain.RefreshClientAndroid} {
+		labels := map[string]any{}
+		ApplyCheckInDetail(labels, parsed, vision, nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, client, "vi")
+		notes := labels["zone_notes"].([]dto.CoachZoneNote)
+		scores := labels["skin_score_notes"].(*dto.SkinCoachScoreNotes)
+		blob := notes[0].Note + " " + scores.Overall + " " + scores.Hydration + " " + scores.Clarity + " " + scores.Barrier
+		if qs, ok := labels["clarify_questions"].([]string); ok {
+			blob += " " + strings.Join(qs, " ")
+		}
+		if strings.Contains(strings.ToLower(blob), "hàng rào") {
+			t.Fatalf("%s still says hàng rào: %s", client, blob)
+		}
+		if strings.Contains(blob, "lớp bảo vệ da da") || strings.Contains(blob, "LỚP BẢO VỆ DA DA") {
+			t.Fatalf("%s doubled da: %s", client, blob)
+		}
+		if client == domain.RefreshClientWeb && !strings.Contains(notes[0].Note, "mày") {
+			t.Fatalf("web voice changed: %q", notes[0].Note)
+		}
+		if client == domain.RefreshClientAndroid && strings.Contains(notes[0].Note, "mày") {
+			t.Fatalf("android voice missed: %q", notes[0].Note)
+		}
+	}
+	questions := rewriteQuestionBarrier([]string{
+		"Hàng rào da có yếu không?",
+		"hàng rào bảo vệ da thế nào?",
+		"Chụp sát vùng hàng rào.",
+	})
+	for _, q := range questions {
+		if strings.Contains(strings.ToLower(q), "hàng rào") || strings.Contains(q, "da da") {
+			t.Fatalf("question %q", q)
+		}
+	}
+	if questions[0] != "Lớp bảo vệ da có yếu không?" || questions[1] != "lớp bảo vệ da thế nào?" || questions[2] != "Chụp sát vùng lớp bảo vệ da." {
+		t.Fatalf("questions %#v", questions)
 	}
 }
 

@@ -76,8 +76,8 @@ package ai
 // (zone, cue, how visible). The photo check-in coach adds zone_notes and
 // skin_score_notes (one short reason for every gauge, including overall) in a
 // separate user-message block. Daily feedback does not send that block.
-// Confidence and follow-up questions are computed in Go. Old checks are not
-// backfilled.
+// That block says "lớp bảo vệ da", never "hàng rào". Confidence and follow-up
+// questions are computed in Go. Old checks are not backfilled.
 //
 // Android (Play) checks use a parallel polite mình/bạn prompt selected by
 // skin_checks.client_kind. That voice does not bump this number by itself: the

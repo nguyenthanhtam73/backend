@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/dadiary/backend/internal/dto"
+	"golang.org/x/text/unicode/norm"
 )
 
 const maxZoneNotes = 5
@@ -52,7 +53,8 @@ func NormalizeCheckInDetail(zoneRaw, scoreRaw json.RawMessage, visionRaw string,
 // overall / hydration / clarity / barrier. visible_observations and
 // vision_zone_observations are stored for later comparison and are not part of
 // the public coach payload. Android voice is applied to the new user-facing
-// strings. A bad field is omitted; this function does not fail the analysis.
+// strings. Both voices rewrite "hàng rào" to "lớp bảo vệ da" on those new
+// strings only. A bad field is omitted; this function does not fail the analysis.
 func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, visionRaw string, photoCtx json.RawMessage, ev CheckInPhotoEvidence, clientKind, locale string) {
 	if labels == nil {
 		return
@@ -68,6 +70,8 @@ func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, vi
 		notes = sanitizeZoneNotes(notes)
 		scoreNotes = sanitizeScoreNotes(scoreNotes)
 	}
+	notes = rewriteZoneBarrier(notes)
+	scoreNotes = rewriteScoreBarrier(scoreNotes)
 	if len(notes) > 0 {
 		labels["zone_notes"] = notes
 	}
@@ -78,6 +82,7 @@ func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, vi
 	if android {
 		questions = sanitizeQuestionList(questions)
 	}
+	questions = rewriteQuestionBarrier(questions)
 	if level != "" {
 		labels["confidence"] = level
 	}
@@ -392,6 +397,133 @@ func sanitizeScoreNotes(in *dto.SkinCoachScoreNotes) *dto.SkinCoachScoreNotes {
 	}
 	if out.Overall == "" && out.Hydration == "" && out.Clarity == "" && out.Barrier == "" {
 		return nil
+	}
+	return out
+}
+
+const barrierPhraseReplacement = "lớp bảo vệ da"
+
+// rewriteBarrierWording replaces "hàng rào da", "hàng rào bảo vệ", and a
+// standalone "hàng rào" with "lớp bảo vệ da". The match keeps the original
+// capitalisation. A following "da" is absorbed so the result is never
+// "lớp bảo vệ da da". Text with none of those phrases is returned unchanged.
+func rewriteBarrierWording(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return s
+	}
+	parts := splitVoiceChunks(norm.NFC.String(s))
+	var b strings.Builder
+	changed := false
+	for i := 0; i < len(parts); {
+		if !parts[i].word {
+			b.WriteString(parts[i].text)
+			i++
+			continue
+		}
+		end, ok := matchBarrierPhrase(parts, i)
+		if !ok {
+			b.WriteString(parts[i].text)
+			i++
+			continue
+		}
+		b.WriteString(matchVoiceCase(joinVoiceWords(parts, i, end), barrierPhraseReplacement))
+		changed = true
+		i = end + 1
+	}
+	if !changed {
+		return s
+	}
+	return b.String()
+}
+
+func matchBarrierPhrase(parts []voiceChunk, i int) (int, bool) {
+	if !voiceWordIs(parts[i], "hàng") {
+		return 0, false
+	}
+	rao := nextVoiceWord(parts, i)
+	if rao < 0 || !voiceWordIs(parts[rao], "rào") || !whitespaceOnlyBetween(parts, i, rao) {
+		return 0, false
+	}
+	end := rao
+	next := nextVoiceWord(parts, rao)
+	if next >= 0 && whitespaceOnlyBetween(parts, rao, next) {
+		if voiceWordIs(parts[next], "da") {
+			end = next
+		} else if voiceWordIs(parts[next], "bảo") {
+			ve := nextVoiceWord(parts, next)
+			if ve >= 0 && voiceWordIs(parts[ve], "vệ") && whitespaceOnlyBetween(parts, next, ve) {
+				end = ve
+			}
+		}
+	}
+	for {
+		extra := nextVoiceWord(parts, end)
+		if extra < 0 || !voiceWordIs(parts[extra], "da") || !whitespaceOnlyBetween(parts, end, extra) {
+			break
+		}
+		end = extra
+	}
+	return end, true
+}
+
+func nextVoiceWord(parts []voiceChunk, from int) int {
+	for i := from + 1; i < len(parts); i++ {
+		if parts[i].word {
+			return i
+		}
+	}
+	return -1
+}
+
+func voiceWordIs(part voiceChunk, want string) bool {
+	return strings.EqualFold(norm.NFC.String(part.text), want)
+}
+
+func joinVoiceWords(parts []voiceChunk, from, to int) string {
+	var b strings.Builder
+	for i := from; i <= to && i < len(parts); i++ {
+		if !parts[i].word {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(parts[i].text)
+	}
+	return b.String()
+}
+
+func rewriteZoneBarrier(in []dto.CoachZoneNote) []dto.CoachZoneNote {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]dto.CoachZoneNote, len(in))
+	for i, n := range in {
+		n.Note = rewriteBarrierWording(n.Note)
+		out[i] = n
+	}
+	return out
+}
+
+func rewriteScoreBarrier(in *dto.SkinCoachScoreNotes) *dto.SkinCoachScoreNotes {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Overall = rewriteBarrierWording(in.Overall)
+	out.Hydration = rewriteBarrierWording(in.Hydration)
+	out.Clarity = rewriteBarrierWording(in.Clarity)
+	out.Barrier = rewriteBarrierWording(in.Barrier)
+	return &out
+}
+
+func rewriteQuestionBarrier(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	for i, q := range in {
+		out[i] = rewriteBarrierWording(q)
 	}
 	return out
 }
