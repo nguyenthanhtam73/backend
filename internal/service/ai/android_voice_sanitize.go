@@ -35,10 +35,13 @@ var (
 	}
 	// eyebrowMayPrev is the word before "mày" when "mày" is an eyebrow, not "you".
 	// "2" covers "giữa 2 mày"; "vùng" covers "Vùng mày".
+	// "phần", "trên", "dưới", "quanh", "bên" cover phrases like "Phần mày trái".
+	// "và" is intentionally absent: "và mày" is still the pronoun.
 	eyebrowMayPrev = map[string]struct{}{
 		"kẻ": {}, "tỉa": {}, "chì": {}, "đầu": {}, "đuôi": {}, "cung": {},
 		"hai": {}, "giữa": {}, "phun": {}, "xăm": {}, "vẽ": {}, "sợi": {},
 		"lông": {}, "chân": {}, "vùng": {}, "2": {},
+		"phần": {}, "trên": {}, "dưới": {}, "quanh": {}, "bên": {},
 	}
 	// eyebrowMayNext is the word after "mày" when "mày" is an eyebrow.
 	eyebrowMayNext = map[string]struct{}{
@@ -100,13 +103,14 @@ func sanitizeList(items []string, changed *bool) []string {
 	out := make([]string, 0, len(items))
 	for _, item := range items {
 		next := sanitizeField(item, changed)
-		// A bullet that was only profanity would render as a blank line.
-		if strings.TrimSpace(next) == "" {
-			if strings.TrimSpace(item) != "" {
+		// "• đm" filters down to a stray bullet. Drop it when no letter or
+		// digit is left. An item that was already only punctuation stays.
+		if !voiceHasLetterOrDigit(next) {
+			if voiceHasLetterOrDigit(item) {
 				*changed = true
-			} else {
-				out = append(out, next)
+				continue
 			}
+			out = append(out, next)
 			continue
 		}
 		out = append(out, next)
@@ -124,7 +128,8 @@ func sanitizeProductSuggestion(item dto.ProductSuggestion, changed *bool) dto.Pr
 }
 
 func sanitizeProductGuidance(item dto.ProductGuidanceItem, changed *bool) dto.ProductGuidanceItem {
-	item.NameOrCategory = sanitizeField(item.NameOrCategory, changed)
+	// NameOrCategory is a product name ("Kem Tao Skin", "Serum VL").
+	// Rewriting it would turn the name into a different product.
 	item.Why = sanitizeField(item.Why, changed)
 	item.HowToUse = sanitizeField(item.HowToUse, changed)
 	item.Caution = sanitizeField(item.Caution, changed)
@@ -164,7 +169,9 @@ func replaceAndroidVoiceTokens(s string) (string, bool) {
 		next, lineChanged := replaceAndroidVoiceLine(line)
 		if lineChanged {
 			changed = true
-			if strings.TrimSpace(next) == "" {
+			// "• đm vl" filters down to "•". A line with no letter or digit
+			// left is empty, same as a profanity-only line.
+			if !voiceHasLetterOrDigit(next) {
 				continue
 			}
 		}
@@ -182,6 +189,7 @@ func replaceAndroidVoiceLine(s string) (string, bool) {
 	}
 	parts := splitVoiceChunks(s)
 	nextWord, nextWordAt := voiceNextWords(parts)
+	protected := urlOrPathTokenRanges(s)
 	dropAlso := map[int]bool{}
 	changed := false
 	prevWord := ""
@@ -189,7 +197,10 @@ func replaceAndroidVoiceLine(s string) (string, bool) {
 	droppedAtStart := false
 	var emitted voiceEmit
 	var b strings.Builder
+	offset := 0
 	for i, part := range parts {
+		partStart := offset
+		offset += len(part.text)
 		if !part.word {
 			// Punctuation left in front after a removed opener ("ĐM, mày" → "Bạn").
 			if sentenceStart && droppedAtStart {
@@ -206,27 +217,33 @@ func replaceAndroidVoiceLine(s string) (string, bool) {
 			continue
 		}
 		key := strings.ToLower(part.text)
-		dropPhrase := key == "vãi" && nextWord[i] == "là" && nextWordAt[i] >= 0 && whitespaceOnlyBetween(parts, i, nextWordAt[i])
-		if _, drop := androidVoiceDrop[key]; drop || dropAlso[i] || dropPhrase {
-			if dropPhrase {
-				dropAlso[nextWordAt[i]] = true
+		// URLs, paths, and codes like "DM-2024" are not coach prose.
+		keepRaw := spanCovers(protected, partStart, offset) || hyphenJoinedToDigits(parts, i)
+		dropPhrase := !keepRaw && key == "vãi" && nextWord[i] == "là" && nextWordAt[i] >= 0 && whitespaceOnlyBetween(parts, i, nextWordAt[i])
+		if !keepRaw {
+			if _, drop := androidVoiceDrop[key]; drop || dropAlso[i] || dropPhrase {
+				if dropPhrase {
+					dropAlso[nextWordAt[i]] = true
+				}
+				changed = true
+				prevWord = key
+				emitted.pendingDrop = true
+				if sentenceStart {
+					droppedAtStart = true
+				}
+				continue
 			}
-			changed = true
-			prevWord = key
-			emitted.pendingDrop = true
-			if sentenceStart {
-				droppedAtStart = true
-			}
-			continue
 		}
 		text := part.text
 		swapped := false
-		if repl, ok := androidVoiceSwap[key]; ok && !keepEyebrowMay(key, prevWord, nextWord[i]) {
-			changed = true
-			swapped = true
-			text = matchVoiceCase(part.text, repl)
+		if !keepRaw {
+			if repl, ok := androidVoiceSwap[key]; ok && !keepEyebrowMay(key, prevWord, nextWord[i]) {
+				changed = true
+				swapped = true
+				text = matchVoiceCase(part.text, repl)
+			}
 		}
-		if sentenceStart && droppedAtStart {
+		if !keepRaw && sentenceStart && droppedAtStart {
 			text = capitalizeSentenceStart(text)
 		}
 		if emitted.collapse(strings.ToLower(text), swapped) {
@@ -372,6 +389,9 @@ func splitVoiceChunks(s string) []voiceChunk {
 }
 
 func matchVoiceCase(original, replacement string) string {
+	if voiceAllCaps(original) {
+		return strings.ToUpper(replacement)
+	}
 	r, _ := utf8.DecodeRuneInString(original)
 	if r == utf8.RuneError || !unicode.IsUpper(r) {
 		return replacement
@@ -381,6 +401,113 @@ func matchVoiceCase(original, replacement string) string {
 		return replacement
 	}
 	return string(unicode.ToUpper(rr)) + replacement[size:]
+}
+
+func voiceAllCaps(s string) bool {
+	letters := false
+	for _, r := range s {
+		if !unicode.IsLetter(r) {
+			continue
+		}
+		letters = true
+		if !unicode.IsUpper(r) {
+			return false
+		}
+	}
+	return letters
+}
+
+func voiceHasLetterOrDigit(s string) bool {
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return true
+		}
+	}
+	return false
+}
+
+type byteSpan struct {
+	start int
+	end   int
+}
+
+// urlOrPathTokenRanges marks whitespace-delimited tokens that contain "://"
+// or "/". Words inside them are left alone ("dadiary.vn/dm/x?vl=1").
+func urlOrPathTokenRanges(s string) []byteSpan {
+	var spans []byteSpan
+	tokenStart := 0
+	inToken := false
+	flush := func(end int) {
+		if !inToken {
+			return
+		}
+		token := s[tokenStart:end]
+		if strings.Contains(token, "://") || strings.Contains(token, "/") {
+			spans = append(spans, byteSpan{start: tokenStart, end: end})
+		}
+		inToken = false
+	}
+	i := 0
+	for i < len(s) {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if unicode.IsSpace(r) {
+			flush(i)
+			i += size
+			continue
+		}
+		if !inToken {
+			tokenStart = i
+			inToken = true
+		}
+		i += size
+	}
+	flush(len(s))
+	return spans
+}
+
+func spanCovers(spans []byteSpan, start, end int) bool {
+	for _, sp := range spans {
+		if start >= sp.start && end <= sp.end {
+			return true
+		}
+	}
+	return false
+}
+
+// hyphenJoinedToDigits reports a word glued to a digit token by "-", as in
+// "DM-2024". Spaces around the hyphen do not count.
+func hyphenJoinedToDigits(parts []voiceChunk, i int) bool {
+	if i < 0 || i >= len(parts) || !parts[i].word {
+		return false
+	}
+	if i >= 2 && parts[i-2].word && hyphenOnly(parts[i-1].text) && containsDigit(parts[i-2].text) {
+		return true
+	}
+	if i+2 < len(parts) && parts[i+2].word && hyphenOnly(parts[i+1].text) && containsDigit(parts[i+2].text) {
+		return true
+	}
+	return false
+}
+
+func hyphenOnly(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+func containsDigit(s string) bool {
+	for _, r := range s {
+		if unicode.IsDigit(r) {
+			return true
+		}
+	}
+	return false
 }
 
 func polishVoiceSpacing(s string) string {

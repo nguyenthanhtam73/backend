@@ -64,6 +64,25 @@ func TestSanitizeAndroidVoiceText(t *testing.T) {
 		{"Da ổn.\n\nMai đéo check.", "Da ổn.\n\nMai không check."},
 		{"địt\n\nDa ổn.", "Da ổn."},
 		{"địt\nvl", ""},
+		{"• đm vl", ""},
+		{"• đm", ""},
+		{"Da ổn.\n• đm vl", "Da ổn."},
+		{"• Đm da ổn", "• Da ổn"},
+		{"dadiary.vn/dm/x?vl=1", "dadiary.vn/dm/x?vl=1"},
+		{"https://dadiary.vn/vl/dm", "https://dadiary.vn/vl/dm"},
+		{"Mã DM-2024", "Mã DM-2024"},
+		{"Đừng mở dadiary.vn/dm/x?vl=1 lúc đm.", "Đừng mở dadiary.vn/dm/x?vl=1 lúc."},
+		{"Mã DM-2024 hết đm", "Mã DM-2024 hết"},
+		{"đm https://dadiary.vn/vl", "https://dadiary.vn/vl"},
+		{"MÀY ƠI", "BẠN ƠI"},
+		{"TAO", "MÌNH"},
+		{"ĐÉO", "KHÔNG"},
+		{"và mày", "và bạn"},
+		{"Phần mày trái", "Phần mày trái"},
+		{"Trên mày", "Trên mày"},
+		{"Dưới mày", "Dưới mày"},
+		{"Vùng quanh mày", "Vùng quanh mày"},
+		{"Hai bên mày", "Hai bên mày"},
 	}
 	for _, tc := range cases {
 		got := SanitizeAndroidVoiceText(tc.in)
@@ -132,7 +151,7 @@ func TestSanitizeAndroidCoachOutput_UserFacingOnly(t *testing.T) {
 
 func TestSanitizeAndroidVoice_EyebrowMay(t *testing.T) {
 	// Previous word keeps "mày" as eyebrow.
-	prev := []string{"kẻ", "tỉa", "chì", "đầu", "đuôi", "cung", "hai", "giữa", "phun", "xăm", "vẽ", "sợi", "lông", "chân", "vùng", "2"}
+	prev := []string{"kẻ", "tỉa", "chì", "đầu", "đuôi", "cung", "hai", "giữa", "phun", "xăm", "vẽ", "sợi", "lông", "chân", "vùng", "2", "phần", "trên", "dưới", "quanh", "bên"}
 	for _, w := range prev {
 		in := w + " mày"
 		t.Run("prev "+w, func(t *testing.T) {
@@ -172,6 +191,13 @@ func TestSanitizeAndroidVoice_EyebrowMay(t *testing.T) {
 	// A following word outside the eyebrow list is still the pronoun.
 	if got := SanitizeAndroidVoiceText("mày hai"); got != "bạn hai" {
 		t.Fatalf("pronoun got %q", got)
+	}
+	// "và" is not eyebrow context. Sentence-initial "Mày" stays the pronoun.
+	if got := SanitizeAndroidVoiceText("và mày"); got != "và bạn" {
+		t.Fatalf("và mày got %q", got)
+	}
+	if got := SanitizeAndroidVoiceText("Mày"); got != "Bạn" {
+		t.Fatalf("sentence-initial Mày got %q", got)
 	}
 }
 
@@ -213,8 +239,52 @@ func TestSanitizeAndroidCoachOutput_DropsProfanityOnlyItem(t *testing.T) {
 	if len(out.Strengths) != 1 || out.Strengths[0] != "Da ổn" {
 		t.Fatalf("strengths %#v", out.Strengths)
 	}
+	bullet := &CoachStructuredOutput{
+		Strengths:    []string{"• đm", "Da ổn", "• đm vl"},
+		SummaryNotes: "• đm vl",
+	}
+	if !SanitizeAndroidCoachOutput(bullet) {
+		t.Fatal("expected a rewrite")
+	}
+	if bullet.SummaryNotes != "" {
+		t.Fatalf("notes %q", bullet.SummaryNotes)
+	}
+	if len(bullet.Strengths) != 1 || bullet.Strengths[0] != "Da ổn" {
+		t.Fatalf("stray bullet kept: %#v", bullet.Strengths)
+	}
 	if SanitizeAndroidCoachOutput(out) {
 		t.Fatal("second pass should be a no-op")
+	}
+}
+
+func TestSanitizeAndroidCoachOutput_KeepsProductGuidanceName(t *testing.T) {
+	onlyName := &CoachStructuredOutput{
+		ProductGuidance: []dto.ProductGuidanceItem{{
+			NameOrCategory: "Serum VL",
+			Why:            "Da ổn",
+		}},
+	}
+	if SanitizeAndroidCoachOutput(onlyName) {
+		t.Fatal("a product name must not count as a rewrite")
+	}
+	if onlyName.ProductGuidance[0].NameOrCategory != "Serum VL" {
+		t.Fatalf("name %q", onlyName.ProductGuidance[0].NameOrCategory)
+	}
+
+	out := &CoachStructuredOutput{
+		ProductGuidance: []dto.ProductGuidanceItem{
+			{NameOrCategory: "Kem Tao Skin", Why: "Hợp má mày"},
+			{NameOrCategory: "Serum VL", Why: "Da ổn"},
+		},
+	}
+	if !SanitizeAndroidCoachOutput(out) {
+		t.Fatal("expected a rewrite")
+	}
+	if out.ProductGuidance[0].NameOrCategory != "Kem Tao Skin" || out.ProductGuidance[0].Why != "Hợp má bạn" {
+		t.Fatalf("guidance %+v", out.ProductGuidance[0])
+	}
+	if out.ProductGuidance[1].NameOrCategory != "Serum VL" || out.ProductGuidance[1].Why != "Da ổn" {
+		t.Fatalf("guidance %+v", out.ProductGuidance[1])
 	}
 }
 
