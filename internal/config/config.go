@@ -251,11 +251,16 @@ type DatabaseConfig struct {
 	URL string `mapstructure:"url"`
 }
 
+// DefaultAppRefreshTTL is the Android refresh-token lifetime (90 days).
+// Web sessions keep jwt.refresh_ttl. Override with DADIARY_JWT_APP_REFRESH_TTL.
+const DefaultAppRefreshTTL = 2160 * time.Hour
+
 // JWTConfig holds signing and TTL settings for access/refresh tokens.
 type JWTConfig struct {
-	Secret     string        `mapstructure:"secret"`
-	AccessTTL  time.Duration `mapstructure:"access_ttl"`
-	RefreshTTL time.Duration `mapstructure:"refresh_ttl"`
+	Secret        string        `mapstructure:"secret"`
+	AccessTTL     time.Duration `mapstructure:"access_ttl"`
+	RefreshTTL    time.Duration `mapstructure:"refresh_ttl"`
+	AppRefreshTTL time.Duration `mapstructure:"app_refresh_ttl"`
 }
 
 // Load reads config from optional .env (repo root), config.yaml, and DADIARY_* env vars.
@@ -276,6 +281,9 @@ func Load(relativeEnvPath string) (*Config, error) {
 	// Explicit binds for common 12-factor names (clearer than nested env mapping).
 	_ = v.BindEnv("database.url", "DADIARY_DATABASE_URL")
 	_ = v.BindEnv("jwt.secret", "DADIARY_JWT_SECRET")
+	_ = v.BindEnv("jwt.access_ttl", "DADIARY_JWT_ACCESS_TTL")
+	_ = v.BindEnv("jwt.refresh_ttl", "DADIARY_JWT_REFRESH_TTL")
+	_ = v.BindEnv("jwt.app_refresh_ttl", "DADIARY_JWT_APP_REFRESH_TTL")
 	_ = v.BindEnv("http.port", "DADIARY_HTTP_PORT")
 	_ = v.BindEnv("http.read_timeout", "DADIARY_HTTP_READ_TIMEOUT")
 	_ = v.BindEnv("http.write_timeout", "DADIARY_HTTP_WRITE_TIMEOUT")
@@ -367,6 +375,9 @@ func Load(relativeEnvPath string) (*Config, error) {
 	}
 	if cfg.JWT.RefreshTTL == 0 {
 		cfg.JWT.RefreshTTL = 7 * 24 * time.Hour
+	}
+	if cfg.JWT.AppRefreshTTL == 0 {
+		cfg.JWT.AppRefreshTTL = DefaultAppRefreshTTL
 	}
 	if strings.TrimSpace(cfg.Upload.Dir) == "" {
 		cfg.Upload.Dir = "./data/uploads"

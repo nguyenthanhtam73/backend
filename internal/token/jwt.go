@@ -22,9 +22,10 @@ var ErrInvalidToken = errors.New("invalid token")
 
 // Service signs and parses HS256 JWTs using application JWT config.
 type Service struct {
-	secret     []byte
-	accessTTL  time.Duration
-	refreshTTL time.Duration
+	secret        []byte
+	accessTTL     time.Duration
+	refreshTTL    time.Duration
+	appRefreshTTL time.Duration
 }
 
 // NewService validates config and constructs a token Service.
@@ -35,10 +36,15 @@ func NewService(cfg config.JWTConfig) (*Service, error) {
 	if cfg.AccessTTL <= 0 || cfg.RefreshTTL <= 0 {
 		return nil, fmt.Errorf("jwt ttl must be positive")
 	}
+	appTTL := cfg.AppRefreshTTL
+	if appTTL <= 0 {
+		appTTL = config.DefaultAppRefreshTTL
+	}
 	return &Service{
-		secret:     []byte(cfg.Secret),
-		accessTTL:  cfg.AccessTTL,
-		refreshTTL: cfg.RefreshTTL,
+		secret:        []byte(cfg.Secret),
+		accessTTL:     cfg.AccessTTL,
+		refreshTTL:    cfg.RefreshTTL,
+		appRefreshTTL: appTTL,
 	}, nil
 }
 
@@ -53,32 +59,52 @@ func (s *Service) AccessTTL() time.Duration {
 	return s.accessTTL
 }
 
-// RefreshTTL returns configured refresh token lifetime.
+// RefreshTTL returns the web refresh token lifetime.
 func (s *Service) RefreshTTL() time.Duration {
 	return s.refreshTTL
 }
 
-// SignAccess creates a short-lived access JWT for the given user ID.
-func (s *Service) SignAccess(userID uuid.UUID) (string, error) {
-	return s.sign(userID, claimTokenUseAccess, s.accessTTL, uuid.Nil)
+// AppRefreshTTL returns the Android refresh token lifetime.
+func (s *Service) AppRefreshTTL() time.Duration {
+	if s == nil || s.appRefreshTTL <= 0 {
+		return config.DefaultAppRefreshTTL
+	}
+	return s.appRefreshTTL
 }
 
-// SignRefresh creates a long-lived refresh JWT with a unique jti (session id).
+// SignAccess creates a short-lived access JWT for the given user ID.
+func (s *Service) SignAccess(userID uuid.UUID) (string, error) {
+	now := time.Now().UTC()
+	return s.sign(userID, claimTokenUseAccess, now, now.Add(s.accessTTL), uuid.Nil)
+}
+
+// SignRefresh creates a web-lifetime refresh JWT with a unique jti (session id).
 func (s *Service) SignRefresh(userID uuid.UUID) (token string, jti uuid.UUID, err error) {
-	jti = uuid.New()
-	token, err = s.sign(userID, claimTokenUseRefresh, s.refreshTTL, jti)
+	token, jti, _, err = s.SignRefreshWithTTL(userID, s.refreshTTL)
 	return token, jti, err
 }
 
-func (s *Service) sign(userID uuid.UUID, use string, ttl time.Duration, jti uuid.UUID) (string, error) {
-	now := time.Now().UTC()
+// SignRefreshWithTTL creates a refresh JWT and returns the exp instant stored in the token.
+// Callers persist that same instant on the refresh session.
+func (s *Service) SignRefreshWithTTL(userID uuid.UUID, ttl time.Duration) (token string, jti uuid.UUID, expiresAt time.Time, err error) {
+	if ttl <= 0 {
+		ttl = s.refreshTTL
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	expiresAt = now.Add(ttl).Truncate(time.Second)
+	jti = uuid.New()
+	token, err = s.sign(userID, claimTokenUseRefresh, now, expiresAt, jti)
+	return token, jti, expiresAt, err
+}
+
+func (s *Service) sign(userID uuid.UUID, use string, now, expiresAt time.Time, jti uuid.UUID) (string, error) {
 	claims := diaryClaims{
 		TokenUse: use,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   userID.String(),
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(ttl)),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
 		},
 	}
 	if jti != uuid.Nil {

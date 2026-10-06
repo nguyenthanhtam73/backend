@@ -15,6 +15,9 @@ jwt:
   secret: "change-me-in-production-use-long-random-string"
   access_ttl: 24h
   refresh_ttl: 168h
+  # Android refresh sessions (X-DaDiary-Client: android). Web keeps refresh_ttl.
+  # Go duration; 2160h = 90 days. Override with DADIARY_JWT_APP_REFRESH_TTL.
+  app_refresh_ttl: 2160h
 
 upload:
   dir: "./data/uploads"

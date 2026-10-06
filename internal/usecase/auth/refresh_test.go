@@ -39,7 +39,7 @@ func TestRefreshRotatesAndLogoutRevokes(t *testing.T) {
 		t.Fatal("missing refresh token")
 	}
 
-	next, err := uc.Refresh(context.Background(), oldRefresh)
+	next, err := uc.Refresh(context.Background(), oldRefresh, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestRefreshRotatesAndLogoutRevokes(t *testing.T) {
 	}
 
 	// Old refresh must be rejected after rotation.
-	if _, err := uc.Refresh(context.Background(), oldRefresh); !errors.Is(err, ErrInvalidRefresh) {
+	if _, err := uc.Refresh(context.Background(), oldRefresh, ""); !errors.Is(err, ErrInvalidRefresh) {
 		t.Fatalf("want ErrInvalidRefresh for reused token, got %v", err)
 	}
 
@@ -59,7 +59,7 @@ func TestRefreshRotatesAndLogoutRevokes(t *testing.T) {
 	if err := uc.Logout(context.Background(), uid, next.Tokens.RefreshToken); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := uc.Refresh(context.Background(), next.Tokens.RefreshToken); !errors.Is(err, ErrInvalidRefresh) {
+	if _, err := uc.Refresh(context.Background(), next.Tokens.RefreshToken, ""); !errors.Is(err, ErrInvalidRefresh) {
 		t.Fatalf("want ErrInvalidRefresh after logout, got %v", err)
 	}
 }

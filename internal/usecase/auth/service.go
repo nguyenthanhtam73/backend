@@ -128,7 +128,7 @@ func (s *Service) Register(ctx context.Context, req dto.RegisterRequest) (Result
 		return zero, appDatabase(err)
 	}
 
-	return s.issueResult(ctx, user)
+	return s.issueResult(ctx, user, domain.NormalizeRefreshClient(req.Client))
 }
 
 // Login validates credentials and returns JWT pair + public profile.
@@ -161,11 +161,15 @@ func (s *Service) Login(ctx context.Context, req dto.LoginRequest) (Result, erro
 		return zero, appInvalidCredentials()
 	}
 
-	return s.issueResult(ctx, user)
+	return s.issueResult(ctx, user, domain.NormalizeRefreshClient(req.Client))
 }
 
 // Refresh rotates a valid refresh token into a new access + refresh pair.
-func (s *Service) Refresh(ctx context.Context, refreshToken string) (Result, error) {
+// clientHint is the marker from this request (header or body). The new session
+// keeps the client kind already stored on the presented session, so an Android
+// 90-day window slides forward on each use. clientHint is used only when the
+// stored kind is empty.
+func (s *Service) Refresh(ctx context.Context, refreshToken, clientHint string) (Result, error) {
 	var zero Result
 	if s == nil || s.repo == nil || s.tokens == nil {
 		return zero, appTokenConfig()
@@ -208,7 +212,11 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (Result, err
 	}
 
 	// Issue the new pair FIRST so a DB blip after revoke can't lock the user out.
-	out, err := s.issueResult(ctx, user)
+	kind := strings.TrimSpace(sess.ClientKind)
+	if kind == "" {
+		kind = clientHint
+	}
+	out, err := s.issueResult(ctx, user, kind)
 	if err != nil {
 		return zero, err
 	}
@@ -242,7 +250,9 @@ func (s *Service) GetMe(ctx context.Context, userID uuid.UUID) (dto.UserPublic, 
 	return s.Me(ctx, userID)
 }
 
-// Logout revokes refresh sessions for the user (and optionally one specific token).
+// Logout revokes one refresh session when refreshToken belongs to userID.
+// An empty refreshToken revokes every session for the user (web clients that
+// omit the token). A token that does not belong to userID is ignored.
 // Access JWTs remain valid until expiry (stateless); clients must drop them.
 func (s *Service) Logout(ctx context.Context, userID uuid.UUID, refreshToken string) error {
 	if s == nil {
@@ -251,46 +261,82 @@ func (s *Service) Logout(ctx context.Context, userID uuid.UUID, refreshToken str
 	if userID == uuid.Nil {
 		return appInvalidInput("missing user id")
 	}
-	now := time.Now().UTC()
-
 	if s.sessions == nil {
 		return nil
 	}
-
-	if raw := strings.TrimSpace(refreshToken); raw != "" && s.tokens != nil {
-		if _, jti, err := s.tokens.ParseRefreshToken(raw); err == nil && jti != uuid.Nil {
-			_ = s.sessions.RevokeByID(ctx, jti, now)
-		}
+	now := time.Now().UTC()
+	if raw := strings.TrimSpace(refreshToken); raw != "" {
+		return s.revokeOwnedSession(ctx, userID, raw, now)
 	}
-	if err := s.sessions.RevokeAllForUser(ctx, userID, now); err != nil {
+	return s.revokeAll(ctx, userID, now)
+}
+
+// LogoutAll revokes every refresh session for the user.
+func (s *Service) LogoutAll(ctx context.Context, userID uuid.UUID) error {
+	if s == nil {
+		return appTokenConfig()
+	}
+	if userID == uuid.Nil {
+		return appInvalidInput("missing user id")
+	}
+	if s.sessions == nil {
+		return nil
+	}
+	return s.revokeAll(ctx, userID, time.Now().UTC())
+}
+
+func (s *Service) revokeAll(ctx context.Context, userID uuid.UUID, at time.Time) error {
+	if err := s.sessions.RevokeAllForUser(ctx, userID, at); err != nil {
 		return appDatabase(err)
 	}
 	return nil
 }
 
-func (s *Service) issueResult(ctx context.Context, user *domain.User) (Result, error) {
+// revokeOwnedSession revokes the session for raw when it belongs to userID.
+// Anything else (bad token, other user, unknown jti) is ignored.
+func (s *Service) revokeOwnedSession(ctx context.Context, userID uuid.UUID, raw string, at time.Time) error {
+	if s.tokens == nil {
+		return nil
+	}
+	tokenUser, jti, err := s.tokens.ParseRefreshToken(raw)
+	if err != nil || jti == uuid.Nil || tokenUser != userID {
+		return nil
+	}
+	sess, err := s.sessions.GetByID(ctx, jti)
+	if err != nil {
+		return appDatabase(err)
+	}
+	if sess == nil || sess.UserID != userID || sess.TokenHash != hashToken(raw) {
+		return nil
+	}
+	if err := s.sessions.RevokeByID(ctx, jti, at); err != nil {
+		return appDatabase(err)
+	}
+	return nil
+}
+
+func (s *Service) issueResult(ctx context.Context, user *domain.User, clientKind string) (Result, error) {
 	if user == nil {
 		return Result{}, appUserNotFound()
 	}
+	clientKind = domain.NormalizeRefreshClient(clientKind)
+	ttl := s.refreshTTLFor(clientKind)
 	access, err := s.tokens.SignAccess(user.ID)
 	if err != nil {
 		return Result{}, domain.Internal("token_error", "could not issue access token", err)
 	}
-	refresh, jti, err := s.tokens.SignRefresh(user.ID)
+	refresh, jti, expiresAt, err := s.tokens.SignRefreshWithTTL(user.ID, ttl)
 	if err != nil {
 		return Result{}, domain.Internal("token_error", "could not issue refresh token", err)
 	}
 
 	if s.sessions != nil {
-		ttl := s.tokens.RefreshTTL()
-		if ttl <= 0 {
-			ttl = 168 * time.Hour
-		}
 		sess := &domain.RefreshSession{
-			ID:        jti,
-			UserID:    user.ID,
-			TokenHash: hashToken(refresh),
-			ExpiresAt: time.Now().UTC().Add(ttl),
+			ID:         jti,
+			UserID:     user.ID,
+			TokenHash:  hashToken(refresh),
+			ExpiresAt:  expiresAt.UTC(),
+			ClientKind: clientKind,
 		}
 		if err := s.sessions.Create(ctx, sess); err != nil {
 			return Result{}, appDatabase(err)
@@ -310,6 +356,23 @@ func (s *Service) issueResult(ctx context.Context, user *domain.User) (Result, e
 		},
 		User: dto.UserFromDomain(user),
 	}, nil
+}
+
+func (s *Service) refreshTTLFor(clientKind string) time.Duration {
+	if domain.NormalizeRefreshClient(clientKind) == domain.RefreshClientAndroid {
+		if s != nil && s.tokens != nil && s.tokens.AppRefreshTTL() > 0 {
+			return s.tokens.AppRefreshTTL()
+		}
+		return 2160 * time.Hour
+	}
+	var ttl time.Duration
+	if s != nil && s.tokens != nil {
+		ttl = s.tokens.RefreshTTL()
+	}
+	if ttl <= 0 {
+		ttl = 168 * time.Hour
+	}
+	return ttl
 }
 
 func hashToken(raw string) string {
