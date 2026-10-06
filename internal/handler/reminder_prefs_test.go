@@ -224,8 +224,8 @@ func TestReminderPrefs_ScheduleValidationAndDefaultTimezone(t *testing.T) {
 		t.Fatalf("blank tz status=%d env=%v", status, env)
 	}
 	schedule = scheduleOf(t, reminderData(t, env))
-	if schedule["enabled"] != false || schedule["time"] != "08:00" || schedule["timezone"] != "Asia/Ho_Chi_Minh" {
-		t.Fatalf("blank timezone did not default, or enabled was cleared: %#v", schedule)
+	if schedule["enabled"] != false || schedule["time"] != "08:00" || schedule["timezone"] != "America/Los_Angeles" {
+		t.Fatalf("blank timezone should keep America/Los_Angeles and enabled false: %#v", schedule)
 	}
 
 	status, env = putReminder(t, app, `{"time":"00:00","timezone":"UTC"}`)
@@ -264,6 +264,54 @@ func TestReminderPrefs_ActionAndScheduleTogether(t *testing.T) {
 	schedule := scheduleOf(t, data)
 	if schedule["enabled"] != true || schedule["time"] != "20:30" || schedule["timezone"] != "Asia/Ho_Chi_Minh" {
 		t.Fatalf("schedule not applied: %#v", schedule)
+	}
+}
+
+func TestReminderPrefs_OmittedTimezoneKeepsStored(t *testing.T) {
+	app, _, _ := newReminderPrefsApp(t)
+
+	status, env := putReminder(t, app, `{"enabled":true,"time":"21:30","timezone":"Asia/Dubai"}`)
+	if status != http.StatusOK {
+		t.Fatalf("dubai status=%d env=%v", status, env)
+	}
+
+	status, env = putReminder(t, app, `{"enabled":false}`)
+	if status != http.StatusOK {
+		t.Fatalf("disable status=%d env=%v", status, env)
+	}
+	schedule := scheduleOf(t, reminderData(t, env))
+	if schedule["enabled"] != false || schedule["time"] != "21:30" || schedule["timezone"] != "Asia/Dubai" {
+		t.Fatalf("omit timezone overwrote the stored schedule: %#v", schedule)
+	}
+
+	status, env = putReminder(t, app, `{"timezone":""}`)
+	if status != http.StatusOK {
+		t.Fatalf("blank tz status=%d env=%v", status, env)
+	}
+	schedule = scheduleOf(t, reminderData(t, env))
+	if schedule["enabled"] != false || schedule["time"] != "21:30" || schedule["timezone"] != "Asia/Dubai" {
+		t.Fatalf("empty timezone overwrote the stored schedule: %#v", schedule)
+	}
+
+	status, env = putReminder(t, app, `{"time":""}`)
+	if status != http.StatusOK {
+		t.Fatalf("blank time status=%d env=%v", status, env)
+	}
+	schedule = scheduleOf(t, reminderData(t, env))
+	if schedule["time"] != "21:30" || schedule["timezone"] != "Asia/Dubai" {
+		t.Fatalf("empty time cleared the stored clock: %#v", schedule)
+	}
+}
+
+func TestReminderPrefs_FirstScheduleDefaultsTimezone(t *testing.T) {
+	app, _, _ := newReminderPrefsApp(t)
+	status, env := putReminder(t, app, `{"enabled":false}`)
+	if status != http.StatusOK {
+		t.Fatalf("status=%d env=%v", status, env)
+	}
+	schedule := scheduleOf(t, reminderData(t, env))
+	if schedule["enabled"] != false || schedule["timezone"] != "Asia/Ho_Chi_Minh" || schedule["time"] != nil {
+		t.Fatalf("first schedule: %#v", schedule)
 	}
 }
 
