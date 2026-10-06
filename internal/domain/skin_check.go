@@ -36,6 +36,12 @@ type SkinCheck struct {
 	// is the existing web voice. Existing rows default to web (AutoMigrate and
 	// migrations/027_skin_check_client_kind.up.sql). Not part of the public API.
 	ClientKind string `gorm:"column:client_kind;size:16;not null;default:'web'" json:"-"`
+	// PhotoContext stores optional close-up metadata and touch answers for this
+	// check. Shape: {"images":[{"index":0,"kind":"closeup","zone":"left_cheek"}],
+	// "skin_context":{"firmness":"firm",...}}. Null on older rows (no backfill).
+	// Included in GET /me/export. Account deletion removes it with this row
+	// (migrations/028_skin_check_photo_context.up.sql and AutoMigrate).
+	PhotoContext json.RawMessage `gorm:"column:photo_context;type:jsonb" json:"-"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`

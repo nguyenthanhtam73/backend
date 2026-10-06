@@ -43,7 +43,8 @@ func (r *UserDataRepository) FindUser(ctx context.Context, userID uuid.UUID) (*d
 // Deleted (hard): users (including reminder columns push_opt_in_skipped_at,
 // push_opt_in_reshow_used_at, reminder_enabled, reminder_time,
 // reminder_timezone, email unsubscribe, and first-touch attribution),
-// refresh_sessions, skin_checks, skin_analyses, skin_profiles, routine_entries,
+// refresh_sessions, skin_checks (including photo_context: close-up zone and
+// touch answers), skin_analyses, skin_profiles, routine_entries,
 // skincare_products, ai_user_feedbacks, feedbacks, affiliate_clicks,
 // progress_logs, push_subscriptions, push_send_receipts, push_click_events,
 // checkin_reminder_flags, routine_suggest_jobs, streaks, user_usages,

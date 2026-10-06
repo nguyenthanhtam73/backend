@@ -61,6 +61,9 @@ type CreateInput struct {
 	// ClientKind is web or android, from X-DaDiary-Client. Empty is stored as web.
 	// The background analysis job reads the stored value; it does not see the request.
 	ClientKind string
+	// PhotoContext is the validated {"images","skin_context"} document. Nil when
+	// the client sent neither. Reanalyze reads it back from the row.
+	PhotoContext json.RawMessage
 }
 
 // Service orchestrates skin checks and AI analysis jobs.
@@ -140,6 +143,9 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 
 	if s.mod != nil {
 		text := strings.TrimSpace(in.Title + "\n" + in.UserNote + "\n" + in.EnvironmentNote)
+		if extra := dto.PhotoContextExtra(in.PhotoContext); extra != "" {
+			text += "\n" + extra
+		}
 		if len(in.Conditions) > 0 {
 			text += "\n" + strings.Join(in.Conditions, " ")
 		}
@@ -214,6 +220,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		Visibility:      vis,
 		CheckDate:       checkD,
 		ClientKind:      domain.NormalizeRefreshClient(in.ClientKind),
+		PhotoContext:    in.PhotoContext,
 	}
 
 	analysisRow := &domain.SkinAnalysis{

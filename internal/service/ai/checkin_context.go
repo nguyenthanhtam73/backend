@@ -63,7 +63,216 @@ func BuildCheckInContext(o *domain.SkinCheck) string {
 			b.WriteString("\n")
 		}
 	}
+	b.WriteString(photoContextLines(o))
 	return b.String()
+}
+
+// photoContextLines tells the coach which photo is a close-up and what the user
+// reported about touch, timing, and pain. Empty when the check has neither.
+func photoContextLines(o *domain.SkinCheck) string {
+	if o == nil || len(o.PhotoContext) == 0 {
+		return ""
+	}
+	doc := dto.DecodePhotoContext(o.PhotoContext)
+	var b strings.Builder
+	for _, img := range doc.Images {
+		switch img.Kind {
+		case dto.PhotoKindCloseup:
+			zone := img.Zone
+			if zone == "" {
+				zone = "other"
+			}
+			fmt.Fprintf(&b, "Photo %d: close-up of %s (not full face)\n", img.Index+1, zone)
+		case dto.PhotoKindFullFace:
+			if img.Zone != "" {
+				fmt.Fprintf(&b, "Photo %d: full face (zone hint %s)\n", img.Index+1, img.Zone)
+			} else {
+				fmt.Fprintf(&b, "Photo %d: full face\n", img.Index+1)
+			}
+		}
+	}
+	if line := userReportsLine(doc.SkinContext); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func userReportsLine(sc *dto.SkinContextInput) string {
+	if sc == nil {
+		return ""
+	}
+	var parts []string
+	if sc.Firmness != "" {
+		parts = append(parts, sc.Firmness)
+	}
+	if sc.Duration != "" {
+		parts = append(parts, sc.Duration)
+	}
+	switch sc.Pain {
+	case "none":
+		parts = append(parts, "not painful")
+	case "itchy":
+		parts = append(parts, "itchy")
+	case "sore":
+		parts = append(parts, "sore")
+	case "unknown":
+		parts = append(parts, "pain unknown")
+	}
+	if len(parts) == 0 && strings.TrimSpace(sc.Extra) == "" {
+		return ""
+	}
+	line := "User reports: " + strings.Join(parts, ", ")
+	if extra := strings.TrimSpace(sc.Extra); extra != "" {
+		line += " (" + extra + ")"
+	}
+	return line
+}
+
+// BuildCheckInVisionHint is the close-up and touch block for the vision pass.
+// Empty when the check stored neither photo_meta nor skin_context.
+func BuildCheckInVisionHint(check *domain.SkinCheck) string {
+	if check == nil || len(check.PhotoContext) == 0 {
+		return ""
+	}
+	doc := dto.DecodePhotoContext(check.PhotoContext)
+	var b strings.Builder
+	for _, img := range doc.Images {
+		switch img.Kind {
+		case dto.PhotoKindCloseup:
+			zone := img.Zone
+			if zone == "" {
+				zone = "other"
+			}
+			fmt.Fprintf(&b, "Image %d is a CLOSE-UP of %s — only describe that zone.\n", img.Index+1, zone)
+		case dto.PhotoKindFullFace:
+			fmt.Fprintf(&b, "Image %d is a full-face photo.\n", img.Index+1)
+		}
+	}
+	if prose := skinContextProse(doc.SkinContext, CheckLocale(check)); prose != "" {
+		b.WriteString(AdminSkinContextBlock(prose, CheckLocale(check)))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// CheckLocale is vi unless the check's climate_context says ui_locale=en.
+func CheckLocale(check *domain.SkinCheck) string {
+	if check == nil || len(check.ClimateContext) == 0 {
+		return "vi"
+	}
+	var m map[string]any
+	if err := json.Unmarshal(check.ClimateContext, &m); err != nil || m == nil {
+		return "vi"
+	}
+	v, _ := m["ui_locale"].(string)
+	if strings.EqualFold(strings.TrimSpace(v), "en") {
+		return "en"
+	}
+	return "vi"
+}
+
+func skinContextProse(sc *dto.SkinContextInput, locale string) string {
+	if sc == nil {
+		return ""
+	}
+	en := strings.EqualFold(strings.TrimSpace(locale), "en")
+	var lines []string
+	if sc.Firmness != "" {
+		lines = append(lines, firmnessProse(sc.Firmness, en))
+	}
+	if sc.Duration != "" {
+		lines = append(lines, durationProse(sc.Duration, en))
+	}
+	if sc.Pain != "" {
+		lines = append(lines, painProse(sc.Pain, en))
+	}
+	if extra := strings.TrimSpace(sc.Extra); extra != "" {
+		if en {
+			lines = append(lines, "Extra: "+extra)
+		} else {
+			lines = append(lines, "Thêm: "+extra)
+		}
+	}
+	return strings.Join(lines, ". ")
+}
+
+func firmnessProse(id string, en bool) string {
+	if en {
+		switch id {
+		case "firm":
+			return "Touch: firm like a grain of sand"
+		case "soft":
+			return "Touch: soft"
+		case "stalked":
+			return "Touch: soft, on a little stalk"
+		default:
+			return "Touch: not sure"
+		}
+	}
+	switch id {
+	case "firm":
+		return "Sờ: cứng như hạt cát"
+	case "soft":
+		return "Sờ: mềm"
+	case "stalked":
+		return "Sờ: mềm, có cuống"
+	default:
+		return "Sờ: chưa rõ"
+	}
+}
+
+func durationProse(id string, en bool) string {
+	if en {
+		switch id {
+		case "days":
+			return "How long: a few days"
+		case "weeks":
+			return "How long: a few weeks"
+		case "months":
+			return "How long: many months, unchanged"
+		case "comes_and_goes":
+			return "How long: comes and goes"
+		default:
+			return "How long: not sure"
+		}
+	}
+	switch id {
+	case "days":
+		return "Bao lâu: vài ngày"
+	case "weeks":
+		return "Bao lâu: vài tuần"
+	case "months":
+		return "Bao lâu: nhiều tháng, không đổi"
+	case "comes_and_goes":
+		return "Bao lâu: lên xuống theo đợt"
+	default:
+		return "Bao lâu: chưa rõ"
+	}
+}
+
+func painProse(id string, en bool) string {
+	if en {
+		switch id {
+		case "none":
+			return "Pain: not painful, not itchy"
+		case "itchy":
+			return "Pain: itchy"
+		case "sore":
+			return "Pain: sore"
+		default:
+			return "Pain: not sure"
+		}
+	}
+	switch id {
+	case "none":
+		return "Đau: không đau, không ngứa"
+	case "itchy":
+		return "Đau: ngứa"
+	case "sore":
+		return "Đau: đau"
+	default:
+		return "Đau: chưa rõ"
+	}
 }
 
 // BuildSkinProfileContext summarizes the user’s saved SkinProfile for coach personalization (undertone, goals from onboarding snapshot).
@@ -207,13 +416,13 @@ func truncateRunes(s string, max int) string {
 //
 // Format example (Vietnamese coach prompt expects this):
 //
-//   USER_FEEDBACK_HISTORY (most recent first — adjust tone & suggestions accordingly):
-//     - 2026-05-12 | suggested_routine | 👎 | "BHA quá mạnh, da em nhạy"
-//     - 2026-05-10 | skin_analysis     | 👍
-//     - ...
-//   GUIDANCE: Repeat patterns the user marked 👍 (warm, gentle, low-active).
-//             Avoid patterns the user marked 👎 (do NOT push the same routine
-//             angle again without acknowledging the prior feedback).
+//	USER_FEEDBACK_HISTORY (most recent first — adjust tone & suggestions accordingly):
+//	  - 2026-05-12 | suggested_routine | 👎 | "BHA quá mạnh, da em nhạy"
+//	  - 2026-05-10 | skin_analysis     | 👍
+//	  - ...
+//	GUIDANCE: Repeat patterns the user marked 👍 (warm, gentle, low-active).
+//	          Avoid patterns the user marked 👎 (do NOT push the same routine
+//	          angle again without acknowledging the prior feedback).
 func BuildPriorFeedbackContext(feedback []domain.AIUserFeedback) string {
 	if len(feedback) == 0 {
 		return ""

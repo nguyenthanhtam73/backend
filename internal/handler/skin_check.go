@@ -85,6 +85,17 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 	if climateRaw != "" {
 		climateJSON = json.RawMessage(climateRaw)
 	}
+	photoContext, pcErr := dto.ParsePhotoContext(
+		firstValue(form.Value["photo_meta"]),
+		firstValue(form.Value["skin_context"]),
+		len(files),
+	)
+	if pcErr != nil {
+		if pe, ok := dto.IsPhotoContextError(pcErr); ok {
+			return response.Error(c, fiber.StatusBadRequest, pe.Code, pe.Msg)
+		}
+		return response.Error(c, fiber.StatusBadRequest, "invalid_photo_meta", "could not read photo context")
+	}
 
 	hasTextSignal := strings.TrimSpace(userNote) != "" ||
 		strings.TrimSpace(envNote) != "" ||
@@ -174,7 +185,8 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 		SkipMode:        skipMode && len(images) == 0,
 		// Header only. climate_context.client ("dadiary-android") is not a voice
 		// selector — same exact-value rule as refresh sessions.
-		ClientKind: authuc.ResolveClientKind(c.Get(authuc.ClientHeader), ""),
+		ClientKind:   authuc.ResolveClientKind(c.Get(authuc.ClientHeader), ""),
+		PhotoContext: photoContext,
 	}
 
 	res, err := h.svc.Create(c.UserContext(), userID, in)

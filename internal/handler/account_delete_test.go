@@ -46,13 +46,21 @@ func TestDeleteAccount_Contract(t *testing.T) {
 		"/uploads/" + signedKey + "?exp=1999999999&sig=abc",
 	})
 	check := &domain.SkinCheck{
-		UserID:     userID,
-		ImageURLs:  images,
-		CheckDate:  time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC),
-		Visibility: domain.CheckVisibilityPrivate,
+		UserID:       userID,
+		ImageURLs:    images,
+		CheckDate:    time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC),
+		Visibility:   domain.CheckVisibilityPrivate,
+		PhotoContext: json.RawMessage(`{"images":[{"index":0,"kind":"closeup","zone":"chin"}],"skin_context":{"firmness":"firm","duration":"months","pain":"none"}}`),
 	}
 	if err := db.Create(check).Error; err != nil {
 		t.Fatal(err)
+	}
+	var storedCtx string
+	if err := db.Raw(`SELECT photo_context FROM skin_checks WHERE id = ?`, check.ID).Scan(&storedCtx).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(storedCtx, "chin") || !strings.Contains(storedCtx, "firm") {
+		t.Fatalf("photo_context not stored with the check-in: %s", storedCtx)
 	}
 	if err := db.Create(&domain.Streak{UserID: userID, CurrentStreak: 3}).Error; err != nil {
 		t.Fatal(err)
@@ -264,6 +272,13 @@ func TestDeleteAccount_Contract(t *testing.T) {
 	}
 	if checks != 0 {
 		t.Fatalf("skin checks left: %d", checks)
+	}
+	var ctxLeft int64
+	if err := db.Raw(`SELECT COUNT(*) FROM skin_checks WHERE user_id = ? AND photo_context IS NOT NULL`, userID).Scan(&ctxLeft).Error; err != nil {
+		t.Fatal(err)
+	}
+	if ctxLeft != 0 {
+		t.Fatalf("photo_context rows left after account deletion: %d", ctxLeft)
 	}
 	var streaks int64
 	if err := db.Model(&domain.Streak{}).Where("user_id = ?", userID).Count(&streaks).Error; err != nil {

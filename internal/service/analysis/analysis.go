@@ -221,7 +221,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 			visionRaw, visionStatus = "", "skipped_no_photo"
 		} else {
 			visionRaw, visionStatus = ai.RunVisionObservationPassForCheck(
-				ctx, s.cfg, s.httpClient, s.store, urls,
+				ctx, s.cfg, s.httpClient, s.store, urls, ai.BuildCheckInVisionHint(o),
 			)
 		}
 		visionMs = time.Since(start).Milliseconds()
@@ -280,7 +280,9 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	if phase := strings.TrimSpace(parsed.CarePhase); phase != "" {
 		labels["care_phase"] = phase
 	}
-	ai.ApplyPhotoEvidenceToScores(labels, ai.ClassifyCheckInPhotoEvidence(visionStatus, visionRaw))
+	ev := ai.ClassifyCheckInPhotoEvidence(visionStatus, visionRaw)
+	ai.ApplyPhotoEvidenceToScores(labels, ev)
+	ai.ApplyCheckInDetail(labels, parsed, visionRaw, o.PhotoContext, ev, o.ClientKind, ai.CheckLocale(o))
 	if ai.IsAndroidCoachVoice(o.ClientKind) {
 		// Coach prose is already rewritten in the prompt pipeline. The photo note
 		// is copied from vision after that, so scrub it here before the row is saved.

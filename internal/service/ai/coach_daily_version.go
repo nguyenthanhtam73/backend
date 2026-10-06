@@ -72,8 +72,15 @@ package ai
 // force certainty on skip or weak photos. Speak plainly when PHOTO_EVIDENCE is
 // ok; MUST say chưa chắc when skip/limited. Persists photo_evidence fields for FE.
 //
+// v29 (2026-10-06) — Photo check-in detail. Vision returns zone_observations
+// (zone, cue, how visible). The photo check-in coach adds zone_notes and
+// skin_score_notes (one short reason for every gauge, including overall) in a
+// separate user-message block. Daily feedback does not send that block.
+// That block says "lớp bảo vệ da", never "hàng rào". Confidence and follow-up
+// questions are computed in Go. Old checks are not backfilled.
+//
 // Android (Play) checks use a parallel polite mình/bạn prompt selected by
-// skin_checks.client_kind. That voice does not bump this number: the web prompt
-// text is unchanged. Successful android runs append "+android" to model_version
-// so per-prompt-version stats can separate the two voices.
-const CoachDailyPromptVersion = 28
+// skin_checks.client_kind. That voice does not bump this number by itself: the
+// web prompt text is unchanged. Successful android runs append "+android" to
+// model_version so per-prompt-version stats can separate the two voices.
+const CoachDailyPromptVersion = 29
