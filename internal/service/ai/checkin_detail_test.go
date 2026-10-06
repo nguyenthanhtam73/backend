@@ -160,6 +160,41 @@ func TestApplyCheckInDetail_AndroidVoiceAndStoredVision(t *testing.T) {
 	}
 }
 
+func TestApplyCheckInDetail_AndroidDropsStrayComma(t *testing.T) {
+	t.Parallel()
+	vision := `{"zone_observations":[{"zone":"left_cheek","cue":"nốt nhỏ màu da","severity":"mild"}]}`
+	parsed := &CoachStructuredOutput{
+		ZoneNotesRaw: mustRawJSON(t, []map[string]string{{
+			"zone": "left_cheek", "note": "Má của mày trông giống nốt nhỏ, đm.", "severity": "mild",
+		}}),
+		SkinScoreNotesRaw: mustRawJSON(t, map[string]string{
+			"overall": "Tổng thể ổn.", "hydration": "Độ ẩm của mày, đm, thấp.",
+			"clarity": "Màu đều.", "barrier": "Lớp bảo vệ ổn.",
+		}),
+	}
+	labels := map[string]any{}
+	ApplyCheckInDetail(labels, parsed, vision, nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientAndroid, "vi")
+	note := labels["zone_notes"].([]dto.CoachZoneNote)[0].Note
+	if note != "Má của bạn trông giống nốt nhỏ." {
+		t.Fatalf("zone note %q", note)
+	}
+	hydration := labels["skin_score_notes"].(*dto.SkinCoachScoreNotes).Hydration
+	if hydration != "Độ ẩm của bạn, thấp." {
+		t.Fatalf("score note %q", hydration)
+	}
+	questions := sanitizeQuestionList([]string{"Sờ vào, đm, thấy cứng?"})
+	if len(questions) != 1 || questions[0] != "Sờ vào, thấy cứng?" {
+		t.Fatalf("clarify question %#v", questions)
+	}
+
+	web := map[string]any{}
+	ApplyCheckInDetail(web, parsed, vision, nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientWeb, "vi")
+	webNote := web["zone_notes"].([]dto.CoachZoneNote)[0].Note
+	if webNote != "Má của mày trông giống nốt nhỏ, đm." {
+		t.Fatalf("web note %q", webNote)
+	}
+}
+
 func TestCheckInDetailBlock_PhotoCheckInOnly(t *testing.T) {
 	t.Parallel()
 	if strings.Contains(CheckInDetailJSONFields, "tao") || strings.Contains(CheckInDetailJSONFields, "mày") {
