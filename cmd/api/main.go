@@ -27,6 +27,7 @@ import (
 	paymentuc "github.com/dadiary/backend/internal/usecase/payment"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	pushuc "github.com/dadiary/backend/internal/usecase/push"
+	scheduledreminderuc "github.com/dadiary/backend/internal/usecase/scheduledreminder"
 	subscriptionuc "github.com/dadiary/backend/internal/usecase/subscription"
 	"github.com/dadiary/backend/pkg/alert"
 	"github.com/gofiber/fiber/v2"
@@ -89,6 +90,7 @@ func main() {
 
 	// Background jobs — cancelled with the same ctx that stops HTTP on SIGINT/SIGTERM.
 	startDailyReminderJob(ctx, cfg, db)
+	startScheduledCaptureJob(ctx, cfg, db)
 	startMonthlyUsageResetJob(ctx, db)
 	startPlanExpiryJob(ctx, cfg, db)
 	startCheckInReminderJob(ctx, cfg, db)
@@ -129,6 +131,34 @@ func startDailyReminderJob(ctx context.Context, cfg *config.Config, db *gorm.DB)
 	pushSvc := pushuc.NewService(pushRepo, pushSender, skinCheckRepo, streakRepo, pushReceipts)
 	jobLocks := repository.NewPushJobLockRepository(db)
 	scheduler.NewDailyReminderJob(pushSvc, cfg, jobLocks).Start(ctx)
+}
+
+// startScheduledCaptureJob sends the one daily capture reminder at each
+// user's saved local time. NULL schedules stay on the fixed clocks above.
+func startScheduledCaptureJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
+	if db == nil {
+		slog.Warn("scheduled_capture_job: skipped — database not available")
+		return
+	}
+	users := repository.NewUserRepository(db)
+	checks := repository.NewSkinCheckRepository(db)
+	claims := repository.NewCaptureReminderClaimRepository(db)
+	streaks := repository.NewStreakRepository(db)
+	var pushSvc *pushuc.Service
+	if cfg != nil && cfg.HasVAPIDKeys() {
+		pushRepo := repository.NewPushSubscriptionRepository(db)
+		pushSender := pushsvc.NewPushSender(cfg, pushRepo)
+		pushReceipts := repository.NewPushSendReceiptRepository(db)
+		pushSvc = pushuc.NewService(pushRepo, pushSender, checks, streaks, pushReceipts)
+	} else {
+		slog.Info("scheduled_capture_job: push skipped — VAPID keys not configured")
+	}
+	flags := repository.NewCheckInReminderRepository(db)
+	emailSvc := checkinreminderuc.NewService(users, checks, flags, cfg != nil && cfg.HasVAPIDKeys())
+	checkinreminderuc.AttachFromConfig(emailSvc, cfg, db, pushSvc)
+	scheduler.NewScheduledCaptureJob(
+		scheduledreminderuc.NewService(users, checks, claims, pushSvc, streaks, emailSvc),
+	).Start(ctx)
 }
 
 // startMonthlyUsageResetJob cleans completed user_usages rows on the 1st UTC.

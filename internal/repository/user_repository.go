@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/reminder"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -197,6 +198,37 @@ func (r *GormUserRepository) SetReminderSchedule(
 	return db.WithContext(ctx).Model(&domain.User{}).
 		Where("id = ?", userID).
 		Updates(updates).Error
+}
+
+// ListSavedReminderUsers returns active users with a saved capture schedule
+// (reminder_enabled true and a non-empty reminder_time). job is the
+// scheduled_capture caller. reminder.ExcludeMuted drops reminder_enabled =
+// false. NULL enabled is not a saved schedule and is not listed.
+func (r *GormUserRepository) ListSavedReminderUsers(
+	ctx context.Context,
+	limit int,
+	job reminder.JobID,
+) ([]domain.User, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 || limit > 5000 {
+		limit = 5000
+	}
+	var rows []domain.User
+	err = reminder.ExcludeMuted(ctx, db.WithContext(ctx).
+		Model(&domain.User{}).
+		Where("is_active = ?", true).
+		Where("reminder_enabled = ?", true).
+		Where("reminder_time IS NOT NULL AND reminder_time <> ?", ""),
+		"id",
+		job,
+	).Order("id ASC").Limit(limit).Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // SetPushOptInSkippedAt records the first dismissal of the push permission card.

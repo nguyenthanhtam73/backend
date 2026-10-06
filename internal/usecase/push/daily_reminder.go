@@ -123,11 +123,9 @@ func (s *Service) SendDailyReminderToUser(ctx context.Context, userID uuid.UUID)
 // are skipped so streak_at_risk is their only evening nudge.
 //
 // ListActiveUserIDs calls reminder.ExcludeMuted for this job, so
-// reminder_enabled = false is left out. NULL and true are still included.
-// Send time stays the shared 20:00 clock.
-//
-// TODO: do not send at the user's ReminderTime yet. Future rules: max 1
-// reminder per user per day, and skip if the user already checked in that day.
+// reminder_enabled = false is left out. It also calls ExcludeScheduled, so a
+// saved schedule is left out — scheduled_capture sends that user's one moment
+// at their local time. NULL and true-without-time stay on this 20:00 clock.
 func (s *Service) SendDailyRemindersToAll(ctx context.Context) (DailyReminderBatchResult, error) {
 	var result DailyReminderBatchResult
 	if s == nil || s.sender == nil || s.repo == nil {

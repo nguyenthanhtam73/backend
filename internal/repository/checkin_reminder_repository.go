@@ -103,7 +103,9 @@ func (r *CheckInReminderRepository) ListDueUserIDs(ctx context.Context, limit in
 // ListDue returns due D0/D1 flag rows for outbound fan-out.
 // jobs are the hourly sends that share this query (D0 email and D0/D1 push).
 // reminder.ExcludeMuted drops reminder_enabled = false for each of them.
-// NULL and true stay due. ListDueUserIDs is flag refresh and does not filter.
+// reminder.ExcludeScheduled drops a saved schedule so the hourly pass is not
+// a second moment. NULL and true-without-time stay due. ListDueUserIDs is
+// flag refresh and does not filter.
 func (r *CheckInReminderRepository) ListDue(
 	ctx context.Context,
 	limit int,
@@ -117,12 +119,12 @@ func (r *CheckInReminderRepository) ListDue(
 		limit = 2000
 	}
 	var rows []domain.CheckInReminderFlag
-	err = reminder.ExcludeMuted(ctx, db.WithContext(ctx).
+	err = reminder.ExcludeScheduled(reminder.ExcludeMuted(ctx, db.WithContext(ctx).
 		Where("due = ?", true).
 		Where("kind IN ?", []string{"d0", "d1"}),
 		"user_id",
 		jobs...,
-	).Order("computed_at ASC").
+	), "user_id").Order("computed_at ASC").
 		Limit(limit).
 		Find(&rows).Error
 	return rows, err

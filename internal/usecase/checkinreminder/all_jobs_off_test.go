@@ -25,21 +25,24 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// jobRunner exercises one outbound reminder. NULL and true must be contacted.
-// reminder_enabled = false must not.
+// jobRunner exercises one outbound reminder. reminder_enabled = false must not
+// be contacted. Fixed-clock runners still contact NULL and true.
 type jobRunner func(t *testing.T, ctx context.Context)
 
 // TestEveryReminderJobSkipsMutedUsers is the registry check for reminder.All.
 // A new outbound reminder has to be listed there and given a runner here.
-// Each runner must call reminder.ExcludeMuted with its own JobID, skip
-// reminder_enabled = false, and still include a user who never set the column.
+// Each runner must call reminder.ExcludeMuted with its own JobID and skip
+// reminder_enabled = false. Fixed-clock runners still include a user who never
+// set the column. scheduled_capture only contacts a saved schedule (enabled
+// and a HH:MM), so its runner leaves that NULL user unsent.
 func TestEveryReminderJobSkipsMutedUsers(t *testing.T) {
 	runners := map[reminder.JobID]jobRunner{
-		reminder.JobDailyPush:    runDailyPushMute,
-		reminder.JobStreakAtRisk: runStreakAtRiskMute,
-		reminder.JobEveningEmail: runEveningEmailMute,
-		reminder.JobD0Email:      runD0EmailMute,
-		reminder.JobD0D1Push:     runD0D1PushMute,
+		reminder.JobDailyPush:        runDailyPushMute,
+		reminder.JobStreakAtRisk:     runStreakAtRiskMute,
+		reminder.JobEveningEmail:     runEveningEmailMute,
+		reminder.JobD0Email:          runD0EmailMute,
+		reminder.JobD0D1Push:         runD0D1PushMute,
+		reminder.JobScheduledCapture: runScheduledCaptureMute,
 	}
 
 	jobs := reminder.All()
@@ -199,6 +202,37 @@ func runD0EmailMute(t *testing.T, ctx context.Context) {
 		t.Fatalf("hourly D0 email: %+v sent=%v", res, mailer.sent)
 	}
 	assertMutedSkipped(t, "hourly D0 email", mailer.counts(), c)
+}
+
+func runScheduledCaptureMute(t *testing.T, ctx context.Context) {
+	t.Helper()
+	// The candidate query is the mute gate scheduled_capture uses. Delivering
+	// from this package would import that job and cycle. The send itself is
+	// covered in usecase/scheduledreminder.
+	db := openMutePushDB(t)
+	users := repository.NewUserRepository(db)
+	c := seedMuteCohort(t, users, time.Now().Add(-40*24*time.Hour))
+	hhmm := time.Now().In(streaktime.Location).Format("15:04")
+	tz := "Asia/Ho_Chi_Minh"
+	enabled := true
+	disabled := false
+	if err := users.SetReminderSchedule(ctx, c.on.ID, &enabled, &hhmm, &tz); err != nil {
+		t.Fatal(err)
+	}
+	if err := users.SetReminderSchedule(ctx, c.off.ID, &disabled, &hhmm, &tz); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := users.ListSavedReminderUsers(ctx, 100, reminder.JobScheduledCapture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, row := range rows {
+		got[row.Email] = true
+	}
+	if !got[c.on.Email] || got[c.off.Email] || got[c.unset.Email] {
+		t.Fatalf("scheduled capture candidates: saved schedule only, got %#v", got)
+	}
 }
 
 func runD0D1PushMute(t *testing.T, ctx context.Context) {

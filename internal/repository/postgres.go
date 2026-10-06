@@ -3,6 +3,7 @@ package repository
 
 import (
 	"fmt"
+	"log/slog"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
@@ -27,7 +28,7 @@ func NewPostgres(cfg *config.Config) (*gorm.DB, error) {
 
 // AutoMigrate runs schema migrations for core domain models (dev/small deploys).
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&domain.User{},
 		&domain.RefreshSession{},
 		&domain.OnboardingPreviewJob{},
@@ -60,5 +61,24 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.PushJobLock{},
 		&domain.PushSendReceipt{},
 		&domain.AccountDeleteOrphanKey{},
-	)
+	); err != nil {
+		return err
+	}
+	return applyCaptureReminderClaims(db)
+}
+
+// applyCaptureReminderClaims creates capture_reminder_claims (migration 029).
+// An INFO line is written only when this boot creates the table.
+func applyCaptureReminderClaims(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("nil db")
+	}
+	existed := db.Migrator().HasTable(&domain.CaptureReminderClaim{})
+	if err := db.AutoMigrate(&domain.CaptureReminderClaim{}); err != nil {
+		return err
+	}
+	if !existed {
+		slog.Info("capture_reminder_claims: migration 029 applied")
+	}
+	return nil
 }

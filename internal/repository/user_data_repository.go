@@ -75,6 +75,7 @@ func deletePersonalRows(tx *gorm.DB, userID uuid.UUID, hard bool) error {
 		&domain.ProgressLog{},
 		&domain.PushSubscription{},
 		&domain.PushSendReceipt{},
+		&domain.CaptureReminderClaim{},
 		&domain.CheckInReminderFlag{},
 		&domain.RoutineSuggestJob{},
 		// Streak / usage rows have no DeletedAt — Delete removes them either way.

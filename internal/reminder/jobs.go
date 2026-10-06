@@ -24,6 +24,9 @@ const (
 	JobD0Email JobID = "hourly_d0_email"
 	// JobD0D1Push is the hourly d0_reminder and d1_reminder push.
 	JobD0D1Push JobID = "hourly_d0_d1_push"
+	// JobScheduledCapture sends one capture moment at the user's saved
+	// local HH:MM. It replaces the fixed clocks for that user.
+	JobScheduledCapture JobID = "scheduled_capture"
 )
 
 // Job is one outbound reminder the product can mute.
@@ -42,6 +45,7 @@ func All() []Job {
 		{ID: JobEveningEmail, Name: "19:30–21:30 D1 and Day-3 email"},
 		{ID: JobD0Email, Name: "hourly D0 email"},
 		{ID: JobD0D1Push, Name: "hourly D0/D1 push"},
+		{ID: JobScheduledCapture, Name: "per-user local capture reminder"},
 	}
 }
 
