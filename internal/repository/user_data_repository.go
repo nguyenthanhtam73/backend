@@ -45,60 +45,48 @@ func (r *UserDataRepository) DeleteAllPersonalData(
 	}
 
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		subq := tx.Model(&domain.SkinCheck{}).
-			Select("id").
-			Where("user_id = ?", userID)
-
-		if err := tx.Where("skin_check_id IN (?)", subq).
-			Delete(&domain.SkinAnalysis{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.SkinCheck{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.SkinProfile{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.RoutineEntry{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.SkincareProduct{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.AIUserFeedback{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.Feedback{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.AffiliateClick{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.ProgressLog{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.PushSubscription{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.PushSendReceipt{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.CheckInReminderFlag{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.RoutineSuggestJob{}).Error; err != nil {
-			return err
-		}
-		// Streak / usage rows have no DeletedAt — hard-delete so a wipe
-		// cannot leave counters or streak history behind.
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.Streak{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("user_id = ?", userID).Delete(&domain.UserUsage{}).Error; err != nil {
-			return err
-		}
-		return nil
+		return deletePersonalRows(tx, userID, false)
 	})
+}
+
+// deletePersonalRows removes diary rows for userID.
+// hard is false for DELETE /me/data (GORM soft-delete where the model has DeletedAt;
+// the account row stays). hard is true for account deletion so foreign keys and
+// previously soft-deleted rows cannot keep the person linked.
+func deletePersonalRows(tx *gorm.DB, userID uuid.UUID, hard bool) error {
+	scope := func(q *gorm.DB) *gorm.DB {
+		if hard {
+			return q.Unscoped()
+		}
+		return q
+	}
+	checkQ := scope(tx).Model(&domain.SkinCheck{}).Select("id").Where("user_id = ?", userID)
+	if err := scope(tx).Where("skin_check_id IN (?)", checkQ).Delete(&domain.SkinAnalysis{}).Error; err != nil {
+		return err
+	}
+	models := []any{
+		&domain.SkinCheck{},
+		&domain.SkinProfile{},
+		&domain.RoutineEntry{},
+		&domain.SkincareProduct{},
+		&domain.AIUserFeedback{},
+		&domain.Feedback{},
+		&domain.AffiliateClick{},
+		&domain.ProgressLog{},
+		&domain.PushSubscription{},
+		&domain.PushSendReceipt{},
+		&domain.CheckInReminderFlag{},
+		&domain.RoutineSuggestJob{},
+		// Streak / usage rows have no DeletedAt — Delete removes them either way.
+		&domain.Streak{},
+		&domain.UserUsage{},
+	}
+	for _, model := range models {
+		if err := scope(tx).Where("user_id = ?", userID).Delete(model).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ListPhotoKeys returns every stored photo key owned by the user (check-ins,

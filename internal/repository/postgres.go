@@ -60,5 +60,6 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.PushSubscription{},
 		&domain.PushJobLock{},
 		&domain.PushSendReceipt{},
+		&domain.AccountDeleteOrphanKey{},
 	)
 }

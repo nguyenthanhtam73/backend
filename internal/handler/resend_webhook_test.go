@@ -57,7 +57,7 @@ func newWebhookApp(t *testing.T, secret string) (*fiber.App, *repository.EmailEn
 	}
 	events := repository.NewEmailEngagementRepository(db)
 	receipts := repository.NewEmailSendReceiptRepository(db)
-	svc := resendhookuc.NewService(secret, events, receipts)
+	svc := resendhookuc.NewService(secret, events, receipts, repository.NewUserRepository(db))
 	svc.SetClock(func() time.Time { return time.Unix(1700000000, 0) })
 
 	app := fiber.New()
@@ -157,6 +157,39 @@ func TestResendWebhook_RejectsBadSignatureAndIgnoresOtherEvents(t *testing.T) {
 	}
 	if row.EventType != domain.EmailEventClicked || row.LinkURL != "https://dadiary.vn/check-in?src=email_d1" {
 		t.Fatalf("click row=%+v", row)
+	}
+}
+
+func TestResendWebhook_DeletedUserIsIgnored(t *testing.T) {
+	app, events, db := newWebhookApp(t, testWebhookSecret)
+	if err := db.Exec(`DELETE FROM users`).Error; err != nil {
+		t.Fatal(err)
+	}
+	body := testWebhookBody()
+	sig := signTestWebhook(t, "msg_gone", "1700000000", body)
+	resp := postWebhook(t, app, body, "msg_gone", "1700000000", sig)
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%s", resp.StatusCode, b)
+	}
+	b, _ := io.ReadAll(resp.Body)
+	var payload map[string]any
+	if err := json.Unmarshal(b, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["ignored"] != true || payload["stored"] == true {
+		t.Fatalf("payload=%v", payload)
+	}
+	n, err := events.CountByResendEventID(context.Background(), "msg_gone")
+	if err != nil || n != 0 {
+		t.Fatalf("count=%d err=%v", n, err)
+	}
+	var users int64
+	if err := db.Model(&domain.User{}).Count(&users).Error; err != nil {
+		t.Fatal(err)
+	}
+	if users != 0 {
+		t.Fatalf("user recreated: %d", users)
 	}
 }
 

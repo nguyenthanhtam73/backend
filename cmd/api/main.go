@@ -50,6 +50,16 @@ func main() {
 		if migErr := repository.AutoMigrate(db); migErr != nil {
 			fmt.Fprintf(os.Stderr, "migrate: %v\n", migErr)
 		}
+		// Migration 024 drops NOT NULL. AutoMigrate cannot. Run it here, before
+		// Listen. Already-nullable columns are skipped. An ALTER that cannot
+		// take its lock within 3s is logged and does not stop the process;
+		// DELETE /me then returns 503 until a later boot applies it.
+		if schemaErr := repository.ApplyAccountDeletionSchema(db); schemaErr != nil {
+			slog.Error("account deletion schema: migration 024 failed", "error", schemaErr)
+			fmt.Fprintf(os.Stderr, "migration 024: %v\n", schemaErr)
+		} else {
+			slog.Info("account deletion schema: migration 024 applied")
+		}
 	}
 
 	app := fiber.New(fiber.Config{

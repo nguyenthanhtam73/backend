@@ -489,13 +489,18 @@ func (s *Service) fulfillPaidOrder(
 	}
 
 	now := time.Now().UTC()
+	var orphan bool
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// 1) Lock payment_order FOR UPDATE — serializes duplicate IPNs for same invoice.
+		// Raw webhook is written only after the lock shows the account still
+		// exists. An anonymized order must not keep the IPN body: it carries
+		// the old customer id and other personal data. The decision uses the
+		// locked row, not the snapshot passed in, so a delete that landed
+		// between lookup and lock cannot leave the payload stored.
 		marked, alreadyPaid, err := s.orders.MarkPaidTx(tx, repository.MarkPaidParams{
 			InvoiceNumber:      order.InvoiceNumber,
 			SePayOrderID:       firstNonEmpty(payload.Order.ID, payload.Order.OrderID),
 			SePayTransactionID: firstNonEmpty(payload.Transaction.TransactionID, payload.Transaction.ID),
-			RawWebhook:         raw,
 			PaidAt:             now,
 		})
 		if err != nil {
@@ -511,6 +516,26 @@ func (s *Service) fulfillPaidOrder(
 				"user_id", marked.UserID.String(),
 			)
 			return nil
+		}
+
+		// Detached by account deletion. Record the capture and stop.
+		// Do not look up customer_id to recreate the account or grant a plan.
+		// Do not store the provider body.
+		if marked.UserID == uuid.Nil {
+			orphan = true
+			if err := tx.Model(&domain.PaymentOrder{}).Where("id = ?", marked.ID).Update("raw_webhook", "").Error; err != nil {
+				return err
+			}
+			slog.Info("payment: orphan order paid; recorded without a plan grant",
+				"order_id", marked.ID.String(),
+				"invoice", marked.InvoiceNumber,
+			)
+			return nil
+		}
+		if strings.TrimSpace(raw) != "" {
+			if err := tx.Model(&domain.PaymentOrder{}).Where("id = ?", marked.ID).Update("raw_webhook", raw).Error; err != nil {
+				return err
+			}
 		}
 
 		// 2) Renew / first paid upgrade via SubscriptionService (same tx).
@@ -531,6 +556,18 @@ func (s *Service) fulfillPaidOrder(
 	})
 	if err != nil {
 		return err
+	}
+
+	if orphan || order.UserID == uuid.Nil {
+		slog.Info("payment: orphan order paid; recorded without a plan grant",
+			"order_id", order.ID.String(),
+			"invoice", order.InvoiceNumber,
+			"amount", order.AmountVND,
+		)
+		if s.monitor != nil {
+			s.monitor.RecordSuccess(ctx, order.InvoiceNumber)
+		}
+		return nil
 	}
 
 	slog.Info("payment: fulfill success",
