@@ -34,7 +34,7 @@ type SkinCheck struct {
 	// ClientKind selects the coach voice for this check. "android" is the polite
 	// mình/bạn voice required for the Play app. Anything else, including empty,
 	// is the existing web voice. Existing rows default to web (AutoMigrate and
-	// migrations/026_skin_check_client_kind.up.sql). Not part of the public API.
+	// migrations/027_skin_check_client_kind.up.sql). Not part of the public API.
 	ClientKind string `gorm:"column:client_kind;size:16;not null;default:'web'" json:"-"`
 
 	CreatedAt time.Time      `json:"created_at"`

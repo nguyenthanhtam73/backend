@@ -89,7 +89,7 @@ func TestSkinCheckClientKindDefault_Postgres(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = sqlDB.Close() })
 
-	if err := db.AutoMigrate(&domain.User{}, &domain.SkinCheck{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.SkinCheck{}, &domain.SkinAnalysis{}); err != nil {
 		t.Fatal(err)
 	}
 	user := &domain.User{
@@ -101,6 +101,7 @@ func TestSkinCheckClientKindDefault_Postgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		_ = db.Exec(`DELETE FROM skin_analyses WHERE skin_check_id IN (SELECT id FROM skin_checks WHERE user_id = ?)`, user.ID).Error
 		_ = db.Unscoped().Where("user_id = ?", user.ID).Delete(&domain.SkinCheck{}).Error
 		_ = db.Unscoped().Where("id = ?", user.ID).Delete(&domain.User{}).Error
 	})
