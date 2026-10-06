@@ -83,6 +83,10 @@ type User struct {
 	// EmailReminderSuppressedAt stops reminder email to EmailReminderHash.
 	// A later change to Email clears it on the next send attempt.
 	EmailReminderSuppressedAt *time.Time `json:"-"`
+	// PushOptInSkippedAt is when the user dismissed the push permission card.
+	// PushOptInReshowUsedAt is set the one time that card is allowed again.
+	PushOptInSkippedAt    *time.Time `json:"-"`
+	PushOptInReshowUsedAt *time.Time `json:"-"`
 
 	// First-touch attribution captured at register. Nil means the client did
 	// not send a value, or the value was dropped (it contained '@', or a

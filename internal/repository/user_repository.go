@@ -164,6 +164,49 @@ func (r *GormUserRepository) SaveReminderEmailState(
 	).Error
 }
 
+// SetPushOptInSkippedAt records the first dismissal of the push permission card.
+// A later call does not move the timestamp.
+func (r *GormUserRepository) SetPushOptInSkippedAt(
+	ctx context.Context,
+	userID uuid.UUID,
+	at time.Time,
+) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	return db.WithContext(ctx).Model(&domain.User{}).
+		Where("id = ? AND push_opt_in_skipped_at IS NULL", userID).
+		Update("push_opt_in_skipped_at", at.UTC()).Error
+}
+
+// SetPushOptInReshowUsedAt records that the one allowed re-show was consumed.
+func (r *GormUserRepository) SetPushOptInReshowUsedAt(
+	ctx context.Context,
+	userID uuid.UUID,
+	at time.Time,
+) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	return db.WithContext(ctx).Model(&domain.User{}).
+		Where("id = ? AND push_opt_in_reshow_used_at IS NULL", userID).
+		Update("push_opt_in_reshow_used_at", at.UTC()).Error
+}
+
 // SetOnboardingSkipped updates users.onboarding_skipped for the given account.
 func (r *GormUserRepository) SetOnboardingSkipped(ctx context.Context, userID uuid.UUID, skipped bool) error {
 	db, err := r.dbOrErr()

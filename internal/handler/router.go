@@ -31,6 +31,9 @@ import (
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	pushuc "github.com/dadiary/backend/internal/usecase/push"
+	pushclickuc "github.com/dadiary/backend/internal/usecase/pushclick"
+	reminderprefsuc "github.com/dadiary/backend/internal/usecase/reminderprefs"
+	resendhookuc "github.com/dadiary/backend/internal/usecase/resendhook"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	streakuc "github.com/dadiary/backend/internal/usecase/streak"
@@ -228,6 +231,23 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Get("/email/unsubscribe", unsubH.Handle)
 		api.Post("/email/unsubscribe", unsubH.Handle)
 
+		webhookSecret := ""
+		if cfg != nil {
+			webhookSecret = cfg.Email.WebhookSecret
+		}
+		resendHook := resendhookuc.NewService(
+			webhookSecret,
+			repository.NewEmailEngagementRepository(db),
+			repository.NewEmailSendReceiptRepository(db),
+		)
+		// Svix signature is the only auth. Cap is process-wide: behind Railway
+		// c.IP() is the proxy, so a per-IP bucket would be one bucket anyway.
+		api.Post("/email/resend/webhook", middleware.FunnelEventGlobalLimiter(300, time.Minute), NewResendWebhookHandler(resendHook).Handle)
+
+		prefsH := NewReminderPrefsHandler(reminderprefsuc.NewService(userRepo))
+		api.Get("/me/reminder", jwt, prefsH.Get)
+		api.Put("/me/reminder", jwt, prefsH.Put)
+
 		mod := moderation.New(cfg)
 		analyzer := analysis.New(cfg, repo, profRepo, fbRepo, routineRepo, wardRepo, memCache, store)
 		txRunner := repository.NewTxRunner(db)
@@ -366,6 +386,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Delete("/me/push/unsubscribe", jwt, pushH.Unsubscribe)
 		api.Get("/me/push/subscription", jwt, pushH.GetActive)
 		api.Post("/me/push/test", jwt, pushH.SendTest)
+		api.Post("/me/push/click", jwt, middleware.AILimiter(60, time.Minute), NewPushClickHandler(pushclickuc.NewService(repository.NewPushClickRepository(db))).Click)
 
 		// User product feedback (bugs, feature ideas) — distinct from AI thumbs.
 		appFeedbackRepo := repository.NewFeedbackRepository(db)

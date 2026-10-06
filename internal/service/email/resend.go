@@ -35,9 +35,10 @@ type Message struct {
 }
 
 // Sender delivers a single transactional email.
+// Send returns Resend's email id on success (empty when the ESP omits it).
 type Sender interface {
 	Configured() bool
-	Send(ctx context.Context, msg Message) error
+	Send(ctx context.Context, msg Message) (providerID string, err error)
 }
 
 // ResendClient POSTs to api.resend.com. Safe to construct with empty credentials
@@ -76,17 +77,17 @@ type resendRequest struct {
 }
 
 // Send delivers one message. No-ops with ErrNotConfigured when ESP is missing.
-func (c *ResendClient) Send(ctx context.Context, msg Message) error {
+func (c *ResendClient) Send(ctx context.Context, msg Message) (string, error) {
 	if !c.Configured() {
 		slog.Info("email: skipped — ESP not configured (set RESEND_API_KEY and EMAIL_FROM)")
-		return ErrNotConfigured
+		return "", ErrNotConfigured
 	}
 	to := strings.TrimSpace(msg.To)
 	if to == "" {
-		return fmt.Errorf("%w: missing to", ErrSendFailed)
+		return "", fmt.Errorf("%w: missing to", ErrSendFailed)
 	}
 	if strings.TrimSpace(msg.Subject) == "" || strings.TrimSpace(msg.Text) == "" {
-		return fmt.Errorf("%w: subject and text required", ErrSendFailed)
+		return "", fmt.Errorf("%w: subject and text required", ErrSendFailed)
 	}
 
 	headers := map[string]string{}
@@ -112,7 +113,7 @@ func (c *ResendClient) Send(ctx context.Context, msg Message) error {
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("marshal resend body: %w", err)
+		return "", fmt.Errorf("marshal resend body: %w", err)
 	}
 
 	endpoint := c.endpoint
@@ -121,7 +122,7 @@ func (c *ResendClient) Send(ctx context.Context, msg Message) error {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(raw))
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrSendFailed, err)
+		return "", fmt.Errorf("%w: %v", ErrSendFailed, err)
 	}
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -129,21 +130,31 @@ func (c *ResendClient) Send(ctx context.Context, msg Message) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		slog.Error("email: resend transport failed", "to", maskEmail(to), "err", err)
-		return &Failure{cause: err}
+		return "", &Failure{cause: err}
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		slog.Info("email: sent", "to", maskEmail(to), "subject", msg.Subject, "status", resp.StatusCode)
-		return nil
+		var parsed struct {
+			ID string `json:"id"`
+		}
+		_ = json.Unmarshal(respBody, &parsed)
+		id := strings.TrimSpace(parsed.ID)
+		slog.Info("email: sent",
+			"to", maskEmail(to),
+			"subject", msg.Subject,
+			"status", resp.StatusCode,
+			"resend_email_id", id,
+		)
+		return id, nil
 	}
 	slog.Error("email: resend rejected",
 		"to", maskEmail(to),
 		"status", resp.StatusCode,
 		"body", string(respBody),
 	)
-	return &Failure{Status: resp.StatusCode, Body: string(respBody)}
+	return "", &Failure{Status: resp.StatusCode, Body: string(respBody)}
 }
 
 func maskEmail(addr string) string {

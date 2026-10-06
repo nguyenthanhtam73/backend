@@ -1,8 +1,13 @@
 // Package checkinreminder owns D0/D1 first-check-in reminder selection.
 //
-// Retention target: new accounts that have not logged a skin_check on the
-// Vietnam civil day they signed up (D0) or the next day (D1). After D1 the
-// existing evening daily_reminder push covers ongoing "didn't check in today".
+// In-app banner (Select): new accounts that have not logged a skin_check on
+// the Vietnam civil day they signed up (D0) or the next day (D1). After D1
+// the existing evening daily_reminder push covers ongoing "didn't check in
+// today".
+//
+// Reminder email is split: D0 stays on the hourly pass (same-day signup, no
+// check-in yet). D1 and D3 emails are selected in evening.go from the first
+// check-in date and sent at 19:30 Asia/Ho_Chi_Minh.
 package checkinreminder
 
 import (
@@ -19,6 +24,7 @@ const (
 	KindNone Kind = "none"
 	KindD0   Kind = "d0"
 	KindD1   Kind = "d1"
+	KindD3   Kind = "d3"
 )
 
 // NormalizeKind maps unknown values to KindNone.
@@ -28,6 +34,8 @@ func NormalizeKind(raw string) Kind {
 		return KindD0
 	case KindD1:
 		return KindD1
+	case KindD3:
+		return KindD3
 	default:
 		return KindNone
 	}
