@@ -7,6 +7,7 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"golang.org/x/text/unicode/norm"
 )
 
 func TestNormalizeCheckInDetail_LenientAndDropsBadNotes(t *testing.T) {
@@ -167,8 +168,8 @@ func TestCheckInDetailBlock_PhotoCheckInOnly(t *testing.T) {
 	if !strings.Contains(CheckInDetailJSONFields, `"overall"`) || !strings.Contains(CheckInDetailJSONFields, "trông giống") {
 		t.Fatal("detail schema missing overall or trông giống")
 	}
-	if !strings.Contains(CheckInDetailJSONFields, "lớp bảo vệ da") || !strings.Contains(CheckInDetailJSONFields, "hàng rào") {
-		t.Fatal("detail schema must name lớp bảo vệ da and forbid hàng rào")
+	if !strings.Contains(CheckInDetailJSONFields, `Say "lớp bảo vệ da", never "hàng rào"`) {
+		t.Fatal("barrier line must call the score lớp bảo vệ da and forbid hàng rào")
 	}
 	if strings.Contains(CoachOutputJSONSchemaBlock, `"zone_notes"`) || strings.Contains(coachOutputJSONSchemaBlockAndroid, `"zone_notes"`) {
 		t.Fatal("shared coach schema must not carry the photo-only block")
@@ -263,6 +264,117 @@ func TestNewCheckInFields_NeverContainHangRao(t *testing.T) {
 	}
 	if questions[0] != "Lớp bảo vệ da có yếu không?" || questions[1] != "lớp bảo vệ da thế nào?" || questions[2] != "Chụp sát vùng lớp bảo vệ da." {
 		t.Fatalf("questions %#v", questions)
+	}
+}
+
+func TestKeepScoreSentenceAndZoneNotes_RewriteHangRao(t *testing.T) {
+	t.Parallel()
+	if got := keepScoreSentence("Hàng rào da hơi yếu."); got != "Lớp bảo vệ da hơi yếu." {
+		t.Fatalf("score sentence %q", got)
+	}
+	if got := keepScoreSentence("Hàng rào (da) hơi yếu."); got != "Lớp bảo vệ da hơi yếu." {
+		t.Fatalf("parenthetical %q", got)
+	}
+	nfd := norm.NFD.String("Hàng rào da hơi yếu.")
+	if nfd == "Hàng rào da hơi yếu." {
+		t.Fatal("expected a decomposed string")
+	}
+	if got := keepScoreSentence(nfd); got != "Lớp bảo vệ da hơi yếu." || strings.Contains(norm.NFC.String(strings.ToLower(got)), "hàng rào") {
+		t.Fatalf("nfd score sentence %q", got)
+	}
+	if got := keepScoreSentence("HÀNG RÀO hơi yếu."); got != "LỚP BẢO VỆ DA hơi yếu." {
+		t.Fatalf("upper score sentence %q", got)
+	}
+
+	vision := `{"zone_observations":[{"zone":"FOREHEAD","cue":"nốt nhỏ","severity":"MILD"}]}`
+	parsed := &CoachStructuredOutput{
+		ZoneNotesRaw: mustRawJSON(t, []map[string]string{{
+			"zone": "FOREHEAD", "note": norm.NFD.String("Trán trông giống HÀNG RÀO DA."), "severity": "mild",
+		}}),
+		SkinScoreNotesRaw: mustRawJSON(t, map[string]string{
+			"overall":   norm.NFD.String("Hàng rào da hơi yếu."),
+			"hydration": "HÀNG RÀO BẢO VỆ mỏng.",
+			"clarity":   "Màu đều.",
+			"barrier":   "Hàng rào (da) đang yếu.",
+		}),
+	}
+	for _, client := range []string{domain.RefreshClientWeb, domain.RefreshClientAndroid} {
+		labels := map[string]any{}
+		ApplyCheckInDetail(labels, parsed, vision, nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, client, "vi")
+		notes := labels["zone_notes"].([]dto.CoachZoneNote)
+		scores := labels["skin_score_notes"].(*dto.SkinCoachScoreNotes)
+		blob := notes[0].Note + "\n" + scores.Overall + "\n" + scores.Hydration + "\n" + scores.Clarity + "\n" + scores.Barrier
+		if strings.Contains(norm.NFC.String(strings.ToLower(blob)), "hàng rào") {
+			t.Fatalf("%s still says hàng rào: %s", client, blob)
+		}
+		if notes[0].Zone != "forehead" {
+			t.Fatalf("zone %q", notes[0].Zone)
+		}
+	}
+}
+
+func TestNoteFilter_NFCAndWordBoundaryDisease(t *testing.T) {
+	t.Parallel()
+	vision := `{"zone_observations":[{"zone":"chin","cue":"nốt nhỏ","severity":"mild"}]}`
+	nfdLooks := norm.NFD.String("Cằm trông giống nốt nhỏ màu da.")
+	if nfdLooks == "Cằm trông giống nốt nhỏ màu da." {
+		t.Fatal("expected decomposed looks-like")
+	}
+	parsed := &CoachStructuredOutput{
+		ZoneNotesRaw: mustRawJSON(t, []map[string]string{
+			{"zone": "chin", "note": nfdLooks, "severity": "mild"},
+			{"zone": "chin", "note": norm.NFD.String("Cằm trông giống chàm."), "severity": "mild"},
+			{"zone": "chin", "note": "Cằm trông giống đèn Trung thu.", "severity": "mild"},
+		}),
+		SkinScoreNotesRaw: mustRawJSON(t, map[string]string{
+			"overall":   norm.NFD.String("Da yếu vì chàm."),
+			"hydration": "Da yếu vì CHÀM.",
+			"clarity":   "Da yếu vì ROSACEA.",
+			"barrier":   "Da yếu vì cham.",
+		}),
+	}
+	notes, scores := NormalizeCheckInDetail(parsed.ZoneNotesRaw, parsed.SkinScoreNotesRaw, vision, nil, PhotoEvidenceOK, "vi")
+	joined := norm.NFC.String(joinNotes(notes))
+	if !strings.Contains(joined, "nốt nhỏ") || strings.Contains(strings.ToLower(joined), "chàm") {
+		t.Fatalf("zone notes %q", joined)
+	}
+	if !strings.Contains(joined, "Trung thu") {
+		t.Fatalf("Trung thu was treated as ung thu: %q", joined)
+	}
+	if scores != nil {
+		blob := scores.Overall + scores.Hydration + scores.Clarity + scores.Barrier
+		if strings.TrimSpace(blob) != "" {
+			t.Fatalf("disease score notes kept: %#v", scores)
+		}
+	}
+	for _, bad := range []string{"viêm da", "nấm da", "lang ben", "mụn cóc", "viêm nang lông", "dày sừng", "u mềm lây", "ung thu"} {
+		if !noteNamesDisease("Da có " + bad + " rõ.") {
+			t.Fatalf("missed %q", bad)
+		}
+	}
+	if noteNamesDisease("Trung thu vui.") {
+		t.Fatal("ung thu matched inside Trung thu")
+	}
+}
+
+func TestVisionZoneObservations_StoredJSONShape(t *testing.T) {
+	t.Parallel()
+	vision := `{"zone_observations":[{"zone":"FOREHEAD","cue":"nốt nhỏ màu da","severity":"MILD"},{"zone":"not_a_zone","cue":"bỏ","severity":"mild"}]}`
+	labels := map[string]any{}
+	ApplyCheckInDetail(labels, nil, vision, nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientWeb, "vi")
+	raw, err := json.Marshal(labels["vision_zone_observations"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	if strings.Contains(got, `"Zone"`) || strings.Contains(got, `"Cue"`) || strings.Contains(got, `"Severity"`) || strings.Contains(got, "FOREHEAD") {
+		t.Fatalf("stored shape %s", got)
+	}
+	if !strings.Contains(got, `"zone":"forehead"`) || !strings.Contains(got, `"cue":"nốt nhỏ màu da"`) || !strings.Contains(got, `"severity":"mild"`) {
+		t.Fatalf("stored shape %s", got)
+	}
+	if strings.Contains(got, "not_a_zone") {
+		t.Fatalf("unknown zone stored: %s", got)
 	}
 }
 

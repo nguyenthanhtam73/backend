@@ -42,9 +42,37 @@ func TestCheckInConfidence_LookAlikeAsksUntilAnswered(t *testing.T) {
 	}
 
 	answered := photoContextJSON(t, nil, &dto.SkinContextInput{Firmness: "firm", Duration: "months", Pain: "none"})
-	_, needs, qs = CheckInConfidence(CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, vision, answered, "vi")
+	level, needs, qs = CheckInConfidence(CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, vision, answered, "vi")
 	if needs || len(qs) != 0 {
 		t.Fatalf("answered skin_context should clear questions, got %v", qs)
+	}
+	if level == ConfidenceLow {
+		t.Fatalf("answered look-alike stayed low")
+	}
+}
+
+func TestConfidenceAfterAnswers_RaisesLowWhenNothingLeftToAsk(t *testing.T) {
+	t.Parallel()
+	if got := confidenceAfterAnswers(ConfidenceLow, true, nil); got != ConfidenceMedium {
+		t.Fatalf("raised %s", got)
+	}
+	if got := confidenceAfterAnswers(ConfidenceLow, true, []string{"Chụp lại gần cửa sổ."}); got != ConfidenceLow {
+		t.Fatalf("retake tip should keep low, got %s", got)
+	}
+	if got := confidenceAfterAnswers(ConfidenceLow, false, nil); got != ConfidenceLow {
+		t.Fatalf("unasked low read changed to %s", got)
+	}
+	if got := confidenceAfterAnswers(ConfidenceHigh, true, nil); got != ConfidenceHigh {
+		t.Fatalf("high changed to %s", got)
+	}
+
+	// Redness is already denied, so this low read does not ask. Answering
+	// touch must not promote it.
+	vision := `{"zone_observations":[{"zone":"left_cheek","cue":"nốt nhỏ màu da nổi cao, không thấy đỏ sưng","severity":"mild"}]}`
+	answered := photoContextJSON(t, nil, &dto.SkinContextInput{Firmness: "firm", Duration: "months", Pain: "none"})
+	level, needs, qs := CheckInConfidence(CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, vision, answered, "vi")
+	if level != ConfidenceLow || needs || len(qs) != 0 {
+		t.Fatalf("denied-redness read %s needs=%v qs=%v", level, needs, qs)
 	}
 }
 

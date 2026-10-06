@@ -8,9 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"strings"
+
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -83,6 +86,62 @@ func seedCheck(t *testing.T, repo *repository.GormSkinCheckRepository, owner uui
 		t.Fatalf("reload seed: %v", err)
 	}
 	return got
+}
+
+func TestReanalyze_ReusesPhotoContextInVisionAndCoach(t *testing.T) {
+	enq := &recordingEnqueuer{}
+	svc, repo := setupReanalyzeSvc(t, enq)
+	owner := uuid.New()
+	photo := json.RawMessage(`{"images":[{"index":0,"kind":"full_face"},{"index":1,"kind":"closeup","zone":"left_cheek"}],"skin_context":{"firmness":"firm","duration":"months","pain":"none","extra":"không đổi"}}`)
+	checkDate := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	check := &domain.SkinCheck{
+		UserID:       owner,
+		Title:        "morning",
+		ImageURLs:    json.RawMessage(`["checks/a.jpg","checks/b.jpg"]`),
+		Visibility:   domain.CheckVisibilityPrivate,
+		CheckDate:    checkDate,
+		PhotoContext: photo,
+	}
+	analyzed := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	row := &domain.SkinAnalysis{
+		Status:       domain.AnalysisStatusCompleted,
+		SummaryNotes: "original",
+		ModelVersion: "v-original",
+		AnalyzedAt:   &analyzed,
+	}
+	if err := repo.CreateWithAnalysis(context.Background(), check, row); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.Reanalyze(context.Background(), owner, check.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(enq.calls()) != 1 || enq.calls()[0] != check.ID {
+		t.Fatalf("enqueued %#v", enq.calls())
+	}
+	if len(res.Check.PhotoMeta) != 2 || res.Check.PhotoMeta[0].Index != 0 || res.Check.PhotoMeta[0].Kind != "full_face" || res.Check.PhotoMeta[0].Zone != "" {
+		t.Fatalf("echo full face %#v", res.Check.PhotoMeta)
+	}
+	if res.Check.PhotoMeta[1].Index != 1 || res.Check.PhotoMeta[1].Kind != "closeup" || res.Check.PhotoMeta[1].Zone != "left_cheek" {
+		t.Fatalf("echo close-up %#v", res.Check.PhotoMeta[1])
+	}
+
+	reloaded, err := repo.GetByID(context.Background(), check.ID)
+	if err != nil || reloaded == nil {
+		t.Fatal(err)
+	}
+	if string(reloaded.PhotoContext) == "" || !strings.Contains(string(reloaded.PhotoContext), "left_cheek") {
+		t.Fatalf("photo_context lost: %s", reloaded.PhotoContext)
+	}
+	hint := ai.BuildCheckInVisionHint(reloaded)
+	coach := ai.BuildCheckInContext(reloaded)
+	if !strings.Contains(hint, "CLOSE-UP") || !strings.Contains(hint, "left_cheek") || !strings.Contains(hint, "cứng như hạt cát") {
+		t.Fatalf("vision hint %s", hint)
+	}
+	if !strings.Contains(coach, "left_cheek") || !strings.Contains(coach, "User reports") || !strings.Contains(coach, "firm") {
+		t.Fatalf("coach context %s", coach)
+	}
 }
 
 func TestReanalyze_OwnerOnly(t *testing.T) {

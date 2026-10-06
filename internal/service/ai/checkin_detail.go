@@ -3,6 +3,7 @@ package ai
 import (
 	"encoding/json"
 	"strings"
+	"unicode"
 
 	"github.com/dadiary/backend/internal/dto"
 	"golang.org/x/text/unicode/norm"
@@ -25,9 +26,16 @@ var checkInSeverities = map[string]struct{}{
 var diseasePhrases = []string{
 	"eczema", "rosacea", "herpes", "psoriasis", "melanoma", "carcinoma",
 	"lupus", "dermatitis", "impetigo", "cellulitis", "vitiligo", "shingles",
-	"chàm", "vảy nến", "vay nen", "trứng cá đỏ", "trung ca do",
+	"chàm", "cham", "vảy nến", "vay nen", "trứng cá đỏ", "trung ca do",
 	"ung thư", "ung thu", "thủy đậu", "thuy dau",
 	"viêm da cơ địa", "viem da co dia",
+	"viêm da", "viem da",
+	"nấm da", "nam da",
+	"lang ben",
+	"mụn cóc", "mun coc",
+	"viêm nang lông", "viem nang long",
+	"dày sừng", "day sung",
+	"u mềm lây", "u mem lay",
 	"chẩn đoán", "chan doan", "diagnosis", "diagnosed",
 	"zona",
 }
@@ -177,6 +185,7 @@ func filterZoneNotes(in []dto.CoachZoneNote, allowed map[string]struct{}) []dto.
 		if note == "" || !noteSaysLooksLike(note) || noteNamesDisease(note) {
 			continue
 		}
+		note = rewriteBarrierWording(note)
 		sev, _ := canonicalSeverity(n.Severity)
 		out = append(out, dto.CoachZoneNote{Zone: zone, Note: note, Severity: sev})
 		if len(out) >= maxZoneNotes {
@@ -210,7 +219,9 @@ func keepScoreSentence(s string) string {
 	if s == "" || noteNamesDisease(s) {
 		return ""
 	}
-	return s
+	// "Hàng rào da hơi yếu." used to be stored verbatim. The app calls this
+	// score lớp bảo vệ da, so rewrite it here before the sentence is kept.
+	return rewriteBarrierWording(s)
 }
 
 func fallbackZoneNotes(visionRaw, locale string) []dto.CoachZoneNote {
@@ -239,7 +250,7 @@ func fallbackZoneNotes(visionRaw, locale string) []dto.CoachZoneNote {
 }
 
 func noteSaysLooksLike(note string) bool {
-	low := strings.ToLower(note)
+	low := strings.ToLower(norm.NFC.String(note))
 	for _, p := range []string{"trông giống", "trông như", "looks like", "look like"} {
 		if strings.Contains(low, p) {
 			return true
@@ -249,9 +260,51 @@ func noteSaysLooksLike(note string) bool {
 }
 
 func noteNamesDisease(note string) bool {
-	low := strings.ToLower(note)
+	words := diseaseWords(note)
+	if len(words) == 0 {
+		return false
+	}
 	for _, p := range diseasePhrases {
-		if strings.Contains(low, p) {
+		phrase := diseaseWords(p)
+		if len(phrase) == 0 {
+			continue
+		}
+		if wordsContainSequence(words, phrase) {
+			return true
+		}
+	}
+	return false
+}
+
+// diseaseWords is NFC and lowercase, split on words. "CHÀM" and NFD "chàm"
+// match the accented phrase; unaccented "cham" is its own list entry.
+// Whole words keep "ung thu" from hitting "Trung thu", and "vảy nên" from
+// hitting "vảy nến".
+func diseaseWords(s string) []string {
+	folded := strings.ToLower(norm.NFC.String(s))
+	parts := splitVoiceChunks(folded)
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p.word {
+			out = append(out, p.text)
+		}
+	}
+	return out
+}
+
+func wordsContainSequence(words, phrase []string) bool {
+	if len(phrase) == 0 || len(phrase) > len(words) {
+		return false
+	}
+	for i := 0; i+len(phrase) <= len(words); i++ {
+		match := true
+		for j := range phrase {
+			if words[i+j] != phrase[j] {
+				match = false
+				break
+			}
+		}
+		if match {
 			return true
 		}
 	}
@@ -291,9 +344,9 @@ func allowedCheckInZones(visionRaw string, photoCtx json.RawMessage) map[string]
 }
 
 type visionZone struct {
-	Zone     string
-	Cue      string
-	Severity string
+	Zone     string `json:"zone"`
+	Cue      string `json:"cue"`
+	Severity string `json:"severity"`
 }
 
 func zoneObservationValues(visionRaw string) []visionZone {
@@ -320,8 +373,13 @@ func zoneObservationValues(visionRaw string) []visionZone {
 		if !okZ || !okC {
 			continue
 		}
-		sev, _ := jsonStringValue(obj["severity"])
-		out = append(out, visionZone{Zone: zone, Cue: cue, Severity: sev})
+		canon, ok := canonicalZone(zone)
+		if !ok {
+			continue
+		}
+		rawSev, _ := jsonStringValue(obj["severity"])
+		sev, _ := canonicalSeverity(rawSev)
+		out = append(out, visionZone{Zone: canon, Cue: strings.TrimSpace(cue), Severity: sev})
 	}
 	return out
 }
@@ -428,6 +486,10 @@ func rewriteBarrierWording(s string) string {
 		}
 		b.WriteString(matchVoiceCase(joinVoiceWords(parts, i, end), barrierPhraseReplacement))
 		changed = true
+		// A swallowed "(da)" chunk can include the space before the next word.
+		if end < len(parts) && !parts[end].word && strings.ContainsAny(parts[end].text, " \t\n") && end+1 < len(parts) && parts[end+1].word {
+			b.WriteByte(' ')
+		}
 		i = end + 1
 	}
 	if !changed {
@@ -441,29 +503,63 @@ func matchBarrierPhrase(parts []voiceChunk, i int) (int, bool) {
 		return 0, false
 	}
 	rao := nextVoiceWord(parts, i)
-	if rao < 0 || !voiceWordIs(parts[rao], "rào") || !whitespaceOnlyBetween(parts, i, rao) {
+	if rao < 0 || !voiceWordIs(parts[rao], "rào") || !barrierGap(parts, i, rao) {
 		return 0, false
 	}
 	end := rao
 	next := nextVoiceWord(parts, rao)
-	if next >= 0 && whitespaceOnlyBetween(parts, rao, next) {
+	if next >= 0 && barrierGap(parts, rao, next) {
 		if voiceWordIs(parts[next], "da") {
 			end = next
 		} else if voiceWordIs(parts[next], "bảo") {
 			ve := nextVoiceWord(parts, next)
-			if ve >= 0 && voiceWordIs(parts[ve], "vệ") && whitespaceOnlyBetween(parts, next, ve) {
+			if ve >= 0 && voiceWordIs(parts[ve], "vệ") && barrierGap(parts, next, ve) {
 				end = ve
 			}
 		}
 	}
 	for {
 		extra := nextVoiceWord(parts, end)
-		if extra < 0 || !voiceWordIs(parts[extra], "da") || !whitespaceOnlyBetween(parts, end, extra) {
+		if extra < 0 || !voiceWordIs(parts[extra], "da") || !barrierGap(parts, end, extra) {
 			break
 		}
 		end = extra
 	}
-	return end, true
+	return swallowClosingParen(parts, i, end), true
+}
+
+// barrierGap allows spaces and parentheses between "hàng rào" and "(da)".
+func barrierGap(parts []voiceChunk, from, to int) bool {
+	for k := from + 1; k < to; k++ {
+		if parts[k].word {
+			return false
+		}
+		for _, r := range parts[k].text {
+			if unicode.IsSpace(r) || r == '(' || r == ')' || r == '[' || r == ']' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+func swallowClosingParen(parts []voiceChunk, from, end int) int {
+	opened := false
+	for k := from; k <= end && k < len(parts); k++ {
+		if strings.ContainsAny(parts[k].text, "([") {
+			opened = true
+			break
+		}
+	}
+	if !opened || end+1 >= len(parts) || parts[end+1].word {
+		return end
+	}
+	trimmed := strings.TrimSpace(parts[end+1].text)
+	if trimmed == ")" || trimmed == "]" {
+		return end + 1
+	}
+	return end
 }
 
 func nextVoiceWord(parts []voiceChunk, from int) int {

@@ -33,6 +33,7 @@ func CheckInConfidence(ev CheckInPhotoEvidence, visionRaw string, photoCtx json.
 
 	answered := answeredSkinCues(photoCtx)
 	levels := []string{level}
+	asked := false
 	for _, z := range zoneObservationValues(visionRaw) {
 		region := morphologyRegion(z.Zone)
 		verdict := ClassifyMorphology(MorphologyFeaturesFromProse(z.Cue, region))
@@ -40,6 +41,7 @@ func CheckInConfidence(ev CheckInPhotoEvidence, visionRaw string, photoCtx json.
 		if !ShouldAskUser(verdict) {
 			continue
 		}
+		asked = true
 		filtered := verdict
 		filtered.MissingCues = withoutAnsweredCues(verdict.MissingCues, answered)
 		questions = appendQuestions(questions, MorphologyClarifyQuestions(filtered, locale))
@@ -50,7 +52,18 @@ func CheckInConfidence(ev CheckInPhotoEvidence, visionRaw string, photoCtx json.
 	if len(questions) == 0 {
 		questions = nil
 	}
-	return WorstConfidence(levels...), len(questions) > 0, questions
+	level = confidenceAfterAnswers(WorstConfidence(levels...), asked, questions)
+	return level, len(questions) > 0, questions
+}
+
+// confidenceAfterAnswers lifts a low read to medium once every follow-up the
+// photo needed has already been answered. Retake tips and unanswered cues
+// keep the low score.
+func confidenceAfterAnswers(level string, asked bool, questions []string) string {
+	if asked && len(questions) == 0 && level == ConfidenceLow {
+		return ConfidenceMedium
+	}
+	return level
 }
 
 func morphologyRegion(zone string) string {
