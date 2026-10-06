@@ -289,6 +289,137 @@ func (r *GormSkinCheckRepository) FirstCheckDate(
 	return &day, nil
 }
 
+// HasCheckedInOn reports whether the user has a skin check on the Vietnam
+// civil day of day (stored as UTC midnight, same as check_date).
+func (r *GormSkinCheckRepository) HasCheckedInOn(
+	ctx context.Context,
+	userID uuid.UUID,
+	day time.Time,
+) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if userID == uuid.Nil {
+		return false, fmt.Errorf("user id required")
+	}
+	d := streaktime.DateOf(day)
+	conn := DBFromContext(ctx, db)
+	var count int64
+	err = conn.
+		Model(&domain.SkinCheck{}).
+		Where("user_id = ? AND check_date = ?", userID, d).
+		Limit(1).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// FirstCheckCohort is one user whose earliest check-in falls on FirstCheck.
+type FirstCheckCohort struct {
+	UserID     uuid.UUID
+	FirstCheck time.Time
+}
+
+// ListUsersByFirstCheckDates returns users whose MIN(check_date) is one of
+// dates (Vietnam civil days, UTC midnight). Used by the 19:30 D1/D3 email.
+func (r *GormSkinCheckRepository) ListUsersByFirstCheckDates(
+	ctx context.Context,
+	dates []time.Time,
+	limit int,
+) ([]FirstCheckCohort, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if len(dates) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 || limit > 5000 {
+		limit = 5000
+	}
+	norm := make([]time.Time, 0, len(dates))
+	for _, d := range dates {
+		norm = append(norm, streaktime.DateOf(d))
+	}
+	sqlRows, err := db.WithContext(ctx).
+		Model(&domain.SkinCheck{}).
+		Select("CAST(user_id AS TEXT) AS user_id, MIN(check_date) AS first_check").
+		Group("user_id").
+		Having("MIN(check_date) IN ?", norm).
+		Limit(limit).
+		Rows()
+	if err != nil {
+		return nil, err
+	}
+	defer sqlRows.Close()
+	out := make([]FirstCheckCohort, 0)
+	for sqlRows.Next() {
+		var userRaw string
+		var when any
+		if err := sqlRows.Scan(&userRaw, &when); err != nil {
+			return nil, err
+		}
+		id, err := uuid.Parse(userRaw)
+		if err != nil || id == uuid.Nil {
+			continue
+		}
+		first, err := coerceStoredTime(when)
+		if err != nil {
+			return nil, err
+		}
+		if first.IsZero() {
+			continue
+		}
+		out = append(out, FirstCheckCohort{
+			UserID:     id,
+			FirstCheck: streaktime.DateOf(first),
+		})
+	}
+	if err := sqlRows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func coerceStoredTime(src any) (time.Time, error) {
+	switch v := src.(type) {
+	case nil:
+		return time.Time{}, nil
+	case time.Time:
+		return v, nil
+	case string:
+		return parseStoredTime(v)
+	case []byte:
+		return parseStoredTime(string(v))
+	default:
+		return time.Time{}, fmt.Errorf("check date %T", src)
+	}
+}
+
+func parseStoredTime(raw string) (time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02 15:04:05.999999999 -0700 MST",
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05.999999999-07:00",
+		"2006-01-02 15:04:05-07:00",
+		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("parse check date %q", raw)
+}
+
 // MonthlyDigestRow is a single bucket in the older-history digest: how many
 // checks happened in this month and which tags/symptoms dominated.
 type MonthlyDigestRow struct {

@@ -39,11 +39,32 @@ func TestBuildReminderTemplate_NoDiagnosisClaims(t *testing.T) {
 	if !strings.Contains(d0.Text, "Chào bạn,") || !strings.Contains(d0.HTML, "https://dadiary.vn/check-in") {
 		t.Fatalf("d0 greeting/cta: %s", d0.Text)
 	}
+	if strings.Contains(d0.Text, "src=") || strings.Contains(d0.HTML, "src=") {
+		t.Fatalf("d0 CTA should stay bare: %s", d0.Text)
+	}
 	if d1.Subject != "DaDiary ghé hỏi — trời đổi, hôm nay check-in chưa?" {
 		t.Fatalf("d1 subject=%q", d1.Subject)
 	}
 	if !strings.Contains(d1.Text, "Thời tiết đổi, da cần được quan tâm hơn. Nhắc nhẹ thôi, không mắng đâu.") {
 		t.Fatalf("d1 body: %s", d1.Text)
+	}
+	if !strings.Contains(d1.Text, "https://dadiary.vn/check-in?src=email_d1") ||
+		!strings.Contains(d1.HTML, "https://dadiary.vn/check-in?src=email_d1") {
+		t.Fatalf("d1 CTA src missing: %s", d1.Text)
+	}
+	d3 := BuildReminderTemplate(KindD3, "https://dadiary.vn/check-in", "", "Lan")
+	if d3.Subject != "DaDiary ghé lại — hôm qua chưa thấy bạn" {
+		t.Fatalf("d3 subject=%q", d3.Subject)
+	}
+	if !strings.Contains(d3.Text, "Ba hôm trước bạn đã check-in. Hôm qua chưa thấy bạn. Một tấm ảnh hôm nay là đủ — không cần đẹp.") {
+		t.Fatalf("d3 body: %s", d3.Text)
+	}
+	if !strings.Contains(d3.Text, "https://dadiary.vn/check-in?src=email_d3") ||
+		!strings.Contains(d3.HTML, "https://dadiary.vn/check-in?src=email_d3") {
+		t.Fatalf("d3 CTA src missing: %s", d3.Text)
+	}
+	if !strings.Contains(d3.HTML, "#2DD4BF") || !strings.Contains(d3.HTML, "#134E4A") {
+		t.Fatal("d3 left the mint/teal palette")
 	}
 }
 

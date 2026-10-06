@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
@@ -11,7 +12,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// EmailSendReceiptRepository persists ≤1 D0 and ≤1 D1 reminder email per user.
+// EmailSendReceiptRepository persists ≤1 reminder email per kind per user (d0, d1, d3).
 type EmailSendReceiptRepository struct {
 	db *gorm.DB
 }
@@ -28,7 +29,7 @@ func (r *EmailSendReceiptRepository) dbOrErr() (*gorm.DB, error) {
 	return r.db, nil
 }
 
-// HasSent reports whether this user already received a kind (d0|d1) email.
+// HasSent reports whether this user already received a kind (d0|d1|d3) email.
 func (r *EmailSendReceiptRepository) HasSent(
 	ctx context.Context,
 	userID uuid.UUID,
@@ -86,4 +87,53 @@ func (r *EmailSendReceiptRepository) Release(
 	return db.WithContext(ctx).
 		Where("user_id = ? AND kind = ?", userID, kind).
 		Delete(&domain.EmailSendReceipt{}).Error
+}
+
+// SetResendEmailID stores Resend's email id on a claimed receipt so opens and
+// clicks can join. Empty id is a no-op. A later id does not overwrite.
+func (r *EmailSendReceiptRepository) SetResendEmailID(
+	ctx context.Context,
+	userID uuid.UUID,
+	kind string,
+	resendEmailID string,
+) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	resendEmailID = strings.TrimSpace(resendEmailID)
+	if userID == uuid.Nil || kind == "" || resendEmailID == "" {
+		return nil
+	}
+	return db.WithContext(ctx).
+		Model(&domain.EmailSendReceipt{}).
+		Where("user_id = ? AND kind = ? AND (resend_email_id = '' OR resend_email_id IS NULL)", userID, kind).
+		Update("resend_email_id", resendEmailID).Error
+}
+
+// FindByResendEmailID returns the receipt for a Resend email id, or (nil, nil).
+func (r *EmailSendReceiptRepository) FindByResendEmailID(
+	ctx context.Context,
+	resendEmailID string,
+) (*domain.EmailSendReceipt, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	resendEmailID = strings.TrimSpace(resendEmailID)
+	if resendEmailID == "" {
+		return nil, nil
+	}
+	var row domain.EmailSendReceipt
+	err = db.WithContext(ctx).
+		Where("resend_email_id = ?", resendEmailID).
+		Limit(1).
+		Find(&row).Error
+	if err != nil {
+		return nil, err
+	}
+	if row.UserID == uuid.Nil {
+		return nil, nil
+	}
+	return &row, nil
 }
