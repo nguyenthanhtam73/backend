@@ -143,6 +143,34 @@ func (e *schedEnv) addUser(email string, enabled *bool, hhmm, tz string, created
 	return got
 }
 
+func (e *schedEnv) addUserNoPush(email string, enabled *bool, hhmm, tz string, created time.Time) *domain.User {
+	e.t.Helper()
+	u := &domain.User{Email: email, Username: email, IsActive: true}
+	if err := e.users.Create(context.Background(), u); err != nil {
+		e.t.Fatal(err)
+	}
+	if !created.IsZero() {
+		if err := e.users.SetCreatedAtForTest(context.Background(), u.ID, created); err != nil {
+			e.t.Fatal(err)
+		}
+	}
+	var timePtr, tzPtr *string
+	if hhmm != "" {
+		timePtr = &hhmm
+	}
+	if tz != "" {
+		tzPtr = &tz
+	}
+	if err := e.users.SetReminderSchedule(context.Background(), u.ID, enabled, timePtr, tzPtr); err != nil {
+		e.t.Fatal(err)
+	}
+	got, err := e.users.GetByID(context.Background(), u.ID)
+	if err != nil || got == nil {
+		e.t.Fatalf("reload user: %v", err)
+	}
+	return got
+}
+
 func (e *schedEnv) checkIn(u *domain.User, at time.Time) {
 	e.t.Helper()
 	row := &domain.SkinCheck{
@@ -262,6 +290,33 @@ func TestDefaultTimezoneIsVietnam(t *testing.T) {
 	}
 	if env.hit(missing.ID) != 1 || env.hit(bad.ID) != 1 || env.hit(early.ID) != 0 {
 		t.Fatalf("hits missing=%d bad=%d early=%d", env.hit(missing.ID), env.hit(bad.ID), env.hit(early.ID))
+	}
+}
+
+func TestNothingToSendKeepsClaimForTheLocalDay(t *testing.T) {
+	now := time.Date(2026, 6, 15, 8, 4, 0, 0, mustLoc(t, "Asia/Tokyo"))
+	env := newSchedEnv(t, now)
+	enabled := true
+	// Old account: not D0/D1, and no first check, so no Day-3 email is due.
+	// No push subscription, so the push is skipped rather than sent.
+	user := env.addUserNoPush("quiet@test.com", &enabled, "08:00", "Asia/Tokyo", now.Add(-40*24*time.Hour))
+
+	first := env.deliver(t)
+	if first.Sent != 0 || first.PushSent != 0 || first.EmailSent != 0 || first.Failed != 0 {
+		t.Fatalf("first tick should send nothing: %+v", first)
+	}
+	if env.hit(user.ID) != 0 || env.claims(user.ID) != 1 {
+		t.Fatalf("hits=%d claims=%d", env.hit(user.ID), env.claims(user.ID))
+	}
+
+	later := now.Add(5 * time.Minute)
+	env.setClock(later)
+	second := env.deliver(t)
+	if second.Sent != 0 || second.PushSent != 0 || second.Failed != 0 {
+		t.Fatalf("later tick should not send: %+v", second)
+	}
+	if env.hit(user.ID) != 0 || env.claims(user.ID) != 1 {
+		t.Fatalf("later tick hits=%d claims=%d", env.hit(user.ID), env.claims(user.ID))
 	}
 }
 

@@ -174,9 +174,6 @@ func (s *Service) deliverOne(ctx context.Context, u *domain.User, now time.Time)
 	}
 	tryPush := s.push != nil && pushType != ""
 	tryEmail := s.emails != nil && emailKind != checkinreminderuc.KindNone
-	if !tryPush && !tryEmail {
-		return false, false, false, false
-	}
 
 	claimed, err := s.claims.TryClaim(ctx, u.ID, localDate, now)
 	if err != nil {
@@ -195,6 +192,16 @@ func (s *Service) deliverOne(ctx context.Context, u *domain.User, now time.Time)
 		return false, false, false, false
 	}
 
+	// Push sender is not wired and no D0/D1/Day-3 email is due.
+	// The claim stays for this local civil day so later ticks do not retry.
+	if !tryPush && !tryEmail {
+		slog.Debug("scheduled_capture: nothing to send — claim kept",
+			"user_id", u.ID.String(),
+			"local_date", localDate,
+		)
+		return false, false, false, false
+	}
+
 	pushSent, pushFailed := s.sendPush(ctx, u.ID, pushType, localDate, tryPush)
 	emailSent, emailFailed := s.sendEmail(ctx, u, emailKind, tryEmail)
 	if pushSent || emailSent {
@@ -207,12 +214,17 @@ func (s *Service) deliverOne(ctx context.Context, u *domain.User, now time.Time)
 		)
 		return true, false, pushSent, emailSent
 	}
-	// Nothing landed. Drop the claim so a later tick inside the grace window
-	// can retry (no subscription yet, or the provider failed).
-	s.release(ctx, u.ID, localDate)
+	// A skipped push (no subscription, sender not configured) is not a failed
+	// attempt. Release only when a send was attempted and the provider failed,
+	// so a later tick inside the grace window can retry that attempt.
 	if pushFailed || emailFailed {
+		s.release(ctx, u.ID, localDate)
 		return false, true, false, false
 	}
+	slog.Debug("scheduled_capture: nothing to send — claim kept",
+		"user_id", u.ID.String(),
+		"local_date", localDate,
+	)
 	return false, false, false, false
 }
 
