@@ -6,6 +6,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/dadiary/backend/internal/dto"
+	"golang.org/x/text/unicode/norm"
 )
 
 // androidVoiceDrop are standalone profanity tokens removed from Play-store copy.
@@ -33,10 +34,11 @@ var (
 		"đếch": "không",
 	}
 	// eyebrowMayPrev is the word before "mày" when "mày" is an eyebrow, not "you".
+	// "2" covers "giữa 2 mày"; "vùng" covers "Vùng mày".
 	eyebrowMayPrev = map[string]struct{}{
 		"kẻ": {}, "tỉa": {}, "chì": {}, "đầu": {}, "đuôi": {}, "cung": {},
 		"hai": {}, "giữa": {}, "phun": {}, "xăm": {}, "vẽ": {}, "sợi": {},
-		"lông": {}, "chân": {},
+		"lông": {}, "chân": {}, "vùng": {}, "2": {},
 	}
 	// eyebrowMayNext is the word after "mày" when "mày" is an eyebrow.
 	eyebrowMayNext = map[string]struct{}{
@@ -95,10 +97,21 @@ func sanitizeList(items []string, changed *bool) []string {
 	if len(items) == 0 {
 		return items
 	}
-	for i, item := range items {
-		items[i] = sanitizeField(item, changed)
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		next := sanitizeField(item, changed)
+		// A bullet that was only profanity would render as a blank line.
+		if strings.TrimSpace(next) == "" {
+			if strings.TrimSpace(item) != "" {
+				*changed = true
+			} else {
+				out = append(out, next)
+			}
+			continue
+		}
+		out = append(out, next)
 	}
-	return items
+	return out
 }
 
 func sanitizeProductSuggestion(item dto.ProductSuggestion, changed *bool) dto.ProductSuggestion {
@@ -124,7 +137,46 @@ type voiceChunk struct {
 	text string
 }
 
+// voiceEmit tracks words already written so a swap or deletion can collapse
+// the duplicate it just created ("không đéo được" → "không được") without
+// touching reduplication the sanitizer did not produce ("từ từ").
+type voiceEmit struct {
+	key         string
+	has         bool
+	wasSwap     bool
+	collapseRun bool
+	pendingDrop bool
+	gapOK       bool
+}
+
 func replaceAndroidVoiceTokens(s string) (string, bool) {
+	if strings.TrimSpace(s) == "" {
+		return s, false
+	}
+	original := s
+	// NFC folds a decomposed "đéo" or "mày" (base letter plus a combining
+	// mark) into the composed tokens the drop and swap maps use.
+	normalized := norm.NFC.String(s)
+	lines := strings.Split(normalized, "\n")
+	changed := false
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		next, lineChanged := replaceAndroidVoiceLine(line)
+		if lineChanged {
+			changed = true
+			if strings.TrimSpace(next) == "" {
+				continue
+			}
+		}
+		kept = append(kept, next)
+	}
+	if !changed {
+		return original, false
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n")), true
+}
+
+func replaceAndroidVoiceLine(s string) (string, bool) {
 	if strings.TrimSpace(s) == "" {
 		return s, false
 	}
@@ -135,12 +187,16 @@ func replaceAndroidVoiceTokens(s string) (string, bool) {
 	prevWord := ""
 	sentenceStart := true
 	droppedAtStart := false
+	var emitted voiceEmit
 	var b strings.Builder
 	for i, part := range parts {
 		if !part.word {
 			// Punctuation left in front after a removed opener ("ĐM, mày" → "Bạn").
 			if sentenceStart && droppedAtStart {
 				continue
+			}
+			if emitted.has && !horizontalSpaceOnly(part.text) {
+				emitted.gapOK = false
 			}
 			b.WriteString(part.text)
 			if chunkEndsSentence(part.text) {
@@ -157,20 +213,31 @@ func replaceAndroidVoiceTokens(s string) (string, bool) {
 			}
 			changed = true
 			prevWord = key
+			emitted.pendingDrop = true
 			if sentenceStart {
 				droppedAtStart = true
 			}
 			continue
 		}
 		text := part.text
+		swapped := false
 		if repl, ok := androidVoiceSwap[key]; ok && !keepEyebrowMay(key, prevWord, nextWord[i]) {
 			changed = true
+			swapped = true
 			text = matchVoiceCase(part.text, repl)
 		}
 		if sentenceStart && droppedAtStart {
 			text = capitalizeSentenceStart(text)
 		}
+		if emitted.collapse(strings.ToLower(text), swapped) {
+			changed = true
+			prevWord = key
+			sentenceStart = false
+			droppedAtStart = false
+			continue
+		}
 		b.WriteString(text)
+		emitted.note(strings.ToLower(text), swapped)
 		prevWord = key
 		sentenceStart = false
 		droppedAtStart = false
@@ -179,6 +246,32 @@ func replaceAndroidVoiceTokens(s string) (string, bool) {
 		return s, false
 	}
 	return polishVoiceSpacing(b.String()), true
+}
+
+// collapse reports whether this output word repeats the previous one only
+// because a swap or a dropped token made them neighbors. Punctuation between
+// the two words keeps both.
+func (e *voiceEmit) collapse(outKey string, swapped bool) bool {
+	if !e.has || outKey == "" || outKey != e.key || !e.gapOK {
+		return false
+	}
+	if !swapped && !e.wasSwap && !e.pendingDrop && !e.collapseRun {
+		return false
+	}
+	e.wasSwap = e.wasSwap || swapped
+	e.collapseRun = true
+	e.pendingDrop = false
+	e.gapOK = true
+	return true
+}
+
+func (e *voiceEmit) note(outKey string, swapped bool) {
+	e.key = outKey
+	e.has = true
+	e.wasSwap = swapped
+	e.collapseRun = false
+	e.pendingDrop = false
+	e.gapOK = true
 }
 
 func voiceNextWords(parts []voiceChunk) ([]string, []int) {
@@ -198,6 +291,18 @@ func voiceNextWords(parts []voiceChunk) ([]string, []int) {
 		}
 	}
 	return next, at
+}
+
+func horizontalSpaceOnly(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r != ' ' && r != '\t' {
+			return false
+		}
+	}
+	return true
 }
 
 func whitespaceOnlyBetween(parts []voiceChunk, from, to int) bool {

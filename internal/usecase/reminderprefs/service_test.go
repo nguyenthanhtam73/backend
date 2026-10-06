@@ -100,6 +100,99 @@ func TestApply_SkipOnceThenConsume(t *testing.T) {
 	}
 }
 
+func TestApply_OmitsTimezoneKeepsStored(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:prefs_tz_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&domain.User{}); err != nil {
+		t.Fatal(err)
+	}
+	users := repository.NewUserRepository(db)
+	u := &domain.User{Email: "dubai@test.com", Username: "dubai@test.com", IsActive: true}
+	if err := users.Create(context.Background(), u); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(users)
+	enabled := true
+	hhmm := "21:30"
+	tz := "Asia/Dubai"
+	view, err := svc.Apply(context.Background(), u.ID, Update{Enabled: &enabled, Time: &hhmm, Timezone: &tz})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Schedule == nil || view.Schedule.Timezone == nil || *view.Schedule.Timezone != "Asia/Dubai" {
+		t.Fatalf("store dubai: %+v", view.Schedule)
+	}
+
+	off := false
+	view, err = svc.Apply(context.Background(), u.ID, Update{Enabled: &off})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Schedule == nil || view.Schedule.Enabled == nil || *view.Schedule.Enabled {
+		t.Fatalf("enabled: %+v", view.Schedule)
+	}
+	if view.Schedule.Timezone == nil || *view.Schedule.Timezone != "Asia/Dubai" {
+		t.Fatalf("timezone: %+v", view.Schedule)
+	}
+	if view.Schedule.Time == nil || *view.Schedule.Time != "21:30" {
+		t.Fatalf("time: %+v", view.Schedule)
+	}
+
+	blankTZ := "  "
+	view, err = svc.Apply(context.Background(), u.ID, Update{Timezone: &blankTZ})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Schedule.Timezone == nil || *view.Schedule.Timezone != "Asia/Dubai" || view.Schedule.Time == nil || *view.Schedule.Time != "21:30" {
+		t.Fatalf("blank timezone: %+v", view.Schedule)
+	}
+
+	blankTime := ""
+	view, err = svc.Apply(context.Background(), u.ID, Update{Time: &blankTime})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Schedule.Time == nil || *view.Schedule.Time != "21:30" || view.Schedule.Timezone == nil || *view.Schedule.Timezone != "Asia/Dubai" {
+		t.Fatalf("blank time: %+v", view.Schedule)
+	}
+}
+
+func TestApply_FirstScheduleDefaultsTimezone(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:prefs_tz0_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&domain.User{}); err != nil {
+		t.Fatal(err)
+	}
+	users := repository.NewUserRepository(db)
+	u := &domain.User{Email: "first@test.com", Username: "first@test.com", IsActive: true}
+	if err := users.Create(context.Background(), u); err != nil {
+		t.Fatal(err)
+	}
+	svc := NewService(users)
+	off := false
+	view, err := svc.Apply(context.Background(), u.ID, Update{Enabled: &off})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.Schedule == nil || view.Schedule.Timezone == nil || *view.Schedule.Timezone != DefaultReminderTimezone {
+		t.Fatalf("default timezone: %+v", view.Schedule)
+	}
+	if view.Schedule.Time != nil {
+		t.Fatalf("time was stored: %+v", view.Schedule)
+	}
+	if view.Schedule.Enabled == nil || *view.Schedule.Enabled {
+		t.Fatalf("enabled: %+v", view.Schedule)
+	}
+}
+
 func TestApply_ConsumeBeforeSkipDoesNotBurnReshow(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:prefs2_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),

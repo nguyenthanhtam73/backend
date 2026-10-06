@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/dadiary/backend/internal/dto"
+	"golang.org/x/text/unicode/norm"
 )
 
 func TestSanitizeAndroidVoiceText(t *testing.T) {
@@ -48,6 +49,21 @@ func TestSanitizeAndroidVoiceText(t *testing.T) {
 		{"địtcon", "địtcon"},
 		{"admin nói", "admin nói"},
 		{"Da ổn. đm mày thấy.", "Da ổn. Bạn thấy."},
+		{"không đéo được", "không được"},
+		{"không đéo không được", "không được"},
+		{"đéo không được", "không được"},
+		{"không, đéo được", "không, không được"},
+		{"ổn vãi là ổn", "ổn"},
+		{"từ từ", "từ từ"},
+		{"nhẹ nhẹ", "nhẹ nhẹ"},
+		{"hay hay", "hay hay"},
+		{"không không", "không không"},
+		{"từ từ đéo được", "từ từ không được"},
+		{"hay hay vl", "hay hay"},
+		{"Da ổn.\nđịt\nMai check.", "Da ổn.\nMai check."},
+		{"Da ổn.\n\nMai đéo check.", "Da ổn.\n\nMai không check."},
+		{"địt\n\nDa ổn.", "Da ổn."},
+		{"địt\nvl", ""},
 	}
 	for _, tc := range cases {
 		got := SanitizeAndroidVoiceText(tc.in)
@@ -116,7 +132,7 @@ func TestSanitizeAndroidCoachOutput_UserFacingOnly(t *testing.T) {
 
 func TestSanitizeAndroidVoice_EyebrowMay(t *testing.T) {
 	// Previous word keeps "mày" as eyebrow.
-	prev := []string{"kẻ", "tỉa", "chì", "đầu", "đuôi", "cung", "hai", "giữa", "phun", "xăm", "vẽ", "sợi", "lông", "chân"}
+	prev := []string{"kẻ", "tỉa", "chì", "đầu", "đuôi", "cung", "hai", "giữa", "phun", "xăm", "vẽ", "sợi", "lông", "chân", "vùng", "2"}
 	for _, w := range prev {
 		in := w + " mày"
 		t.Run("prev "+w, func(t *testing.T) {
@@ -144,9 +160,61 @@ func TestSanitizeAndroidVoice_EyebrowMay(t *testing.T) {
 	if got := SanitizeAndroidVoiceText("mụn giữa hai mày"); got != "mụn giữa hai mày" {
 		t.Fatalf("got %q", got)
 	}
+	if got := SanitizeAndroidVoiceText("giữa 2 mày"); got != "giữa 2 mày" {
+		t.Fatalf("got %q", got)
+	}
+	if got := SanitizeAndroidVoiceText("Vùng mày"); got != "Vùng mày" {
+		t.Fatalf("got %q", got)
+	}
+	if got := SanitizeAndroidVoiceText("Vùng mày đỏ vl"); got != "Vùng mày đỏ" {
+		t.Fatalf("got %q", got)
+	}
 	// A following word outside the eyebrow list is still the pronoun.
 	if got := SanitizeAndroidVoiceText("mày hai"); got != "bạn hai" {
 		t.Fatalf("pronoun got %q", got)
+	}
+}
+
+func TestSanitizeAndroidVoice_DecomposedDiacritics(t *testing.T) {
+	deo := norm.NFD.String("đéo")
+	may := norm.NFD.String("mày")
+	if deo == "đéo" || !strings.Contains(deo, "\u0301") {
+		t.Fatalf("đéo did not decompose: %q", deo)
+	}
+	if may == "mày" || !strings.Contains(may, "\u0300") {
+		t.Fatalf("mày did not decompose: %q", may)
+	}
+	if got := SanitizeAndroidVoiceText(deo + " hiểu"); got != "không hiểu" {
+		t.Fatalf("đéo got %q", got)
+	}
+	if got := SanitizeAndroidVoiceText("Da " + may + " hôm nay"); got != "Da bạn hôm nay" {
+		t.Fatalf("mày got %q", got)
+	}
+	if got := SanitizeAndroidVoiceText("không " + deo + " được"); got != "không được" {
+		t.Fatalf("collapse got %q", got)
+	}
+	eyebrow := "lông " + may
+	if got := SanitizeAndroidVoiceText(eyebrow); strings.Contains(got, "bạn") {
+		t.Fatalf("eyebrow got %q", got)
+	}
+}
+
+func TestSanitizeAndroidCoachOutput_DropsProfanityOnlyItem(t *testing.T) {
+	out := &CoachStructuredOutput{
+		SummaryNotes: "Da ổn.\nđịt\nMai check.",
+		Strengths:    []string{"vl", "Da ổn", "vãi là"},
+	}
+	if !SanitizeAndroidCoachOutput(out) {
+		t.Fatal("expected a rewrite")
+	}
+	if out.SummaryNotes != "Da ổn.\nMai check." {
+		t.Fatalf("notes %q", out.SummaryNotes)
+	}
+	if len(out.Strengths) != 1 || out.Strengths[0] != "Da ổn" {
+		t.Fatalf("strengths %#v", out.Strengths)
+	}
+	if SanitizeAndroidCoachOutput(out) {
+		t.Fatal("second pass should be a no-op")
 	}
 }
 

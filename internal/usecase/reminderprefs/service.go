@@ -26,7 +26,7 @@ const (
 )
 
 // DefaultReminderTimezone is stored when a schedule write omits timezone
-// or sends it blank.
+// or sends it blank, and this user has never stored one.
 const DefaultReminderTimezone = "Asia/Ho_Chi_Minh"
 
 // ErrUnavailable means the store is not wired.
@@ -44,9 +44,10 @@ var ErrInvalidTimezone = errors.New("invalid reminder timezone")
 
 // Update is one PUT /api/v1/me/reminder.
 //
-// Action empty means the push-permission card is unchanged. Enabled, Time,
-// and Timezone nil means that schedule column is unchanged, except that any
-// schedule write with a missing or blank Timezone stores DefaultReminderTimezone.
+// Action empty means the push-permission card is unchanged. A nil Enabled,
+// Time, or Timezone leaves that column unchanged. A blank Time is treated as
+// omitted. A missing or blank Timezone keeps the stored zone; it becomes
+// DefaultReminderTimezone only when no timezone has ever been stored.
 type Update struct {
 	Action   string
 	Enabled  *bool
@@ -127,25 +128,16 @@ func (s *Service) Apply(ctx context.Context, userID uuid.UUID, in Update) (View,
 		return zero, ErrInvalidAction
 	}
 
-	var hhmm *string
-	if in.Time != nil {
-		parsed, err := NormalizeReminderTime(*in.Time)
-		if err != nil {
-			return zero, err
-		}
-		hhmm = &parsed
+	hhmm, err := reminderTimeUpdate(in.Time)
+	if err != nil {
+		return zero, err
 	}
 	var tz *string
 	if hasSchedule {
-		raw := ""
-		if in.Timezone != nil {
-			raw = *in.Timezone
-		}
-		resolved, err := NormalizeReminderTimezone(raw)
+		tz, err = s.resolveReminderTimezone(ctx, userID, in.Timezone)
 		if err != nil {
 			return zero, err
 		}
-		tz = &resolved
 	}
 
 	if hasSchedule {
@@ -179,6 +171,50 @@ func (s *Service) Apply(ctx context.Context, userID uuid.UUID, in Update) (View,
 		}
 	}
 	return s.Get(ctx, userID)
+}
+
+// reminderTimeUpdate returns nil when time was omitted or blank, so the
+// stored clock is left as-is. A non-empty value must be HH:MM.
+func reminderTimeUpdate(raw *string) (*string, error) {
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return nil, nil
+	}
+	parsed, err := NormalizeReminderTime(*raw)
+	if err != nil {
+		return nil, err
+	}
+	return &parsed, nil
+}
+
+// resolveReminderTimezone returns nil when the stored timezone should be kept.
+// An explicit IANA name is validated and returned for writing. A missing or
+// blank name keeps a stored zone, or DefaultReminderTimezone when none exists.
+func (s *Service) resolveReminderTimezone(ctx context.Context, userID uuid.UUID, raw *string) (*string, error) {
+	if raw != nil {
+		name := strings.TrimSpace(*raw)
+		if name != "" {
+			resolved, err := NormalizeReminderTimezone(name)
+			if err != nil {
+				return nil, err
+			}
+			return &resolved, nil
+		}
+	}
+	current, err := s.users.GetByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil {
+		return nil, domain.NotFound("user_not_found", "user not found")
+	}
+	if current.ReminderTimezone != nil && strings.TrimSpace(*current.ReminderTimezone) != "" {
+		return nil, nil
+	}
+	resolved, err := NormalizeReminderTimezone("")
+	if err != nil {
+		return nil, err
+	}
+	return &resolved, nil
 }
 
 // NormalizeReminderTime accepts HH:MM from 00:00 through 23:59.

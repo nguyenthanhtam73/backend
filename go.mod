@@ -16,6 +16,7 @@ require (
 	github.com/spf13/viper v1.20.1
 	golang.org/x/crypto v0.32.0
 	golang.org/x/image v0.23.0
+	golang.org/x/text v0.38.0
 	gorm.io/driver/postgres v1.5.11
 	gorm.io/gorm v1.25.12
 )
@@ -62,7 +63,6 @@ require (
 	go.uber.org/multierr v1.9.0 // indirect
 	golang.org/x/sync v0.21.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
-	golang.org/x/text v0.38.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.22.5 // indirect
 	modernc.org/mathutil v1.5.0 // indirect
