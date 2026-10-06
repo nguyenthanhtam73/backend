@@ -470,6 +470,7 @@ func newAccountApp(t *testing.T) (*fiber.App, *gorm.DB, storage.Storage) {
 		&domain.ProgressLog{},
 		&domain.PushSubscription{},
 		&domain.PushSendReceipt{},
+		&domain.CaptureReminderClaim{},
 		&domain.CheckInReminderFlag{},
 		&domain.RoutineSuggestJob{},
 		&domain.Streak{},

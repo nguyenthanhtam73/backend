@@ -32,6 +32,7 @@ func TestDeleteAllPersonalData_WipesStreakAndUsage(t *testing.T) {
 		&domain.ProgressLog{},
 		&domain.PushSubscription{},
 		&domain.PushSendReceipt{},
+		&domain.CaptureReminderClaim{},
 		&domain.CheckInReminderFlag{},
 		&domain.RoutineSuggestJob{},
 		&domain.Streak{},

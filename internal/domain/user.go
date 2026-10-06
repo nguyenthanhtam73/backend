@@ -88,20 +88,21 @@ type User struct {
 	PushOptInSkippedAt    *time.Time `json:"-"`
 	PushOptInReshowUsedAt *time.Time `json:"-"`
 	// ReminderEnabled is the capture/check-in reminder switch.
-	// nil means never set (jobs behave as today). false stops every outbound
-	// reminder in reminder.All: the 20:00 daily and streak pushes, the
-	// 19:30–21:30 D1/Day-3 email, the hourly D0 email, and the hourly D0/D1
-	// push. true is an explicit opt-in and behaves as today. Transactional
-	// mail does not read this column.
+	// nil means never set: the fixed-clock jobs behave as today, and
+	// scheduled_capture does not select the user.
+	// false stops every outbound reminder in reminder.All.
+	// true with ReminderTime set is a saved schedule: scheduled_capture sends
+	// the one capture moment, and the fixed-clock jobs skip the user.
+	// true without ReminderTime stays on the fixed clocks.
+	// Transactional mail does not read this column.
 	ReminderEnabled *bool `gorm:"column:reminder_enabled" json:"-"`
-	// ReminderTime is a local HH:MM wall clock. It is stored for a later
-	// per-user send time. The shared 20:00 push and 19:30 email clocks still
-	// decide when a message goes out.
-	//
-	// TODO: when sending at ReminderTime, allow at most one reminder per user
-	// per day, and skip the user if they already checked in that day.
+	// ReminderTime is a local HH:MM wall clock. With ReminderEnabled true it
+	// is the user's capture time. A 5-minute tick sends at or after that
+	// minute, at most 2 hours late, and never after local midnight. One row
+	// in capture_reminder_claims locks the local civil date.
 	ReminderTime *string `gorm:"column:reminder_time;size:5" json:"-"`
 	// ReminderTimezone is an IANA name such as Asia/Ho_Chi_Minh.
+	// Empty or invalid uses Asia/Ho_Chi_Minh.
 	ReminderTimezone *string `gorm:"column:reminder_timezone;size:64" json:"-"`
 
 	// First-touch attribution captured at register. Nil means the client did

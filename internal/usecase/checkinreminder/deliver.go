@@ -136,8 +136,9 @@ func (s *Service) DeliverDue(ctx context.Context) (DeliveryResult, error) {
 		// not this signup-day flag.
 		// reminder_enabled = false is already absent: ListDue calls
 		// reminder.ExcludeMuted for the hourly D0 email and the D0/D1 push.
-		// NULL and true stay in this list. Transactional mail does not come
-		// through here.
+		// ExcludeScheduled has also dropped a saved schedule. NULL and
+		// true-without-time stay in this list. Transactional mail does not
+		// come through here.
 		if kind == KindD0 && emailReady {
 			s.deliverEmail(ctx, u, kind, &out, &scratch)
 		} else {
@@ -410,6 +411,28 @@ func (s *Service) recordReminderRejection(
 	if out != nil {
 		out.EmailFailed++
 	}
+}
+
+// SendReminderEmail sends one D0, D1, or Day-3 reminder email through the same
+// receipt and suppression path as the fixed jobs. sent is true when the
+// provider accepted it. failed is true when the attempt did not land and a
+// later tick should retry. A skip (unsubscribed, already sent, no ESP) is
+// sent=false, failed=false.
+func (s *Service) SendReminderEmail(ctx context.Context, u *domain.User, kind Kind) (sent bool, failed bool) {
+	if s == nil || u == nil {
+		return false, false
+	}
+	if kind != KindD0 && kind != KindD1 && kind != KindD3 {
+		return false, false
+	}
+	if s.mailer == nil || !s.mailer.Configured() || s.emailReceipts == nil {
+		return false, false
+	}
+	var out DeliveryResult
+	var scratch deliveryScratch
+	s.deliverEmail(ctx, u, kind, &out, &scratch)
+	s.settleReminderRejections(ctx, &scratch, &out)
+	return out.EmailSent > 0, out.EmailFailed > 0
 }
 
 func (s *Service) deliverPush(

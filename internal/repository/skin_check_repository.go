@@ -217,6 +217,38 @@ func (r *GormSkinCheckRepository) HasCheckedInToday(
 	return count > 0, nil
 }
 
+// HasCheckedInBetween reports whether the user has a skin check whose
+// created_at falls in [start, end). Callers pass the user's local civil day
+// so a reminder can skip someone who already checked in on that local date,
+// including when that date is not the Vietnam civil day stored in check_date.
+func (r *GormSkinCheckRepository) HasCheckedInBetween(
+	ctx context.Context,
+	userID uuid.UUID,
+	start, end time.Time,
+) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if userID == uuid.Nil {
+		return false, fmt.Errorf("user id required")
+	}
+	if !end.After(start) {
+		return false, nil
+	}
+	conn := DBFromContext(ctx, db)
+	var count int64
+	err = conn.
+		Model(&domain.SkinCheck{}).
+		Where("user_id = ? AND created_at >= ? AND created_at < ?", userID, start, end).
+		Limit(1).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 const adminActivityListCap = 200
 
 // ListByCheckDate returns every check-in on a Vietnam civil day (UTC-midnight
@@ -327,7 +359,9 @@ type FirstCheckCohort struct {
 // ListUsersByFirstCheckDates returns users whose MIN(check_date) is one of
 // dates (Vietnam civil days, UTC midnight). The 19:30 D1/Day-3 email passes
 // reminder.JobEveningEmail. reminder.ExcludeMuted drops reminder_enabled =
-// false. NULL and true stay in the cohort. The hourly D0 email uses ListDue.
+// false. reminder.ExcludeScheduled drops a saved schedule; that email is
+// sent inside the user's one scheduled moment instead. NULL and
+// true-without-time stay in the cohort. The hourly D0 email uses ListDue.
 func (r *GormSkinCheckRepository) ListUsersByFirstCheckDates(
 	ctx context.Context,
 	dates []time.Time,
@@ -348,12 +382,12 @@ func (r *GormSkinCheckRepository) ListUsersByFirstCheckDates(
 	for _, d := range dates {
 		norm = append(norm, streaktime.DateOf(d))
 	}
-	sqlRows, err := reminder.ExcludeMuted(ctx, db.WithContext(ctx).
+	sqlRows, err := reminder.ExcludeScheduled(reminder.ExcludeMuted(ctx, db.WithContext(ctx).
 		Model(&domain.SkinCheck{}).
 		Select("CAST(user_id AS TEXT) AS user_id, MIN(check_date) AS first_check"),
 		"user_id",
 		job,
-	).Group("user_id").
+	), "user_id").Group("user_id").
 		Having("MIN(check_date) IN ?", norm).
 		Limit(limit).
 		Rows()

@@ -71,7 +71,9 @@ func (d *streakAtRiskDedupe) markSent(userID uuid.UUID, today string) {
 //  2. have an active Web Push subscription.
 //
 // ListActiveUserIDs calls reminder.ExcludeMuted for this job, so
-// reminder_enabled = false is left out. NULL and true still match.
+// reminder_enabled = false is left out. ExcludeScheduled drops a saved
+// schedule; scheduled_capture sends streak_at_risk at that user's local
+// time instead. NULL and true-without-time still match.
 func (s *Service) GetUsersAtRiskWithPush(ctx context.Context) ([]uuid.UUID, error) {
 	if s == nil || s.repo == nil || s.streaks == nil {
 		return nil, ErrUnavailable

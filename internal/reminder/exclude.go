@@ -88,3 +88,26 @@ func ExcludeMuted(ctx context.Context, db *gorm.DB, userIDExpr string, jobs ...J
 		Where("reminder_enabled = ?", false)
 	return db.Where(userIDExpr+" NOT IN (?)", muted)
 }
+
+// ExcludeScheduled drops users who saved a capture schedule
+// (reminder_enabled true and a non-empty reminder_time) from a fixed-clock
+// candidate query. NULL and true-without-time stay in the result. OFF users
+// are not this function's job — callers still use ExcludeMuted.
+//
+// The scheduled_capture job is the only sender for a saved schedule, so the
+// 20:00 pushes, the 19:30 email, and the hourly D0/D1 passes cannot take a
+// second moment the same day.
+func ExcludeScheduled(db *gorm.DB, userIDExpr string) *gorm.DB {
+	if db == nil {
+		return db
+	}
+	if !userIDExprPattern.MatchString(userIDExpr) {
+		panic("reminder.ExcludeScheduled: user id column must be a plain SQL identifier")
+	}
+	scheduled := db.Session(&gorm.Session{NewDB: true}).
+		Model(&domain.User{}).
+		Select("id").
+		Where("reminder_enabled = ?", true).
+		Where("reminder_time IS NOT NULL AND reminder_time <> ?", "")
+	return db.Where(userIDExpr+" NOT IN (?)", scheduled)
+}
