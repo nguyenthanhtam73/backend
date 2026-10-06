@@ -41,7 +41,8 @@ func (r *UserDataRepository) FindUser(ctx context.Context, userID uuid.UUID) (*d
 // person. Photo keys are returned so the caller can delete files after commit.
 //
 // Deleted (hard): users (including reminder columns push_opt_in_skipped_at,
-// push_opt_in_reshow_used_at, email unsubscribe, and first-touch attribution),
+// push_opt_in_reshow_used_at, reminder_enabled, reminder_time,
+// reminder_timezone, email unsubscribe, and first-touch attribution),
 // refresh_sessions, skin_checks, skin_analyses, skin_profiles, routine_entries,
 // skincare_products, ai_user_feedbacks, feedbacks, affiliate_clicks,
 // progress_logs, push_subscriptions, push_send_receipts, push_click_events,

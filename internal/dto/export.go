@@ -6,20 +6,30 @@ type ExportUserDataResponse struct {
 	PlanTier   string `json:"plan_tier"`
 	UserID     string `json:"user_id"`
 
-	Profile    *ExportSkinProfile   `json:"profile,omitempty"`
-	Streak     *StreakResponse      `json:"streak,omitempty"`
-	SkinChecks []ExportSkinCheck    `json:"skin_checks"`
-	Routines   []ExportRoutineDay   `json:"routines"`
-	Wardrobe   []ExportWardrobeItem `json:"wardrobe"`
+	Profile    *ExportSkinProfile     `json:"profile,omitempty"`
+	Streak     *StreakResponse        `json:"streak,omitempty"`
+	Reminder   ExportReminderSettings `json:"reminder"`
+	SkinChecks []ExportSkinCheck      `json:"skin_checks"`
+	Routines   []ExportRoutineDay     `json:"routines"`
+	Wardrobe   []ExportWardrobeItem   `json:"wardrobe"`
+}
+
+// ExportReminderSettings is the saved reminder schedule.
+// Null fields mean the user has not set that value. enabled null means the
+// evening jobs still follow the default (same as never chosen).
+type ExportReminderSettings struct {
+	Enabled  *bool   `json:"enabled"`
+	Time     *string `json:"time"`
+	Timezone *string `json:"timezone"`
 }
 
 // ExportSkinProfile is a privacy-safe profile snapshot for export.
 type ExportSkinProfile struct {
-	SkinType        string   `json:"skin_type,omitempty"`
-	Undertone       string   `json:"undertone,omitempty"`
-	Concerns        []string `json:"concerns,omitempty"`
-	Goals           []string `json:"goals,omitempty"`
-	SensitivityNotes string  `json:"sensitivity_notes,omitempty"`
+	SkinType         string   `json:"skin_type,omitempty"`
+	Undertone        string   `json:"undertone,omitempty"`
+	Concerns         []string `json:"concerns,omitempty"`
+	Goals            []string `json:"goals,omitempty"`
+	SensitivityNotes string   `json:"sensitivity_notes,omitempty"`
 }
 
 // ExportSkinCheck is one check-in row without raw image bytes.

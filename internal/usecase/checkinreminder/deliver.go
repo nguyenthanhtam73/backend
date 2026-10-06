@@ -133,6 +133,10 @@ func (s *Service) DeliverDue(ctx context.Context) (DeliveryResult, error) {
 		// D0 email stays on this hourly pass (same-day signup, no check-in).
 		// D1 email moved to the 19:30 ICT job and is anchored on first check-in,
 		// not this signup-day flag.
+		// reminder_enabled = false does not suppress this hourly D0 email or
+		// the D0/D1 push. OFF is applied in the 20:00 push query and the
+		// evening D1/Day-3 email query. Transactional mail does not come
+		// through here.
 		if kind == KindD0 && emailReady {
 			s.deliverEmail(ctx, u, kind, &out, &scratch)
 		} else {

@@ -10,6 +10,12 @@ import (
 
 // DeliverEveningEmails sends the 19:30 ICT D1 and Day-3 reminder emails.
 //
+// ListUsersByFirstCheckDates excludes reminder_enabled = false. NULL and true
+// still receive the email. Send time stays the shared 19:30–21:30 window.
+//
+// TODO: do not send at the user's ReminderTime yet. Future rules: max 1
+// reminder per user per day, and skip if the user already checked in that day.
+//
 // D1: calendar day after the user's first check-in, and they have not checked
 // in that Vietnam day. D3: three Vietnam days after the first check-in, only
 // when they did not check in on day 2 (first check-in + 2 days) and have not

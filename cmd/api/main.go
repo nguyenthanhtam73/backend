@@ -10,6 +10,9 @@ import (
 	"path"
 	"syscall"
 	"time"
+	// Embed IANA time zones. The server image has no zoneinfo, and
+	// PUT /me/reminder checks timezones with time.LoadLocation.
+	_ "time/tzdata"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"

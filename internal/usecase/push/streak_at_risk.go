@@ -68,6 +68,9 @@ func (d *streakAtRiskDedupe) markSent(userID uuid.UUID, today string) {
 //  1. streak at risk today (ListUsersAtRisk ≈ EvaluateStreakView IsAtRisk,
 //     including days_since == 1 and savable days_since == 2), and
 //  2. have an active Web Push subscription.
+//
+// ListActiveUserIDs excludes reminder_enabled = false, so this 20:00 push
+// honors the same OFF switch as daily_reminder. NULL and true still match.
 func (s *Service) GetUsersAtRiskWithPush(ctx context.Context) ([]uuid.UUID, error) {
 	if s == nil || s.repo == nil || s.streaks == nil {
 		return nil, ErrUnavailable

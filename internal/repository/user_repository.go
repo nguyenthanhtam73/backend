@@ -164,6 +164,41 @@ func (r *GormUserRepository) SaveReminderEmailState(
 	).Error
 }
 
+// SetReminderSchedule writes the per-user reminder schedule. A nil pointer
+// leaves that column unchanged. enabled nil means "never set" only when the
+// column is still NULL; this method does not clear a stored value back to NULL.
+func (r *GormUserRepository) SetReminderSchedule(
+	ctx context.Context,
+	userID uuid.UUID,
+	enabled *bool,
+	hhmm *string,
+	tz *string,
+) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	updates := map[string]any{}
+	if enabled != nil {
+		updates["reminder_enabled"] = *enabled
+	}
+	if hhmm != nil {
+		updates["reminder_time"] = *hhmm
+	}
+	if tz != nil {
+		updates["reminder_timezone"] = *tz
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	return db.WithContext(ctx).Model(&domain.User{}).
+		Where("id = ?", userID).
+		Updates(updates).Error
+}
+
 // SetPushOptInSkippedAt records the first dismissal of the push permission card.
 // A later call does not move the timestamp.
 func (r *GormUserRepository) SetPushOptInSkippedAt(

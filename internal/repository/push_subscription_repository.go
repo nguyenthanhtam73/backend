@@ -106,7 +106,11 @@ func (r *GormPushSubscriptionRepository) DeleteByEndpoint(
 }
 
 // ListActiveUserIDs returns distinct user IDs that currently have an active
-// push subscription. Used by daily-reminder fan-out (and future jobs).
+// push subscription and have not turned reminders off.
+//
+// reminder_enabled NULL (never set) and true are included. false is excluded
+// in this query, which is the 20:00 candidate list for daily_reminder and
+// streak_at_risk. The hourly D0/D1 push does not use this method.
 func (r *GormPushSubscriptionRepository) ListActiveUserIDs(
 	ctx context.Context,
 ) ([]uuid.UUID, error) {
@@ -118,6 +122,7 @@ func (r *GormPushSubscriptionRepository) ListActiveUserIDs(
 	err = db.WithContext(ctx).
 		Model(&domain.PushSubscription{}).
 		Where("is_active = ?", true).
+		Where("user_id NOT IN (?)", reminderDisabledUserIDs(db)).
 		Distinct("user_id").
 		Pluck("user_id", &ids).Error
 	if err != nil {

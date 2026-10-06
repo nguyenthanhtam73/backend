@@ -87,6 +87,20 @@ type User struct {
 	// PushOptInReshowUsedAt is set the one time that card is allowed again.
 	PushOptInSkippedAt    *time.Time `json:"-"`
 	PushOptInReshowUsedAt *time.Time `json:"-"`
+	// ReminderEnabled is the evening-reminder switch.
+	// nil means never set (jobs behave as today). false stops the 20:00 push
+	// and the evening reminder emails. true is an explicit opt-in and behaves
+	// as today.
+	ReminderEnabled *bool `gorm:"column:reminder_enabled" json:"-"`
+	// ReminderTime is a local HH:MM wall clock. It is stored for a later
+	// per-user send time. The shared 20:00 push and 19:30 email clocks still
+	// decide when a message goes out.
+	//
+	// TODO: when sending at ReminderTime, allow at most one reminder per user
+	// per day, and skip the user if they already checked in that day.
+	ReminderTime *string `gorm:"column:reminder_time;size:5" json:"-"`
+	// ReminderTimezone is an IANA name such as Asia/Ho_Chi_Minh.
+	ReminderTimezone *string `gorm:"column:reminder_timezone;size:64" json:"-"`
 
 	// First-touch attribution captured at register. Nil means the client did
 	// not send a value, or the value was dropped (it contained '@', or a

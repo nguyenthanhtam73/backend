@@ -120,6 +120,12 @@ func (s *Service) SendDailyReminderToUser(ctx context.Context, userID uuid.UUID)
 // push subscription who has not checked in today and is not streak-at-risk
 // (including days_since == 2 savable cases from ListUsersAtRisk). At-risk users
 // are skipped so streak_at_risk is their only evening nudge.
+//
+// ListActiveUserIDs already drops users with reminder_enabled = false.
+// NULL and true are still included. Send time stays the shared 20:00 clock.
+//
+// TODO: do not send at the user's ReminderTime yet. Future rules: max 1
+// reminder per user per day, and skip if the user already checked in that day.
 func (s *Service) SendDailyRemindersToAll(ctx context.Context) (DailyReminderBatchResult, error) {
 	var result DailyReminderBatchResult
 	if s == nil || s.sender == nil || s.repo == nil {
