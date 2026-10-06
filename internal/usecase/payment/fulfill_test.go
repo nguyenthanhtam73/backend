@@ -3,11 +3,11 @@ package payment
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"strings"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
@@ -21,12 +21,25 @@ import (
 
 func setupPaymentFulfill(t *testing.T) (*Service, *domain.User, *repository.GormUserRepository) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file:pay_fulfill_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
+	// Shared-cache memory SQLite returns SQLITE_LOCKED (deadlock 6, or
+	// shared-cache 262) when two IPNs write at once, and busy_timeout does
+	// not retry that code. A file database with BEGIN IMMEDIATE makes the
+	// second writer wait on SQLITE_BUSY instead, which is the serialization
+	// SELECT … FOR UPDATE provides on Postgres. The plan assertion still
+	// fails if the later, cheaper order downgrades.
+	dsn := filepath.Join(t.TempDir(), "pay.db") +
+		"?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := db.AutoMigrate(
 		&domain.User{},
 		&domain.PaymentOrder{},
@@ -157,6 +170,7 @@ func TestFulfillPaidOrder_ConcurrentIPNsNoDowngrade(t *testing.T) {
 	svc, user, users := setupPaymentFulfill(t)
 
 	// Premium+ and Premium settle concurrently — user must remain Premium+.
+	// Both handlers must succeed; a database error is not treated as a pass.
 	seedOrder(t, svc, user.ID, "DD-RACE-PLUS", domain.PlanPremiumPlus, domain.BillingMonthly, 159000)
 	seedOrder(t, svc, user.ID, "DD-RACE-PREM", domain.PlanPremium, domain.BillingMonthly, 99000)
 
