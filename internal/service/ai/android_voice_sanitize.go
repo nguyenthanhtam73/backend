@@ -188,9 +188,9 @@ func replaceAndroidVoiceLine(s string) (string, bool) {
 		return s, false
 	}
 	parts := splitVoiceChunks(s)
-	nextWord, nextWordAt := voiceNextWords(parts)
+	nextWord, _ := voiceNextWords(parts)
 	protected := urlOrPathTokenRanges(s)
-	dropAlso := map[int]bool{}
+	willDrop := voiceWordsToDrop(parts, protected)
 	changed := false
 	prevWord := ""
 	sentenceStart := true
@@ -206,6 +206,21 @@ func replaceAndroidVoiceLine(s string) (string, bool) {
 			if sentenceStart && droppedAtStart {
 				continue
 			}
+			if repl, handled := voiceLeftoverPunct(parts, i, willDrop); handled {
+				// A comma removed with the swear still separates words, so it
+				// must not look like the sanitizer glued them together.
+				if emitted.has && !horizontalSpaceOnly(part.text) {
+					emitted.gapOK = false
+				}
+				if repl != "" {
+					b.WriteString(repl)
+					if chunkEndsSentence(repl) {
+						sentenceStart = true
+						droppedAtStart = false
+					}
+				}
+				continue
+			}
 			if emitted.has && !horizontalSpaceOnly(part.text) {
 				emitted.gapOK = false
 			}
@@ -219,20 +234,14 @@ func replaceAndroidVoiceLine(s string) (string, bool) {
 		key := strings.ToLower(part.text)
 		// URLs, paths, and codes like "DM-2024" are not coach prose.
 		keepRaw := spanCovers(protected, partStart, offset) || hyphenJoinedToDigits(parts, i)
-		dropPhrase := !keepRaw && key == "vãi" && nextWord[i] == "là" && nextWordAt[i] >= 0 && whitespaceOnlyBetween(parts, i, nextWordAt[i])
-		if !keepRaw {
-			if _, drop := androidVoiceDrop[key]; drop || dropAlso[i] || dropPhrase {
-				if dropPhrase {
-					dropAlso[nextWordAt[i]] = true
-				}
-				changed = true
-				prevWord = key
-				emitted.pendingDrop = true
-				if sentenceStart {
-					droppedAtStart = true
-				}
-				continue
+		if willDrop[i] {
+			changed = true
+			prevWord = key
+			emitted.pendingDrop = true
+			if sentenceStart {
+				droppedAtStart = true
 			}
+			continue
 		}
 		text := part.text
 		swapped := false
@@ -508,6 +517,176 @@ func containsDigit(s string) bool {
 		}
 	}
 	return false
+}
+
+// voiceWordsToDrop marks profanity tokens that are deleted rather than
+// rewritten. Protected URL and code words stay, matching the main loop.
+func voiceWordsToDrop(parts []voiceChunk, protected []byteSpan) []bool {
+	drop := make([]bool, len(parts))
+	if len(parts) == 0 {
+		return drop
+	}
+	starts := make([]int, len(parts))
+	offset := 0
+	for i, part := range parts {
+		starts[i] = offset
+		offset += len(part.text)
+	}
+	keepRaw := func(i int) bool {
+		end := starts[i] + len(parts[i].text)
+		return spanCovers(protected, starts[i], end) || hyphenJoinedToDigits(parts, i)
+	}
+	nextWord, nextAt := voiceNextWords(parts)
+	for i, part := range parts {
+		if !part.word || keepRaw(i) {
+			continue
+		}
+		key := strings.ToLower(part.text)
+		if _, ok := androidVoiceDrop[key]; ok {
+			drop[i] = true
+		}
+		if key == "vãi" && nextWord[i] == "là" && nextAt[i] >= 0 && whitespaceOnlyBetween(parts, i, nextAt[i]) && !keepRaw(nextAt[i]) {
+			drop[i] = true
+			drop[nextAt[i]] = true
+		}
+	}
+	return drop
+}
+
+// voiceLeftoverPunct rewrites a comma that only remains because a word was
+// removed: "nốt nhỏ, đm." → "nốt nhỏ.", "da, đm, khá khô" → "da, khá khô".
+// A comma between digits ("1,5") or in text the sanitizer did not edit is
+// left alone. handled is false when this chunk should be copied through.
+func voiceLeftoverPunct(parts []voiceChunk, i int, willDrop []bool) (string, bool) {
+	text := parts[i].text
+	if !chunkHasComma(text) || !commaRunTouchesDrop(parts, i, willDrop) {
+		return "", false
+	}
+	if end, ok := commaThenEndPunct(text); ok {
+		return end, true
+	}
+	// "," and the following space are one chunk ("nốt nhỏ, đm.").
+	if !commaSpaceOnly(text) {
+		return "", false
+	}
+	_, right := expandCommaRun(parts, i, willDrop)
+	if commaRunKeepsOne(parts, right, willDrop) && lastCommaInRun(parts, i, right) {
+		return keptCommaText(text), true
+	}
+	// Either an earlier comma in this run is the one we keep, or the
+	// comma sits at the end of the line / in front of . ! ?
+	return "", true
+}
+
+func chunkHasComma(s string) bool {
+	return strings.Contains(s, ",")
+}
+
+func commaSpaceOnly(s string) bool {
+	if !chunkHasComma(s) {
+		return false
+	}
+	for _, r := range s {
+		if r != ',' && r != ' ' && r != '\t' {
+			return false
+		}
+	}
+	return true
+}
+
+func keptCommaText(chunk string) string {
+	if strings.ContainsAny(chunk, " \t") {
+		return ", "
+	}
+	return ","
+}
+
+// commaThenEndPunct accepts a chunk that is only commas, spaces, and one
+// sentence mark, such as ",." or ", !".
+func commaThenEndPunct(s string) (string, bool) {
+	if !chunkHasComma(s) {
+		return "", false
+	}
+	end := rune(0)
+	for _, r := range s {
+		switch r {
+		case ',', ' ', '\t':
+		case '.', '!', '?', '…':
+			end = r
+		default:
+			return "", false
+		}
+	}
+	if end == 0 {
+		return "", false
+	}
+	return string(end), true
+}
+
+func expandCommaRun(parts []voiceChunk, i int, willDrop []bool) (left, right int) {
+	left, right = i, i
+	for left > 0 {
+		j := left - 1
+		if commaRunStep(parts, j, willDrop) {
+			left = j
+			continue
+		}
+		break
+	}
+	for right+1 < len(parts) {
+		j := right + 1
+		if commaRunStep(parts, j, willDrop) {
+			right = j
+			continue
+		}
+		break
+	}
+	return left, right
+}
+
+func commaRunStep(parts []voiceChunk, j int, willDrop []bool) bool {
+	if parts[j].word {
+		return willDrop[j]
+	}
+	return horizontalSpaceOnly(parts[j].text) || commaSpaceOnly(parts[j].text)
+}
+
+func commaRunTouchesDrop(parts []voiceChunk, i int, willDrop []bool) bool {
+	left, right := expandCommaRun(parts, i, willDrop)
+	for j := left; j <= right; j++ {
+		if parts[j].word && willDrop[j] {
+			return true
+		}
+	}
+	for j := left - 1; j >= 0; j-- {
+		if horizontalSpaceOnly(parts[j].text) {
+			continue
+		}
+		return parts[j].word && willDrop[j]
+	}
+	return false
+}
+
+// commaRunKeepsOne is true when a real word still follows the comma run, so
+// one comma remains ("da, đm, khá" → "da, khá"). End punctuation and the
+// end of the line drop the comma instead.
+func commaRunKeepsOne(parts []voiceChunk, right int, willDrop []bool) bool {
+	for j := right + 1; j < len(parts); j++ {
+		if horizontalSpaceOnly(parts[j].text) {
+			continue
+		}
+		return parts[j].word && !willDrop[j]
+	}
+	return false
+}
+
+func lastCommaInRun(parts []voiceChunk, i, right int) bool {
+	for j := i + 1; j <= right; j++ {
+		if commaSpaceOnly(parts[j].text) {
+			return false
+		}
+	}
+	return true
 }
 
 func polishVoiceSpacing(s string) string {

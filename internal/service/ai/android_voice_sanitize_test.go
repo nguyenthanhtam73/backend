@@ -83,6 +83,23 @@ func TestSanitizeAndroidVoiceText(t *testing.T) {
 		{"Dưới mày", "Dưới mày"},
 		{"Vùng quanh mày", "Vùng quanh mày"},
 		{"Hai bên mày", "Hai bên mày"},
+		{"nốt nhỏ, đm.", "nốt nhỏ."},
+		{"nốt nhỏ, đm .", "nốt nhỏ."},
+		{"nốt nhỏ, đm!", "nốt nhỏ!"},
+		{"nốt nhỏ, đm?", "nốt nhỏ?"},
+		{"nốt nhỏ, đm", "nốt nhỏ"},
+		{"nốt nhỏ đm,", "nốt nhỏ"},
+		{"da, đm, khá khô", "da, khá khô"},
+		{"da,, đm khá", "da, khá"},
+		{"da, , đm khá", "da, khá"},
+		{"nốt đm,.", "nốt."},
+		{"1,5", "1,5"},
+		{"mày 1,5.", "bạn 1,5."},
+		{"1,5, đm.", "1,5."},
+		{"nốt nhỏ,.", "nốt nhỏ,."},
+		{"mày nhỏ,.", "bạn nhỏ,."},
+		{"https://ex.com/a,b đm", "https://ex.com/a,b"},
+		{"Mã DM-2024, đm.", "Mã DM-2024."},
 	}
 	for _, tc := range cases {
 		got := SanitizeAndroidVoiceText(tc.in)
