@@ -31,7 +31,8 @@ jobs:
 
       - name: Test
         env:
-          # TestDeleteAccount_PostgresFKAndSchema skips when this is empty.
+          # TestDeleteAccount_PostgresFKAndSchema and
+          # TestRefreshSessionClientKindDefault_Postgres skip when this is empty.
           # The Railway deploy workflow does not set it and does not run tests.
           DADIARY_DATABASE_URL: postgres://dadiary:dadiary@localhost:5432/dadiary?sslmode=disable
         run: go test ./... -count=1 -timeout 20m

@@ -14,6 +14,9 @@ type RegisterRequest struct {
 	DisplayName    string               `json:"display_name,omitempty"`
 	TurnstileToken string               `json:"turnstile_token,omitempty"` // Cloudflare Turnstile widget token when captcha enabled
 	Attribution    *RegisterAttribution `json:"attribution,omitempty"`
+	// Client is an optional session marker. Only the exact value "android" selects
+	// the long app refresh TTL. The X-DaDiary-Client header wins when it is set.
+	Client string `json:"client,omitempty"`
 }
 
 // RegisterAttribution is the optional first-touch campaign object on register.
@@ -31,15 +34,22 @@ type RegisterAttribution struct {
 type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// Client is an optional session marker. Only the exact value "android" selects
+	// the long app refresh TTL. The X-DaDiary-Client header wins when it is set.
+	Client string `json:"client,omitempty"`
 }
 
 // RefreshRequest is the JSON body for POST /api/v1/auth/refresh.
 type RefreshRequest struct {
 	RefreshToken string `json:"refresh_token"`
+	// Client is accepted for the Android app. Rotation keeps the client kind
+	// already stored on the presented refresh session.
+	Client string `json:"client,omitempty"`
 }
 
 // LogoutRequest is the optional JSON body for POST /api/v1/auth/logout.
-// When refresh_token is present it is revoked first; all user sessions are then revoked.
+// A refresh_token that belongs to the Bearer user revokes only that session.
+// An empty body revokes every refresh session for the user.
 type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token,omitempty"`
 }

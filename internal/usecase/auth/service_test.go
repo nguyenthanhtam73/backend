@@ -108,11 +108,16 @@ func (s *stubTokens) SignRefresh(uuid.UUID) (string, uuid.UUID, error) {
 	s.refreshN++
 	return "refresh-" + uuid.NewString()[:8], uuid.New(), nil
 }
+func (s *stubTokens) SignRefreshWithTTL(id uuid.UUID, ttl time.Duration) (string, uuid.UUID, time.Time, error) {
+	token, jti, err := s.SignRefresh(id)
+	return token, jti, time.Now().UTC().Add(ttl), err
+}
 func (stubTokens) ParseRefreshToken(token string) (uuid.UUID, uuid.UUID, error) {
 	return uuid.Nil, uuid.Nil, errors.New("not used in basic test")
 }
-func (stubTokens) AccessTTL() time.Duration  { return time.Hour }
-func (stubTokens) RefreshTTL() time.Duration { return 24 * time.Hour }
+func (stubTokens) AccessTTL() time.Duration     { return time.Hour }
+func (stubTokens) RefreshTTL() time.Duration    { return 24 * time.Hour }
+func (stubTokens) AppRefreshTTL() time.Duration { return 2160 * time.Hour }
 
 func TestRegisterLoginMe_AppErrorSentinel(t *testing.T) {
 	repo := newMemAuthRepo()
