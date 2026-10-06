@@ -156,11 +156,10 @@ func runSkinCheckCoachAfterVision(
 		slog.Warn("skin-check: android voice safety net rewrote coach text", "check_id", check.ID)
 	}
 
-	ver := fmt.Sprintf(
-		"pipeline=hybrid|vision=%s(%s)|coach=%s(%s%s)",
+	ver := PipelineModelVersion(
 		cfg.OpenAIVisionModel(), visionStatus,
-		coachResult.Model, coachResult.Provider,
-		fallbackSuffix(coachResult.Fallback),
+		coachResult.Model, string(coachResult.Provider),
+		coachResult.Fallback, check.ClientKind,
 	)
 	slog.Debug("skin-check coach completed",
 		"vision_status", visionStatus,
@@ -212,6 +211,23 @@ func buildSkinCheckCoachUserMessage(
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")
 	userMsg.WriteString(coachOutputSchemaForClient(clientKind))
 	return userMsg.String()
+}
+
+// PipelineModelVersion is stored on skin_analyses.model_version after a coach run.
+// Web stays "pipeline=hybrid|vision=…|coach=…". Android appends "+android" so
+// prompt-version stats can separate the polite voice from the web voice.
+// The suffix is not a "|" segment. CoachDailyPromptVersion is not bumped.
+func PipelineModelVersion(visionModel, visionStatus, coachModel, coachProvider string, fallback bool, clientKind string) string {
+	ver := fmt.Sprintf(
+		"pipeline=hybrid|vision=%s(%s)|coach=%s(%s%s)",
+		visionModel, visionStatus,
+		coachModel, coachProvider,
+		fallbackSuffix(fallback),
+	)
+	if IsAndroidCoachVoice(clientKind) {
+		ver += "+android"
+	}
+	return ver
 }
 
 func fallbackSuffix(fallback bool) string {

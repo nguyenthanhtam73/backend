@@ -74,5 +74,6 @@ package ai
 //
 // Android (Play) checks use a parallel polite mình/bạn prompt selected by
 // skin_checks.client_kind. That voice does not bump this number: the web prompt
-// text is unchanged, and the column records which voice a check used.
+// text is unchanged. Successful android runs append "+android" to model_version
+// so per-prompt-version stats can separate the two voices.
 const CoachDailyPromptVersion = 28

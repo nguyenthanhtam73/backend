@@ -9,18 +9,38 @@ import (
 )
 
 // androidVoiceDrop are standalone profanity tokens removed from Play-store copy.
-// androidVoiceSwap rewrites crude address to the polite pair. Match is case-insensitive.
-// "lông mày" and "chân mày" keep mày (eyebrow), not the pronoun.
+// "đéo" and "đếch" are rewritten to "không" instead of deleted: dropping them
+// flips the meaning ("đéo ổn" would become "ổn", "đéo được nặn" would become
+// "được nặn"). "vãi là" is one exclamation — when "là" follows "vãi" with only
+// whitespace between, both words are removed.
+// androidVoiceSwap rewrites crude address. Match is case-insensitive.
+// "mày" stays when it means eyebrow — see eyebrowMayPrev and eyebrowMayNext.
 var (
 	androidVoiceDrop = map[string]struct{}{
 		"đm":  {},
-		"đéo": {},
+		"dm":  {},
 		"vl":  {},
 		"vcl": {},
+		"vkl": {},
+		"địt": {},
+		"đệt": {},
+		"vãi": {},
 	}
 	androidVoiceSwap = map[string]string{
-		"tao": "mình",
-		"mày": "bạn",
+		"tao":  "mình",
+		"mày":  "bạn",
+		"đéo":  "không",
+		"đếch": "không",
+	}
+	// eyebrowMayPrev is the word before "mày" when "mày" is an eyebrow, not "you".
+	eyebrowMayPrev = map[string]struct{}{
+		"kẻ": {}, "tỉa": {}, "chì": {}, "đầu": {}, "đuôi": {}, "cung": {},
+		"hai": {}, "giữa": {}, "phun": {}, "xăm": {}, "vẽ": {}, "sợi": {},
+		"lông": {}, "chân": {},
+	}
+	// eyebrowMayNext is the word after "mày" when "mày" is an eyebrow.
+	eyebrowMayNext = map[string]struct{}{
+		"râu": {}, "mắt": {}, "ngài": {},
 	}
 )
 
@@ -109,28 +129,51 @@ func replaceAndroidVoiceTokens(s string) (string, bool) {
 		return s, false
 	}
 	parts := splitVoiceChunks(s)
+	nextWord, nextWordAt := voiceNextWords(parts)
+	dropAlso := map[int]bool{}
 	changed := false
 	prevWord := ""
+	sentenceStart := true
+	droppedAtStart := false
 	var b strings.Builder
-	for _, part := range parts {
+	for i, part := range parts {
 		if !part.word {
+			// Punctuation left in front after a removed opener ("ĐM, mày" → "Bạn").
+			if sentenceStart && droppedAtStart {
+				continue
+			}
 			b.WriteString(part.text)
+			if chunkEndsSentence(part.text) {
+				sentenceStart = true
+				droppedAtStart = false
+			}
 			continue
 		}
 		key := strings.ToLower(part.text)
-		if _, drop := androidVoiceDrop[key]; drop {
+		dropPhrase := key == "vãi" && nextWord[i] == "là" && nextWordAt[i] >= 0 && whitespaceOnlyBetween(parts, i, nextWordAt[i])
+		if _, drop := androidVoiceDrop[key]; drop || dropAlso[i] || dropPhrase {
+			if dropPhrase {
+				dropAlso[nextWordAt[i]] = true
+			}
 			changed = true
 			prevWord = key
+			if sentenceStart {
+				droppedAtStart = true
+			}
 			continue
 		}
-		if repl, ok := androidVoiceSwap[key]; ok && !keepEyebrowMay(key, prevWord) {
+		text := part.text
+		if repl, ok := androidVoiceSwap[key]; ok && !keepEyebrowMay(key, prevWord, nextWord[i]) {
 			changed = true
-			b.WriteString(matchVoiceCase(part.text, repl))
-			prevWord = key
-			continue
+			text = matchVoiceCase(part.text, repl)
 		}
-		b.WriteString(part.text)
+		if sentenceStart && droppedAtStart {
+			text = capitalizeSentenceStart(text)
+		}
+		b.WriteString(text)
 		prevWord = key
+		sentenceStart = false
+		droppedAtStart = false
 	}
 	if !changed {
 		return s, false
@@ -138,11 +181,66 @@ func replaceAndroidVoiceTokens(s string) (string, bool) {
 	return polishVoiceSpacing(b.String()), true
 }
 
-func keepEyebrowMay(word, prev string) bool {
+func voiceNextWords(parts []voiceChunk) ([]string, []int) {
+	next := make([]string, len(parts))
+	at := make([]int, len(parts))
+	for i := range at {
+		at[i] = -1
+	}
+	upcoming := ""
+	upcomingAt := -1
+	for i := len(parts) - 1; i >= 0; i-- {
+		next[i] = upcoming
+		at[i] = upcomingAt
+		if parts[i].word {
+			upcoming = strings.ToLower(parts[i].text)
+			upcomingAt = i
+		}
+	}
+	return next, at
+}
+
+func whitespaceOnlyBetween(parts []voiceChunk, from, to int) bool {
+	for k := from + 1; k < to; k++ {
+		if parts[k].word {
+			return false
+		}
+		for _, r := range parts[k].text {
+			if !unicode.IsSpace(r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func keepEyebrowMay(word, prev, next string) bool {
 	if word != "mày" {
 		return false
 	}
-	return prev == "lông" || prev == "chân"
+	if _, ok := eyebrowMayPrev[prev]; ok {
+		return true
+	}
+	_, ok := eyebrowMayNext[next]
+	return ok
+}
+
+func chunkEndsSentence(s string) bool {
+	for _, r := range s {
+		switch r {
+		case '.', '!', '?', '…':
+			return true
+		}
+	}
+	return false
+}
+
+func capitalizeSentenceStart(s string) string {
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError || size == 0 || !unicode.IsLetter(r) || unicode.IsUpper(r) {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[size:]
 }
 
 func splitVoiceChunks(s string) []voiceChunk {
