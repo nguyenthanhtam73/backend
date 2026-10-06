@@ -3,6 +3,7 @@ package payment
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -27,8 +28,9 @@ func setupPaymentFulfill(t *testing.T) (*Service, *domain.User, *repository.Gorm
 	// second writer wait on SQLITE_BUSY instead, which is the serialization
 	// SELECT … FOR UPDATE provides on Postgres. The plan assertion still
 	// fails if the later, cheaper order downgrades.
-	dsn := filepath.Join(t.TempDir(), "pay.db") +
-		"?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)"
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "pay.db")
+	dsn := dbPath + "?_txlock=immediate&_pragma=busy_timeout(10000)&_pragma=journal_mode(WAL)"
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -39,7 +41,14 @@ func setupPaymentFulfill(t *testing.T) (*Service, *domain.User, *repository.Gorm
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = sqlDB.Close() })
+	// WAL sidecars can still be in dir when t.TempDir removes it, which fails
+	// the test after the assertions have passed.
+	t.Cleanup(func() {
+		_, _ = sqlDB.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+		_ = sqlDB.Close()
+		_ = os.Remove(dbPath + "-wal")
+		_ = os.Remove(dbPath + "-shm")
+	})
 	if err := db.AutoMigrate(
 		&domain.User{},
 		&domain.PaymentOrder{},
