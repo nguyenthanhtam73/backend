@@ -58,6 +58,9 @@ type CreateInput struct {
 	Images          []UploadImage
 	// SkipMode allows tag/notes-only check-ins with zero images (privacy path).
 	SkipMode bool
+	// ClientKind is web or android, from X-DaDiary-Client. Empty is stored as web.
+	// The background analysis job reads the stored value; it does not see the request.
+	ClientKind string
 }
 
 // Service orchestrates skin checks and AI analysis jobs.
@@ -210,6 +213,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		EnvironmentNote: strings.TrimSpace(in.EnvironmentNote),
 		Visibility:      vis,
 		CheckDate:       checkD,
+		ClientKind:      domain.NormalizeRefreshClient(in.ClientKind),
 	}
 
 	analysisRow := &domain.SkinAnalysis{

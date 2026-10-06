@@ -71,4 +71,9 @@ package ai
 // v28 (2026-09-07) — Fix hedge contradiction: “nói thẳng / CẤM hedge” must not
 // force certainty on skip or weak photos. Speak plainly when PHOTO_EVIDENCE is
 // ok; MUST say chưa chắc when skip/limited. Persists photo_evidence fields for FE.
+//
+// Android (Play) checks use a parallel polite mình/bạn prompt selected by
+// skin_checks.client_kind. That voice does not bump this number: the web prompt
+// text is unchanged. Successful android runs append "+android" to model_version
+// so per-prompt-version stats can separate the two voices.
 const CoachDailyPromptVersion = 28

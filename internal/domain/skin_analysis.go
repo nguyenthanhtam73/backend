@@ -25,6 +25,8 @@ type SkinAnalysis struct {
 
 	Status AnalysisStatus `gorm:"size:24;default:pending;index" json:"status"`
 	// ModelVersion stores e.g. "pipeline=hybrid|vision=gpt-4o(ok)|coach=claude-sonnet-4-6(anthropic)" (~70 chars).
+	// Android voice appends "+android" after that string. Split on "|" still yields
+	// pipeline, vision, and coach; the suffix is not its own segment.
 	ModelVersion string `gorm:"size:256" json:"model_version,omitempty"`
 	// PromptVersion is the coach pipeline prompt/schema generation (see ai.CoachDailyPromptVersion).
 	PromptVersion int `gorm:"default:1;not null" json:"prompt_version,omitempty"`

@@ -25,7 +25,15 @@ import (
 // Idempotent while a job is in flight (pending/processing): returns the current
 // payload and does not enqueue a second job. Completed checks may be re-run
 // once per UTC day; failed analyses may retry the same day.
-func (s *Service) Reanalyze(ctx context.Context, userID, checkID uuid.UUID) (dto.CreateSkinCheckResponse, error) {
+//
+// Voice: the background job reads skin_checks.client_kind, not the live request.
+// clientKind is the current X-DaDiary-Client value. An exact "android" upgrades
+// the stored kind to android before enqueue (and before the in-flight early
+// return, so a job that has not loaded the row yet can still pick up the polite
+// voice). A web reanalyze never downgrades an android check — the Play app must
+// not later show a crude rewrite of a check it owns. A web-created check stays
+// on today's voice until an Android reanalyze upgrades it.
+func (s *Service) Reanalyze(ctx context.Context, userID, checkID uuid.UUID, clientKind string) (dto.CreateSkinCheckResponse, error) {
 	var zero dto.CreateSkinCheckResponse
 	if s == nil || s.checks == nil {
 		return zero, fmt.Errorf("%w: persistence unavailable", ErrDatabase)
@@ -55,6 +63,11 @@ func (s *Service) Reanalyze(ctx context.Context, userID, checkID uuid.UUID) (dto
 
 	switch check.Analysis.Status {
 	case domain.AnalysisStatusPending, domain.AnalysisStatusProcessing:
+		// The job may not have loaded the row yet. Upgrade first so it can
+		// still pick up the polite voice. Do not enqueue a second run.
+		if err := s.upgradeAndroidVoice(ctx, check, clientKind); err != nil {
+			return zero, fmt.Errorf("%w: %v", ErrDatabase, err)
+		}
 		return s.skinCheckResponse(check), nil
 	}
 
@@ -65,6 +78,10 @@ func (s *Service) Reanalyze(ctx context.Context, userID, checkID uuid.UUID) (dto
 	if s.analyzer == nil {
 		slog.Warn("skin-check: reanalyze skipped — analysis service not configured", "check_id", check.ID)
 		return zero, fmt.Errorf("%w: analysis service not configured", ErrDatabase)
+	}
+
+	if err := s.upgradeAndroidVoice(ctx, check, clientKind); err != nil {
+		return zero, fmt.Errorf("%w: %v", ErrDatabase, err)
 	}
 
 	claimed, err := s.checks.ClaimReanalyze(ctx, check.ID, time.Now().UTC())
@@ -98,6 +115,24 @@ func (s *Service) Reanalyze(ctx context.Context, userID, checkID uuid.UUID) (dto
 		return zero, fmt.Errorf("%w: reload skin check after reanalyze claim", ErrDatabase)
 	}
 	return s.skinCheckResponse(reloaded), nil
+}
+
+// upgradeAndroidVoice persists client_kind=android when this request is from
+// the Play app. A web request leaves the stored kind alone, so an Android
+// check is never rewritten in the crude voice.
+func (s *Service) upgradeAndroidVoice(ctx context.Context, check *domain.SkinCheck, clientKind string) error {
+	if check == nil || domain.NormalizeRefreshClient(clientKind) != domain.RefreshClientAndroid {
+		return nil
+	}
+	if domain.NormalizeRefreshClient(check.ClientKind) == domain.RefreshClientAndroid {
+		check.ClientKind = domain.RefreshClientAndroid
+		return nil
+	}
+	if err := s.checks.SetClientKind(ctx, check.ID, domain.RefreshClientAndroid); err != nil {
+		return err
+	}
+	check.ClientKind = domain.RefreshClientAndroid
+	return nil
 }
 
 func reanalyzeLimitReached(a *domain.SkinAnalysis, now time.Time) bool {

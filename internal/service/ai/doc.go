@@ -32,15 +32,17 @@
 //   - Onboarding skin analyze, skin-check observation pass (onboarding_skin.go, vision_openai.go).
 //
 // Environment:
-//   DADIARY_OPENAI_API_KEY          — vision + text fallback (required for photos)
-//   DADIARY_OPENAI_MODEL            — text fallback model (default gpt-4o)
-//   DADIARY_OPENAI_VISION_MODEL     — vision/moderation model (default gpt-4o; gpt-4o-mini ok)
-//   DADIARY_ANTHROPIC_API_KEY       — text coach primary (recommended)
-//   DADIARY_ANTHROPIC_MODEL         — Claude Sonnet ID (default claude-sonnet-4-6)
+//
+//	DADIARY_OPENAI_API_KEY          — vision + text fallback (required for photos)
+//	DADIARY_OPENAI_MODEL            — text fallback model (default gpt-4o)
+//	DADIARY_OPENAI_VISION_MODEL     — vision/moderation model (default gpt-4o; gpt-4o-mini ok)
+//	DADIARY_ANTHROPIC_API_KEY       — text coach primary (recommended)
+//	DADIARY_ANTHROPIC_MODEL         — Claude Sonnet ID (default claude-sonnet-4-6)
 //
 // Logs (slog Info): "Using Claude for text coaching", "Fallback to GPT-4o for text coaching",
 // "Using OpenAI for vision".
-// Prompts: coach personas + skill routing in coach_prompt.go (GetCoachPrompt, ResolveCoachSkillLevel);
+// Prompts: coach personas + skill routing in coach_prompt.go (GetCoachPrompt, GetCoachPromptForClient, ResolveCoachSkillLevel).
+// skin_checks.client_kind=android selects the polite mình/bạn prompt; web is unchanged.
 // Claude-specific stubs and other prompts in prompts_claude.go, prompts_onboarding.go, schema.go.
 // Public-source Coach knowledge (AAD/DermNet/monographs, no user data): coach_knowledge.json
 // + coach_knowledge.go — see docs/COACH-KNOWLEDGE.md.

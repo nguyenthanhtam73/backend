@@ -92,7 +92,7 @@ func TestReanalyze_OwnerOnly(t *testing.T) {
 	other := uuid.New()
 	check := seedCheck(t, repo, owner, json.RawMessage(`["checks/a.jpg"]`), domain.AnalysisStatusCompleted)
 
-	_, err := svc.Reanalyze(context.Background(), other, check.ID)
+	_, err := svc.Reanalyze(context.Background(), other, check.ID, "")
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
@@ -100,7 +100,7 @@ func TestReanalyze_OwnerOnly(t *testing.T) {
 		t.Fatalf("enqueued %d jobs for non-owner", n)
 	}
 
-	res, err := svc.Reanalyze(context.Background(), owner, check.ID)
+	res, err := svc.Reanalyze(context.Background(), owner, check.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,13 +126,13 @@ func TestReanalyze_NoPhotos(t *testing.T) {
 	svc, repo := setupReanalyzeSvc(t, enq)
 	owner := uuid.New()
 	empty := seedCheck(t, repo, owner, json.RawMessage(`[]`), domain.AnalysisStatusCompleted)
-	_, err := svc.Reanalyze(context.Background(), owner, empty.ID)
+	_, err := svc.Reanalyze(context.Background(), owner, empty.ID, "")
 	if !errors.Is(err, ErrNoPhotos) {
 		t.Fatalf("empty images: want ErrNoPhotos, got %v", err)
 	}
 
 	skip := seedCheck(t, repo, owner, json.RawMessage(`["", "  "]`), domain.AnalysisStatusCompleted)
-	_, err = svc.Reanalyze(context.Background(), owner, skip.ID)
+	_, err = svc.Reanalyze(context.Background(), owner, skip.ID, "")
 	if !errors.Is(err, ErrNoPhotos) {
 		t.Fatalf("blank images: want ErrNoPhotos, got %v", err)
 	}
@@ -147,11 +147,11 @@ func TestReanalyze_ProcessingIdempotent(t *testing.T) {
 	owner := uuid.New()
 	check := seedCheck(t, repo, owner, json.RawMessage(`["checks/a.jpg"]`), domain.AnalysisStatusCompleted)
 
-	first, err := svc.Reanalyze(context.Background(), owner, check.ID)
+	first, err := svc.Reanalyze(context.Background(), owner, check.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := svc.Reanalyze(context.Background(), owner, check.ID)
+	second, err := svc.Reanalyze(context.Background(), owner, check.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +169,7 @@ func TestReanalyze_DailyLimitAndFailedRetry(t *testing.T) {
 	owner := uuid.New()
 	check := seedCheck(t, repo, owner, json.RawMessage(`["checks/a.jpg"]`), domain.AnalysisStatusCompleted)
 
-	if _, err := svc.Reanalyze(context.Background(), owner, check.ID); err != nil {
+	if _, err := svc.Reanalyze(context.Background(), owner, check.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	// Simulate the job finishing the same UTC day.
@@ -183,7 +183,7 @@ func TestReanalyze_DailyLimitAndFailedRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = svc.Reanalyze(context.Background(), owner, check.ID)
+	_, err = svc.Reanalyze(context.Background(), owner, check.ID, "")
 	if !errors.Is(err, ErrReanalyzeLimit) {
 		t.Fatalf("want ErrReanalyzeLimit, got %v", err)
 	}
@@ -201,7 +201,7 @@ func TestReanalyze_DailyLimitAndFailedRetry(t *testing.T) {
 	if err := repo.SaveAnalysis(context.Background(), got.Analysis); err != nil {
 		t.Fatal(err)
 	}
-	res, err := svc.Reanalyze(context.Background(), owner, check.ID)
+	res, err := svc.Reanalyze(context.Background(), owner, check.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +235,7 @@ func TestReanalyze_ReplacesAnalysisSameCheck(t *testing.T) {
 	origAnalysisID := check.Analysis.ID
 	origDate := check.CheckDate
 
-	res, err := svc.Reanalyze(context.Background(), owner, check.ID)
+	res, err := svc.Reanalyze(context.Background(), owner, check.ID, "")
 	if err != nil {
 		t.Fatal(err)
 	}

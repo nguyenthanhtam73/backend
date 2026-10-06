@@ -111,7 +111,7 @@ func runSkinCheckCoachAfterVision(
 	userMemory, visionRaw, visionStatus string,
 ) (out *CoachStructuredOutput, pipelineModelVersion string, err error) {
 	skill := ResolveCoachSkillLevel(check, profile)
-	system := GetCoachPrompt(skill)
+	system := GetCoachPromptForClient(skill, check.ClientKind)
 
 	fullCtx := BuildDailyCheckInCoachContext(check, profile)
 	if s := strings.TrimSpace(userMemory); s != "" {
@@ -131,7 +131,7 @@ func runSkinCheckCoachAfterVision(
 	if visionStatus == "ok" {
 		retryBody := userMsg
 		for attempt := 1; attempt <= MaxCoachValidationRetries && needsCoachOutputRetry(visionRaw, fullCtx, parsed); attempt++ {
-			retryBody = userMsg + coachOutputRetryPrompt(visionRaw, fullCtx, attempt)
+			retryBody = userMsg + coachOutputRetryPromptForVoice(visionRaw, fullCtx, attempt, check.ClientKind)
 			retryResult, retryErr := TextCoachCompletion(ctx, cfg, httpClient, fmt.Sprintf("skin-check-retry-%d", attempt), system, retryBody)
 			if retryErr != nil {
 				slog.Warn("skin-check: coach validation retry failed", "attempt", attempt, "err", retryErr)
@@ -152,12 +152,14 @@ func runSkinCheckCoachAfterVision(
 		visionRaw,
 	)
 	ApplyCabinetFirstCare(parsed, fullCtx)
+	if IsAndroidCoachVoice(check.ClientKind) && SanitizeAndroidCoachOutput(parsed) {
+		slog.Warn("skin-check: android voice safety net rewrote coach text", "check_id", check.ID)
+	}
 
-	ver := fmt.Sprintf(
-		"pipeline=hybrid|vision=%s(%s)|coach=%s(%s%s)",
+	ver := PipelineModelVersion(
 		cfg.OpenAIVisionModel(), visionStatus,
-		coachResult.Model, coachResult.Provider,
-		fallbackSuffix(coachResult.Fallback),
+		coachResult.Model, string(coachResult.Provider),
+		coachResult.Fallback, check.ClientKind,
 	)
 	slog.Debug("skin-check coach completed",
 		"vision_status", visionStatus,
@@ -199,12 +201,33 @@ func buildSkinCheckCoachUserMessage(
 	}
 	userMsg.WriteString("\n\nUSER_CONTEXT (saved profile + today's self-report + environment):\n")
 	userMsg.WriteString(fullCtx)
-	userMsg.WriteString(coachTurnChecklist(fullCtx, visionStatus == "ok"))
+	clientKind := ""
+	if check != nil {
+		clientKind = check.ClientKind
+	}
+	userMsg.WriteString(coachTurnChecklistForVoice(fullCtx, visionStatus == "ok", clientKind))
 	AppendCoachKnowledgeContext(&userMsg, fullCtx+"\n"+visionRaw)
 	AppendAffiliateCoachContext(&userMsg)
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")
-	userMsg.WriteString(CoachOutputJSONSchemaBlock)
+	userMsg.WriteString(coachOutputSchemaForClient(clientKind))
 	return userMsg.String()
+}
+
+// PipelineModelVersion is stored on skin_analyses.model_version after a coach run.
+// Web stays "pipeline=hybrid|vision=…|coach=…". Android appends "+android" so
+// prompt-version stats can separate the polite voice from the web voice.
+// The suffix is not a "|" segment. CoachDailyPromptVersion is not bumped.
+func PipelineModelVersion(visionModel, visionStatus, coachModel, coachProvider string, fallback bool, clientKind string) string {
+	ver := fmt.Sprintf(
+		"pipeline=hybrid|vision=%s(%s)|coach=%s(%s%s)",
+		visionModel, visionStatus,
+		coachModel, coachProvider,
+		fallbackSuffix(fallback),
+	)
+	if IsAndroidCoachVoice(clientKind) {
+		ver += "+android"
+	}
+	return ver
 }
 
 func fallbackSuffix(fallback bool) string {
