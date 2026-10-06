@@ -209,20 +209,6 @@ func ScopeForKey(objectKey string) string {
 	return ""
 }
 
-// OwnerID returns the user id bound into objectKey.
-// Public-share keys and keys with no user id return false.
-func OwnerID(objectKey string) (uuid.UUID, bool) {
-	scope := ScopeForKey(objectKey)
-	if scope == "" || scope == publicScope {
-		return uuid.Nil, false
-	}
-	id, err := uuid.Parse(scope)
-	if err != nil || id == uuid.Nil {
-		return uuid.Nil, false
-	}
-	return id, true
-}
-
 // SignClientURL turns a stored upload reference into the URL clients should
 // receive. External URLs (Google avatars, etc.) are returned unchanged.
 // When no signer is configured, the historical unsigned "/uploads/<key>"

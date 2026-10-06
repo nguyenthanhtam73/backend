@@ -78,7 +78,7 @@ func main() {
 	} else {
 		slog.Info("media: photo URLs signed with DADIARY_MEDIA_SIGNING_KEY", "url_ttl", signer.TTL().String())
 	}
-	handler.RegisterUploads(app, store, signer, tok)
+	handler.RegisterUploads(app, store, signer)
 
 	handler.Router(app, cfg, db, tok, store)
 

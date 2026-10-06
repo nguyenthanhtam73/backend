@@ -11,30 +11,26 @@ import (
 
 	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/dadiary/backend/internal/storage"
-	"github.com/dadiary/backend/internal/token"
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 )
 
 // RegisterUploads serves stored photos at /uploads/*.
 //
 // User photos require a valid unexpired signature. A missing, expired, or
 // tampered signature is a 404 — the same response as a missing object — so
-// the route does not confirm that a file exists. When the object key is
-// scoped to a user id, a valid signature is not enough: the request also
-// needs that user's access JWT (401 if it is missing or invalid, 404 if it
-// belongs to someone else). Privacy-blurred share images (scope "public")
-// and brand/static assets do not require a JWT. A nil signer never serves
-// a user photo.
-func RegisterUploads(app *fiber.App, store storage.Storage, signer *mediaurl.Signer, tokens *token.Service) {
+// the route does not confirm that a file exists. The signature is the
+// capability: browsers load these URLs from <img> and do not send the
+// access token. Non-user assets under brand/ and static/ stay public.
+// A nil signer never serves a user photo.
+func RegisterUploads(app *fiber.App, store storage.Storage, signer *mediaurl.Signer) {
 	h := func(c *fiber.Ctx) error {
-		return serveUpload(c, store, signer, tokens)
+		return serveUpload(c, store, signer)
 	}
 	app.Get("/uploads/*", h)
 	app.Head("/uploads/*", h)
 }
 
-func serveUpload(c *fiber.Ctx, store storage.Storage, signer *mediaurl.Signer, tokens *token.Service) error {
+func serveUpload(c *fiber.Ctx, store storage.Storage, signer *mediaurl.Signer) error {
 	if store == nil {
 		return uploadNotFound(c)
 	}
@@ -50,42 +46,12 @@ func serveUpload(c *fiber.Ctx, store storage.Storage, signer *mediaurl.Signer, t
 	if signer == nil || !signer.Valid(key, expRaw, sig, time.Now()) {
 		return uploadNotFound(c)
 	}
-	if owner, scoped := mediaurl.OwnerID(key); scoped {
-		if err := authorizeUploadOwner(c, tokens, owner); err != nil {
-			return err
-		}
-	}
 	exp, _ := strconv.ParseInt(expRaw, 10, 64)
 	remaining := exp - time.Now().Unix()
 	if remaining < 0 {
 		remaining = 0
 	}
 	return sendUpload(c, store, key, false, int(remaining))
-}
-
-// authorizeUploadOwner requires a Bearer access token for owner.
-// Missing or invalid tokens are 401. A token for a different user is 404.
-func authorizeUploadOwner(c *fiber.Ctx, tokens *token.Service, owner uuid.UUID) error {
-	c.Set(fiber.HeaderCacheControl, "private, no-store")
-	if tokens == nil {
-		return fiber.ErrUnauthorized
-	}
-	raw := strings.TrimSpace(c.Get("Authorization"))
-	if raw == "" || !strings.HasPrefix(strings.ToLower(raw), "bearer ") {
-		return fiber.ErrUnauthorized
-	}
-	tok := strings.TrimSpace(raw[7:])
-	if tok == "" {
-		return fiber.ErrUnauthorized
-	}
-	userID, err := tokens.ParseAccessToken(tok)
-	if err != nil || userID == uuid.Nil {
-		return fiber.ErrUnauthorized
-	}
-	if userID != owner {
-		return uploadNotFound(c)
-	}
-	return nil
 }
 
 func uploadNotFound(c *fiber.Ctx) error {
