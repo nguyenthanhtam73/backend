@@ -310,6 +310,9 @@ func TestFulfillPaidOrder_DeletedUserRecordsPaymentWithoutGrant(t *testing.T) {
 	if saved.AmountVND != 99000 {
 		t.Fatalf("amount=%d", saved.AmountVND)
 	}
+	if saved.RawWebhook != "" || strings.Contains(saved.RawWebhook, user.ID.String()) {
+		t.Fatalf("raw webhook stored on orphan order: %q", saved.RawWebhook)
+	}
 
 	var usersN, subsN, logsN int64
 	if err := svc.db.Model(&domain.User{}).Count(&usersN).Error; err != nil {
@@ -323,5 +326,55 @@ func TestFulfillPaidOrder_DeletedUserRecordsPaymentWithoutGrant(t *testing.T) {
 	}
 	if usersN != 0 || subsN != 0 || logsN != 0 {
 		t.Fatalf("created rows users=%d subs=%d logs=%d", usersN, subsN, logsN)
+	}
+}
+
+func TestFulfillPaidOrder_StaleSnapshotDoesNotStoreRawWebhook(t *testing.T) {
+	svc, user, _ := setupPaymentFulfill(t)
+	invoice := "DD-STALE-RAW"
+	seedOrder(t, svc, user.ID, invoice, domain.PlanPremium, domain.BillingMonthly, 99000)
+	stale, err := svc.orders.GetByInvoiceNumber(context.Background(), invoice)
+	if err != nil || stale == nil {
+		t.Fatalf("load: %v", err)
+	}
+	if err := svc.db.Exec(
+		`UPDATE payment_orders SET user_id = NULL, custom_data = '', raw_webhook = '' WHERE invoice_number = ?`,
+		invoice,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.db.Unscoped().Where("id = ?", user.ID).Delete(&domain.User{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	// The in-memory order still carries the user id from before the delete.
+	if stale.UserID != user.ID {
+		t.Fatalf("snapshot user=%s", stale.UserID)
+	}
+	payload := IPNPayload{NotificationType: "ORDER_PAID"}
+	payload.Order.OrderInvoiceNumber = invoice
+	payload.Order.OrderStatus = "CAPTURED"
+	payload.Order.OrderAmount = "99000"
+	payload.Order.ID = "ord-" + invoice
+	payload.Transaction.TransactionID = "tx-" + invoice
+	payload.Customer.CustomerID = user.ID.String()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.fulfillPaidOrder(context.Background(), stale, payload, string(raw)); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := svc.orders.GetByInvoiceNumber(context.Background(), invoice)
+	if err != nil || saved == nil {
+		t.Fatalf("order: %v", err)
+	}
+	if saved.Status != domain.PaymentPaid {
+		t.Fatalf("status=%s", saved.Status)
+	}
+	if saved.RawWebhook != "" || strings.Contains(saved.RawWebhook, user.ID.String()) {
+		t.Fatalf("raw webhook stored from stale snapshot: %q", saved.RawWebhook)
+	}
+	if saved.UserID != uuid.Nil {
+		t.Fatalf("user_id=%s", saved.UserID)
 	}
 }

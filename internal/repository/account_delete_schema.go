@@ -3,8 +3,10 @@ package repository
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
@@ -25,8 +27,11 @@ var accountDeletionColumns = []struct {
 }
 
 // ApplyAccountDeletionSchema runs migration 024. It is idempotent.
-// Postgres takes ACCESS EXCLUSIVE for each ALTER, so call this once at
-// process startup before the HTTP server accepts traffic.
+// A column that is already nullable is left alone, so a restart does not
+// take ACCESS EXCLUSIVE on payment_orders or plan_change_logs.
+// When an ALTER is required it runs inside a transaction with
+// lock_timeout = 3s. A timeout is logged and returned; the process keeps
+// serving and DELETE /me stays on the 503 guard until a later boot succeeds.
 // Non-Postgres drivers are a no-op (tests already create nullable columns).
 func ApplyAccountDeletionSchema(db *gorm.DB) error {
 	if db == nil {
@@ -35,16 +40,54 @@ func ApplyAccountDeletionSchema(db *gorm.DB) error {
 	if db.Dialector.Name() != "postgres" {
 		return nil
 	}
+	altered := 0
 	for _, col := range accountDeletionColumns {
 		if !safeIdent(col.table) || !safeIdent(col.column) {
 			return fmt.Errorf("unsafe identifier")
 		}
-		q := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL", col.table, col.column)
-		if err := db.Exec(q).Error; err != nil {
+		nullable, err := columnNullable(db, col.table, col.column)
+		if err != nil {
 			return fmt.Errorf("migration 024: %s.%s: %w", col.table, col.column, err)
 		}
+		if nullable {
+			continue
+		}
+		if err := dropNotNull(db, col.table, col.column); err != nil {
+			if isLockTimeout(err) {
+				slog.Error("account deletion schema: lock timeout; DELETE /me stays unavailable",
+					"table", col.table,
+					"column", col.column,
+					"error", err.Error(),
+				)
+				return fmt.Errorf("migration 024: %s.%s: lock timeout: %w", col.table, col.column, err)
+			}
+			return fmt.Errorf("migration 024: %s.%s: %w", col.table, col.column, err)
+		}
+		altered++
+	}
+	if altered == 0 {
+		slog.Info("account deletion schema: columns already nullable")
 	}
 	return nil
+}
+
+func dropNotNull(db *gorm.DB, table, column string) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Exec("SET LOCAL lock_timeout = '3s'").Error; err != nil {
+			return err
+		}
+		q := fmt.Sprintf("ALTER TABLE %s ALTER COLUMN %s DROP NOT NULL", table, column)
+		return tx.Exec(q).Error
+	})
+}
+
+func isLockTimeout(err error) bool {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "55P03" {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "lock timeout") || strings.Contains(msg, "55p03")
 }
 
 // accountDeletionSchemaReady is a read of information_schema. It does not

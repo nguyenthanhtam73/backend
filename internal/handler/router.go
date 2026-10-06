@@ -355,7 +355,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Get("/me/export", jwt, mdh.Export)
 		api.Delete("/me/data", jwt, mdh.Delete)
 		// DELETE /me removes the account. Limiter runs after JWT so the bucket is per user.
-		accountDeleteLimit := middleware.AILimiter(accountDeleteRateMax, accountDeleteRateWindow)
+		accountDeleteLimit := middleware.AccountDeleteLimiter(accountDeleteRateMax, accountDeleteRateWindow)
 		api.Delete("/me", jwt, accountDeleteLimit, mdh.DeleteAccount)
 
 		// Routine Management — daily AM/PM skincare routines, AI suggestion,

@@ -234,18 +234,10 @@ func TestDeleteAccount_Contract(t *testing.T) {
 		t.Fatalf("delete body=%q, want empty 204", raw)
 	}
 
-	if _, err := store.Read(t.Context(), photoKey); err == nil {
-		t.Fatal("skin photo still on disk")
-	}
-	if _, err := store.Read(t.Context(), avatarKey); err == nil {
-		t.Fatal("avatar still on disk")
-	}
-	if _, err := store.Read(t.Context(), reviewKey); err == nil {
-		t.Fatal("admin review photo still on disk")
-	}
-	if _, err := store.Read(t.Context(), signedKey); err == nil {
-		t.Fatal("signed photo still on disk")
-	}
+	waitObjectGone(t, store, photoKey)
+	waitObjectGone(t, store, avatarKey)
+	waitObjectGone(t, store, reviewKey)
+	waitObjectGone(t, store, signedKey)
 
 	status, raw = callJSON(t, app, http.MethodGet, "/api/v1/me", access, "")
 	if status != http.StatusUnauthorized {
@@ -425,8 +417,15 @@ func TestDeleteAccount_RateLimitsPasswordGuesses(t *testing.T) {
 	if status != http.StatusTooManyRequests {
 		t.Fatalf("rate limit status=%d body=%s", status, raw)
 	}
-	if code, _ := errorFields(t, raw); code != "rate_limited" {
+	code, msg := errorFields(t, raw)
+	if code != "rate_limited" {
 		t.Fatalf("rate limit code=%s body=%s", code, raw)
+	}
+	if !strings.Contains(msg, "15 minutes") || !strings.Contains(msg, "15 phút") {
+		t.Fatalf("rate limit message=%q", msg)
+	}
+	if strings.Contains(msg, "a minute") || strings.Contains(msg, "1 phút") {
+		t.Fatalf("rate limit message still says one minute: %q", msg)
 	}
 	var still domain.User
 	if err := db.First(&still, "id = ?", userID).Error; err != nil {
@@ -521,6 +520,21 @@ func registerAccount(t *testing.T, app *fiber.App, email, password string) (acce
 		t.Fatalf("tokens missing: %s", raw)
 	}
 	return env.Data.Tokens.AccessToken, env.Data.Tokens.RefreshToken, id
+}
+
+func waitObjectGone(t *testing.T, store storage.Storage, key string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		_, err := store.Read(t.Context(), key)
+		if err != nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%s still on disk", key)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func callJSON(t *testing.T, app *fiber.App, method, path, access, body string) (int, []byte) {

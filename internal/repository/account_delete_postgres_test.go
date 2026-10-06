@@ -255,6 +255,144 @@ func TestDeleteAccount_PostgresFKAndSchema(t *testing.T) {
 	}
 }
 
+func TestApplyAccountDeletionSchema_NoopWhenNullable(t *testing.T) {
+	db := openAccountDeletePostgres(t)
+	if err := AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	forceAccountDeletionNotNull(t, db)
+	if err := ApplyAccountDeletionSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	schema := currentSchema(t, db)
+	lockDB := openSchemaSession(t, schema)
+	tx := lockDB.Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	t.Cleanup(func() { _ = tx.Rollback() })
+	if err := tx.Exec("LOCK TABLE payment_orders, plan_change_logs IN ACCESS EXCLUSIVE MODE").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() { errCh <- ApplyAccountDeletionSchema(db) }()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("ApplyAccountDeletionSchema blocked on an already-nullable column")
+	}
+}
+
+func TestApplyAccountDeletionSchema_LockTimeoutDoesNotHang(t *testing.T) {
+	db := openAccountDeletePostgres(t)
+	if err := AutoMigrate(db); err != nil {
+		t.Fatal(err)
+	}
+	forceAccountDeletionNotNull(t, db)
+	schema := currentSchema(t, db)
+	lockDB := openSchemaSession(t, schema)
+	tx := lockDB.Begin()
+	if tx.Error != nil {
+		t.Fatal(tx.Error)
+	}
+	t.Cleanup(func() { _ = tx.Rollback() })
+	if err := tx.Exec("LOCK TABLE payment_orders IN ACCESS EXCLUSIVE MODE").Error; err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Now()
+	errCh := make(chan error, 1)
+	go func() { errCh <- ApplyAccountDeletionSchema(db) }()
+	select {
+	case err := <-errCh:
+		if err == nil || !strings.Contains(err.Error(), "lock timeout") {
+			t.Fatalf("elapsed=%s err=%v", time.Since(start), err)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("ApplyAccountDeletionSchema hung past lock_timeout")
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("lock wait took %s", time.Since(start))
+	}
+	if err := tx.Rollback().Error; err != nil {
+		t.Fatal(err)
+	}
+	created := &domain.User{
+		Email: "still-here@dadiary.test", Username: "stillhere", PasswordHash: "x", IsActive: true,
+	}
+	if err := db.Create(created).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := NewUserDataRepository(db)
+	if _, err := repo.DeleteAccount(t.Context(), created.ID); !errors.Is(err, ErrAccountDeletionSchema) {
+		t.Fatalf("delete after lock timeout: %v", err)
+	}
+	var still domain.User
+	if err := db.First(&still, "id = ?", created.ID).Error; err != nil {
+		t.Fatalf("user removed while schema is not ready: %v", err)
+	}
+}
+
+func forceAccountDeletionNotNull(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	for _, q := range []string{
+		`ALTER TABLE payment_orders ALTER COLUMN user_id SET NOT NULL`,
+		`ALTER TABLE plan_change_logs ALTER COLUMN user_id SET NOT NULL`,
+		`ALTER TABLE plan_change_logs ALTER COLUMN actor_user_id SET NOT NULL`,
+	} {
+		if err := db.Exec(q).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func currentSchema(t *testing.T, db *gorm.DB) string {
+	t.Helper()
+	var current struct {
+		Schema string `gorm:"column:current_schema"`
+	}
+	if err := db.Raw("SELECT current_schema() AS current_schema").Scan(&current).Error; err != nil {
+		t.Fatal(err)
+	}
+	if current.Schema == "" {
+		t.Fatal("empty schema")
+	}
+	return current.Schema
+}
+
+func openSchemaSession(t *testing.T, schema string) *gorm.DB {
+	t.Helper()
+	dsn := strings.TrimSpace(os.Getenv("DADIARY_DATABASE_URL"))
+	if dsn == "" {
+		dsn = strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	}
+	if dsn == "" {
+		t.Skip("Postgres account-deletion test skipped: set DADIARY_DATABASE_URL or DATABASE_URL")
+	}
+	scoped, err := withSearchPath(dsn, schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := gorm.Open(postgres.Open(scoped), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	if err := db.Exec("SET search_path TO " + quoteIdent(schema)).Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sqlDB.Close() })
+	return db
+}
+
 func openAccountDeletePostgres(t *testing.T) *gorm.DB {
 	t.Helper()
 	dsn := strings.TrimSpace(os.Getenv("DADIARY_DATABASE_URL"))

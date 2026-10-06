@@ -31,6 +31,9 @@ type Service struct {
 	store   storage.Storage
 	cache   *ai.MemoryCache
 	premium *premiumuc.Service
+	// onPhotosDone runs when a background account-photo delete finishes.
+	// Tests set it. Production leaves it nil.
+	onPhotosDone func()
 }
 
 // NewService wires dependencies. cache / premium may be nil.

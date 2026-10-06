@@ -224,6 +224,24 @@ func anonymizeAccountRows(tx *gorm.DB, user *domain.User) error {
 	return anonymizePlanChangeLogs(tx, user.ID, email)
 }
 
+// SaveAccountDeleteOrphanKey records an object that background photo
+// deletion could not remove. The account row is already gone.
+func (r *UserDataRepository) SaveAccountDeleteOrphanKey(ctx context.Context, userIDHash, objectKey, lastErr string) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(objectKey) == "" {
+		return fmt.Errorf("object key required")
+	}
+	row := &domain.AccountDeleteOrphanKey{
+		UserIDHash: userIDHash,
+		ObjectKey:  objectKey,
+		LastError:  lastErr,
+	}
+	return db.WithContext(ctx).Create(row).Error
+}
+
 func anonymizeEmailEngagement(tx *gorm.DB, userID uuid.UUID, email string) error {
 	var events []domain.EmailEngagementEvent
 	if err := tx.Where("user_id = ?", userID).Find(&events).Error; err != nil {
