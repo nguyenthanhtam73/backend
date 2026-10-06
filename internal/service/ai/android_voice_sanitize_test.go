@@ -333,7 +333,7 @@ func TestPipelineModelVersion_VoiceSuffix(t *testing.T) {
 	if got := PipelineModelVersion("gpt-4o", "ok", "gpt-4o", "openai", true, "android"); got != fallback+"+android" {
 		t.Fatalf("android fallback %q", got)
 	}
-	if CoachDailyPromptVersion != 28 {
-		t.Fatalf("android voice must not bump prompt version, got %d", CoachDailyPromptVersion)
+	if CoachDailyPromptVersion != 29 {
+		t.Fatalf("prompt version = %d, want 29 (check-in detail). Android voice still only adds +android to model_version", CoachDailyPromptVersion)
 	}
 }

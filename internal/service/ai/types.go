@@ -1,6 +1,10 @@
 package ai
 
-import "github.com/dadiary/backend/internal/dto"
+import (
+	"encoding/json"
+
+	"github.com/dadiary/backend/internal/dto"
+)
 
 // CoachCareSuggestion is one in-app care step (richer than public Admin Skin Review soothing_tips).
 // Public /share/skin-review must NOT surface this field — check-in coach only.
@@ -27,15 +31,19 @@ type CoachStructuredOutput struct {
 	} `json:"improvements"`
 	// CareSuggestions is the in-app detailed care checklist (AM/PM/today + why + safety).
 	// Persisted inside skin_scores JSON under key "care_suggestions" (no DB migration).
-	CareSuggestions     []CoachCareSuggestion   `json:"care_suggestions"`
-	RoutineHints        []string                `json:"routine_hints"`
-	AvoidOrPatch        []string                `json:"avoid_or_patch"`
-	SafetyReminders     []string                `json:"safety_reminders"`
-	SkinScores          map[string]any          `json:"skin_scores"`
-	ConcernAlignment    string                  `json:"concern_alignment"`
-	MedicalDisclaimer   string                  `json:"medical_disclaimer"`
-	SummaryNotes        string                     `json:"summary_notes"`
-	ProductSuggestions  []dto.ProductSuggestion    `json:"product_suggestions"`
-	ProductGuidance     []dto.ProductGuidanceItem  `json:"product_guidance,omitempty"`
-	CarePhase           string                     `json:"care_phase,omitempty"` // calm_first | can_add_active
+	CareSuggestions    []CoachCareSuggestion     `json:"care_suggestions"`
+	RoutineHints       []string                  `json:"routine_hints"`
+	AvoidOrPatch       []string                  `json:"avoid_or_patch"`
+	SafetyReminders    []string                  `json:"safety_reminders"`
+	SkinScores         map[string]any            `json:"skin_scores"`
+	ConcernAlignment   string                    `json:"concern_alignment"`
+	MedicalDisclaimer  string                    `json:"medical_disclaimer"`
+	SummaryNotes       string                    `json:"summary_notes"`
+	ProductSuggestions []dto.ProductSuggestion   `json:"product_suggestions"`
+	ProductGuidance    []dto.ProductGuidanceItem `json:"product_guidance,omitempty"`
+	CarePhase          string                    `json:"care_phase,omitempty"` // calm_first | can_add_active
+	// ZoneNotesRaw and SkinScoreNotesRaw are captured loosely. A wrong JSON type
+	// stays in the raw bytes and is dropped later; it must not fail the analysis.
+	ZoneNotesRaw      json.RawMessage `json:"zone_notes,omitempty"`
+	SkinScoreNotesRaw json.RawMessage `json:"skin_score_notes,omitempty"`
 }

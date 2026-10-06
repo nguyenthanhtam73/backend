@@ -1,5 +1,7 @@
 package dto
 
+import "encoding/json"
+
 // ExportUserDataResponse is GET /api/v1/me/export — a portable diary dump (Premium+).
 type ExportUserDataResponse struct {
 	ExportedAt string `json:"exported_at"`
@@ -34,14 +36,15 @@ type ExportSkinProfile struct {
 
 // ExportSkinCheck is one check-in row without raw image bytes.
 type ExportSkinCheck struct {
-	ID         string   `json:"id"`
-	CheckDate  string   `json:"check_date"`
-	Title      string   `json:"title,omitempty"`
-	UserNote   string   `json:"user_note,omitempty"`
-	Conditions []string `json:"conditions,omitempty"`
-	Symptoms   []string `json:"symptoms,omitempty"`
-	ImageURLs  []string `json:"image_urls,omitempty"`
-	CoachNotes string   `json:"coach_notes,omitempty"`
+	ID           string          `json:"id"`
+	CheckDate    string          `json:"check_date"`
+	Title        string          `json:"title,omitempty"`
+	UserNote     string          `json:"user_note,omitempty"`
+	Conditions   []string        `json:"conditions,omitempty"`
+	Symptoms     []string        `json:"symptoms,omitempty"`
+	ImageURLs    []string        `json:"image_urls,omitempty"`
+	CoachNotes   string          `json:"coach_notes,omitempty"`
+	PhotoContext json.RawMessage `json:"photo_context,omitempty"`
 }
 
 // ExportRoutineDay is one day's AM/PM routine snapshot.

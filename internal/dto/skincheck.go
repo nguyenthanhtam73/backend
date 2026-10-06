@@ -34,17 +34,19 @@ type SkinCheckStreakMeta struct {
 
 // SkinCheckSummary is a compact payload for API responses.
 type SkinCheckSummary struct {
-	ID              string          `json:"id"`
-	UserID          string          `json:"user_id"`
-	Title           string          `json:"title,omitempty"`
-	UserNote        string          `json:"user_note,omitempty"`
-	EnvironmentNote string          `json:"environment_note,omitempty"`
-	Conditions      []string        `json:"conditions,omitempty"`
-	Symptoms        []string        `json:"symptoms,omitempty"`
-	ClimateContext  json.RawMessage `json:"climate_context,omitempty"`
-	Visibility      string          `json:"visibility"`
-	CheckDate       string          `json:"check_date"`
-	CreatedAt       string          `json:"created_at"`
+	ID              string            `json:"id"`
+	UserID          string            `json:"user_id"`
+	Title           string            `json:"title,omitempty"`
+	UserNote        string            `json:"user_note,omitempty"`
+	EnvironmentNote string            `json:"environment_note,omitempty"`
+	Conditions      []string          `json:"conditions,omitempty"`
+	Symptoms        []string          `json:"symptoms,omitempty"`
+	ClimateContext  json.RawMessage   `json:"climate_context,omitempty"`
+	Visibility      string            `json:"visibility"`
+	CheckDate       string            `json:"check_date"`
+	CreatedAt       string            `json:"created_at"`
+	PhotoMeta       []PhotoMetaImage  `json:"photo_meta,omitempty"`
+	SkinContext     *SkinContextInput `json:"skin_context,omitempty"`
 }
 
 // CoachImprovementItem matches coach JSON improvements.{tip,why}.
@@ -95,7 +97,33 @@ type SkinCoachDetail struct {
 	PhotoEvidence    string `json:"photo_evidence,omitempty"`
 	PhotoLimited     bool   `json:"photo_limited,omitempty"`
 	PhotoLimitedNote string `json:"photo_limited_note,omitempty"`
-	ErrorMessage     string `json:"error_message,omitempty"`
+	// ZoneNotes is one short "trông giống" line per visible zone.
+	ZoneNotes []CoachZoneNote `json:"zone_notes,omitempty"`
+	// SkinScoreNotes is one short reason per gauge, including overall.
+	SkinScoreNotes *SkinCoachScoreNotes `json:"skin_score_notes,omitempty"`
+	// Confidence is high, medium, or low. Computed in Go from the photo and cues.
+	Confidence string `json:"confidence,omitempty"`
+	// NeedsMoreInfo is true when a follow-up would change the read.
+	NeedsMoreInfo bool `json:"needs_more_info,omitempty"`
+	// ClarifyQuestions are the follow-ups still worth asking (max 3).
+	ClarifyQuestions []string `json:"clarify_questions,omitempty"`
+	ErrorMessage     string   `json:"error_message,omitempty"`
+}
+
+// CoachZoneNote is one zone the photo actually showed.
+type CoachZoneNote struct {
+	Zone     string `json:"zone"`
+	Note     string `json:"note"`
+	Severity string `json:"severity,omitempty"`
+}
+
+// SkinCoachScoreNotes explains each soft gauge, including overall.
+// Stored under skin_scores.skin_score_notes, never under the numeric keys.
+type SkinCoachScoreNotes struct {
+	Overall   string `json:"overall,omitempty"`
+	Hydration string `json:"hydration,omitempty"`
+	Clarity   string `json:"clarity,omitempty"`
+	Barrier   string `json:"barrier,omitempty"`
 }
 
 // SkinCoachScoreGauges exposes soft 0–1 subscores from the coach JSON (not clinical).
@@ -130,6 +158,7 @@ func NewCreateSkinCheckResponse(c *domain.SkinCheck, a *domain.SkinAnalysis, pub
 	if len(c.ClimateContext) > 0 {
 		climate = append(json.RawMessage(nil), c.ClimateContext...)
 	}
+	photoMeta, skinCtx := PublicPhotoMetaAndSkin(c.PhotoContext)
 	sum := SkinCheckSummary{
 		ID:              c.ID.String(),
 		UserID:          c.UserID.String(),
@@ -142,6 +171,8 @@ func NewCreateSkinCheckResponse(c *domain.SkinCheck, a *domain.SkinAnalysis, pub
 		Visibility:      string(c.Visibility),
 		CheckDate:       checkD,
 		CreatedAt:       created,
+		PhotoMeta:       photoMeta,
+		SkinContext:     skinCtx,
 	}
 	as := mapSkinAnalysisSummary(a)
 	return CreateSkinCheckResponse{
@@ -234,6 +265,15 @@ func buildCoachDetailFromDomain(a *domain.SkinAnalysis) *SkinCoachDetail {
 			if v, ok := scores["photo_limited_note"].(string); ok {
 				d.PhotoLimitedNote = strings.TrimSpace(v)
 			}
+			d.ZoneNotes = extractZoneNotes(scores)
+			d.SkinScoreNotes = extractSkinScoreNotes(scores)
+			if v, ok := scores["confidence"].(string); ok {
+				d.Confidence = strings.TrimSpace(v)
+			}
+			if v, ok := scores["needs_more_info"].(bool); ok {
+				d.NeedsMoreInfo = v
+			}
+			d.ClarifyQuestions = extractStringList(scores, "clarify_questions")
 			d.ProductGuidance = extractProductGuidance(scores)
 		}
 	}
@@ -341,6 +381,106 @@ func extractCareSuggestions(scores map[string]any) []CoachCareSuggestionItem {
 		if len(out) >= 5 {
 			break
 		}
+	}
+	return out
+}
+
+func extractZoneNotes(scores map[string]any) []CoachZoneNote {
+	raw, ok := scores["zone_notes"]
+	if !ok || raw == nil {
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(b, &items); err != nil {
+		return nil
+	}
+	out := make([]CoachZoneNote, 0, len(items))
+	for _, item := range items {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(item, &obj); err != nil {
+			continue
+		}
+		zone, okZ := jsonStringField(obj["zone"])
+		note, okN := jsonStringField(obj["note"])
+		if !okZ || !okN || strings.TrimSpace(zone) == "" || strings.TrimSpace(note) == "" {
+			continue
+		}
+		sev, _ := jsonStringField(obj["severity"])
+		out = append(out, CoachZoneNote{
+			Zone:     strings.TrimSpace(zone),
+			Note:     strings.TrimSpace(note),
+			Severity: strings.TrimSpace(sev),
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func extractSkinScoreNotes(scores map[string]any) *SkinCoachScoreNotes {
+	raw, ok := scores["skin_score_notes"]
+	if !ok || raw == nil {
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(b, &obj); err != nil {
+		return nil
+	}
+	notes := &SkinCoachScoreNotes{}
+	if v, ok := jsonStringField(obj["overall"]); ok {
+		notes.Overall = strings.TrimSpace(v)
+	}
+	if v, ok := jsonStringField(obj["hydration"]); ok {
+		notes.Hydration = strings.TrimSpace(v)
+	}
+	if v, ok := jsonStringField(obj["clarity"]); ok {
+		notes.Clarity = strings.TrimSpace(v)
+	}
+	if v, ok := jsonStringField(obj["barrier"]); ok {
+		notes.Barrier = strings.TrimSpace(v)
+	}
+	if notes.Overall == "" && notes.Hydration == "" && notes.Clarity == "" && notes.Barrier == "" {
+		return nil
+	}
+	return notes
+}
+
+func extractStringList(scores map[string]any, key string) []string {
+	raw, ok := scores[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(b, &items); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		s, ok := jsonStringField(item)
+		if !ok {
+			continue
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

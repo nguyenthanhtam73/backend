@@ -40,7 +40,7 @@ func RunSkinCheckCoach(
 		httpClient = &http.Client{Timeout: defaultTextCoachHTTPTimeout}
 	}
 
-	visionRaw, visionStatus := runVisionObservationPass(ctx, cfg, httpClient, store, urls)
+	visionRaw, visionStatus := runVisionObservationPass(ctx, cfg, httpClient, store, urls, BuildCheckInVisionHint(check))
 	return runSkinCheckCoachAfterVision(ctx, cfg, httpClient, check, profile, userMemory, visionRaw, visionStatus)
 }
 
@@ -74,8 +74,9 @@ func RunVisionObservationPassForCheck(
 	httpClient *http.Client,
 	store storage.Storage,
 	urls []string,
+	hint string,
 ) (visionRaw, visionStatus string) {
-	return runVisionObservationPass(ctx, cfg, httpClient, store, urls)
+	return runVisionObservationPass(ctx, cfg, httpClient, store, urls, hint)
 }
 
 func runVisionObservationPass(
@@ -84,12 +85,13 @@ func runVisionObservationPass(
 	httpClient *http.Client,
 	store storage.Storage,
 	urls []string,
+	hint string,
 ) (visionRaw, visionStatus string) {
 	visionStatus = "skipped"
 	if !cfg.HasOpenAIKey() {
 		return "", "no_openai_key"
 	}
-	raw, vErr := VisionObservationPass(ctx, cfg, httpClient, store, urls)
+	raw, vErr := VisionObservationPass(ctx, cfg, httpClient, store, urls, hint)
 	if vErr != nil {
 		slog.Warn("skin-check: vision pass failed", "err", vErr)
 		return "", "unavailable"
@@ -210,6 +212,9 @@ func buildSkinCheckCoachUserMessage(
 	AppendAffiliateCoachContext(&userMsg)
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")
 	userMsg.WriteString(coachOutputSchemaForClient(clientKind))
+	// Detail keys are photo check-in only. Daily feedback does not append this block.
+	userMsg.WriteString("\n\n")
+	userMsg.WriteString(CheckInDetailJSONFields)
 	return userMsg.String()
 }
 
