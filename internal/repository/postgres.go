@@ -8,7 +8,6 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 // NewPostgres opens a GORM connection using the configured URL.
@@ -18,7 +17,7 @@ func NewPostgres(cfg *config.Config) (*gorm.DB, error) {
 	}
 
 	db, err := gorm.Open(postgres.Open(cfg.Database.URL), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Warn),
+		Logger: newGormLogger(cfg.Env),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open postgres: %w", err)
