@@ -54,7 +54,10 @@ func newR2(cfg config.R2Config) (*r2Storage, error) {
 }
 
 func (r *r2Storage) Save(ctx context.Context, key string, data []byte, contentType string) error {
-	k := CleanKey(key)
+	k, err := safeClean(key)
+	if err != nil {
+		return err
+	}
 	in := &s3.PutObjectInput{
 		Bucket: aws.String(r.bucket),
 		Key:    aws.String(k),
@@ -70,7 +73,10 @@ func (r *r2Storage) Save(ctx context.Context, key string, data []byte, contentTy
 }
 
 func (r *r2Storage) Read(ctx context.Context, key string) ([]byte, error) {
-	k := CleanKey(key)
+	k, err := safeClean(key)
+	if err != nil {
+		return nil, err
+	}
 	out, err := r.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(r.bucket),
 		Key:    aws.String(k),
@@ -83,7 +89,10 @@ func (r *r2Storage) Read(ctx context.Context, key string) ([]byte, error) {
 }
 
 func (r *r2Storage) DeletePrefix(ctx context.Context, prefix string) error {
-	p := CleanKey(prefix)
+	p, err := safeClean(prefix)
+	if err != nil {
+		return err
+	}
 	paginator := s3.NewListObjectsV2Paginator(r.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(r.bucket),
 		Prefix: aws.String(p),

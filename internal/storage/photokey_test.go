@@ -25,6 +25,9 @@ func TestPhotoKey_DateKindUsername(t *testing.T) {
 	if _, err := uuid.Parse(rest); err != nil {
 		t.Fatalf("filename uuid %q: %v", rest, err)
 	}
+	if !SafeObjectKey(key) {
+		t.Fatalf("photo key rejected as unsafe: %s", key)
+	}
 }
 
 func TestSlugUsername_FallbackAndSanitize(t *testing.T) {

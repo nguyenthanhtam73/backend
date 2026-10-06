@@ -11,6 +11,7 @@ import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/analysis"
@@ -351,7 +352,7 @@ func buildPublicImageURLs(raw json.RawMessage) []string {
 		if clean == "" {
 			continue
 		}
-		out = append(out, "/uploads/"+clean)
+		out = append(out, mediaurl.SignClientURL("/uploads/"+clean))
 	}
 	return out
 }

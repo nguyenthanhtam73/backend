@@ -23,6 +23,7 @@ type Config struct {
 	HTTP       HTTPConfig       `mapstructure:"http"`
 	Database   DatabaseConfig   `mapstructure:"database"`
 	JWT        JWTConfig        `mapstructure:"jwt"`
+	Media      MediaConfig      `mapstructure:"media"`
 	Upload     UploadConfig     `mapstructure:"upload"`
 	Storage    StorageConfig    `mapstructure:"storage"`
 	OpenAI     OpenAIConfig     `mapstructure:"openai"`
@@ -185,8 +186,9 @@ type UploadConfig struct {
 // StorageConfig selects where uploaded photos are persisted.
 //
 // Driver is "local" (default; files under Upload.Dir) or "r2" (Cloudflare R2).
-// Regardless of driver, public image URLs stay "/uploads/<key>"; the API proxies
-// R2 bytes so the frontend and stored DB paths never change.
+// Regardless of driver, client image URLs stay "/uploads/<key>" plus a
+// short-lived signature (DADIARY_MEDIA_URL_TTL, default 1h). The API reads
+// object bytes itself; the browser never receives a permanent object URL.
 type StorageConfig struct {
 	Driver string   `mapstructure:"driver"` // local | r2
 	R2     R2Config `mapstructure:"r2"`
@@ -258,6 +260,22 @@ type JWTConfig struct {
 	RefreshTTL time.Duration `mapstructure:"refresh_ttl"`
 }
 
+// MediaConfig signs short-lived URLs for user photos under /uploads.
+//
+// SigningKey is DADIARY_MEDIA_SIGNING_KEY. It is required in production
+// (DADIARY_ENV=production): at least 32 bytes, and not equal to the JWT
+// secret. Generate with `openssl rand -base64 48`. Outside production an
+// empty key falls back to a key derived from DADIARY_JWT_SECRET
+// (see internal/mediaurl).
+//
+// URLTTLRaw is DADIARY_MEDIA_URL_TTL (Go duration, default 1h, max 168h).
+// URLTTL is the parsed value.
+type MediaConfig struct {
+	SigningKey string        `mapstructure:"signing_key"`
+	URLTTLRaw  string        `mapstructure:"url_ttl"`
+	URLTTL     time.Duration `mapstructure:"-"`
+}
+
 // Load reads config from optional .env (repo root), config.yaml, and DADIARY_* env vars.
 func Load(relativeEnvPath string) (*Config, error) {
 	// Optional; ignore missing files. Try CWD and repo root (when `go run` from backend/).
@@ -274,8 +292,11 @@ func Load(relativeEnvPath string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	v.AutomaticEnv()
 	// Explicit binds for common 12-factor names (clearer than nested env mapping).
+	_ = v.BindEnv("env", "DADIARY_ENV")
 	_ = v.BindEnv("database.url", "DADIARY_DATABASE_URL")
 	_ = v.BindEnv("jwt.secret", "DADIARY_JWT_SECRET")
+	_ = v.BindEnv("media.signing_key", "DADIARY_MEDIA_SIGNING_KEY")
+	_ = v.BindEnv("media.url_ttl", "DADIARY_MEDIA_URL_TTL")
 	_ = v.BindEnv("http.port", "DADIARY_HTTP_PORT")
 	_ = v.BindEnv("http.read_timeout", "DADIARY_HTTP_READ_TIMEOUT")
 	_ = v.BindEnv("http.write_timeout", "DADIARY_HTTP_WRITE_TIMEOUT")
@@ -367,6 +388,21 @@ func Load(relativeEnvPath string) (*Config, error) {
 	}
 	if cfg.JWT.RefreshTTL == 0 {
 		cfg.JWT.RefreshTTL = 7 * 24 * time.Hour
+	}
+	cfg.Env = strings.TrimSpace(cfg.Env)
+	if raw := strings.TrimSpace(os.Getenv("DADIARY_ENV")); raw != "" {
+		cfg.Env = raw
+	}
+	cfg.JWT.Secret = strings.TrimSpace(cfg.JWT.Secret)
+	cfg.Media.SigningKey = strings.TrimSpace(cfg.Media.SigningKey)
+	if raw := strings.TrimSpace(cfg.Media.URLTTLRaw); raw == "" {
+		cfg.Media.URLTTL = time.Hour
+	} else {
+		d, err := time.ParseDuration(raw)
+		if err != nil || d <= 0 {
+			return nil, fmt.Errorf("media url ttl %q: want a positive Go duration (example 1h)", raw)
+		}
+		cfg.Media.URLTTL = d
 	}
 	if strings.TrimSpace(cfg.Upload.Dir) == "" {
 		cfg.Upload.Dir = "./data/uploads"
@@ -521,8 +557,79 @@ func Load(relativeEnvPath string) (*Config, error) {
 	if err := validateRetryConfig(cfg.AI.Retry); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
+	if err := ValidateStartupSecrets(&cfg); err != nil {
+		return nil, err
+	}
 
 	return &cfg, nil
+}
+
+const minSecretBytes = 32
+
+// jwtPlaceholderSecrets are values that must never sign production tokens.
+// Matching is case-insensitive on the trimmed string.
+var jwtPlaceholderSecrets = map[string]struct{}{
+	"change-me-in-production-use-long-random-string": {},
+	"change-me":        {},
+	"changeme":         {},
+	"secret":           {},
+	"jwt-secret":       {},
+	"jwt_secret":       {},
+	"password":         {},
+	"placeholder":      {},
+	"replace-me":       {},
+	"your-secret-here": {},
+	"todo":             {},
+	"example":          {},
+	"test":             {},
+	"development":      {},
+	"default":          {},
+}
+
+// IsProduction reports whether this process is the production API.
+// DADIARY_ENV=production (any case) is production. Anything else, including
+// empty and "development", is not.
+func (c *Config) IsProduction() bool {
+	if c == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(c.Env), "production")
+}
+
+// ValidateStartupSecrets refuses to boot production with a weak JWT secret
+// or a missing/short/duplicated media signing key. Development and test
+// configs are unchanged, including the config.yaml JWT placeholder and the
+// media-key fallback to the JWT secret.
+//
+// Errors name the variable and never include the secret value.
+func ValidateStartupSecrets(cfg *Config) error {
+	if cfg == nil || !cfg.IsProduction() {
+		return nil
+	}
+	jwt := strings.TrimSpace(cfg.JWT.Secret)
+	switch {
+	case jwt == "":
+		return fmt.Errorf("fatal: refusing to start: DADIARY_JWT_SECRET is missing")
+	case len(jwt) < minSecretBytes:
+		return fmt.Errorf("fatal: refusing to start: DADIARY_JWT_SECRET is shorter than 32 bytes")
+	case isJWTPlaceholder(jwt):
+		return fmt.Errorf("fatal: refusing to start: DADIARY_JWT_SECRET is a known placeholder")
+	}
+	media := strings.TrimSpace(cfg.Media.SigningKey)
+	switch {
+	case media == "":
+		return fmt.Errorf("fatal: refusing to start: DADIARY_MEDIA_SIGNING_KEY is required in production (openssl rand -base64 48)")
+	case len(media) < minSecretBytes:
+		return fmt.Errorf("fatal: refusing to start: DADIARY_MEDIA_SIGNING_KEY is shorter than 32 bytes")
+	case media == jwt:
+		return fmt.Errorf("fatal: refusing to start: DADIARY_MEDIA_SIGNING_KEY must not equal DADIARY_JWT_SECRET")
+	}
+	return nil
+}
+
+func isJWTPlaceholder(secret string) bool {
+	_, ok := jwtPlaceholderSecrets[strings.ToLower(strings.TrimSpace(secret))]
+	return ok
 }
 
 // E2EHelpersEnabled reports whether Playwright smoke helpers may be registered.

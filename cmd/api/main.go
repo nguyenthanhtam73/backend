@@ -4,16 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"mime"
 	"os"
 	"os/signal"
-	"path"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/handler"
+	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/scheduler"
@@ -67,7 +67,18 @@ func main() {
 		fmt.Fprintf(os.Stderr, "storage: %v\n", err)
 		os.Exit(1)
 	}
-	registerUploadServing(app, store)
+	signer := mediaurl.New(cfg.Media.SigningKey, cfg.JWT.Secret, cfg.Media.URLTTL)
+	if signer == nil {
+		fmt.Fprintf(os.Stderr, "media: signing key missing (set DADIARY_MEDIA_SIGNING_KEY or DADIARY_JWT_SECRET)\n")
+		os.Exit(1)
+	}
+	mediaurl.SetDefault(signer)
+	if strings.TrimSpace(cfg.Media.SigningKey) == "" {
+		slog.Info("media: photo URLs signed with a key derived from DADIARY_JWT_SECRET", "url_ttl", signer.TTL().String())
+	} else {
+		slog.Info("media: photo URLs signed with DADIARY_MEDIA_SIGNING_KEY", "url_ttl", signer.TTL().String())
+	}
+	handler.RegisterUploads(app, store, signer)
 
 	handler.Router(app, cfg, db, tok, store)
 
@@ -253,42 +264,4 @@ func startPendingOrderExpiryJob(ctx context.Context, cfg *config.Config, db *gor
 	}
 	jobLocks := repository.NewPushJobLockRepository(db)
 	scheduler.NewPendingOrderExpiryJob(paySvc, jobLocks).Start(ctx)
-}
-
-// registerUploadServing exposes stored photos under the stable "/uploads/*" path.
-//
-//   - local driver: serve straight from disk (fast, unchanged dev behavior).
-//   - r2 driver:    proxy object bytes from R2 so the public URL shape and the
-//     stored DB paths never change (no presigned-URL TTLs leaking to the client).
-//
-// Always set Access-Control-Allow-Origin on /uploads. Fiber's CORS middleware only
-// adds ACAO when the request has an Origin header; CDNs can cache a no-Origin
-// response (no ACAO) and later serve it to browser canvas/fetch CORS → fail.
-func registerUploadServing(app *fiber.App, store storage.Storage) {
-	app.Use("/uploads", func(c *fiber.Ctx) error {
-		c.Set("Access-Control-Allow-Origin", "*")
-		c.Set("Cross-Origin-Resource-Policy", "cross-origin")
-		return c.Next()
-	})
-	if store.Driver() == "local" {
-		app.Static("/uploads", store.LocalDir())
-		return
-	}
-	app.Get("/uploads/*", func(c *fiber.Ctx) error {
-		key := c.Params("*")
-		if key == "" {
-			return fiber.ErrNotFound
-		}
-		data, err := store.Read(c.UserContext(), key)
-		if err != nil {
-			return fiber.ErrNotFound
-		}
-		if ct := mime.TypeByExtension(path.Ext(key)); ct != "" {
-			c.Set("Content-Type", ct)
-		}
-		// Photos are immutable once written (keys are UUIDs), so allow caching.
-		// public + ACAO * is safe to CDN-cache (ACAO is constant, not Origin-varying).
-		c.Set("Cache-Control", "public, max-age=3600")
-		return c.Send(data)
-	})
 }
