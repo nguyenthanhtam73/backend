@@ -58,7 +58,7 @@ func TestApply_SkipOnceThenConsume(t *testing.T) {
 		t.Fatalf("initial: %+v", view)
 	}
 
-	view, err = svc.Apply(context.Background(), u.ID, ActionSkip)
+	view, err = svc.Apply(context.Background(), u.ID, Update{Action: ActionSkip})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestApply_SkipOnceThenConsume(t *testing.T) {
 
 	later := now.Add(time.Hour)
 	svc.now = func() time.Time { return later }
-	if _, err := svc.Apply(context.Background(), u.ID, ActionSkip); err != nil {
+	if _, err := svc.Apply(context.Background(), u.ID, Update{Action: ActionSkip}); err != nil {
 		t.Fatal(err)
 	}
 	reloaded, err := users.GetByID(context.Background(), u.ID)
@@ -88,14 +88,14 @@ func TestApply_SkipOnceThenConsume(t *testing.T) {
 	if !view.PushOptInReshowEligible {
 		t.Fatalf("expected re-show: %+v", view)
 	}
-	view, err = svc.Apply(context.Background(), u.ID, ActionConsumeReshow)
+	view, err = svc.Apply(context.Background(), u.ID, Update{Action: ActionConsumeReshow})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if view.PushOptInReshowEligible {
 		t.Fatalf("consumed still eligible: %+v", view)
 	}
-	if _, err := svc.Apply(context.Background(), u.ID, "nope"); err != ErrInvalidAction {
+	if _, err := svc.Apply(context.Background(), u.ID, Update{Action: "nope"}); err != ErrInvalidAction {
 		t.Fatalf("err=%v", err)
 	}
 }
@@ -117,11 +117,11 @@ func TestApply_ConsumeBeforeSkipDoesNotBurnReshow(t *testing.T) {
 	}
 	svc := NewService(users)
 	svc.now = func() time.Time { return time.Date(2026, 10, 1, 9, 0, 0, 0, streaktime.Location) }
-	if _, err := svc.Apply(context.Background(), u.ID, ActionConsumeReshow); err != nil {
+	if _, err := svc.Apply(context.Background(), u.ID, Update{Action: ActionConsumeReshow}); err != nil {
 		t.Fatal(err)
 	}
 	svc.now = func() time.Time { return time.Date(2026, 10, 5, 9, 0, 0, 0, streaktime.Location) }
-	if _, err := svc.Apply(context.Background(), u.ID, ActionSkip); err != nil {
+	if _, err := svc.Apply(context.Background(), u.ID, Update{Action: ActionSkip}); err != nil {
 		t.Fatal(err)
 	}
 	svc.now = func() time.Time { return time.Date(2026, 10, 8, 9, 0, 0, 0, streaktime.Location) }

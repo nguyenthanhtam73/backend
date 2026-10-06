@@ -38,7 +38,10 @@ func (h *ReminderPrefsHandler) Get(c *fiber.Ctx) error {
 }
 
 type reminderPrefsBody struct {
-	PushOptInAction string `json:"push_opt_in_action"`
+	PushOptInAction string  `json:"push_opt_in_action"`
+	Enabled         *bool   `json:"enabled"`
+	Time            *string `json:"time"`
+	Timezone        *string `json:"timezone"`
 }
 
 // Put handles PUT /api/v1/me/reminder.
@@ -54,7 +57,12 @@ func (h *ReminderPrefsHandler) Put(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
 	}
-	view, err := h.svc.Apply(c.UserContext(), uid, body.PushOptInAction)
+	view, err := h.svc.Apply(c.UserContext(), uid, reminderprefsuc.Update{
+		Action:   body.PushOptInAction,
+		Enabled:  body.Enabled,
+		Time:     body.Time,
+		Timezone: body.Timezone,
+	})
 	if err != nil {
 		return writeReminderErr(c, err)
 	}
@@ -64,6 +72,12 @@ func (h *ReminderPrefsHandler) Put(c *fiber.Ctx) error {
 func writeReminderErr(c *fiber.Ctx, err error) error {
 	if errors.Is(err, reminderprefsuc.ErrInvalidAction) {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_action", "push_opt_in_action must be skip_push_opt_in or consume_push_opt_in_reshow")
+	}
+	if errors.Is(err, reminderprefsuc.ErrInvalidTime) {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_time", "time must be HH:MM from 00:00 to 23:59")
+	}
+	if errors.Is(err, reminderprefsuc.ErrInvalidTimezone) {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_timezone", "timezone must be an IANA name such as Asia/Ho_Chi_Minh")
 	}
 	if errors.Is(err, reminderprefsuc.ErrUnavailable) {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "reminder unavailable")

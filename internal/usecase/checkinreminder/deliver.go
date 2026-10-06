@@ -9,6 +9,7 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/reminder"
 	"github.com/dadiary/backend/internal/service/email"
 	pushuc "github.com/dadiary/backend/internal/usecase/push"
 	"github.com/google/uuid"
@@ -60,7 +61,7 @@ func (s *Service) DeliverDue(ctx context.Context) (DeliveryResult, error) {
 		return out, err
 	}
 
-	rows, err := s.flags.ListDue(ctx, 2000)
+	rows, err := s.flags.ListDue(ctx, 2000, reminder.JobD0Email, reminder.JobD0D1Push)
 	if err != nil {
 		return out, err
 	}
@@ -133,6 +134,10 @@ func (s *Service) DeliverDue(ctx context.Context) (DeliveryResult, error) {
 		// D0 email stays on this hourly pass (same-day signup, no check-in).
 		// D1 email moved to the 19:30 ICT job and is anchored on first check-in,
 		// not this signup-day flag.
+		// reminder_enabled = false is already absent: ListDue calls
+		// reminder.ExcludeMuted for the hourly D0 email and the D0/D1 push.
+		// NULL and true stay in this list. Transactional mail does not come
+		// through here.
 		if kind == KindD0 && emailReady {
 			s.deliverEmail(ctx, u, kind, &out, &scratch)
 		} else {
