@@ -83,6 +83,14 @@ func normalizeKey(rel string) (string, error) {
 		return "", errUnsafeKey
 	}
 	slash := strings.ReplaceAll(raw, "\\", "/")
+	// Signed URLs keep the object key in the path and put exp/sig in the query.
+	if i := strings.IndexAny(slash, "?#"); i >= 0 {
+		slash = slash[:i]
+	}
+	slash = strings.TrimSpace(slash)
+	if slash == "" {
+		return "", errUnsafeKey
+	}
 	if strings.HasPrefix(slash, "//") || isWindowsDrive(slash) {
 		return "", errUnsafeKey
 	}

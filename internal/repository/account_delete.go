@@ -40,19 +40,22 @@ func (r *UserDataRepository) FindUser(ctx context.Context, userID uuid.UUID) (*d
 // DeleteAccount removes the account and everything that still identifies the
 // person. Photo keys are returned so the caller can delete files after commit.
 //
-// Deleted (hard): users, refresh_sessions, skin_checks, skin_analyses,
-// skin_profiles, routine_entries, skincare_products, ai_user_feedbacks,
-// feedbacks, affiliate_clicks, progress_logs, push_subscriptions,
-// push_send_receipts, checkin_reminder_flags, routine_suggest_jobs, streaks,
-// user_usages, subscriptions, admin_skin_reviews owned by this account,
-// beta_signups whose email matches.
+// Deleted (hard): users (including reminder columns push_opt_in_skipped_at,
+// push_opt_in_reshow_used_at, email unsubscribe, and first-touch attribution),
+// refresh_sessions, skin_checks, skin_analyses, skin_profiles, routine_entries,
+// skincare_products, ai_user_feedbacks, feedbacks, affiliate_clicks,
+// progress_logs, push_subscriptions, push_send_receipts, push_click_events,
+// checkin_reminder_flags, routine_suggest_jobs, streaks, user_usages,
+// subscriptions, admin_skin_reviews owned by this account, beta_signups whose
+// email matches.
 //
 // Anonymized: funnel_events (user_id NULL, props scrubbed), paywall_views
-// (user_id NULL), email_send_receipts (user_id replaced), usage_events
-// (user_id replaced), payment_orders (user_id NULL, custom data and webhook
-// cleared; invoice number, amounts, and dates kept), payment_ops_events
-// (invoice number unchanged), plan_change_logs (user ids NULL, this
-// account's actor email cleared).
+// (user_id NULL), email_send_receipts (user_id replaced; no email column),
+// email_engagement_events (user_id NULL, link scrubbed; the table has no
+// email or recipient column), usage_events (user_id replaced), payment_orders
+// (user_id NULL, custom data and webhook cleared; invoice number, amounts,
+// and dates kept), payment_ops_events (invoice number unchanged),
+// plan_change_logs (user ids NULL, this account's actor email cleared).
 //
 // Nullability of payment_orders.user_id and plan_change_logs user ids is
 // applied once at startup (migration 024). This path only reads that state.
@@ -91,6 +94,9 @@ func (r *UserDataRepository) DeleteAccount(ctx context.Context, userID uuid.UUID
 			return err
 		}
 		if err := deletePersonalRows(tx, userID, true); err != nil {
+			return err
+		}
+		if err := tx.Where("user_id = ?", userID).Delete(&domain.PushClickEvent{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Unscoped().Where("user_id = ?", userID).Delete(&domain.RefreshSession{}).Error; err != nil {
@@ -177,6 +183,11 @@ func addPhotoKey(seen map[string]struct{}, raw string) {
 	} else if strings.Contains(raw, "://") {
 		return
 	}
+	// Signed photo URLs are "/uploads/<key>?exp=&sig=". The object key is the
+	// path. Dropping the query keeps deletion working when those URLs are stored.
+	if i := strings.IndexAny(raw, "?#"); i >= 0 {
+		raw = raw[:i]
+	}
 	key := storage.CleanKey(raw)
 	if key == "" {
 		return
@@ -198,6 +209,9 @@ func anonymizeAccountRows(tx *gorm.DB, user *domain.User) error {
 	).Error; err != nil {
 		return err
 	}
+	if err := anonymizeEmailEngagement(tx, user.ID, email); err != nil {
+		return err
+	}
 	if err := tx.Exec(
 		`UPDATE usage_events SET user_id = ? WHERE user_id = ?`,
 		uuid.New(), user.ID,
@@ -208,6 +222,25 @@ func anonymizeAccountRows(tx *gorm.DB, user *domain.User) error {
 		return err
 	}
 	return anonymizePlanChangeLogs(tx, user.ID, email)
+}
+
+func anonymizeEmailEngagement(tx *gorm.DB, userID uuid.UUID, email string) error {
+	var events []domain.EmailEngagementEvent
+	if err := tx.Where("user_id = ?", userID).Find(&events).Error; err != nil {
+		return err
+	}
+	for i := range events {
+		link := scrubPersonal(events[i].LinkURL, email, userID)
+		if link == events[i].LinkURL {
+			continue
+		}
+		if err := tx.Model(&domain.EmailEngagementEvent{}).
+			Where("id = ?", events[i].ID).
+			Update("link_url", link).Error; err != nil {
+			return err
+		}
+	}
+	return tx.Exec(`UPDATE email_engagement_events SET user_id = NULL WHERE user_id = ?`, userID).Error
 }
 
 func anonymizeFunnelEvents(tx *gorm.DB, userID uuid.UUID, email string) error {

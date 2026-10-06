@@ -5,6 +5,8 @@
 -- (repository.ApplyAccountDeletionSchema), after AutoMigrate and before it
 -- listens for HTTP. On Railway that is the backend process using
 -- DADIARY_DATABASE_URL; the deploy workflow does not run SQL files.
+-- Nothing walks migrations/ in filename order, so 024 staying numbered
+-- ahead of 025_reminder_engagement does not affect boot.
 -- Apply this file by hand only when AutoMigrate is not the source of truth.
 -- DELETE /me does not run these statements. If they have not been applied,
 -- that endpoint returns 503 and leaves the account in place.

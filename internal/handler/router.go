@@ -239,6 +239,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			webhookSecret,
 			repository.NewEmailEngagementRepository(db),
 			repository.NewEmailSendReceiptRepository(db),
+			userRepo,
 		)
 		// Svix signature is the only auth. Cap is process-wide: behind Railway
 		// c.IP() is the proxy, so a per-IP bucket would be one bucket anyway.

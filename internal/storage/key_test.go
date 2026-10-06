@@ -26,6 +26,8 @@ func TestCleanKey_RejectsUnsafeAndKeepsUploadsPrefix(t *testing.T) {
 		{in: "/uploads/../etc/passwd", want: ""},
 		{in: "/uploads/", want: ""},
 		{in: "/uploads/2026/10/a.jpg", want: "2026/10/a.jpg"},
+		{in: "/uploads/2026/10/a.jpg?exp=1999999999&sig=abc", want: "2026/10/a.jpg"},
+		{in: "2026/10/a.jpg#fragment", want: "2026/10/a.jpg"},
 		{in: "uploads/2026/10/a.jpg", want: "2026/10/a.jpg"},
 		{in: `2026\10\a.jpg`, want: "2026/10/a.jpg"},
 		{in: "2026/10/a.jpg", want: "2026/10/a.jpg"},

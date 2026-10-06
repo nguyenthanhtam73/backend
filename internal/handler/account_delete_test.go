@@ -29,14 +29,22 @@ func TestDeleteAccount_Contract(t *testing.T) {
 	photoKey := "2026/10/03/check-in/delete-me__" + userID.String() + "/face.jpg"
 	missingKey := "2026/10/03/check-in/delete-me__" + userID.String() + "/gone.jpg"
 	avatarKey := "2026/10/03/check-in/delete-me__" + userID.String() + "/avatar.jpg"
+	signedKey := "2026/10/03/check-in/delete-me__" + userID.String() + "/signed.jpg"
 	if err := store.Save(t.Context(), photoKey, []byte("face-bytes"), "image/jpeg"); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Save(t.Context(), avatarKey, []byte("avatar-bytes"), "image/jpeg"); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.Save(t.Context(), signedKey, []byte("signed-bytes"), "image/jpeg"); err != nil {
+		t.Fatal(err)
+	}
 
-	images, _ := json.Marshal([]string{photoKey, missingKey})
+	images, _ := json.Marshal([]string{
+		photoKey,
+		missingKey,
+		"/uploads/" + signedKey + "?exp=1999999999&sig=abc",
+	})
 	check := &domain.SkinCheck{
 		UserID:     userID,
 		ImageURLs:  images,
@@ -113,7 +121,42 @@ func TestDeleteAccount_Contract(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&domain.EmailSendReceipt{UserID: userID, Kind: "d0"}).Error; err != nil {
+	if err := db.Create(&domain.EmailSendReceipt{
+		UserID:        userID,
+		Kind:          "d0",
+		ResendEmailID: "re_delete_me",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&domain.EmailEngagementEvent{
+		ResendEventID: "evt-delete-me",
+		ResendEmailID: "re_delete_me",
+		UserID:        &userID,
+		Kind:          "d0",
+		EventType:     domain.EmailEventClicked,
+		LinkURL:       "https://dadiary.vn/check-in?who=" + email + "&uid=" + userID.String(),
+		OccurredAt:    time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&domain.PushClickEvent{
+		UserID:         userID,
+		IdempotencyKey: "click-delete-me",
+		ClickedAt:      time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&domain.User{}).Where("id = ?", userID).Updates(map[string]any{
+		"push_opt_in_skipped_at": time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&domain.CheckInReminderFlag{
+		UserID:     userID,
+		Kind:       "d1",
+		SignupDate: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
+		ComputedOn: time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC),
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&domain.UsageEvent{
@@ -199,6 +242,9 @@ func TestDeleteAccount_Contract(t *testing.T) {
 	}
 	if _, err := store.Read(t.Context(), reviewKey); err == nil {
 		t.Fatal("admin review photo still on disk")
+	}
+	if _, err := store.Read(t.Context(), signedKey); err == nil {
+		t.Fatal("signed photo still on disk")
 	}
 
 	status, raw = callJSON(t, app, http.MethodGet, "/api/v1/me", access, "")
@@ -308,6 +354,30 @@ func TestDeleteAccount_Contract(t *testing.T) {
 	if receipt.UserID == uuid.Nil || receipt.UserID == userID {
 		t.Fatalf("email receipt user_id=%s", receipt.UserID)
 	}
+	var engagement domain.EmailEngagementEvent
+	if err := db.Where("resend_event_id = ?", "evt-delete-me").First(&engagement).Error; err != nil {
+		t.Fatal(err)
+	}
+	if engagement.UserID != nil {
+		t.Fatalf("engagement user_id=%v", engagement.UserID)
+	}
+	if strings.Contains(strings.ToLower(engagement.LinkURL), email) || strings.Contains(engagement.LinkURL, userID.String()) {
+		t.Fatalf("engagement link still identifies the person: %s", engagement.LinkURL)
+	}
+	var clicks int64
+	if err := db.Model(&domain.PushClickEvent{}).Where("user_id = ?", userID).Count(&clicks).Error; err != nil {
+		t.Fatal(err)
+	}
+	if clicks != 0 {
+		t.Fatalf("push clicks left: %d", clicks)
+	}
+	var flags int64
+	if err := db.Unscoped().Model(&domain.CheckInReminderFlag{}).Where("user_id = ?", userID).Count(&flags).Error; err != nil {
+		t.Fatal(err)
+	}
+	if flags != 0 {
+		t.Fatalf("reminder flags left: %d", flags)
+	}
 	var usage domain.UsageEvent
 	if err := db.First(&usage).Error; err != nil {
 		t.Fatal(err)
@@ -396,6 +466,8 @@ func newAccountApp(t *testing.T) (*fiber.App, *gorm.DB, storage.Storage) {
 		&domain.FunnelEvent{},
 		&domain.PaywallView{},
 		&domain.EmailSendReceipt{},
+		&domain.EmailEngagementEvent{},
+		&domain.PushClickEvent{},
 		&domain.UsageEvent{},
 		&domain.PaymentOrder{},
 		&domain.PaymentOpsEvent{},

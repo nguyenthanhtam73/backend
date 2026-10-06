@@ -46,6 +46,7 @@ func TestDeleteAccount_PostgresFKAndSchema(t *testing.T) {
 		{"streaks", "user_id", "acctdel_fk_streaks_user", "users(id)"},
 		{"subscriptions", "user_id", "acctdel_fk_subscriptions_user", "users(id)"},
 		{"refresh_sessions", "user_id", "acctdel_fk_refresh_sessions_user", "users(id)"},
+		{"push_click_events", "user_id", "acctdel_fk_push_clicks_user", "users(id)"},
 	} {
 		if err := addRestrictFK(db, fk.table, fk.column, fk.name, fk.ref); err != nil {
 			t.Fatal(err)
@@ -127,6 +128,29 @@ func TestDeleteAccount_PostgresFKAndSchema(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Create(&domain.PushClickEvent{
+		UserID:         user.ID,
+		IdempotencyKey: "pg-click",
+		ClickedAt:      time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&domain.EmailEngagementEvent{
+		ResendEventID: "pg-evt",
+		ResendEmailID: "re_pg",
+		UserID:        &user.ID,
+		Kind:          "d1",
+		EventType:     domain.EmailEventClicked,
+		LinkURL:       "https://dadiary.vn/check-in?who=" + user.Email,
+		OccurredAt:    time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&domain.User{}).Where("id = ?", user.ID).Update(
+		"push_opt_in_skipped_at", time.Now().UTC(),
+	).Error; err != nil {
+		t.Fatal(err)
+	}
 	otherCheck := &domain.SkinCheck{
 		UserID:     other.ID,
 		ImageURLs:  []byte(`[]`),
@@ -181,6 +205,7 @@ func TestDeleteAccount_PostgresFKAndSchema(t *testing.T) {
 		{"streaks", &domain.Streak{}, "user_id = ?", user.ID},
 		{"subscriptions", &domain.Subscription{}, "user_id = ?", user.ID},
 		{"refresh_sessions", &domain.RefreshSession{}, "user_id = ?", user.ID},
+		{"push_click_events", &domain.PushClickEvent{}, "user_id = ?", user.ID},
 	} {
 		var n int64
 		if err := db.Unscoped().Model(count.model).Where(count.where, count.arg).Count(&n).Error; err != nil {
@@ -209,6 +234,13 @@ func TestDeleteAccount_PostgresFKAndSchema(t *testing.T) {
 	}
 	if ops.InvoiceNumber != invoice {
 		t.Fatalf("ops invoice=%s", ops.InvoiceNumber)
+	}
+	var engagement domain.EmailEngagementEvent
+	if err := db.Where("resend_event_id = ?", "pg-evt").First(&engagement).Error; err != nil {
+		t.Fatal(err)
+	}
+	if engagement.UserID != nil || strings.Contains(engagement.LinkURL, user.Email) {
+		t.Fatalf("engagement still linked: %+v", engagement)
 	}
 	var kept domain.User
 	if err := db.First(&kept, "id = ?", other.ID).Error; err != nil {
