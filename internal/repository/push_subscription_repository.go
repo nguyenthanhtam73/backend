@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/reminder"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -106,24 +107,24 @@ func (r *GormPushSubscriptionRepository) DeleteByEndpoint(
 }
 
 // ListActiveUserIDs returns distinct user IDs that currently have an active
-// push subscription and have not turned reminders off.
-//
-// reminder_enabled NULL (never set) and true are included. false is excluded
-// in this query, which is the 20:00 candidate list for daily_reminder and
-// streak_at_risk. The hourly D0/D1 push does not use this method.
+// push subscription. job is the caller (20:00 daily_reminder or
+// streak_at_risk). reminder.ExcludeMuted drops reminder_enabled = false.
+// NULL and true stay in the list. The hourly D0/D1 push uses ListDue.
 func (r *GormPushSubscriptionRepository) ListActiveUserIDs(
 	ctx context.Context,
+	job reminder.JobID,
 ) ([]uuid.UUID, error) {
 	db, err := r.dbOrErr()
 	if err != nil {
 		return nil, err
 	}
 	var ids []uuid.UUID
-	err = db.WithContext(ctx).
+	err = reminder.ExcludeMuted(ctx, db.WithContext(ctx).
 		Model(&domain.PushSubscription{}).
-		Where("is_active = ?", true).
-		Where("user_id NOT IN (?)", reminderDisabledUserIDs(db)).
-		Distinct("user_id").
+		Where("is_active = ?", true),
+		"user_id",
+		job,
+	).Distinct("user_id").
 		Pluck("user_id", &ids).Error
 	if err != nil {
 		return nil, err

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/dadiary/backend/internal/repository"
-	"github.com/dadiary/backend/internal/service/email"
 )
 
 func TestDeliverEveningEmails_SkipsReminderOffKeepsNullAndTrue(t *testing.T) {
@@ -41,27 +40,5 @@ func TestDeliverEveningEmails_SkipsReminderOffKeepsNullAndTrue(t *testing.T) {
 	}
 	if !got["unset@test.com"] || !got["on@test.com"] || got["off@test.com"] {
 		t.Fatalf("recipients: %#v", got)
-	}
-}
-
-func TestDeliverDue_D0EmailStillSendsWhenReminderOff(t *testing.T) {
-	now := vnAt(2026, 10, 5, 11, 0)
-	svc, users, _, db := setupReminderSvc(t, now)
-	u := createUser(t, users, "d0off@test.com", vnAt(2026, 10, 5, 9, 0))
-	disabled := false
-	if err := users.SetReminderSchedule(context.Background(), u.ID, &disabled, nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := svc.RefreshWindow(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	mailer := &stubMailer{ready: true}
-	svc.AttachOutbound(mailer, repository.NewEmailSendReceiptRepository(db), nil, email.NewUnsubscribeSigner("secret", "https://api.test"), "https://dadiary.vn/check-in")
-	res, err := svc.DeliverDue(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.EmailSent != 1 || len(mailer.sent) != 1 || mailer.sent[0].To != "d0off@test.com" {
-		t.Fatalf("hourly D0 should ignore reminder_enabled: %+v sent=%v", res, mailer.sent)
 	}
 }

@@ -12,8 +12,8 @@ import (
 // TestTransactionalSendIgnoresReminderOff locks the boundary between reminder
 // jobs and account mail. Password reset, verify, and account-deletion mail
 // use Sender.Send directly. That method has no user id and does not read
-// users.reminder_enabled. Evening jobs filter reminder_enabled = false in
-// their own candidate query.
+// users.reminder_enabled. Reminder jobs call reminder.ExcludeMuted on their
+// candidate queries.
 func TestTransactionalSendIgnoresReminderOff(t *testing.T) {
 	var payload map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

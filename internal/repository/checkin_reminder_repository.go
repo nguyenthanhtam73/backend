@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/reminder"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -100,9 +101,13 @@ func (r *CheckInReminderRepository) ListDueUserIDs(ctx context.Context, limit in
 }
 
 // ListDue returns due D0/D1 flag rows for outbound fan-out.
+// jobs are the hourly sends that share this query (D0 email and D0/D1 push).
+// reminder.ExcludeMuted drops reminder_enabled = false for each of them.
+// NULL and true stay due. ListDueUserIDs is flag refresh and does not filter.
 func (r *CheckInReminderRepository) ListDue(
 	ctx context.Context,
 	limit int,
+	jobs ...reminder.JobID,
 ) ([]domain.CheckInReminderFlag, error) {
 	db, err := r.dbOrErr()
 	if err != nil {
@@ -112,10 +117,12 @@ func (r *CheckInReminderRepository) ListDue(
 		limit = 2000
 	}
 	var rows []domain.CheckInReminderFlag
-	err = db.WithContext(ctx).
+	err = reminder.ExcludeMuted(ctx, db.WithContext(ctx).
 		Where("due = ?", true).
-		Where("kind IN ?", []string{"d0", "d1"}).
-		Order("computed_at ASC").
+		Where("kind IN ?", []string{"d0", "d1"}),
+		"user_id",
+		jobs...,
+	).Order("computed_at ASC").
 		Limit(limit).
 		Find(&rows).Error
 	return rows, err

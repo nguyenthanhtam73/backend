@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/reminder"
 	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
@@ -69,8 +70,8 @@ func (d *streakAtRiskDedupe) markSent(userID uuid.UUID, today string) {
 //     including days_since == 1 and savable days_since == 2), and
 //  2. have an active Web Push subscription.
 //
-// ListActiveUserIDs excludes reminder_enabled = false, so this 20:00 push
-// honors the same OFF switch as daily_reminder. NULL and true still match.
+// ListActiveUserIDs calls reminder.ExcludeMuted for this job, so
+// reminder_enabled = false is left out. NULL and true still match.
 func (s *Service) GetUsersAtRiskWithPush(ctx context.Context) ([]uuid.UUID, error) {
 	if s == nil || s.repo == nil || s.streaks == nil {
 		return nil, ErrUnavailable
@@ -86,7 +87,7 @@ func (s *Service) GetUsersAtRiskWithPush(ctx context.Context) ([]uuid.UUID, erro
 		return nil, nil
 	}
 
-	withPush, err := s.repo.ListActiveUserIDs(ctx)
+	withPush, err := s.repo.ListActiveUserIDs(ctx, reminder.JobStreakAtRisk)
 	if err != nil {
 		slog.Error("streak_at_risk: ListActiveUserIDs failed", "err", err)
 		return nil, err

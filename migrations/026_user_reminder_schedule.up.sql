@@ -1,7 +1,9 @@
 -- Per-user reminder schedule. NULL reminder_enabled means the user never
--- chose, so the 20:00 push and evening reminder emails keep today's behavior.
--- false turns those jobs off for that user. reminder_time is a local HH:MM
--- and is stored only; send time stays on the shared clocks.
+-- chose, so every outbound capture/check-in reminder keeps today's behavior.
+-- false turns those jobs off for that user (20:00 push, streak-at-risk,
+-- evening D1/Day-3 email, hourly D0 email, hourly D0/D1 push).
+-- reminder_time is a local HH:MM and is stored only; send time stays on
+-- the shared clocks. Transactional mail does not read this column.
 -- Boot schema also comes from GORM AutoMigrate. Apply this file on Postgres
 -- when AutoMigrate is not the source of truth.
 

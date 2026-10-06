@@ -11,6 +11,7 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/reminder"
 	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -324,13 +325,14 @@ type FirstCheckCohort struct {
 }
 
 // ListUsersByFirstCheckDates returns users whose MIN(check_date) is one of
-// dates (Vietnam civil days, UTC midnight). Used by the 19:30 D1/D3 email.
-// Accounts with reminder_enabled = false are excluded here. NULL and true
-// stay in the cohort. The hourly D0 email does not use this method.
+// dates (Vietnam civil days, UTC midnight). The 19:30 D1/Day-3 email passes
+// reminder.JobEveningEmail. reminder.ExcludeMuted drops reminder_enabled =
+// false. NULL and true stay in the cohort. The hourly D0 email uses ListDue.
 func (r *GormSkinCheckRepository) ListUsersByFirstCheckDates(
 	ctx context.Context,
 	dates []time.Time,
 	limit int,
+	job reminder.JobID,
 ) ([]FirstCheckCohort, error) {
 	db, err := r.dbOrErr()
 	if err != nil {
@@ -346,11 +348,12 @@ func (r *GormSkinCheckRepository) ListUsersByFirstCheckDates(
 	for _, d := range dates {
 		norm = append(norm, streaktime.DateOf(d))
 	}
-	sqlRows, err := db.WithContext(ctx).
+	sqlRows, err := reminder.ExcludeMuted(ctx, db.WithContext(ctx).
 		Model(&domain.SkinCheck{}).
-		Select("CAST(user_id AS TEXT) AS user_id, MIN(check_date) AS first_check").
-		Where("user_id NOT IN (?)", reminderDisabledUserIDs(db)).
-		Group("user_id").
+		Select("CAST(user_id AS TEXT) AS user_id, MIN(check_date) AS first_check"),
+		"user_id",
+		job,
+	).Group("user_id").
 		Having("MIN(check_date) IN ?", norm).
 		Limit(limit).
 		Rows()
