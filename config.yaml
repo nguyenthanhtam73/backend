@@ -1,4 +1,6 @@
 # DaDiary API — default config (override with env: DADIARY_*)
+# development | dev | debug | local logs SQL with bound values.
+# production (and any other DADIARY_ENV) logs only slow/failed SQL, placeholders only.
 env: development
 
 http:
