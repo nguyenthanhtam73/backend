@@ -27,8 +27,9 @@ import (
 // `max` is the number of requests allowed inside `expiration`. The key is
 // derived from the authenticated user when `RequireAccessJWT` has populated
 // locals; otherwise we fall back to the client IP so unauthenticated bursts
-// still get capped (Fiber's built-in `c.IP()` honours the
-// `X-Forwarded-For` header when running behind a trusted proxy).
+// still get capped. c.IP() is the TCP peer unless the API was started with
+// a trusted-proxy allow-list (Railway's edge, header X-Real-IP). A
+// client-supplied forwarding header from any other peer is ignored.
 //
 // On overflow we return our standard JSON error envelope so the frontend's
 // `getApiErrorMessage` helper renders a friendly banner instead of an

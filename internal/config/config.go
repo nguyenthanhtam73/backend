@@ -13,6 +13,7 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
 
+	"github.com/dadiary/backend/internal/clientip"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/pkg/retry"
 )
@@ -244,6 +245,14 @@ type HTTPConfig struct {
 	Port         int           `mapstructure:"port"`
 	ReadTimeout  time.Duration `mapstructure:"read_timeout"`
 	WriteTimeout time.Duration `mapstructure:"write_timeout"`
+	// TrustedProxyHeader is the header c.IP() may read when the TCP peer is
+	// in TrustedProxies. TRUSTED_PROXY_HEADER or DADIARY_TRUSTED_PROXY_HEADER.
+	// Default X-Real-IP. "none" keeps c.IP() on the TCP peer.
+	TrustedProxyHeader string `mapstructure:"-"`
+	// TrustedProxies is the allow-list of proxy addresses (IP or CIDR).
+	// TRUSTED_PROXIES or DADIARY_TRUSTED_PROXIES, comma-separated.
+	// Default 100.64.0.0/10. "none" trusts no peer.
+	TrustedProxies []string `mapstructure:"-"`
 }
 
 // DatabaseConfig holds database connection settings.
@@ -370,6 +379,15 @@ func Load(relativeEnvPath string) (*Config, error) {
 		// Skin-check AI (vision + Claude) can take minutes — response is held until coach JSON is ready.
 		cfg.HTTP.WriteTimeout = 12 * time.Minute
 	}
+	proxyHeader, proxyNets, err := clientip.Resolve(
+		firstNonEmpty(os.Getenv("TRUSTED_PROXY_HEADER"), os.Getenv("DADIARY_TRUSTED_PROXY_HEADER")),
+		firstNonEmpty(os.Getenv("TRUSTED_PROXIES"), os.Getenv("DADIARY_TRUSTED_PROXIES")),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+	cfg.HTTP.TrustedProxyHeader = proxyHeader
+	cfg.HTTP.TrustedProxies = proxyNets
 	if cfg.JWT.AccessTTL == 0 {
 		cfg.JWT.AccessTTL = 24 * time.Hour
 	}
