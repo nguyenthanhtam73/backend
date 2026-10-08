@@ -16,6 +16,7 @@ import (
 	adminactivityuc "github.com/dadiary/backend/internal/usecase/adminactivity"
 	adminfunneluc "github.com/dadiary/backend/internal/usecase/adminfunnel"
 	adminmetricsuc "github.com/dadiary/backend/internal/usecase/adminmetrics"
+	adminretentionuc "github.com/dadiary/backend/internal/usecase/adminretention"
 	adminskinreviewuc "github.com/dadiary/backend/internal/usecase/adminskinreview"
 	adminuseruc "github.com/dadiary/backend/internal/usecase/adminuser"
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
@@ -432,6 +433,12 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			adminfunneluc.NewService(userRepo, repo, payOrders, paywallViewRepo),
 		)
 		api.Get("/admin/funnel-stats", jwt, admin, adminFunnelH.Get)
+		// All-time retention (distinct Vietnam check-in days). Read-only SELECTs.
+		adminRetentionH := NewAdminRetentionHandler(
+			adminretentionuc.NewService(db),
+			cfg,
+		)
+		api.Get("/admin/retention-stats", jwt, admin, adminRetentionH.Get)
 
 		// Admin Skin Review — deep observations-only AI (bypasses Free quota;
 		// no AILimiter — gated by RequireSkinReview: full admin OR skin-review list).
