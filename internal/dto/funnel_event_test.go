@@ -1,6 +1,7 @@
 package dto
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -73,6 +74,86 @@ func TestLogFunnelEventRequest_PathLimitIgnoresQuery(t *testing.T) {
 	if row != nil || msg != "path is too long" {
 		t.Fatalf("row=%v msg=%q", row, msg)
 	}
+}
+
+func TestLogFunnelEventRequest_RegisterCampaignSanitizedOnce(t *testing.T) {
+	// "C%2B%2B" decodes to "C++" in one pass. '+' is allowed, so the stored
+	// campaign is "C++". A second pass would turn those pluses into spaces
+	// and trim the value down to "C".
+	row, msg := (LogFunnelEventRequest{
+		Event:     domain.FunnelRegisterFormView,
+		SessionID: "sess-cpp",
+		Path:      "/register",
+		Props:     json.RawMessage(`{"utm_campaign":"C%2B%2B"}`),
+		ClientTS:  "2026-09-29T10:43:00Z",
+	}).ValidateAndMap(uuid.Nil)
+	if msg != "" || row == nil {
+		t.Fatalf("msg=%q row=%v", msg, row)
+	}
+	if row.UTMCampaign == nil || *row.UTMCampaign != "C++" {
+		t.Fatalf("utm_campaign=%v, want C++", row.UTMCampaign)
+	}
+	var props map[string]string
+	if err := json.Unmarshal(row.Props, &props); err != nil {
+		t.Fatal(err)
+	}
+	if props["utm_campaign"] != "C++" {
+		t.Fatalf("props=%s", row.Props)
+	}
+}
+
+func TestLogFunnelEventRequest_DropsUnknownRegisterAndLandingKeys(t *testing.T) {
+	reg, msg := (LogFunnelEventRequest{
+		Event:     domain.FunnelRegisterFormView,
+		SessionID: "sess-reg",
+		Path:      "/register",
+		Props:     json.RawMessage(`{"utm_source":"meta","utm_medium":"cpc","ttclid":"abc"}`),
+		ClientTS:  "2026-09-29T10:43:00Z",
+	}).ValidateAndMap(uuid.Nil)
+	if msg != "" || reg == nil {
+		t.Fatalf("register msg=%q row=%v", msg, reg)
+	}
+	if string(reg.Props) != `{"utm_source":"meta"}` && !propsEqual(reg.Props, map[string]any{"utm_source": "meta"}) {
+		t.Fatalf("register props=%s", reg.Props)
+	}
+
+	cta, msg := (LogFunnelEventRequest{
+		Event:     domain.FunnelLandingCTAClick,
+		SessionID: "sess-cta",
+		Path:      "/",
+		Props:     json.RawMessage(`{"button":"hero_primary","utm_medium":"cpc","label":"Sign up"}`),
+		ClientTS:  "2026-09-29T10:43:00Z",
+	}).ValidateAndMap(uuid.Nil)
+	if msg != "" || cta == nil {
+		t.Fatalf("landing msg=%q row=%v", msg, cta)
+	}
+	if !propsEqual(cta.Props, map[string]any{"button": "hero_primary"}) {
+		t.Fatalf("landing props=%s", cta.Props)
+	}
+
+	_, msg = (LogFunnelEventRequest{
+		Event:     domain.FunnelLandingCTAClick,
+		SessionID: "sess-bad",
+		Path:      "/",
+		Props:     json.RawMessage(`{"button":"nope","utm_medium":"cpc"}`),
+		ClientTS:  "2026-09-29T10:43:00Z",
+	}).ValidateAndMap(uuid.Nil)
+	if msg != "invalid button" {
+		t.Fatalf("invalid button msg=%q", msg)
+	}
+}
+
+func propsEqual(raw json.RawMessage, want map[string]any) bool {
+	var got map[string]any
+	if err := json.Unmarshal(raw, &got); err != nil || len(got) != len(want) {
+		return false
+	}
+	for k, v := range want {
+		if got[k] != v {
+			return false
+		}
+	}
+	return true
 }
 
 func rowPath(row *domain.FunnelEvent) string {

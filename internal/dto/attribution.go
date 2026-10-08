@@ -2,7 +2,6 @@ package dto
 
 import (
 	"net/url"
-	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -11,24 +10,30 @@ import (
 )
 
 // UTM values are sanitized, not matched against a strict ASCII pattern.
-// Letters and digits may be any Unicode (so "Da mụn" is kept). Spaces and
-// common punctuation are kept. "video_tu_do" is unchanged.
+// Letters and digits may be any Unicode (so "Da mụn" is kept), including
+// combining marks, so Vietnamese survives both NFC and NFD. The stored
+// string is not re-normalized: NFC stays NFC and NFD stays NFD.
+// Spaces and common punctuation are kept. "video_tu_do" is unchanged.
 //
 // A '+' or '%' that is query-string encoding is decoded first, so "Da+mụn"
 // and "Da%20m%E1%BB%A5n" become "Da mụn". A literal '+' encoded as %2B stays.
-// Control characters are stripped. Whitespace is trimmed. Values are
-// truncated to 100 runes. A value that contains '@' is dropped so an email
-// is never stored.
+// Control characters are stripped. Characters outside the allow-list
+// (for example '*', a leftover '%', or an emoji) are removed and the rest
+// is kept. Whitespace is trimmed. Internal spaces are not collapsed.
+// Values are truncated to 100 runes. A value that contains '@' is dropped
+// so an email is never stored. If nothing remains, the value is omitted.
 //
-// Click IDs stay ASCII. fbclid allows 256 characters, matching the frontend
-// truncation. ttclid allows 255. '.' is allowed because TikTok ttclid values
-// use it. A miss is dropped.
+// Click IDs stay ASCII: letters, digits, '.', '_', and '-'. Other
+// characters are stripped and the rest is kept. fbclid allows 256 runes,
+// matching the frontend truncation. ttclid allows 255. A result that is
+// empty or longer than that cap is dropped. A value that contains '@' is
+// dropped entirely. Click IDs are not query-decoded; a raw '+' is not a
+// space here, it is simply not in the allow-list.
 
-const maxUTMRunes = 100
-
-var (
-	fbclidPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,256}$`)
-	ttclidPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,255}$`)
+const (
+	maxUTMRunes    = 100
+	maxFBCLIDRunes = 256
+	maxTTCLIDRunes = 255
 )
 
 // Apply writes first-touch values that pass validation onto a new user.
@@ -55,19 +60,43 @@ func acceptedUTM(raw string) *string {
 }
 
 func acceptedFBCLID(raw string) *string {
-	return acceptedMatch(raw, fbclidPattern)
+	return acceptedClickID(raw, maxFBCLIDRunes)
 }
 
 func acceptedTTCLID(raw string) *string {
-	return acceptedMatch(raw, ttclidPattern)
+	return acceptedClickID(raw, maxTTCLIDRunes)
 }
 
-func acceptedMatch(raw string, pattern *regexp.Regexp) *string {
-	if !pattern.MatchString(raw) {
+// acceptedClickID strips characters outside the ASCII click-id alphabet.
+// A value that contains '@' is dropped whole. Empty and over-long results
+// are omitted. The cap is a maximum, not a truncation: 257 fbclid runes
+// are still dropped.
+func acceptedClickID(raw string, maxRunes int) *string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.Contains(raw, "@") {
 		return nil
 	}
-	v := raw
-	return &v
+	cleaned := strings.Map(func(r rune) rune {
+		if clickIDRune(r) {
+			return r
+		}
+		return -1
+	}, raw)
+	if cleaned == "" || utf8.RuneCountInString(cleaned) > maxRunes {
+		return nil
+	}
+	return &cleaned
+}
+
+func clickIDRune(r rune) bool {
+	switch {
+	case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+		return true
+	case r == '.' || r == '_' || r == '-':
+		return true
+	default:
+		return false
+	}
 }
 
 // sanitizeUTM returns the value to store, or "" when the value must be dropped.
@@ -82,10 +111,15 @@ func sanitizeUTM(raw string) string {
 	if raw == "" || strings.Contains(raw, "@") {
 		return ""
 	}
-	for _, r := range raw {
-		if !allowedUTMRune(r) {
-			return ""
+	raw = strings.Map(func(r rune) rune {
+		if allowedUTMRune(r) {
+			return r
 		}
+		return -1
+	}, raw)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
 	}
 	if utf8.RuneCountInString(raw) > maxUTMRunes {
 		raw = string([]rune(raw)[:maxUTMRunes])
@@ -117,7 +151,9 @@ func stripControlChars(raw string) string {
 }
 
 func allowedUTMRune(r rune) bool {
-	if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsSpace(r) {
+	// Mn keeps NFD Vietnamese (base letter + combining horn, dot below, …).
+	// The string is not NFC-normalized; the marks are stored as received.
+	if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.IsSpace(r) || unicode.Is(unicode.Mn, r) {
 		return true
 	}
 	switch r {
