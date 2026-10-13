@@ -155,8 +155,12 @@ func TestApplyCheckInDetail_AndroidVoiceAndStoredVision(t *testing.T) {
 	web := map[string]any{}
 	ApplyCheckInDetail(web, parsed, vision, nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientWeb, "vi")
 	webNotes := web["zone_notes"].([]dto.CoachZoneNote)
-	if !strings.Contains(webNotes[0].Note, "mày") {
-		t.Fatalf("web voice changed: %q", webNotes[0].Note)
+	if strings.Contains(webNotes[0].Note, "mày") || !strings.Contains(webNotes[0].Note, "bạn") {
+		t.Fatalf("default voice kept mày: %q", webNotes[0].Note)
+	}
+	webScores := web["skin_score_notes"].(*dto.SkinCoachScoreNotes)
+	if strings.Contains(webScores.Overall, "mày") || !strings.Contains(webScores.Overall, "bạn") {
+		t.Fatalf("default score kept mày: %q", webScores.Overall)
 	}
 }
 
@@ -190,8 +194,8 @@ func TestApplyCheckInDetail_AndroidDropsStrayComma(t *testing.T) {
 	web := map[string]any{}
 	ApplyCheckInDetail(web, parsed, vision, nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientWeb, "vi")
 	webNote := web["zone_notes"].([]dto.CoachZoneNote)[0].Note
-	if webNote != "Má của mày trông giống nốt nhỏ, đm." {
-		t.Fatalf("web note %q", webNote)
+	if webNote != "Má của bạn trông giống nốt nhỏ." {
+		t.Fatalf("default note %q", webNote)
 	}
 }
 
@@ -280,11 +284,8 @@ func TestNewCheckInFields_NeverContainHangRao(t *testing.T) {
 		if strings.Contains(blob, "lớp bảo vệ da da") || strings.Contains(blob, "LỚP BẢO VỆ DA DA") {
 			t.Fatalf("%s doubled da: %s", client, blob)
 		}
-		if client == domain.RefreshClientWeb && !strings.Contains(notes[0].Note, "mày") {
-			t.Fatalf("web voice changed: %q", notes[0].Note)
-		}
-		if client == domain.RefreshClientAndroid && strings.Contains(notes[0].Note, "mày") {
-			t.Fatalf("android voice missed: %q", notes[0].Note)
+		if strings.Contains(notes[0].Note, "mày") || !strings.Contains(notes[0].Note, "bạn") {
+			t.Fatalf("%s voice missed bạn: %q", client, notes[0].Note)
 		}
 	}
 	questions := rewriteQuestionBarrier([]string{

@@ -7,56 +7,53 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 )
 
-func TestGetCoachPromptForClient_WebUnchanged(t *testing.T) {
+func TestGetCoachPromptForClient_DefaultIsBan(t *testing.T) {
 	for _, skill := range []string{"", "beginner", "intermediate", "advanced"} {
 		web := GetCoachPrompt(skill)
-		for _, kind := range []string{"", "web", "Web", "Android", "ANDROID", "dadiary-android", " ios "} {
+		if crudeAddressPermitted(web) {
+			t.Fatalf("skill %q default prompt permits mày/tao", skill)
+		}
+		if !strings.Contains(web, "mình / bạn") || !strings.Contains(web, "Không bịa ghi chú") {
+			t.Fatalf("skill %q prompt is not the polite bạn voice", skill)
+		}
+		for _, kind := range []string{"", "web", "Web", "android", "Android", "ANDROID", "dadiary-android", " ios "} {
 			got := GetCoachPromptForClient(skill, kind)
 			if got != web {
-				t.Fatalf("skill %q kind %q changed the web prompt", skill, kind)
+				t.Fatalf("skill %q kind %q changed the default prompt", skill, kind)
 			}
 		}
 	}
 
-	beginner := GetCoachPrompt("beginner")
-	for _, frag := range []string{
-		"Đm da mày hôm nay…",
-		"tao / mày / con / thằng này / bà này",
-		"không đổi sang \"mình/bạn\" làm mặc định",
-		"Được dùng vl/đm nhưng đừng dày đặc",
-		"Mày thấy hôm nay vùng má trái lỗ chân lông to vl",
-	} {
-		if !strings.Contains(beginner, frag) {
-			t.Fatalf("web beginner prompt missing %q", frag)
-		}
-	}
-	if !strings.Contains(GetCoachPrompt("intermediate"), "bựa full") {
-		t.Fatal("web intermediate prompt missing bựa full")
-	}
 	if coachOutputSchemaForClient("") != CoachOutputJSONSchemaBlock {
-		t.Fatal("empty client must keep the web schema block")
+		t.Fatal("empty client must use the default schema")
 	}
-	if coachOutputSchemaForClient("web") != CoachOutputJSONSchemaBlock {
-		t.Fatal("web client must keep the web schema block")
+	if coachOutputSchemaForClient("web") != CoachOutputJSONSchemaBlock || coachOutputSchemaForClient("android") != CoachOutputJSONSchemaBlock {
+		t.Fatal("client kind must not switch the schema voice")
 	}
-	if !strings.Contains(CoachOutputJSONSchemaBlock, "Đm da mày hôm nay…") {
-		t.Fatal("web schema block lost the crude opener")
+	if crudeAddressPermitted(CoachOutputJSONSchemaBlock) {
+		t.Fatal("default schema permits mày/tao")
 	}
-	if !strings.Contains(CoachOutputJSONSchemaBlock, "tao muốn xem mày có chịu làm không") {
-		t.Fatal("web schema block lost the crude summary example")
+	if !strings.Contains(CoachOutputJSONSchemaBlock, "Hôm nay da bạn…") {
+		t.Fatal("default schema missing the bạn opener")
 	}
 
 	webMsg := buildSkinCheckCoachUserMessage(&domain.SkinCheck{ClientKind: domain.RefreshClientWeb}, nil, "", "", "ok", "TODAY")
-	if !strings.Contains(webMsg, "Đm da mày hôm nay…") {
-		t.Fatal("web user message lost the crude schema opener")
+	if crudeAddressPermitted(webMsg) {
+		t.Fatal("web user message permits mày/tao")
+	}
+	if !strings.Contains(webMsg, "Hôm nay da bạn…") {
+		t.Fatal("web user message missing the bạn opener")
 	}
 	sys, user := buildDailyFeedbackPrompt("Hôm nay da ổn", "beginner")
 	sys2, user2 := buildDailyFeedbackPromptForClient("Hôm nay da ổn", "beginner", "")
 	if sys != sys2 || user != user2 {
-		t.Fatal("daily feedback web prompt changed")
+		t.Fatal("daily feedback default prompt changed")
 	}
-	if !strings.Contains(user, "Đm da mày hôm nay…") {
-		t.Fatal("web daily feedback schema lost the crude opener")
+	if crudeAddressPermitted(user) || crudeAddressPermitted(sys) {
+		t.Fatal("default daily feedback permits mày/tao")
+	}
+	if strings.Contains(user, "USER_WROTE_NOTE:") || strings.Contains(user, "User note:") {
+		t.Fatal("empty notes produced a notes instruction")
 	}
 }
 
@@ -64,8 +61,8 @@ func TestGetCoachPromptForClient_AndroidPolite(t *testing.T) {
 	for _, skill := range []string{"beginner", "intermediate", "advanced"} {
 		t.Run(skill, func(t *testing.T) {
 			p := GetCoachPromptForClient(skill, "  android  ")
-			if p == GetCoachPrompt(skill) {
-				t.Fatal("android prompt must differ from web")
+			if p != GetCoachPrompt(skill) {
+				t.Fatal("android must use the same bạn prompt as every other client")
 			}
 			for _, frag := range []string{
 				"mình / bạn",
@@ -157,8 +154,8 @@ func TestGetCoachPromptForClient_AndroidPolite(t *testing.T) {
 	if !strings.Contains(msg, "Mình thấy hôm nay…") {
 		t.Fatal("android user message missing polite opener")
 	}
-	if !strings.Contains(msg, "NO tao/mày") {
-		t.Fatal("android checklist missing the profanity ban")
+	if !strings.Contains(msg, "address the user as bạn") {
+		t.Fatal("checklist missing the bạn address rule")
 	}
 
 	_, daily := buildDailyFeedbackPromptForClient("Hôm nay da ổn", "beginner", domain.RefreshClientAndroid)

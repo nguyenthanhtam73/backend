@@ -79,8 +79,10 @@ package ai
 // That block says "lớp bảo vệ da", never "hàng rào". Confidence and follow-up
 // questions are computed in Go. Old checks are not backfilled.
 //
-// Android (Play) checks use a parallel polite mình/bạn prompt selected by
-// skin_checks.client_kind. That voice does not bump this number by itself: the
-// web prompt text is unchanged. Successful android runs append "+android" to
-// model_version so per-prompt-version stats can separate the two voices.
-const CoachDailyPromptVersion = 29
+// v30 (2026-10-13) — Default address is bạn for every client, including
+// Beginner ("Người mới") and web. There is no user setting for a mày/tao
+// style, so that voice is not selected for anyone. Empty check-in notes are
+// omitted from the prompt, and the model is told not to invent them. A
+// post-pass still rewrites standalone mày/tao to bạn/mình. Android runs still
+// append "+android" to model_version.
+const CoachDailyPromptVersion = 30

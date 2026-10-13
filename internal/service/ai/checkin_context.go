@@ -67,6 +67,44 @@ func BuildCheckInContext(o *domain.SkinCheck) string {
 	return b.String()
 }
 
+// userWroteNoteMarker is the notes instruction. It is included only when today's
+// check-in note is non-empty. An empty note must not add this block.
+const userWroteNoteMarker = "USER_WROTE_NOTE:"
+
+// userWroteNoteBlock tells the model the user actually wrote a note.
+// Empty input returns "" so the prompt has no notes instruction.
+func userWroteNoteBlock(note string) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return ""
+	}
+	return userWroteNoteMarker + " " + note + "\nThe user wrote that note today. You may refer to it. Do not invent any other note.\n"
+}
+
+func noteFromUserContext(userContext string) string {
+	const prefix = "user note:"
+	for _, line := range strings.Split(userContext, "\n") {
+		trim := strings.TrimSpace(line)
+		if len(trim) >= len(prefix) && strings.EqualFold(trim[:len(prefix)], prefix) {
+			return strings.TrimSpace(trim[len(prefix):])
+		}
+	}
+	return ""
+}
+
+// todayNoteBlock is the notes instruction for this turn. Empty when the user
+// wrote nothing.
+func todayNoteBlock(check *domain.SkinCheck, fullCtx string) string {
+	note := ""
+	if check != nil {
+		note = strings.TrimSpace(check.UserNote)
+	}
+	if note == "" {
+		note = noteFromUserContext(fullCtx)
+	}
+	return userWroteNoteBlock(note)
+}
+
 // photoContextLines tells the coach which photo is a close-up and what the user
 // reported about touch, timing, and pain. Empty when the check has neither.
 func photoContextLines(o *domain.SkinCheck) string {

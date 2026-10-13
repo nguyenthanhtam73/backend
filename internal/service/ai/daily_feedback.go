@@ -114,8 +114,8 @@ func generateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 			out = retryOut
 		}
 	}
-	if IsAndroidCoachVoice(clientKind) && SanitizeAndroidCoachOutput(out) {
-		slog.Warn("daily-feedback: android voice safety net rewrote coach text")
+	if SanitizeAndroidCoachOutput(out) {
+		slog.Warn("daily-feedback: voice safety net rewrote crude address")
 	}
 	return out, nil
 }
@@ -136,6 +136,10 @@ func buildDailyFeedbackPromptForClient(userContextMarkdown, skillLevel, clientKi
 	userMsg.WriteString("USER_CONTEXT:\n")
 	userMsg.WriteString(u)
 	userMsg.WriteString(coachMemoryTurnChecklistForVoice(u, clientKind))
+	if block := todayNoteBlock(nil, u); block != "" {
+		userMsg.WriteString("\n")
+		userMsg.WriteString(block)
+	}
 	AppendCoachKnowledgeContext(&userMsg, u)
 	AppendAffiliateCoachContext(&userMsg)
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")

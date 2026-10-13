@@ -5,33 +5,32 @@ import (
 	"testing"
 )
 
-func TestCoachPrompt_v24_SarcasticBuddyTone(t *testing.T) {
+func TestCoachPrompt_v30_AddressesBan(t *testing.T) {
 	for _, skill := range []string{"beginner", "intermediate"} {
 		t.Run(skill, func(t *testing.T) {
 			p := GetCoachPrompt(skill)
-			mustContain(t, p, "Gen Z Việt")
-			mustContain(t, p, "mỉa mai")
-			mustContain(t, p, "châm chọc")
+			mustContain(t, p, "mình / bạn")
+			mustContain(t, p, "Không bịa ghi chú")
 			mustContain(t, p, "da hỗn hợp")
 			mustContain(t, p, "da dễ nổi mụn")
 			mustContain(t, p, "≥3–4 chi tiết cụ thể")
-			mustContain(t, p, "Mày thấy hôm nay")
+			mustContain(t, p, "Mình thấy hôm nay")
 			mustContain(t, p, "Có … nốt mụn")
 			mustContain(t, p, "sản phẩm nhẹ nhàng")
-			mustContain(t, p, "mày / con / thằng này / bà này")
+			if crudeAddressPermitted(p) {
+				t.Fatal("default prompt permits mày/tao")
+			}
 			if skill == "beginner" {
 				mustContain(t, p, "nhẹ tay hơn")
-			}
-			if skill == "intermediate" {
-				mustContain(t, p, "bựa full")
+				mustContain(t, p, "Người mới")
 			}
 		})
 	}
 }
 
-func TestCoachPromptVersion_v29(t *testing.T) {
-	if CoachDailyPromptVersion != 29 {
-		t.Fatalf("expected CoachDailyPromptVersion == 29, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v30(t *testing.T) {
+	if CoachDailyPromptVersion != 30 {
+		t.Fatalf("expected CoachDailyPromptVersion == 30, got %d", CoachDailyPromptVersion)
 	}
 }
 
