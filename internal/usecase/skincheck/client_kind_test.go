@@ -84,8 +84,9 @@ func TestReanalyze_VoiceUpgradeDoesNotDowngrade(t *testing.T) {
 	if got.ClientKind != domain.RefreshClientAndroid {
 		t.Fatalf("android reanalyze stored %q", got.ClientKind)
 	}
-	if ai.GetCoachPromptForClient("beginner", got.ClientKind) == ai.GetCoachPrompt("beginner") {
-		t.Fatal("upgraded row still selects the web prompt")
+	upgraded := ai.GetCoachPromptForClient("beginner", got.ClientKind)
+	if strings.Contains(upgraded, "Đm da mày hôm nay") || !strings.Contains(upgraded, "mình / bạn") {
+		t.Fatal("upgraded row prompt is not the bạn voice")
 	}
 
 	androidCheck := seedCheck(t, repo, owner, images, domain.AnalysisStatusCompleted)

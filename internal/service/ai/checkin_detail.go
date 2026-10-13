@@ -60,24 +60,22 @@ func NormalizeCheckInDetail(zoneRaw, scoreRaw json.RawMessage, visionRaw string,
 // New keys sit beside the numeric gauges. They are never written under
 // overall / hydration / clarity / barrier. visible_observations and
 // vision_zone_observations are stored for later comparison and are not part of
-// the public coach payload. Android voice is applied to the new user-facing
-// strings. Both voices rewrite "hàng rào" to "lớp bảo vệ da" on those new
-// strings only. A bad field is omitted; this function does not fail the analysis.
+// the public coach payload. Crude address is rewritten to bạn/mình on the new
+// user-facing strings for every client. "hàng rào" becomes "lớp bảo vệ da" on
+// those new strings only. A bad field is omitted; this function does not fail the analysis.
 func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, visionRaw string, photoCtx json.RawMessage, ev CheckInPhotoEvidence, clientKind, locale string) {
 	if labels == nil {
 		return
 	}
+	_ = clientKind // address no longer depends on client kind
 	var zoneRaw, scoreRaw json.RawMessage
 	if parsed != nil {
 		zoneRaw = parsed.ZoneNotesRaw
 		scoreRaw = parsed.SkinScoreNotesRaw
 	}
 	notes, scoreNotes := NormalizeCheckInDetail(zoneRaw, scoreRaw, visionRaw, photoCtx, ev.Kind, locale)
-	android := IsAndroidCoachVoice(clientKind)
-	if android {
-		notes = sanitizeZoneNotes(notes)
-		scoreNotes = sanitizeScoreNotes(scoreNotes)
-	}
+	notes = sanitizeZoneNotes(notes)
+	scoreNotes = sanitizeScoreNotes(scoreNotes)
 	notes = rewriteZoneBarrier(notes)
 	scoreNotes = rewriteScoreBarrier(scoreNotes)
 	if len(notes) > 0 {
@@ -87,9 +85,7 @@ func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, vi
 		labels["skin_score_notes"] = scoreNotes
 	}
 	level, needs, questions := CheckInConfidence(ev, visionRaw, photoCtx, locale)
-	if android {
-		questions = sanitizeQuestionList(questions)
-	}
+	questions = sanitizeQuestionList(questions)
 	questions = rewriteQuestionBarrier(questions)
 	if level != "" {
 		labels["confidence"] = level

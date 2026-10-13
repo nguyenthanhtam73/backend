@@ -54,10 +54,13 @@ func TestCoachPrompt_v11_MemoryBindingRules(t *testing.T) {
 
 func TestCoachPrompt_BeginnerExamples(t *testing.T) {
 	p := GetCoachPrompt("beginner")
-	mustContain(t, p, "Mày thấy hôm nay")
+	mustContain(t, p, "Mình thấy hôm nay")
 	mustContain(t, p, "nhẹ tay hơn")
 	mustContain(t, p, "da hỗn hợp")
-	mustContain(t, p, "mày / con / thằng này / bà này")
+	mustContain(t, p, "mình / bạn")
+	if crudeAddressPermitted(p) {
+		t.Fatal("beginner prompt permits mày/tao")
+	}
 }
 
 // TestScoreCoachPersonalization_Heuristic validates the offline scorer on synthetic output.

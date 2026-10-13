@@ -154,8 +154,8 @@ func runSkinCheckCoachAfterVision(
 		visionRaw,
 	)
 	ApplyCabinetFirstCare(parsed, fullCtx)
-	if IsAndroidCoachVoice(check.ClientKind) && SanitizeAndroidCoachOutput(parsed) {
-		slog.Warn("skin-check: android voice safety net rewrote coach text", "check_id", check.ID)
+	if SanitizeAndroidCoachOutput(parsed) {
+		slog.Warn("skin-check: voice safety net rewrote crude address", "check_id", check.ID)
 	}
 
 	ver := PipelineModelVersion(
@@ -208,6 +208,10 @@ func buildSkinCheckCoachUserMessage(
 		clientKind = check.ClientKind
 	}
 	userMsg.WriteString(coachTurnChecklistForVoice(fullCtx, visionStatus == "ok", clientKind))
+	if block := todayNoteBlock(check, fullCtx); block != "" {
+		userMsg.WriteString("\n")
+		userMsg.WriteString(block)
+	}
 	AppendCoachKnowledgeContext(&userMsg, fullCtx+"\n"+visionRaw)
 	AppendAffiliateCoachContext(&userMsg)
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")
@@ -220,8 +224,8 @@ func buildSkinCheckCoachUserMessage(
 
 // PipelineModelVersion is stored on skin_analyses.model_version after a coach run.
 // Web stays "pipeline=hybrid|vision=…|coach=…". Android appends "+android" so
-// prompt-version stats can separate the polite voice from the web voice.
-// The suffix is not a "|" segment. CoachDailyPromptVersion is not bumped.
+// prompt-version stats can separate Play-app runs. The suffix is not a "|" segment.
+// Address is bạn for both; the suffix does not change the voice.
 func PipelineModelVersion(visionModel, visionStatus, coachModel, coachProvider string, fallback bool, clientKind string) string {
 	ver := fmt.Sprintf(
 		"pipeline=hybrid|vision=%s(%s)|coach=%s(%s%s)",
