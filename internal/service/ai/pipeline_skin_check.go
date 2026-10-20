@@ -13,8 +13,9 @@ import (
 	"github.com/dadiary/backend/internal/storage"
 )
 
-// RunSkinCheckCoach runs hybrid coaching: GPT-4o vision (observations) → Claude Sonnet
-// text coach JSON, with GPT-4o text fallback when Claude is unavailable or errors.
+// RunSkinCheckCoach runs hybrid coaching: GPT-4o vision (observations) → text coach
+// JSON. Text-coach order is TextCoachProviderOrder (GPT-4o first unless
+// AI_PRIMARY_PROVIDER=anthropic).
 //
 // userMemory is an optional pre-built memory block from BuildUserMemoryContext.
 func RunSkinCheckCoach(

@@ -2,7 +2,9 @@
 //
 // Hybrid strategy (see TextCoachCompletion in text_coach_llm.go):
 //   - Vision + moderation: OpenAI GPT-4o (DADIARY_OPENAI_VISION_MODEL).
-//   - Text coaching: Claude Sonnet primary (DADIARY_ANTHROPIC_*); GPT-4o fallback on missing key or Claude error.
+//   - Text coaching order is AI_PRIMARY_PROVIDER (see TextCoachProviderOrder).
+//     openai, unset, or unknown: GPT-4o first, Claude fallback.
+//     anthropic: Claude first, GPT-4o fallback.
 //
 // Text coaching entry points:
 //   - GenerateStarterRoutine — onboarding AM/PM starter + warm copy (starter_routine.go).
@@ -33,14 +35,16 @@
 //
 // Environment:
 //
-//	DADIARY_OPENAI_API_KEY          — vision + text fallback (required for photos)
-//	DADIARY_OPENAI_MODEL            — text fallback model (default gpt-4o)
+//	AI_PRIMARY_PROVIDER             — openai (default) | anthropic. Not a DADIARY_ var.
+//	DADIARY_OPENAI_API_KEY          — vision + text coach (required for photos)
+//	DADIARY_OPENAI_MODEL            — text model (default gpt-4o)
 //	DADIARY_OPENAI_VISION_MODEL     — vision/moderation model (default gpt-4o; gpt-4o-mini ok)
-//	DADIARY_ANTHROPIC_API_KEY       — text coach primary (recommended)
+//	DADIARY_ANTHROPIC_API_KEY       — Claude text coach
 //	DADIARY_ANTHROPIC_MODEL         — Claude Sonnet ID (default claude-sonnet-4-6)
 //
-// Logs (slog Info): "Using Claude for text coaching", "Fallback to GPT-4o for text coaching",
-// "Using OpenAI for vision".
+// Logs (slog Info): startup "AI text provider order"; per call "Using Claude for text coaching",
+// "Using GPT-4o for text coaching", "Fallback to GPT-4o for text coaching",
+// "Fallback to Claude for text coaching", "Using OpenAI for vision".
 // Prompts: coach personas + skill routing in coach_prompt.go (GetCoachPrompt, GetCoachPromptForClient, ResolveCoachSkillLevel).
 // skin_checks.client_kind=android selects the polite mình/bạn prompt; web is unchanged.
 // Claude-specific stubs and other prompts in prompts_claude.go, prompts_onboarding.go, schema.go.

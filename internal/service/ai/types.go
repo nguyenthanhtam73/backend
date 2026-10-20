@@ -19,7 +19,7 @@ type CoachCareSuggestion struct {
 	SafetyNote string `json:"safety_note,omitempty"`
 }
 
-// CoachStructuredOutput is the JSON contract for DaDiary coach (Claude primary / GPT fallback).
+// CoachStructuredOutput is the JSON contract for the DaDiary text coach.
 // Field names are stable for DB mapping in the analysis worker.
 type CoachStructuredOutput struct {
 	Score             float64  `json:"score"`

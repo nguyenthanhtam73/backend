@@ -59,6 +59,7 @@ func TestTextCoachCompletion_ClaudeSuccess(t *testing.T) {
 	defer func() { anthropicMessagesURL = prevAnthropic }()
 
 	cfg := &config.Config{
+		AI:        config.AIConfig{PrimaryProvider: "anthropic"},
 		Anthropic: config.AnthropicConfig{APIKey: "sk-ant-test", Model: "claude-sonnet-4-20250514"},
 		OpenAI:    config.OpenAIConfig{APIKey: "sk-test", Model: "gpt-4o"},
 	}
@@ -118,7 +119,7 @@ func TestTextCoachCompletion_ClaudeThenOpenAIFallback(t *testing.T) {
 	cfg := &config.Config{
 		Anthropic: config.AnthropicConfig{APIKey: "sk-ant-test", Model: "claude-sonnet-4-20250514"},
 		OpenAI:    config.OpenAIConfig{APIKey: "sk-test", Model: "gpt-4o"},
-		AI: config.AIConfig{Retry: retry.Config{
+		AI: config.AIConfig{PrimaryProvider: "anthropic", Retry: retry.Config{
 			MaxRetries:        maxRetries,
 			InitialDelay:      time.Millisecond,
 			MaxDelay:          5 * time.Millisecond,
@@ -187,6 +188,7 @@ func TestTextCoachCompletion_ClaudeTimeoutFallback(t *testing.T) {
 	defer restore()
 
 	cfg := &config.Config{
+		AI:        config.AIConfig{PrimaryProvider: "anthropic"},
 		Anthropic: config.AnthropicConfig{APIKey: "sk-ant-test", Model: "claude-sonnet-4-20250514"},
 		OpenAI:    config.OpenAIConfig{APIKey: "sk-test", Model: "gpt-4o"},
 	}
@@ -203,5 +205,133 @@ func TestTextCoachCompletion_NoKeys(t *testing.T) {
 	_, err := TextCoachCompletion(context.Background(), &config.Config{}, nil, "test", "sys", "user")
 	if err == nil {
 		t.Fatal("expected error without keys")
+	}
+}
+
+func TestTextCoachCompletion_DefaultPrimarySkipsClaude(t *testing.T) {
+	var hits []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits = append(hits, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/chat/completions":
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"from\":\"gpt\"}"}}]}`))
+		case "/v1/messages":
+			_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"{\"from\":\"claude\"}"}]}`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	prevAnthropic := anthropicMessagesURL
+	anthropicMessagesURL = srv.URL + "/v1/messages"
+	defer func() { anthropicMessagesURL = prevAnthropic }()
+	restore := openai.SetChatCompletionsURLForTest(srv.URL + "/v1/chat/completions")
+	defer restore()
+
+	cfg := &config.Config{
+		Anthropic: config.AnthropicConfig{APIKey: "sk-ant-test", Model: "claude-sonnet-4-20250514"},
+		OpenAI:    config.OpenAIConfig{APIKey: "sk-test", Model: "gpt-4o"},
+	}
+	res, err := TextCoachCompletion(context.Background(), cfg, srv.Client(), "skin-check", "sys", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Provider != TextCoachProviderOpenAI || res.Fallback {
+		t.Fatalf("provider=%q fallback=%v", res.Provider, res.Fallback)
+	}
+	if len(hits) != 1 || hits[0] != "/v1/chat/completions" {
+		t.Fatalf("calls=%v, want only openai", hits)
+	}
+}
+
+func TestTextCoachCompletion_FallbackWhenPrimaryFails(t *testing.T) {
+	resetBreakersForTest()
+	t.Cleanup(resetBreakersForTest)
+
+	tests := []struct {
+		name         string
+		primary      string
+		wantProvider TextCoachProvider
+		failPath     string
+		okPath       string
+	}{
+		{name: "unset", wantProvider: TextCoachProviderClaude, failPath: "/v1/chat/completions", okPath: "/v1/messages"},
+		{name: "openai", primary: "openai", wantProvider: TextCoachProviderClaude, failPath: "/v1/chat/completions", okPath: "/v1/messages"},
+		{name: "anthropic", primary: "anthropic", wantProvider: TextCoachProviderOpenAI, failPath: "/v1/messages", okPath: "/v1/chat/completions"},
+		{name: "invalid", primary: "nope", wantProvider: TextCoachProviderClaude, failPath: "/v1/chat/completions", okPath: "/v1/messages"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resetBreakersForTest()
+			var hits []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits = append(hits, r.URL.Path)
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == tc.failPath {
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(`{"error":"bad request"}`))
+					return
+				}
+				switch r.URL.Path {
+				case "/v1/messages":
+					_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"{\"from\":\"claude\"}"}]}`))
+				case "/v1/chat/completions":
+					_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"from\":\"gpt\"}"}}]}`))
+				default:
+					t.Fatalf("unexpected path %s", r.URL.Path)
+				}
+			}))
+			defer srv.Close()
+
+			prevAnthropic := anthropicMessagesURL
+			anthropicMessagesURL = srv.URL + "/v1/messages"
+			defer func() { anthropicMessagesURL = prevAnthropic }()
+			restore := openai.SetChatCompletionsURLForTest(srv.URL + "/v1/chat/completions")
+			defer restore()
+
+			cfg := &config.Config{
+				AI:        config.AIConfig{PrimaryProvider: tc.primary},
+				Anthropic: config.AnthropicConfig{APIKey: "sk-ant-test", Model: "claude-sonnet-4-20250514"},
+				OpenAI:    config.OpenAIConfig{APIKey: "sk-test", Model: "gpt-4o"},
+			}
+			res, err := TextCoachCompletion(context.Background(), cfg, srv.Client(), "starter-routine", "sys", "user")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Provider != tc.wantProvider || !res.Fallback {
+				t.Fatalf("provider=%q fallback=%v, want %s fallback", res.Provider, res.Fallback, tc.wantProvider)
+			}
+			if len(hits) != 2 || hits[0] != tc.failPath || hits[1] != tc.okPath {
+				t.Fatalf("calls=%v, want %s then %s", hits, tc.failPath, tc.okPath)
+			}
+		})
+	}
+}
+
+func TestTextCoachCompletion_MissingPrimaryKeyIsNotFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/messages" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"{\"from\":\"claude\"}"}]}`))
+	}))
+	defer srv.Close()
+
+	prevAnthropic := anthropicMessagesURL
+	anthropicMessagesURL = srv.URL + "/v1/messages"
+	defer func() { anthropicMessagesURL = prevAnthropic }()
+
+	cfg := &config.Config{
+		Anthropic: config.AnthropicConfig{APIKey: "sk-ant-test", Model: "claude-sonnet-4-20250514"},
+	}
+	res, err := TextCoachCompletion(context.Background(), cfg, srv.Client(), "onboarding-skin", "sys", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Provider != TextCoachProviderClaude || res.Fallback {
+		t.Fatalf("provider=%q fallback=%v, want claude without fallback flag", res.Provider, res.Fallback)
 	}
 }

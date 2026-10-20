@@ -73,7 +73,7 @@ type CoachCareSuggestionItem struct {
 	SafetyNote string `json:"safety_note,omitempty"` // optional caution
 }
 
-// SkinCoachDetail is structured AI feedback for the daily check-in UI (Claude primary pipeline).
+// SkinCoachDetail is structured AI feedback for the daily check-in UI.
 //
 // In-app care (detailed): care_suggestions + routine_hints + improvements + safety.
 // Public share Admin Skin Review is a separate DTO (overview / possible_causes / soothing_tips only)

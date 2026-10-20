@@ -1,8 +1,8 @@
 // Package analysis runs the skin-check AI pipeline and persists SkinAnalysis rows.
 // skincheck.Service enqueues Process in the background; clients poll GET /skin-checks/:id for results.
 // It loads SkinProfile (when repo is wired) so Claude/GPT personalize feedback with long-term skin type, undertone, and onboarding goals.
-// Preferred path: GPT vision (observations only) → Anthropic Claude (structured coach JSON).
-// Fallback: single GPT multimodal call when DADIARY_ANTHROPIC_API_KEY is not set.
+// Preferred path: GPT vision (observations only) → text coach JSON.
+// Text-coach order is AI_PRIMARY_PROVIDER (default GPT-4o, Claude fallback).
 package analysis
 
 import (
