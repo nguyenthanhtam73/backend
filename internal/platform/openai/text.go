@@ -23,7 +23,8 @@ func SetChatCompletionsURLForTest(url string) func() {
 }
 
 // ChatCompletionJSON returns the assistant message content (expected JSON) for a text system+user turn.
-// Uses cfg.OpenAI.Model (default gpt-4o) for text-coaching fallback — not the vision-only model.
+// Uses cfg.OpenAI.Model (default gpt-4o) for text coaching — not the vision-only model.
+// Whether this call is primary or fallback is decided by TextCoachProviderOrder.
 func ChatCompletionJSON(ctx context.Context, cfg *config.Config, httpClient *http.Client, system, user string) (string, error) {
 	if cfg == nil || strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
 		return "", fmt.Errorf("openai: missing api key")

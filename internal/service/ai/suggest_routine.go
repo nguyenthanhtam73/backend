@@ -39,20 +39,20 @@ type SuggestRoutineInput struct {
 
 // SuggestedRoutine is the model-side projection (later mapped to dto.SuggestRoutineResponse).
 type SuggestedRoutine struct {
-	Morning            []dto.RoutineStep       `json:"morning"`
-	Evening            []dto.RoutineStep       `json:"evening"`
-	Encouragement      string                  `json:"encouragement"`
-	Rationale          string                  `json:"rationale"`
-	FocusReason        string                  `json:"focus_reason"`
-	WeekNotes          string                  `json:"week_notes"`
-	SafetyNotes        string                  `json:"safety_notes"`
-	ClosingReminder    string                  `json:"closing_reminder"`
+	Morning            []dto.RoutineStep         `json:"morning"`
+	Evening            []dto.RoutineStep         `json:"evening"`
+	Encouragement      string                    `json:"encouragement"`
+	Rationale          string                    `json:"rationale"`
+	FocusReason        string                    `json:"focus_reason"`
+	WeekNotes          string                    `json:"week_notes"`
+	SafetyNotes        string                    `json:"safety_notes"`
+	ClosingReminder    string                    `json:"closing_reminder"`
 	ProductSuggestions []dto.ProductSuggestion   `json:"product_suggestions"`
 	ProductGuidance    []dto.ProductGuidanceItem `json:"product_guidance,omitempty"`
 	CarePhase          string                    `json:"care_phase,omitempty"`
 }
 
-// GenerateSuggestedRoutine calls Anthropic (preferred) or OpenAI to produce
+// GenerateSuggestedRoutine calls the shared text coach (TextCoachProviderOrder) to produce
 // AM/PM routines tailored to the user's profile + last check-in. It does NOT
 // persist anything — the handler returns the JSON straight to the client so
 // the user can preview, tweak, then explicitly Save.

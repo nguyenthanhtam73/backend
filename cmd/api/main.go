@@ -20,6 +20,7 @@ import (
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/scheduler"
+	"github.com/dadiary/backend/internal/service/ai"
 	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/token"
@@ -40,6 +41,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		os.Exit(1)
 	}
+	ai.LogTextCoachProviderOrder(cfg)
 
 	tok, err := token.NewService(cfg.JWT)
 	if err != nil {

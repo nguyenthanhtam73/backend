@@ -36,8 +36,9 @@ func TestTextCoachHybridLive(t *testing.T) {
 	if !strings.Contains(res.Text, "ok") {
 		t.Fatalf("unexpected response: %q", res.Text)
 	}
-	t.Logf("provider=%s model=%s fallback=%v", res.Provider, res.Model, res.Fallback)
-	if cfg.HasAnthropicKey() && res.Provider != TextCoachProviderClaude {
-		t.Logf("NOTE: Claude key set but provider=%s (Claude may have failed and fell back)", res.Provider)
+	order := TextCoachProviderOrder(cfg)
+	t.Logf("provider=%s model=%s fallback=%v order=%s then %s", res.Provider, res.Model, res.Fallback, order[0], order[1])
+	if res.Fallback {
+		t.Logf("NOTE: primary %s failed; answered by fallback %s", order[0], res.Provider)
 	}
 }
