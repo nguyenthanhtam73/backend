@@ -26,6 +26,7 @@ func RunSkinCheckCoach(
 	check *domain.SkinCheck,
 	profile *domain.SkinProfile,
 	userMemory string,
+	facts CheckInCoachFacts,
 ) (out *CoachStructuredOutput, pipelineModelVersion string, err error) {
 	if cfg == nil || check == nil {
 		return nil, "", fmt.Errorf("ai: invalid input")
@@ -42,7 +43,7 @@ func RunSkinCheckCoach(
 	}
 
 	visionRaw, visionStatus := runVisionObservationPass(ctx, cfg, httpClient, store, urls, BuildCheckInVisionHint(check))
-	return runSkinCheckCoachAfterVision(ctx, cfg, httpClient, check, profile, userMemory, visionRaw, visionStatus)
+	return runSkinCheckCoachAfterVision(ctx, cfg, httpClient, check, profile, userMemory, visionRaw, visionStatus, facts)
 }
 
 // RunSkinCheckCoachAfterVision runs the text-coach pass when vision output was
@@ -54,6 +55,7 @@ func RunSkinCheckCoachAfterVision(
 	check *domain.SkinCheck,
 	profile *domain.SkinProfile,
 	userMemory, visionRaw, visionStatus string,
+	facts CheckInCoachFacts,
 ) (out *CoachStructuredOutput, pipelineModelVersion string, err error) {
 	if cfg == nil || check == nil {
 		return nil, "", fmt.Errorf("ai: invalid input")
@@ -65,7 +67,7 @@ func RunSkinCheckCoachAfterVision(
 		httpClient = &http.Client{Timeout: defaultTextCoachHTTPTimeout}
 	}
 
-	return runSkinCheckCoachAfterVision(ctx, cfg, httpClient, check, profile, userMemory, visionRaw, visionStatus)
+	return runSkinCheckCoachAfterVision(ctx, cfg, httpClient, check, profile, userMemory, visionRaw, visionStatus, facts)
 }
 
 // RunVisionObservationPassForCheck runs the vision-only pass for a saved check-in.
@@ -112,16 +114,18 @@ func runSkinCheckCoachAfterVision(
 	check *domain.SkinCheck,
 	profile *domain.SkinProfile,
 	userMemory, visionRaw, visionStatus string,
+	facts CheckInCoachFacts,
 ) (out *CoachStructuredOutput, pipelineModelVersion string, err error) {
 	skill := ResolveCoachSkillLevel(check, profile)
 	system := GetCoachPromptForClient(skill, check.ClientKind)
 
 	fullCtx := BuildDailyCheckInCoachContext(check, profile)
+	fullCtx += FormatCheckInStateBlock(facts)
 	if s := strings.TrimSpace(userMemory); s != "" {
 		fullCtx += "\n" + s
 	}
 
-	userMsg := buildSkinCheckCoachUserMessage(check, profile, userMemory, visionRaw, visionStatus, fullCtx)
+	userMsg := buildSkinCheckCoachUserMessage(check, profile, userMemory, visionRaw, visionStatus, fullCtx, facts)
 	coachResult, cErr := TextCoachCompletion(ctx, cfg, httpClient, "skin-check", system, userMsg)
 	if cErr != nil {
 		return nil, "", cErr
@@ -155,8 +159,19 @@ func runSkinCheckCoachAfterVision(
 		visionRaw,
 	)
 	ApplyCabinetFirstCare(parsed, fullCtx)
-	if IsAndroidCoachVoice(check.ClientKind) && SanitizeAndroidCoachOutput(parsed) {
+	clientKind := ""
+	if check != nil {
+		clientKind = check.ClientKind
+	}
+	if IsAndroidCoachVoice(clientKind) && SanitizeAndroidCoachOutput(parsed) {
 		slog.Warn("skin-check: android voice safety net rewrote coach text", "check_id", check.ID)
+	}
+	if ApplyCheckInAdviceGuard(parsed, facts, clientKind) {
+		slog.Info("skin-check: advice guard rewrote coach text",
+			"check_id", check.ID,
+			"first_check_in", facts.FirstEver(),
+			"today_skin", facts.TodayRating,
+		)
 	}
 
 	ver := PipelineModelVersion(
@@ -177,9 +192,11 @@ func buildSkinCheckCoachUserMessage(
 	check *domain.SkinCheck,
 	profile *domain.SkinProfile,
 	userMemory, visionRaw, visionStatus, fullCtx string,
+	facts CheckInCoachFacts,
 ) string {
 	if strings.TrimSpace(fullCtx) == "" {
 		fullCtx = BuildDailyCheckInCoachContext(check, profile)
+		fullCtx += FormatCheckInStateBlock(facts)
 		if s := strings.TrimSpace(userMemory); s != "" {
 			fullCtx += "\n" + s
 		}

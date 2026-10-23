@@ -209,7 +209,7 @@ func TestCheckInDetailBlock_PhotoCheckInOnly(t *testing.T) {
 	if strings.Contains(CoachOutputJSONSchemaBlock, `"zone_notes"`) || strings.Contains(coachOutputJSONSchemaBlockAndroid, `"zone_notes"`) {
 		t.Fatal("shared coach schema must not carry the photo-only block")
 	}
-	msg := buildSkinCheckCoachUserMessage(&domain.SkinCheck{}, nil, "", `{"visible_observations":["má"]}`, "ok", "USER_INTERFACE_LOCALE: vi")
+	msg := buildSkinCheckCoachUserMessage(&domain.SkinCheck{}, nil, "", `{"visible_observations":["má"]}`, "ok", "USER_INTERFACE_LOCALE: vi", CheckInCoachFacts{})
 	if !strings.Contains(msg, `"zone_notes"`) || !strings.Contains(msg, `"skin_score_notes"`) {
 		t.Fatal("photo check-in prompt missing detail keys")
 	}

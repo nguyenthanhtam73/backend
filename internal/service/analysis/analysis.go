@@ -21,6 +21,7 @@ import (
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/dadiary/backend/internal/storage"
+	"github.com/dadiary/backend/pkg/usermsg"
 	"github.com/google/uuid"
 )
 
@@ -31,7 +32,7 @@ const (
 	analysisHTTPTimeout = 2 * time.Minute
 	// staleAnalysisAge marks pending/processing rows as failed when polled after the job should have finished.
 	staleAnalysisAge   = analysisJobTimeout + 30*time.Second
-	staleFailedMessage = "Analysis timed out. Please try submitting again."
+	staleFailedMessage = "Phân tích hơi lâu nên dừng lại. Bạn gửi lại giúp mình nhé."
 )
 
 // pipelineStats is a process-local rolling aggregate of skin-check wall times.
@@ -230,9 +231,23 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	parallelMs := time.Since(parallelStart).Milliseconds()
 	ai.LogMemoryInjection("skin-check", o.UserID, o.ID, memDebug)
 
+	facts := ai.DeriveCheckInCoachFacts(o)
+	if s.checks != nil {
+		if n, countErr := s.checks.CountForUser(ctx, o.UserID); countErr == nil {
+			facts.CountKnown = true
+			facts.TotalIncludesToday = n
+		} else {
+			slog.Warn("skin-check: check-in count unavailable", "check_id", o.ID, "err", countErr)
+		}
+		if rows, histErr := s.checks.ListRecentWithAnalysis(ctx, o.UserID, o.ID, 6); histErr == nil {
+			facts.History = ai.HistoryFactsFromChecks(rows)
+		} else {
+			slog.Warn("skin-check: check-in history unavailable", "check_id", o.ID, "err", histErr)
+		}
+	}
 	coachStart := time.Now()
 	parsed, ver, err := ai.RunSkinCheckCoachAfterVision(
-		ctx, s.cfg, s.httpClient, o, prof, memory, visionRaw, visionStatus,
+		ctx, s.cfg, s.httpClient, o, prof, memory, visionRaw, visionStatus, facts,
 	)
 	coachMs := time.Since(coachStart).Milliseconds()
 	totalMs := time.Since(jobStart).Milliseconds()
@@ -366,7 +381,7 @@ func (s *Service) failWithMessage(_ context.Context, skinCheckID uuid.UUID, msg 
 	}
 	a := o.Analysis
 	a.Status = domain.AnalysisStatusFailed
-	a.ErrorMessage = msg
+	a.ErrorMessage = usermsg.Plain(msg)
 	if err := s.checks.SaveAnalysis(saveCtx, a); err != nil {
 		return fmt.Errorf("%s (save failed: %v)", msg, err)
 	}

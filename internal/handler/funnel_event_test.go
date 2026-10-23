@@ -263,73 +263,73 @@ func TestFunnelEvents_RejectsUnknownEventAndOversizedProps(t *testing.T) {
 			name:    "unknown event",
 			body:    funnelBody("purchase", "sess-unknown", "/check-in", `{}`),
 			code:    "invalid_funnel_event",
-			message: "unknown event",
+			message: "Mình không nhận loại sự kiện này.",
 		},
 		{
 			name:    "oversized props",
 			body:    funnelBody(domain.FunnelCheckinPageView, "sess-big", "/check-in", `{"note":"`+strings.Repeat("x", 3000)+`"}`),
 			code:    "invalid_funnel_event",
-			message: "props is too large",
+			message: "Phần thông tin kèm theo dài quá.",
 		},
 		{
 			name:    "nested props",
 			body:    funnelBody(domain.FunnelCheckinPageView, "sess-nested", "/check-in", `{"meta":{"a":1}}`),
 			code:    "invalid_funnel_event",
-			message: "props must be a flat object",
+			message: "Thông tin kèm theo chưa đúng dạng.",
 		},
 		{
 			name:    "session id too long",
 			body:    funnelBody(domain.FunnelCheckinPageView, strings.Repeat("s", 65), "/check-in", `{}`),
 			code:    "invalid_funnel_event",
-			message: "session_id is too long",
+			message: "Mã phiên dài quá.",
 		},
 		{
 			name:    "path too long",
 			body:    funnelBody(domain.FunnelCheckinPageView, "sess-path", "/"+strings.Repeat("p", 200), `{}`),
 			code:    "invalid_funnel_event",
-			message: "path is too long",
+			message: "Đường dẫn dài quá.",
 		},
 		{
 			name:    "body too large",
 			body:    funnelBody(domain.FunnelCheckinPageView, "sess-body", "/check-in", `{"note":"`+strings.Repeat("x", 9000)+`"}`),
 			code:    "invalid_funnel_event",
-			message: "body is too large",
+			message: "Nội dung gửi lên dài quá.",
 		},
 		{
 			name:    "bad error_type",
 			body:    funnelBody(domain.FunnelRegisterClientError, "sess-err", "/register", `{"error_type":"password too short"}`),
 			code:    "invalid_funnel_event",
-			message: "invalid error_type",
+			message: "Loại lỗi chưa đúng.",
 		},
 		{
 			name:    "email in props",
 			body:    funnelBody(domain.FunnelRegisterClientError, "sess-email", "/register", `{"error_type":"email_invalid","email":"person@example.com"}`),
 			code:    "invalid_funnel_event",
-			message: "props must not include an email",
+			message: "Đừng gửi kèm email.",
 		},
 		{
 			name:    "email string in a prop value",
 			body:    funnelBody(domain.FunnelCheckinPageView, "sess-email-val", "/check-in", `{"note":"person@example.com"}`),
 			code:    "invalid_funnel_event",
-			message: "props must not include an email",
+			message: "Đừng gửi kèm email.",
 		},
 		{
 			name:    "unknown landing prop",
 			body:    funnelBody(domain.FunnelLandingCTAClick, "sess-cta", "/", `{"button":"hero_primary","label":"Sign up now"}`),
 			code:    "invalid_funnel_event",
-			message: "unknown prop",
+			message: "Có mục thông tin mình không nhận.",
 		},
 		{
 			name:    "unknown register prop",
 			body:    funnelBody(domain.FunnelRegisterFormView, "sess-utm-medium", "/register", `{"utm_source":"meta","utm_medium":"cpc"}`),
 			code:    "invalid_funnel_event",
-			message: "unknown prop",
+			message: "Có mục thông tin mình không nhận.",
 		},
 		{
 			name:    "register error missing error_type",
 			body:    funnelBody(domain.FunnelRegisterClientError, "sess-no-err", "/register", `{"utm_source":"meta"}`),
 			code:    "invalid_funnel_event",
-			message: "invalid error_type",
+			message: "Loại lỗi chưa đúng.",
 		},
 	}
 	for _, tc := range cases {
@@ -744,10 +744,10 @@ func TestFunnelEvents_InvalidSessionDoesNotSpendGlobalBudget(t *testing.T) {
 		sid  string
 		msg  string
 	}{
-		{name: "missing", sid: "", msg: "session_id is required"},
-		{name: "blank", sid: "   ", msg: "session_id is required"},
-		{name: "too long", sid: strings.Repeat("s", domain.MaxFunnelSessionIDRunes+1), msg: "session_id is too long"},
-		{name: "control", sid: "bad\nsid", msg: "session_id is invalid"},
+		{name: "missing", sid: "", msg: "Thiếu mã phiên."},
+		{name: "blank", sid: "   ", msg: "Thiếu mã phiên."},
+		{name: "too long", sid: strings.Repeat("s", domain.MaxFunnelSessionIDRunes+1), msg: "Mã phiên dài quá."},
+		{name: "control", sid: "bad\nsid", msg: "Mã phiên chưa đúng."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

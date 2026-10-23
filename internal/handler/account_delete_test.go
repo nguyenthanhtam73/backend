@@ -436,7 +436,7 @@ func TestDeleteAccount_RateLimitsPasswordGuesses(t *testing.T) {
 	if code != "rate_limited" {
 		t.Fatalf("rate limit code=%s body=%s", code, raw)
 	}
-	if !strings.Contains(msg, "15 minutes") || !strings.Contains(msg, "15 phút") {
+	if !strings.Contains(msg, "15 phút") || strings.Contains(msg, "minutes") {
 		t.Fatalf("rate limit message=%q", msg)
 	}
 	if strings.Contains(msg, "a minute") || strings.Contains(msg, "1 phút") {

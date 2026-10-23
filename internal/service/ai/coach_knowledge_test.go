@@ -236,7 +236,7 @@ func TestBuildDailyFeedbackPrompt_InjectsKnowledge(t *testing.T) {
 func TestBuildSkinCheckCoachUserMessage_InjectsKnowledge(t *testing.T) {
 	t.Parallel()
 	check := &domain.SkinCheck{UserNote: "Má nhiều mụn ẩn, muốn nặn"}
-	msg := buildSkinCheckCoachUserMessage(check, nil, "", `{"visible_observations":["má: mụn ẩn"]}`, "ok", "")
+	msg := buildSkinCheckCoachUserMessage(check, nil, "", `{"visible_observations":["má: mụn ẩn"]}`, "ok", "", CheckInCoachFacts{})
 	mustContain(t, msg, "COACH_KNOWLEDGE")
 	mustContain(t, msg, "oily_closed_comedones")
 	mustContain(t, msg, "CẤM nặn")

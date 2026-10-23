@@ -117,6 +117,30 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID, forceFresh bool) (d
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Cached:      debug.CacheHit,
 		MemoryText:  memText,
+		Summary:     s.summaryLines(ctx, userID),
 		Stats:       stats,
 	}, nil
+}
+
+// summaryLines is the "DaDiary nhớ gì về bạn" list. Newest check-in first.
+// A missing checks repo or a failed read yields an empty list, not an error,
+// so the rest of the memory payload still returns.
+func (s *Service) summaryLines(ctx context.Context, userID uuid.UUID) []string {
+	lines := make([]string, 0)
+	if s == nil || s.checks == nil {
+		return lines
+	}
+	rows, err := s.checks.ListRecentWithAnalysis(ctx, userID, uuid.Nil, 6)
+	if err != nil || len(rows) == 0 {
+		return lines
+	}
+	now := time.Now()
+	for _, row := range rows {
+		photos := 0
+		if imgs, decErr := dto.DecodeStringSlice(row.ImageURLs); decErr == nil {
+			photos = len(imgs)
+		}
+		lines = append(lines, dto.FormatUserMemorySummary(row.CheckDate, photos, now))
+	}
+	return lines
 }

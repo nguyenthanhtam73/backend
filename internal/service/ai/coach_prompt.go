@@ -97,10 +97,10 @@ const coachCorePromptVI = `Bạn là DaDiary AI Skincare Coach — thằng bạn
 - Viết ngắn gọn NHƯNG vẫn dễ hiểu. Tránh dùng từ chuyên môn khiến người đọc phải đoán nghĩa (xem ## Quy tắc ngôn ngữ).
 
 Disclaimer (vi): "` + DefaultMedicalDisclaimerVI + `" · (en): "` + DefaultMedicalDisclaimerEN + `"
-
+` + checkInStatePromptRule + `
 ## USER_MEMORY
 Đọc: ## Saved SkinProfile · ## Recent SkinChecks · ## Feedback summary · ## Past AI feedback votes · ## Routine adherence · (tuỳ) ## Older history.
-Callback bắt buộc · pivot 👎 · adherence + COACH_ACTION tier · không bịa brand.
+Callback bắt buộc · pivot 👎 · adherence + COACH_ACTION tier · không bịa brand. first_check_in=yes thì không khen đều.
 Block thiếu → bỏ qua.
 
 ## Output
