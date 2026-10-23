@@ -13,16 +13,18 @@ import (
 	"github.com/google/uuid"
 )
 
-// ErrAlreadyNotifiedToday means this user already received streak_at_risk today
-// (Vietnam civil date). Prevents double-send on job retry / overlapping calls.
-var ErrAlreadyNotifiedToday = errors.New("streak_at_risk already sent today")
+// ErrAlreadyNotifiedToday means this user already received a check-in reminder
+// today (Vietnam civil date): streak_at_risk itself, or any other type in
+// ReminderTypesSameVNDay. Prevents a second nudge on job retry or a later job.
+var ErrAlreadyNotifiedToday = errors.New("reminder already sent today")
 
 // StreakAtRiskBatchResult summarises a fan-out run of SendStreakAtRiskNotifications.
 type StreakAtRiskBatchResult struct {
 	Total   int `json:"total"`   // at-risk users with an active push subscription
 	Sent    int `json:"sent"`    // delivered successfully
 	Skipped int `json:"skipped"` // no sub / already notified / no longer relevant / …
-	// SkippedAlreadyNotified counts users skipped by the once-per-day guard.
+	// SkippedAlreadyNotified counts users skipped because any same-day reminder
+	// (streak_at_risk, daily, D0, or D1) already went out.
 	SkippedAlreadyNotified int `json:"skipped_already_notified"`
 	// SkippedAlreadyCheckedIn counts users who checked in after the candidate list.
 	SkippedAlreadyCheckedIn int `json:"skipped_already_checked_in"`
@@ -167,8 +169,9 @@ func (s *Service) ensureStillRelevantForStreakAtRisk(
 
 // SendStreakAtRiskToUser sends one streak_at_risk push to a single user.
 //
-// Skips when already notified today, already checked in, or no longer at risk.
-// Expired subscriptions are cleaned up inside PushSender (404/410).
+// Skips when this user already received any reminder in ReminderTypesSameVNDay
+// today (including an earlier streak_at_risk), already checked in, or is no
+// longer at risk. Expired subscriptions are cleaned up inside PushSender (404/410).
 func (s *Service) SendStreakAtRiskToUser(ctx context.Context, userID uuid.UUID) error {
 	if s == nil || s.sender == nil || s.repo == nil {
 		return ErrSenderUnavailable
@@ -179,9 +182,12 @@ func (s *Service) SendStreakAtRiskToUser(ctx context.Context, userID uuid.UUID) 
 
 	today := streaktime.TodayString()
 	nType := string(pushsvc.NotificationTypeStreakAtRisk)
+	// In-memory streak dedupe is the fast path for a retry in this process.
+	// The receipt list is what stops a second nudge after daily / D0 / D1
+	// (or streak_at_risk from another replica) already landed today.
 	if s.streakAtRiskSent.alreadySent(userID, today) ||
-		s.alreadySentDurable(ctx, userID, nType, today) {
-		slog.Info("streak_at_risk: skip — already notified today",
+		s.alreadySentAnyDurable(ctx, userID, today, pushsvc.ReminderTypesSameVNDay...) {
+		slog.Info("streak_at_risk: skip — already nudged today",
 			"user_id", userID.String(),
 			"date", today,
 		)

@@ -12,8 +12,9 @@ import (
 
 // SendD0D1ReminderToUser sends one typed d0_reminder / d1_reminder push.
 //
-// Skips when already checked in, no subscription, or any of daily_reminder /
-// d0_reminder / d1_reminder already has a receipt for this Vietnam civil day.
+// Skips when already checked in, no subscription, or any type in
+// ReminderTypesSameVNDay (including streak_at_risk) already has a receipt
+// for this Vietnam civil day.
 func (s *Service) SendD0D1ReminderToUser(ctx context.Context, userID uuid.UUID, kind string) error {
 	if s == nil || s.sender == nil || s.repo == nil {
 		return ErrSenderUnavailable
