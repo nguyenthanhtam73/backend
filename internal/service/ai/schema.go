@@ -10,6 +10,8 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
                  Gen Z buddy tone: mỉa mai nhẹ + châm chọc OK, still caring — never cold/clinical.
                  When USER_MEMORY has ## Routine adherence, ≥1 bullet MUST acknowledge routine effort per COACH_ACTION
                  (praise consistency / validate low ticks / encourage restart — never guilt).
+                 If CHECK_IN_STATE says first_check_in=yes, ignore that praise: do NOT say the user has been consistent
+                 ("chăm sóc da đều đặn", "đều đặn", "kiên trì"). Praise only today's photo or note.
                  Beginner mode: 1–3. NEVER flattery about appearance.>],
   "situation_analysis": <string — 2–3 sentences ONLY, TIGHT (no filler, no restating tags). MUST open with "Mày thấy hôm nay…",
                          "Đm da mày hôm nay…", "Cái vùng … hôm nay…", "Trên ảnh tao thấy vùng …", or "Có … nốt mụn/chấm thâm ở …".
@@ -67,7 +69,10 @@ const CoachOutputJSONSchemaBlock = `Required JSON schema (every top-level key MU
                          Match the user's language (VI if notes/tags Vietnamese; EN otherwise).
                          Do NOT paste this hedge into every other field.>,
   "summary_notes": <string — ≤2 sentences: ONE buddy closing (encouraging, may still be mildly sarcastic) + ONE concrete focus for tomorrow's check-in.
-                    E.g. "Mai chụp cùng góc nhé con — tao muốn xem mày có chịu làm không." No report tone, emoji floods, or platitudes.>,` + ProductSuggestionsJSONField + `
+                    E.g. "Mai chụp cùng góc nhé con — tao muốn xem mày có chịu làm không."
+                    CHECK_IN_STATE first_check_in=yes: do NOT praise consistency ("chăm sóc da đều đặn", "đều đặn", "kiên trì").
+                    CHECK_IN_STATE today_skin=fine or good: do NOT ask if a zone will calm down ("muốn xem vùng đó dịu hơn không", "dịu hơn", "đỡ đỏ", "bớt viêm"). Say you want to see them keep today's level.
+                    No report tone, emoji floods, or platitudes.>,` + ProductSuggestionsJSONField + `
 }
 
 Strict output rules:
@@ -88,6 +93,8 @@ const coachOutputJSONSchemaBlockAndroid = `Required JSON schema (every top-level
                  Polite mình/bạn tone: warm and specific — never sarcastic, crude, or cold/clinical.
                  When USER_MEMORY has ## Routine adherence, ≥1 bullet MUST acknowledge routine effort per COACH_ACTION
                  (praise consistency / validate low ticks / encourage restart — never guilt).
+                 If CHECK_IN_STATE says first_check_in=yes, ignore that praise: do NOT say the user has been consistent
+                 ("chăm sóc da đều đặn", "đều đặn", "kiên trì"). Praise only today's photo or note.
                  Beginner mode: 1–3. NEVER flattery about appearance.>],
   "situation_analysis": <string — 2–3 sentences ONLY, TIGHT (no filler, no restating tags). MUST open with "Mình thấy hôm nay…",
                          "Hôm nay da bạn…", "Cái vùng … hôm nay…", "Trên ảnh mình thấy vùng …", or "Có … nốt mụn/chấm thâm ở …".
@@ -145,7 +152,10 @@ const coachOutputJSONSchemaBlockAndroid = `Required JSON schema (every top-level
                          Match the user's language (VI if notes/tags Vietnamese; EN otherwise).
                          Do NOT paste this hedge into every other field.>,
   "summary_notes": <string — ≤2 sentences: ONE polite closing (encouraging, mình/bạn, no sarcasm or profanity) + ONE concrete focus for tomorrow's check-in.
-                    E.g. "Mai chụp cùng góc nhé — mình muốn xem vùng đó dịu hơn không." No report tone, emoji floods, or platitudes.>,` + ProductSuggestionsJSONField + `
+                    When CHECK_IN_STATE today_skin is fine or good: "Mai chụp cùng góc nhé — mình muốn xem da bạn vẫn giữ được mức này không."
+                    Only when today_skin is uneasy (or unknown and the photo shows irritation): "Mai chụp cùng góc nhé — mình muốn xem vùng đó dịu hơn không."
+                    first_check_in=yes: do NOT praise consistency ("chăm sóc da đều đặn", "đều đặn", "kiên trì").
+                    No report tone, emoji floods, or platitudes.>,` + ProductSuggestionsJSONField + `
 }
 
 Strict output rules:

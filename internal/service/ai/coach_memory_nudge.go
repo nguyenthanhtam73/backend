@@ -36,12 +36,20 @@ func coachTurnChecklist(userContext string, hasVision bool) string {
 }
 
 func coachTurnChecklistForVoice(userContext string, hasVision bool, clientKind string) string {
-	if strings.Contains(userContext, "no saved memory yet") && !hasVision {
+	firstCheckIn := strings.Contains(userContext, "first_check_in: yes")
+	skinFine := strings.Contains(userContext, "today_skin: fine") || strings.Contains(userContext, "today_skin: good")
+	if strings.Contains(userContext, "no saved memory yet") && !hasVision && !firstCheckIn && !skinFine {
 		return ""
 	}
 	polite := IsAndroidCoachVoice(clientKind)
 	var b strings.Builder
 	b.WriteString("\n\nCOACH CHECKLIST (required — verify before JSON):\n")
+	if firstCheckIn {
+		b.WriteString("- FIRST CHECK-IN: never praise consistency. No \"chăm sóc da đều đặn\", \"đều đặn\", \"kiên trì\", \"duy trì đều\". Praise only today. Ignore COACH_ACTION praise.\n")
+	}
+	if skinFine {
+		b.WriteString("- SKIN FINE/GOOD: do not ask \"muốn xem vùng đó dịu hơn không\" or \"dịu hơn\" / \"đỡ đỏ\" / \"bớt viêm\". Close by keeping today's level.\n")
+	}
 	if hasVision {
 		if polite {
 			b.WriteString("- ≥4–5 photo details (region+cue+degree/count) — MUST open \"Mình thấy hôm nay…\" OR \"Hôm nay da bạn…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; polite mình/bạn, NO tao/mày, NO profanity, NO lists/report tone.\n")
@@ -50,7 +58,7 @@ func coachTurnChecklistForVoice(userContext string, hasVision bool, clientKind s
 		}
 		b.WriteString("- BAN ALL vague: \"da hỗn hợp\", \"da dễ nổi mụn\", \"dễ nổi mụn\", \"da hơi khô\", \"sản phẩm nhẹ nhàng\", \"chăm sóc nhẹ\".\n")
 	}
-	if strings.Contains(userContext, "## Recent SkinChecks") {
+	if strings.Contains(userContext, "## Recent SkinChecks") && !firstCheckIn {
 		if polite {
 			b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" callback in situation_analysis — warm, no teasing.\n")
 		} else {
@@ -70,7 +78,7 @@ func coachTurnChecklistForVoice(userContext string, hasVision bool, clientKind s
 			b.WriteString("- Self-check BEFORE output (no second chance): ≥4 vision specifics · zero banned phrases · concrete tips.\n")
 		}
 	}
-	if strings.Contains(userContext, "## Routine adherence") {
+	if strings.Contains(userContext, "## Routine adherence") && !firstCheckIn {
 		b.WriteString("- strengths OR summary_notes: MUST mention routine adherence per COACH_ACTION (praise / simplify / encourage — no guilt).\n")
 		b.WriteString("- routine_hints: count MUST match COACH_ACTION tier (low → max 3 lines; none → max 2).\n")
 	}

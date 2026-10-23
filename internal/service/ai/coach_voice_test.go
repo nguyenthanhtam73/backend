@@ -46,7 +46,7 @@ func TestGetCoachPromptForClient_WebUnchanged(t *testing.T) {
 		t.Fatal("web schema block lost the crude summary example")
 	}
 
-	webMsg := buildSkinCheckCoachUserMessage(&domain.SkinCheck{ClientKind: domain.RefreshClientWeb}, nil, "", "", "ok", "TODAY")
+	webMsg := buildSkinCheckCoachUserMessage(&domain.SkinCheck{ClientKind: domain.RefreshClientWeb}, nil, "", "", "ok", "TODAY", CheckInCoachFacts{})
 	if !strings.Contains(webMsg, "Đm da mày hôm nay…") {
 		t.Fatal("web user message lost the crude schema opener")
 	}
@@ -150,7 +150,7 @@ func TestGetCoachPromptForClient_AndroidPolite(t *testing.T) {
 	}
 
 	check := &domain.SkinCheck{ClientKind: domain.RefreshClientAndroid}
-	msg := buildSkinCheckCoachUserMessage(check, nil, "", `{"visible_observations":["má đỏ"]}`, "ok", "TODAY")
+	msg := buildSkinCheckCoachUserMessage(check, nil, "", `{"visible_observations":["má đỏ"]}`, "ok", "TODAY", CheckInCoachFacts{})
 	if strings.Contains(msg, "Đm da mày hôm nay") {
 		t.Fatal("android user message still requires the crude opener")
 	}
@@ -176,7 +176,7 @@ func TestCoachVoiceFollowsStoredClientKind(t *testing.T) {
 	// The prompt must follow the stored column, not a request that already returned.
 	stored := &domain.SkinCheck{ClientKind: domain.RefreshClientAndroid}
 	sys := GetCoachPromptForClient("beginner", stored.ClientKind)
-	user := buildSkinCheckCoachUserMessage(stored, nil, "memory", `{"visible_observations":["má"]}`, "ok", "full")
+	user := buildSkinCheckCoachUserMessage(stored, nil, "memory", `{"visible_observations":["má"]}`, "ok", "full", CheckInCoachFacts{})
 	if !IsAndroidCoachVoice(stored.ClientKind) || strings.Contains(sys, "Đm da mày") || strings.Contains(user, "Đm da mày") {
 		t.Fatal("stored android kind did not select the polite voice")
 	}

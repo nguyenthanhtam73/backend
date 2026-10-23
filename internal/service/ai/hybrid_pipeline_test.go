@@ -287,7 +287,7 @@ func TestHybridPipeline_OpenAIOnlyDoesNotCrash(t *testing.T) {
 	ctx := context.Background()
 	// No images on the check → the pipeline returns before touching storage, so a
 	// nil store is fine here (we only assert it degrades gracefully, not crashes).
-	_, _, err := RunSkinCheckCoach(ctx, cfg, srv.Client(), nil, check, profile, "")
+	_, _, err := RunSkinCheckCoach(ctx, cfg, srv.Client(), nil, check, profile, "", CheckInCoachFacts{})
 	if err == nil {
 		// expected: no images — but should not panic; vision skipped gracefully
 	}

@@ -83,4 +83,11 @@ package ai
 // skin_checks.client_kind. That voice does not bump this number by itself: the
 // web prompt text is unchanged. Successful android runs append "+android" to
 // model_version so per-prompt-version stats can separate the two voices.
-const CoachDailyPromptVersion = 29
+//
+// v30 (2026-10-23) — Check-in advice must match the user's real state.
+// The coach user message includes CHECK_IN_STATE (lifetime count, prior
+// history with scores, and today's self-rating). A first-ever check-in must
+// not be praised for consistency. Fine/good skin must not be asked whether a
+// sore spot will calm down. Go rewrites those lines if the model still
+// writes them.
+const CoachDailyPromptVersion = 30
