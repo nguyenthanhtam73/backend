@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
@@ -220,40 +221,24 @@ func ApplyCheckInAdviceGuard(out *CoachStructuredOutput, facts CheckInCoachFacts
 		out.SafetyReminders = next
 		changed = true
 	}
-	for i := range out.Improvements {
-		if next, ok := rewriteAdviceField(out.Improvements[i].Tip, drop, ""); ok {
-			out.Improvements[i].Tip = next
-			changed = true
-		}
-		if next, ok := rewriteAdviceField(out.Improvements[i].Why, drop, ""); ok {
-			out.Improvements[i].Why = next
-			changed = true
-		}
+	if next, ok := salvageTipList(out.Improvements, drop, polite); ok {
+		out.Improvements = next
+		changed = true
 	}
-	for i := range out.CareSuggestions {
-		if next, ok := rewriteAdviceField(out.CareSuggestions[i].Step, drop, ""); ok {
-			out.CareSuggestions[i].Step = next
-			changed = true
-		}
-		if next, ok := rewriteAdviceField(out.CareSuggestions[i].Why, drop, ""); ok {
-			out.CareSuggestions[i].Why = next
-			changed = true
-		}
-		if next, ok := rewriteAdviceField(out.CareSuggestions[i].SafetyNote, drop, ""); ok {
-			out.CareSuggestions[i].SafetyNote = next
-			changed = true
-		}
+	if next, ok := salvageCareSuggestions(out.CareSuggestions, drop, polite); ok {
+		out.CareSuggestions = next
+		changed = true
 	}
 	for i := range out.ProductSuggestions {
-		if next, ok := rewriteAdviceField(out.ProductSuggestions[i].Reason, drop, ""); ok {
+		if next, ok := polishRewrittenTip(out.ProductSuggestions[i].Reason, drop, polite, true); ok {
 			out.ProductSuggestions[i].Reason = next
 			changed = true
 		}
-		if next, ok := rewriteAdviceField(out.ProductSuggestions[i].HowToUse, drop, ""); ok {
+		if next, ok := polishRewrittenTip(out.ProductSuggestions[i].HowToUse, drop, polite, false); ok {
 			out.ProductSuggestions[i].HowToUse = next
 			changed = true
 		}
-		if next, ok := rewriteAdviceField(out.ProductSuggestions[i].Caution, drop, ""); ok {
+		if next, ok := polishRewrittenTip(out.ProductSuggestions[i].Caution, drop, polite, false); ok {
 			out.ProductSuggestions[i].Caution = next
 			changed = true
 		}
@@ -263,15 +248,15 @@ func ApplyCheckInAdviceGuard(out *CoachStructuredOutput, facts CheckInCoachFacts
 		}
 	}
 	for i := range out.ProductGuidance {
-		if next, ok := rewriteAdviceField(out.ProductGuidance[i].Why, drop, ""); ok {
+		if next, ok := polishRewrittenTip(out.ProductGuidance[i].Why, drop, polite, true); ok {
 			out.ProductGuidance[i].Why = next
 			changed = true
 		}
-		if next, ok := rewriteAdviceField(out.ProductGuidance[i].HowToUse, drop, ""); ok {
+		if next, ok := polishRewrittenTip(out.ProductGuidance[i].HowToUse, drop, polite, true); ok {
 			out.ProductGuidance[i].HowToUse = next
 			changed = true
 		}
-		if next, ok := rewriteAdviceField(out.ProductGuidance[i].Caution, drop, ""); ok {
+		if next, ok := polishRewrittenTip(out.ProductGuidance[i].Caution, drop, polite, false); ok {
 			out.ProductGuidance[i].Caution = next
 			changed = true
 		}
@@ -281,6 +266,15 @@ func ApplyCheckInAdviceGuard(out *CoachStructuredOutput, facts CheckInCoachFacts
 		}
 	}
 	return changed
+}
+
+// neutralCareTip is a safe line used when stripping a banned phrase leaves a
+// tip with nothing real to say. Web and Android each get their own voice.
+func neutralCareTip(polite bool) string {
+	if polite {
+		return "Hôm nay bạn giữ bước dịu: rửa mặt nhẹ rồi dưỡng ẩm."
+	}
+	return "Hôm nay giữ bước dịu: rửa mặt nhẹ rồi dưỡng ẩm."
 }
 
 func adviceFallback(facts CheckInCoachFacts, polite bool) string {
@@ -366,7 +360,18 @@ func rewriteAdviceField(s string, drop func(string) bool, fallback string) (stri
 	if dropped == 0 {
 		return s, false
 	}
-	joined := strings.TrimSpace(strings.Join(kept, " "))
+	meaningful := make([]string, 0, len(kept))
+	for _, part := range kept {
+		// "Bạn quá." or "!!!" next to a removed sentence is not a tip.
+		if isMeaninglessAdvice(part) {
+			continue
+		}
+		meaningful = append(meaningful, part)
+	}
+	joined := strings.TrimSpace(strings.Join(meaningful, " "))
+	if isMeaninglessAdvice(joined) {
+		joined = ""
+	}
 	// A dropped sentence still needs a replacement when other sentences stay,
 	// so "Da hôm nay ổn." is not left without the keep-level follow-up.
 	if fallback != "" && !strings.Contains(joined, fallback) {
@@ -376,6 +381,138 @@ func rewriteAdviceField(s string, drop func(string) bool, fallback string) (stri
 		joined = joined + " " + fallback
 	}
 	return joined, joined != s
+}
+
+// polishRewrittenTip rewrites one tip field. A meaningless remainder is
+// replaced with a neutral line when replace is set, and cleared otherwise
+// (callers drop that item). Text that did not contain a banned phrase is
+// left as-is.
+func polishRewrittenTip(s string, drop func(string) bool, polite bool, replace bool) (string, bool) {
+	next, ok := rewriteAdviceField(s, drop, "")
+	if !ok {
+		return s, false
+	}
+	if !isMeaninglessAdvice(next) {
+		return next, true
+	}
+	if replace {
+		return neutralCareTip(polite), true
+	}
+	return "", true
+}
+
+func salvageTipList(items []struct {
+	Tip string `json:"tip"`
+	Why string `json:"why"`
+}, drop func(string) bool, polite bool) ([]struct {
+	Tip string `json:"tip"`
+	Why string `json:"why"`
+}, bool) {
+	if len(items) == 0 {
+		return items, false
+	}
+	out := make([]struct {
+		Tip string `json:"tip"`
+		Why string `json:"why"`
+	}, 0, len(items))
+	changed := false
+	for _, item := range items {
+		tip, tipOK := rewriteAdviceField(item.Tip, drop, "")
+		why, whyOK := rewriteAdviceField(item.Why, drop, "")
+		if !tipOK && !whyOK {
+			out = append(out, item)
+			continue
+		}
+		changed = true
+		if isMeaninglessAdvice(tip) {
+			tip = neutralCareTip(polite)
+		}
+		if isMeaninglessAdvice(why) {
+			why = neutralCareTip(polite)
+		}
+		item.Tip = tip
+		item.Why = why
+		out = append(out, item)
+	}
+	if !changed {
+		return items, false
+	}
+	return out, true
+}
+
+func salvageCareSuggestions(items []CoachCareSuggestion, drop func(string) bool, polite bool) ([]CoachCareSuggestion, bool) {
+	if len(items) == 0 {
+		return items, false
+	}
+	out := make([]CoachCareSuggestion, 0, len(items))
+	changed := false
+	for _, item := range items {
+		step, stepOK := rewriteAdviceField(item.Step, drop, "")
+		why, whyOK := rewriteAdviceField(item.Why, drop, "")
+		note, noteOK := rewriteAdviceField(item.SafetyNote, drop, "")
+		if !stepOK && !whyOK && !noteOK {
+			out = append(out, item)
+			continue
+		}
+		changed = true
+		if isMeaninglessAdvice(step) {
+			step = neutralCareTip(polite)
+		}
+		if isMeaninglessAdvice(why) {
+			why = neutralCareTip(polite)
+		}
+		if isMeaninglessAdvice(note) {
+			note = ""
+		}
+		item.Step = step
+		item.Why = why
+		item.SafetyNote = note
+		out = append(out, item)
+	}
+	if !changed {
+		return items, false
+	}
+	return out, true
+}
+
+// isMeaninglessAdvice reports text that is empty, only punctuation or
+// whitespace, or a few leftover words with no real care content.
+func isMeaninglessAdvice(s string) bool {
+	return len(adviceContentWords(s)) < 2
+}
+
+func adviceContentWords(s string) []string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsLetter(r) || unicode.IsNumber(r) {
+			b.WriteRune(unicode.ToLower(r))
+		} else {
+			b.WriteByte(' ')
+		}
+	}
+	var out []string
+	for _, w := range strings.Fields(b.String()) {
+		if adviceFillerWords[w] {
+			continue
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// adviceFillerWords are glue left behind after a banned phrase is removed
+// ("bạn quá", "nhớ nhé"). They are not a skin-care tip on their own.
+var adviceFillerWords = map[string]bool{
+	"ạ": true, "à": true, "ấy": true, "bạn": true, "các": true, "cái": true,
+	"cho": true, "cơ": true, "cũng": true, "của": true, "có": true, "đã": true,
+	"đang": true, "để": true, "được": true, "đi": true, "hay": true, "ha": true,
+	"hả": true, "hey": true, "khi": true, "là": true, "lại": true, "luôn": true,
+	"mà": true, "mai": true, "mày": true, "mình": true, "một": true, "này": true,
+	"nữa": true, "nè": true, "nha": true, "nhé": true, "nhớ": true, "nếu": true,
+	"ok": true, "okay": true, "ơi": true, "ôi": true, "quá": true, "rất": true,
+	"rồi": true, "sẽ": true, "tao": true, "thật": true, "thì": true, "thôi": true,
+	"tớ": true, "tuyệt": true, "và": true, "vậy": true, "với": true, "vừa": true,
+	"vời": true, "wow": true, "uh": true, "um": true, "ừ": true,
 }
 
 func rewriteStringList(items []string, drop func(string) bool, fallback string) ([]string, bool) {
