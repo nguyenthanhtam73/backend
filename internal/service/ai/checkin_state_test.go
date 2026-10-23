@@ -170,6 +170,126 @@ func TestCoachPrompt_v30_CheckInStateGuard(t *testing.T) {
 	}
 }
 
+func TestApplyCheckInAdviceGuard_MeaninglessTipReplacedOrDropped(t *testing.T) {
+	first := CheckInCoachFacts{CountKnown: true, TotalIncludesToday: 1}
+	fine := CheckInCoachFacts{CountKnown: true, TotalIncludesToday: 3, TodayRating: "good", TodayScoreText: "good"}
+
+	for _, tc := range []struct {
+		name  string
+		kind  string
+		facts CheckInCoachFacts
+		want  string
+	}{
+		{name: "web", kind: domain.RefreshClientWeb, facts: first, want: "Hôm nay giữ bước dịu: rửa mặt nhẹ rồi dưỡng ẩm."},
+		{name: "android", kind: domain.RefreshClientAndroid, facts: first, want: "Hôm nay bạn giữ bước dịu: rửa mặt nhẹ rồi dưỡng ẩm."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := &CoachStructuredOutput{
+				Improvements: []struct {
+					Tip string `json:"tip"`
+					Why string `json:"why"`
+				}{
+					{Tip: "Bạn chăm sóc da đều đặn!!!", Why: "Kiên trì nhé."},
+					{Tip: "Rửa mặt dịu. Nhớ chăm sóc da đều đặn.", Why: "Giữ bước dịu vì da đang ổn."},
+				},
+				RoutineHints: []string{"Kiên trì.", "Bạn quá. Duy trì đều quá.", "Rửa mặt dịu"},
+			}
+			if !ApplyCheckInAdviceGuard(out, tc.facts, tc.kind) {
+				t.Fatal("expected a rewrite")
+			}
+			if len(out.Improvements) != 2 {
+				t.Fatalf("improvements: %+v", out.Improvements)
+			}
+			if out.Improvements[0].Tip != tc.want || out.Improvements[0].Why != tc.want {
+				t.Fatalf("gutted tip = %#v, want neutral %q", out.Improvements[0], tc.want)
+			}
+			if out.Improvements[1].Tip != "Rửa mặt dịu." {
+				t.Fatalf("real step lost: %#v", out.Improvements[1])
+			}
+			if out.Improvements[1].Why != "Giữ bước dịu vì da đang ổn." {
+				t.Fatalf("real why rewritten: %#v", out.Improvements[1])
+			}
+			if len(out.RoutineHints) != 1 || out.RoutineHints[0] != "Rửa mặt dịu" {
+				t.Fatalf("routine hints = %#v", out.RoutineHints)
+			}
+			assertNoEmptyOrLeftoverTips(t, out)
+		})
+	}
+
+	t.Run("fine skin drops calm-down leftover", func(t *testing.T) {
+		for _, tc := range []struct {
+			kind string
+			want string
+		}{
+			{kind: "", want: "Hôm nay giữ bước dịu: rửa mặt nhẹ rồi dưỡng ẩm."},
+			{kind: domain.RefreshClientAndroid, want: "Hôm nay bạn giữ bước dịu: rửa mặt nhẹ rồi dưỡng ẩm."},
+		} {
+			out := &CoachStructuredOutput{
+				CareSuggestions: []CoachCareSuggestion{
+					{Step: "Muốn xem vùng đó dịu hơn không?", Why: "!!!", SafetyNote: "Nhớ nhé."},
+					{Step: "Rửa mặt dịu", Why: "Giữ bước dịu vì da đang ổn."},
+				},
+				AvoidOrPatch: []string{".... Muốn xem da dịu hơn không?", "Bạn quá. Muốn xem da dịu hơn không?"},
+			}
+			if !ApplyCheckInAdviceGuard(out, fine, tc.kind) {
+				t.Fatal("expected a rewrite")
+			}
+			if len(out.CareSuggestions) != 2 {
+				t.Fatalf("care suggestions: %+v", out.CareSuggestions)
+			}
+			if out.CareSuggestions[0].Step != tc.want || out.CareSuggestions[0].Why != tc.want {
+				t.Fatalf("calm-down step = %#v, want %q", out.CareSuggestions[0], tc.want)
+			}
+			if out.CareSuggestions[0].SafetyNote != "" {
+				t.Fatalf("leftover safety note %q", out.CareSuggestions[0].SafetyNote)
+			}
+			if out.CareSuggestions[1].Step != "Rửa mặt dịu" {
+				t.Fatalf("gentle cleanse changed: %#v", out.CareSuggestions[1])
+			}
+			if len(out.AvoidOrPatch) != 0 {
+				t.Fatalf("avoid list = %#v", out.AvoidOrPatch)
+			}
+			assertNoEmptyOrLeftoverTips(t, out)
+		}
+	})
+}
+
+func assertNoEmptyOrLeftoverTips(t *testing.T, out *CoachStructuredOutput) {
+	t.Helper()
+	check := func(label, s string) {
+		t.Helper()
+		if strings.TrimSpace(s) == "" || isMeaninglessAdvice(s) {
+			t.Fatalf("%s is empty or leftover: %q", label, s)
+		}
+	}
+	for i, s := range out.RoutineHints {
+		check("routine hint "+string(rune('a'+i)), s)
+	}
+	for i, s := range out.AvoidOrPatch {
+		check("avoid "+string(rune('a'+i)), s)
+	}
+	for i, s := range out.SafetyReminders {
+		check("safety "+string(rune('a'+i)), s)
+	}
+	for i, imp := range out.Improvements {
+		check("improvement tip", imp.Tip)
+		check("improvement why", imp.Why)
+		if strings.TrimSpace(imp.Tip) == "" || strings.TrimSpace(imp.Why) == "" {
+			t.Fatalf("improvement %d empty: %#v", i, imp)
+		}
+	}
+	for i, sug := range out.CareSuggestions {
+		check("care step", sug.Step)
+		check("care why", sug.Why)
+		if strings.TrimSpace(sug.SafetyNote) != "" {
+			check("care safety", sug.SafetyNote)
+		}
+		if strings.TrimSpace(sug.Step) == "" {
+			t.Fatalf("care step %d empty: %#v", i, sug)
+		}
+	}
+}
+
 func TestHistoryFactsFromChecks_IncludesScore(t *testing.T) {
 	when := time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC)
 	rows := HistoryFactsFromChecks([]domain.SkinCheck{{
