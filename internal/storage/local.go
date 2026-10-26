@@ -28,6 +28,8 @@ func newLocal(dir string) (*localStorage, error) {
 	return &localStorage{root: abs}, nil
 }
 
+// abs resolves key under the upload root. normalizeKey rejects "..", absolute
+// paths, and signed-URL query strings before Join can escape the root.
 func (l *localStorage) abs(key string) (string, error) {
 	cleaned, err := normalizeKey(key)
 	if err != nil {

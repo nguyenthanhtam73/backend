@@ -1,17 +1,17 @@
 // Package storage abstracts where skin-check / onboarding photos are persisted.
 //
 // Two drivers are supported:
-//   - "local": files on disk under Upload.Dir (dev default; served via app.Static).
+//   - "local": files on disk under Upload.Dir (dev default; served by the signed /uploads handler).
 //   - "r2":    Cloudflare R2 (S3-compatible), for durable/private production storage.
 //
 // The stored DB value is always a forward-slash relative *key*. New uploads use
 // PhotoKey: "{YYYY}/{MM}/{DD}/{kind}/{username}__{userID}/{uuid}.jpg" so the
 // Cloudflare R2 dashboard is browsable by date and user. Legacy keys
 // ("{userID}/{uuid}.jpg" / "{userID}/onboarding/...") stay valid — both drivers
-// use the same key, so switching drivers needs no DB migration. Public image
-// URLs stay in the "/uploads/<key>" shape regardless of driver — for "r2" the
-// API proxies those bytes (see cmd/api), so the frontend never has to change
-// or juggle presigned TTLs.
+// use the same key, so switching drivers needs no DB migration. Client image
+// URLs stay in the "/uploads/<key>" shape regardless of driver, with a
+// short-lived HMAC query (see internal/mediaurl). The API reads bytes from
+// this store — it does not hand the object URL to the AI provider.
 package storage
 
 import (

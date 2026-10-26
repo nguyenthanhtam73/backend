@@ -9,6 +9,7 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -85,7 +86,7 @@ func (r *UserDataRepository) ExportBundle(
 			UserNote:   c.UserNote,
 			Conditions: conds,
 			Symptoms:   syms,
-			ImageURLs:  urls,
+			ImageURLs:  mediaurl.SignEach(urls),
 		}
 		if c.Analysis != nil {
 			item.CoachNotes = c.Analysis.SummaryNotes

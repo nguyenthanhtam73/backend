@@ -3,10 +3,12 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -88,6 +90,31 @@ func TestExportBundle_IncludesPhotoContext(t *testing.T) {
 	}
 	if !saw || !sawOld {
 		t.Fatalf("rows %s", raw)
+	}
+	for _, row := range rows {
+		urls, _ := row["image_urls"].([]any)
+		for _, u := range urls {
+			s, _ := u.(string)
+			if strings.Contains(s, "r2.dev") || strings.Contains(s, "cloudflarestorage.com") {
+				t.Fatalf("export handed out a public object url: %s", s)
+			}
+		}
+	}
+
+	signer := mediaurl.New("export-media-key-at-least-32b!!", "", time.Hour)
+	mediaurl.SetDefault(signer)
+	t.Cleanup(func() { mediaurl.SetDefault(nil) })
+	signed, err := NewUserDataRepository(db).ExportBundle(context.Background(), user.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(signed.SkinChecks) != 2 {
+		t.Fatalf("signed checks %d", len(signed.SkinChecks))
+	}
+	for _, row := range signed.SkinChecks {
+		if len(row.ImageURLs) != 1 || !strings.Contains(row.ImageURLs[0], "sig=") || !strings.HasPrefix(row.ImageURLs[0], "/uploads/") {
+			t.Fatalf("export image url not signed: %v", row.ImageURLs)
+		}
 	}
 }
 

@@ -36,12 +36,14 @@ type ExportSkinProfile struct {
 
 // ExportSkinCheck is one check-in row without raw image bytes.
 type ExportSkinCheck struct {
-	ID           string          `json:"id"`
-	CheckDate    string          `json:"check_date"`
-	Title        string          `json:"title,omitempty"`
-	UserNote     string          `json:"user_note,omitempty"`
-	Conditions   []string        `json:"conditions,omitempty"`
-	Symptoms     []string        `json:"symptoms,omitempty"`
+	ID         string   `json:"id"`
+	CheckDate  string   `json:"check_date"`
+	Title      string   `json:"title,omitempty"`
+	UserNote   string   `json:"user_note,omitempty"`
+	Conditions []string `json:"conditions,omitempty"`
+	Symptoms   []string `json:"symptoms,omitempty"`
+	// ImageURLs are short-lived signed /uploads links for the owner.
+	// Photo bytes are omitted. They are never a public R2 URL.
 	ImageURLs    []string        `json:"image_urls,omitempty"`
 	CoachNotes   string          `json:"coach_notes,omitempty"`
 	PhotoContext json.RawMessage `json:"photo_context,omitempty"`

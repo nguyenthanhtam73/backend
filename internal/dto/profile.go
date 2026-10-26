@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/mediaurl"
 )
 
 // OnboardingCompleteRequest is sent when the user finishes the onboarding wizard.
@@ -65,10 +66,10 @@ type StarterRoutineResponse struct {
 	WeekNotes   string   `json:"week_notes"`
 	SafetyNotes string   `json:"safety_notes"`
 	// Encouragement, skin read-back, rationale, and closing supportive line (Vietnamese or English per user context).
-	Encouragement   string `json:"encouragement"`
-	SkinReadback    string `json:"skin_readback"`
-	Rationale       string `json:"rationale"`
-	ClosingReminder string `json:"closing_reminder"`
+	Encouragement      string                `json:"encouragement"`
+	SkinReadback       string                `json:"skin_readback"`
+	Rationale          string                `json:"rationale"`
+	ClosingReminder    string                `json:"closing_reminder"`
 	ProductSuggestions []ProductSuggestion   `json:"product_suggestions,omitempty"`
 	ProductGuidance    []ProductGuidanceItem `json:"product_guidance,omitempty"`
 }
@@ -122,7 +123,7 @@ func SkinProfileFromDomain(p *domain.SkinProfile) SkinProfileResponse {
 	if len(p.Concerns) > 0 {
 		_ = json.Unmarshal(p.Concerns, &concerns)
 	}
-	photoURLs := BuildPublicUploadURLs(p.PhotoURLs)
+	photoURLs := ClientUploadURLs(p.PhotoURLs)
 	if len(photoURLs) == 0 {
 		photoURLs = photoURLsFromSnapshot(p.OnboardingSnapshot)
 	}
@@ -135,7 +136,7 @@ func SkinProfileFromDomain(p *domain.SkinProfile) SkinProfileResponse {
 		Notes:              p.Notes,
 		HomeCountryCode:    p.HomeCountryCode,
 		ClimateZone:        p.ClimateZone,
-		OnboardingSnapshot: append(json.RawMessage(nil), p.OnboardingSnapshot...),
+		OnboardingSnapshot: signSnapshotPhotoURLs(p.OnboardingSnapshot),
 		PhotoURLs:          photoURLs,
 		Version:            p.Version,
 		CreatedAt:          p.CreatedAt.UTC().Format(time.RFC3339),
@@ -143,7 +144,15 @@ func SkinProfileFromDomain(p *domain.SkinProfile) SkinProfileResponse {
 	}
 }
 
-// BuildPublicUploadURLs converts stored relative paths to `/uploads/...` URLs.
+// ClientUploadURLs is the API form of stored photo keys: `/uploads/<key>`
+// plus a short-lived signature when a signer is configured.
+func ClientUploadURLs(raw json.RawMessage) []string {
+	return mediaurl.SignEach(BuildPublicUploadURLs(raw))
+}
+
+// BuildPublicUploadURLs converts stored relative paths to unsigned
+// `/uploads/...` paths. Persist these (or the raw keys). Do not persist
+// ClientUploadURLs — the signature expires.
 func BuildPublicUploadURLs(raw json.RawMessage) []string {
 	rels, _ := DecodeStringSlice(raw)
 	out := make([]string, 0, len(rels))
@@ -181,11 +190,53 @@ func photoURLsFromSnapshot(snap json.RawMessage) []string {
 			continue
 		}
 		if strings.HasPrefix(rel, "/uploads/") {
-			out = append(out, rel)
+			out = append(out, mediaurl.SignClientURL(rel))
 			continue
 		}
 		clean := strings.TrimLeft(strings.ReplaceAll(rel, "\\", "/"), "/")
-		out = append(out, "/uploads/"+clean)
+		out = append(out, mediaurl.SignClientURL("/uploads/"+clean))
 	}
 	return out
+}
+
+// signSnapshotPhotoURLs rewrites onboarding_snapshot.photo_urls in the API
+// copy only. The database keeps unsigned paths so a saved snapshot does not
+// expire. With no signer configured the snapshot bytes are unchanged.
+func signSnapshotPhotoURLs(snap json.RawMessage) json.RawMessage {
+	if mediaurl.Default() == nil || len(snap) == 0 {
+		return append(json.RawMessage(nil), snap...)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(snap, &m); err != nil || m == nil {
+		return append(json.RawMessage(nil), snap...)
+	}
+	raw, ok := m["photo_urls"]
+	if !ok || raw == nil {
+		return append(json.RawMessage(nil), snap...)
+	}
+	arr, ok := raw.([]any)
+	if !ok {
+		return append(json.RawMessage(nil), snap...)
+	}
+	changed := false
+	for i, v := range arr {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		signed := mediaurl.SignClientURL(s)
+		if signed != s {
+			arr[i] = signed
+			changed = true
+		}
+	}
+	if !changed {
+		return append(json.RawMessage(nil), snap...)
+	}
+	m["photo_urls"] = arr
+	b, err := json.Marshal(m)
+	if err != nil {
+		return append(json.RawMessage(nil), snap...)
+	}
+	return b
 }
