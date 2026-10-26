@@ -43,7 +43,7 @@ func (r *recordingEnqueuer) calls() []uuid.UUID {
 	return out
 }
 
-func setupReanalyzeSvc(t *testing.T, enq *recordingEnqueuer) (*Service, *repository.GormSkinCheckRepository) {
+func setupReanalyzeSvc(t *testing.T, enq AnalysisEnqueuer) (*Service, *repository.GormSkinCheckRepository) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:reanalyze_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),

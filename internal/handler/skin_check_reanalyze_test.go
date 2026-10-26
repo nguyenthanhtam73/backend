@@ -23,9 +23,10 @@ import (
 )
 
 type handlerEnqueuer struct {
-	mu    sync.Mutex
-	ids   []uuid.UUID
-	after func(uuid.UUID)
+	mu      sync.Mutex
+	ids     []uuid.UUID
+	devices []string
+	after   func(uuid.UUID)
 }
 
 func (e *handlerEnqueuer) EnqueueAnalysis(id uuid.UUID) {
@@ -35,6 +36,13 @@ func (e *handlerEnqueuer) EnqueueAnalysis(id uuid.UUID) {
 	if e.after != nil {
 		e.after(id)
 	}
+}
+
+func (e *handlerEnqueuer) EnqueueAnalysisWithDevice(id uuid.UUID, device string) {
+	e.mu.Lock()
+	e.devices = append(e.devices, device)
+	e.mu.Unlock()
+	e.EnqueueAnalysis(id)
 }
 
 func (e *handlerEnqueuer) n() int {

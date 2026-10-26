@@ -108,7 +108,7 @@ func (s *Service) Reanalyze(ctx context.Context, userID, checkID uuid.UUID, clie
 		return zero, fmt.Errorf("%w: could not claim reanalyze", ErrDatabase)
 	}
 
-	s.analyzer.EnqueueAnalysis(check.ID)
+	enqueueAnalysis(s.analyzer, check.ID, DeviceTypeFromContext(ctx))
 
 	reloaded, err := s.checks.GetByIDForOwner(ctx, checkID, userID)
 	if err != nil || reloaded == nil {

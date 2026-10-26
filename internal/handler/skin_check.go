@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -189,7 +190,7 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 		PhotoContext: photoContext,
 	}
 
-	res, err := h.svc.Create(c.UserContext(), userID, in)
+	res, err := h.svc.Create(skinCheckDeviceContext(c), userID, in)
 	if err != nil {
 		return mapSkinCheckError(c, err)
 	}
@@ -250,12 +251,21 @@ func (h *SkinCheckHandler) Reanalyze(c *fiber.Ctx) error {
 	}
 	// Current header upgrades a web check to the polite voice. A missing or
 	// non-android header keeps the stored kind (never downgrades).
-	res, err := h.svc.Reanalyze(c.UserContext(), userID, id, authuc.ResolveClientKind(c.Get(authuc.ClientHeader), ""))
+	res, err := h.svc.Reanalyze(skinCheckDeviceContext(c), userID, id, authuc.ResolveClientKind(c.Get(authuc.ClientHeader), ""))
 	if err != nil {
 		return mapSkinCheckError(c, err)
 	}
 	stripSkinCheckAds(c.UserContext(), h.premium, userID, &res, uiLocaleFromClimateJSON(res.Check.ClimateContext))
 	return response.JSON(c, fiber.StatusOK, res)
+}
+
+// skinCheckDeviceContext classifies this request once. The background analysis
+// job reads the coarse value; the raw User-Agent is not stored or logged.
+func skinCheckDeviceContext(c *fiber.Ctx) context.Context {
+	return skincheckuc.WithDeviceType(c.UserContext(), skincheckuc.ClassifyDevice(
+		c.Get(authuc.ClientHeader),
+		c.Get("User-Agent"),
+	))
 }
 
 func firstValue(v []string) string {

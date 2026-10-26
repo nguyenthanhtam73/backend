@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/dadiary/backend/internal/config"
@@ -167,4 +168,83 @@ func (fx *reanalyzeFixture) doHeader(t *testing.T, method, path, client string) 
 		t.Fatalf("decode %s: %v", raw, err)
 	}
 	return res.StatusCode, env, raw
+}
+
+func TestCreateHTTP_UserAgentBecomesDeviceType(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:device_http_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&domain.SkinCheck{}, &domain.SkinAnalysis{}); err != nil {
+		t.Fatal(err)
+	}
+	repo := repository.NewSkinCheckRepository(db)
+	enq := &handlerEnqueuer{}
+	svc := skincheckuc.NewService(&config.Config{}, repo, nil, enq, nil, nil, nil)
+	h := NewSkinCheckHandler(svc, repo, &config.Config{}, nil)
+
+	app := fiber.New()
+	app.Use(func(c *fiber.Ctx) error {
+		c.Locals(middleware.LocalsUserID, uuid.New())
+		return c.Next()
+	})
+	app.Post("/api/v1/skin-checks", h.Create)
+
+	const secretUA = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 user@secret.example https://cdn.example/uploads/checks/a.jpg"
+	cases := []struct {
+		header string
+		ua     string
+		want   string
+	}{
+		{"android", secretUA, skincheckuc.DeviceAndroidApp},
+		{"", "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126.0.0.0 Mobile Safari/537.36", skincheckuc.DeviceWebAndroid},
+		{"", "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1", skincheckuc.DeviceWebIOS},
+		{"", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36", skincheckuc.DeviceWebDesktop},
+		{"", "curl/8.5.0", skincheckuc.DeviceUnknown},
+	}
+	for _, tc := range cases {
+		var body bytes.Buffer
+		w := multipart.NewWriter(&body)
+		if err := w.WriteField("skip_mode", "true"); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.WriteField("user_note", "má hơi đỏ"); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.Close(); err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/skin-checks", &body)
+		req.Header.Set("Content-Type", w.FormDataContentType())
+		if tc.header != "" {
+			req.Header.Set(authuc.ClientHeader, tc.header)
+		}
+		if tc.ua != "" {
+			req.Header.Set("User-Agent", tc.ua)
+		}
+		res, err := app.Test(req, -1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != http.StatusCreated {
+			t.Fatalf("ua status=%d body=%s", res.StatusCode, raw)
+		}
+		if strings.Contains(string(raw), "Mozilla") || strings.Contains(string(raw), "user@secret.example") || strings.Contains(string(raw), "https://") || strings.Contains(string(raw), "device_type") {
+			t.Fatalf("response leaked client identity: %s", raw)
+		}
+	}
+	enq.mu.Lock()
+	defer enq.mu.Unlock()
+	if len(enq.devices) != len(cases) {
+		t.Fatalf("devices %#v", enq.devices)
+	}
+	for i, tc := range cases {
+		if enq.devices[i] != tc.want {
+			t.Fatalf("case %d device=%q want %q", i, enq.devices[i], tc.want)
+		}
+	}
 }
