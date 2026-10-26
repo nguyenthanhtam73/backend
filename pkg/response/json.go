@@ -3,6 +3,7 @@ package response
 
 import (
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/pkg/usermsg"
 	"github.com/gofiber/fiber/v2"
 )
 
@@ -42,7 +43,7 @@ func Error(c *fiber.Ctx, status int, code, message string) error {
 		"success": false,
 		"error": fiber.Map{
 			"code":    code,
-			"message": message,
+			"message": usermsg.Plain(message),
 		},
 	})
 }
@@ -52,7 +53,7 @@ func Error(c *fiber.Ctx, status int, code, message string) error {
 func ErrorWithReason(c *fiber.Ctx, status int, code, message, reason, feature string) error {
 	errBody := fiber.Map{
 		"code":    code,
-		"message": message,
+		"message": usermsg.Plain(message),
 	}
 	if reason != "" {
 		errBody["reason"] = reason

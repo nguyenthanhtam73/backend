@@ -34,8 +34,29 @@ var (
 
 // AnalysisEnqueuer starts the shared skin-check AI pipeline in the background.
 // *analysis.Service implements this; tests may stub it to avoid LLM calls.
+//
+// The concrete service also implements EnqueueAnalysisWithDevice so the job can
+// log a coarse device class. Stubs that only implement EnqueueAnalysis still
+// work; the device is then taken from the stored client kind.
 type AnalysisEnqueuer interface {
 	EnqueueAnalysis(skinCheckID uuid.UUID)
+}
+
+// enqueueAnalysis starts one background job. deviceType is a ClassifyDevice
+// result (web-android, web-ios, web-desktop, android-app, or unknown). It is
+// not stored and is not part of the API response.
+func enqueueAnalysis(a AnalysisEnqueuer, id uuid.UUID, deviceType string) {
+	if a == nil || id == uuid.Nil {
+		return
+	}
+	type withDevice interface {
+		EnqueueAnalysisWithDevice(id uuid.UUID, deviceType string)
+	}
+	if e, ok := a.(withDevice); ok {
+		e.EnqueueAnalysisWithDevice(id, deviceType)
+		return
+	}
+	a.EnqueueAnalysis(id)
 }
 
 // UploadImage is one decoded, validated photo handed from the HTTP layer. Bytes
@@ -59,6 +80,12 @@ type CreateInput struct {
 	Images          []UploadImage
 	// SkipMode allows tag/notes-only check-ins with zero images (privacy path).
 	SkipMode bool
+	// ClientKind is web or android, from X-DaDiary-Client. Empty is stored as web.
+	// The background analysis job reads the stored value; it does not see the request.
+	ClientKind string
+	// PhotoContext is the validated {"images","skin_context"} document. Nil when
+	// the client sent neither. Reanalyze reads it back from the row.
+	PhotoContext json.RawMessage
 }
 
 // Service orchestrates skin checks and AI analysis jobs.
@@ -138,6 +165,9 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 
 	if s.mod != nil {
 		text := strings.TrimSpace(in.Title + "\n" + in.UserNote + "\n" + in.EnvironmentNote)
+		if extra := dto.PhotoContextExtra(in.PhotoContext); extra != "" {
+			text += "\n" + extra
+		}
 		if len(in.Conditions) > 0 {
 			text += "\n" + strings.Join(in.Conditions, " ")
 		}
@@ -211,6 +241,8 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 		EnvironmentNote: strings.TrimSpace(in.EnvironmentNote),
 		Visibility:      vis,
 		CheckDate:       checkD,
+		ClientKind:      domain.NormalizeRefreshClient(in.ClientKind),
+		PhotoContext:    in.PhotoContext,
 	}
 
 	analysisRow := &domain.SkinAnalysis{
@@ -262,7 +294,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 	}
 
 	if s.analyzer != nil {
-		s.analyzer.EnqueueAnalysis(check.ID)
+		enqueueAnalysis(s.analyzer, check.ID, DeviceTypeFromContext(ctx))
 	} else {
 		slog.Warn("skin-check: analysis service not configured", "check_id", check.ID)
 	}

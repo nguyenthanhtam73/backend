@@ -246,10 +246,20 @@ type checkInVisionPayload struct {
 		AngleClarity string `json:"angle_clarity"`
 		Limitations  string `json:"limitations"`
 	} `json:"photo_assessment"`
-	VisibleObservations []string `json:"visible_observations"`
-	TextureAndOilCues   string   `json:"texture_and_oil_cues"`
-	RednessCues         string   `json:"redness_or_discoloration_cues"`
-	UncertaintyNote     string   `json:"uncertainty_note"`
+	VisibleObservations []string                 `json:"visible_observations"`
+	ZoneObservations    []checkInZoneObservation `json:"zone_observations,omitempty"`
+	TextureAndOilCues   string                   `json:"texture_and_oil_cues"`
+	RednessCues         string                   `json:"redness_or_discoloration_cues"`
+	UncertaintyNote     string                   `json:"uncertainty_note"`
+}
+
+// checkInZoneObservation is one zone the vision pass actually saw, with how
+// visible the sign is. Missing from this struct means SanitizeCheckInVisionJSON
+// would drop the key before the coach sees it.
+type checkInZoneObservation struct {
+	Zone     string `json:"zone"`
+	Cue      string `json:"cue"`
+	Severity string `json:"severity"`
 }
 
 // SanitizeCheckInVisionJSON fixes morphology mislabels in the check-in vision JSON
@@ -275,6 +285,12 @@ func SanitizeCheckInVisionJSON(raw, locale string) (string, bool) {
 			changed = true
 		}
 	}
+	for i, z := range payload.ZoneObservations {
+		if ProseMentionsSkinTagOnFace(z.Cue) {
+			payload.ZoneObservations[i].Cue = RewriteSkinTagOnFace(z.Cue, locale)
+			changed = true
+		}
+	}
 	if ProseMentionsSkinTagOnFace(payload.TextureAndOilCues) {
 		payload.TextureAndOilCues = RewriteSkinTagOnFace(payload.TextureAndOilCues, locale)
 		changed = true
@@ -285,6 +301,15 @@ func SanitizeCheckInVisionJSON(raw, locale string) (string, bool) {
 		if ProseDeniesRedness(b) && proseHasPositiveCue(b, "nốt đỏ sưng", "not do sung", "red swollen") {
 			payload.VisibleObservations[i] = replaceCaseInsensitive(
 				replaceCaseInsensitive(b, "nốt đỏ sưng", "nốt nhỏ nổi cao"),
+				"red swollen bumps", "small raised bumps",
+			)
+			changed = true
+		}
+	}
+	for i, z := range payload.ZoneObservations {
+		if ProseDeniesRedness(z.Cue) && proseHasPositiveCue(z.Cue, "nốt đỏ sưng", "not do sung", "red swollen") {
+			payload.ZoneObservations[i].Cue = replaceCaseInsensitive(
+				replaceCaseInsensitive(z.Cue, "nốt đỏ sưng", "nốt nhỏ nổi cao"),
 				"red swollen bumps", "small raised bumps",
 			)
 			changed = true

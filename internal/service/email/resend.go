@@ -77,6 +77,9 @@ type resendRequest struct {
 }
 
 // Send delivers one message. No-ops with ErrNotConfigured when ESP is missing.
+// It does not read users.reminder_enabled. Reminder jobs call
+// reminder.ExcludeMuted on their candidate queries. Password reset, verify,
+// and account mail stay on this path.
 func (c *ResendClient) Send(ctx context.Context, msg Message) (string, error) {
 	if !c.Configured() {
 		slog.Info("email: skipped — ESP not configured (set RESEND_API_KEY and EMAIL_FROM)")

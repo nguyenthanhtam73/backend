@@ -9,6 +9,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	// Embed IANA time zones. The server image has no zoneinfo, and
+	// PUT /me/reminder checks timezones with time.LoadLocation.
+	_ "time/tzdata"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
@@ -17,6 +20,7 @@ import (
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/scheduler"
+	"github.com/dadiary/backend/internal/service/ai"
 	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/token"
@@ -24,6 +28,7 @@ import (
 	paymentuc "github.com/dadiary/backend/internal/usecase/payment"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	pushuc "github.com/dadiary/backend/internal/usecase/push"
+	scheduledreminderuc "github.com/dadiary/backend/internal/usecase/scheduledreminder"
 	subscriptionuc "github.com/dadiary/backend/internal/usecase/subscription"
 	"github.com/dadiary/backend/pkg/alert"
 	"github.com/gofiber/fiber/v2"
@@ -36,6 +41,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		os.Exit(1)
 	}
+	ai.LogTextCoachProviderOrder(cfg)
 
 	tok, err := token.NewService(cfg.JWT)
 	if err != nil {
@@ -49,6 +55,16 @@ func main() {
 	} else {
 		if migErr := repository.AutoMigrate(db); migErr != nil {
 			fmt.Fprintf(os.Stderr, "migrate: %v\n", migErr)
+		}
+		// Migration 024 drops NOT NULL. AutoMigrate cannot. Run it here, before
+		// Listen. Already-nullable columns are skipped. An ALTER that cannot
+		// take its lock within 3s is logged and does not stop the process;
+		// DELETE /me then returns 503 until a later boot applies it.
+		if schemaErr := repository.ApplyAccountDeletionSchema(db); schemaErr != nil {
+			slog.Error("account deletion schema: migration 024 failed", "error", schemaErr)
+			fmt.Fprintf(os.Stderr, "migration 024: %v\n", schemaErr)
+		} else {
+			slog.Info("account deletion schema: migration 024 applied")
 		}
 	}
 
@@ -87,6 +103,7 @@ func main() {
 
 	// Background jobs — cancelled with the same ctx that stops HTTP on SIGINT/SIGTERM.
 	startDailyReminderJob(ctx, cfg, db)
+	startScheduledCaptureJob(ctx, cfg, db)
 	startMonthlyUsageResetJob(ctx, db)
 	startPlanExpiryJob(ctx, cfg, db)
 	startCheckInReminderJob(ctx, cfg, db)
@@ -127,6 +144,34 @@ func startDailyReminderJob(ctx context.Context, cfg *config.Config, db *gorm.DB)
 	pushSvc := pushuc.NewService(pushRepo, pushSender, skinCheckRepo, streakRepo, pushReceipts)
 	jobLocks := repository.NewPushJobLockRepository(db)
 	scheduler.NewDailyReminderJob(pushSvc, cfg, jobLocks).Start(ctx)
+}
+
+// startScheduledCaptureJob sends the one daily capture reminder at each
+// user's saved local time. NULL schedules stay on the fixed clocks above.
+func startScheduledCaptureJob(ctx context.Context, cfg *config.Config, db *gorm.DB) {
+	if db == nil {
+		slog.Warn("scheduled_capture_job: skipped — database not available")
+		return
+	}
+	users := repository.NewUserRepository(db)
+	checks := repository.NewSkinCheckRepository(db)
+	claims := repository.NewCaptureReminderClaimRepository(db)
+	streaks := repository.NewStreakRepository(db)
+	var pushSvc *pushuc.Service
+	if cfg != nil && cfg.HasVAPIDKeys() {
+		pushRepo := repository.NewPushSubscriptionRepository(db)
+		pushSender := pushsvc.NewPushSender(cfg, pushRepo)
+		pushReceipts := repository.NewPushSendReceiptRepository(db)
+		pushSvc = pushuc.NewService(pushRepo, pushSender, checks, streaks, pushReceipts)
+	} else {
+		slog.Info("scheduled_capture_job: push skipped — VAPID keys not configured")
+	}
+	flags := repository.NewCheckInReminderRepository(db)
+	emailSvc := checkinreminderuc.NewService(users, checks, flags, cfg != nil && cfg.HasVAPIDKeys())
+	checkinreminderuc.AttachFromConfig(emailSvc, cfg, db, pushSvc)
+	scheduler.NewScheduledCaptureJob(
+		scheduledreminderuc.NewService(users, checks, claims, pushSvc, streaks, emailSvc),
+	).Start(ctx)
 }
 
 // startMonthlyUsageResetJob cleans completed user_usages rows on the 1st UTC.

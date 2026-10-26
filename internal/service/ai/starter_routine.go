@@ -16,16 +16,16 @@ import (
 
 // StarterRoutine is the AM/PM scaffold and supportive coach copy returned to clients (API keys stable).
 type StarterRoutine struct {
-	Morning            []string                   `json:"morning"`
-	Evening            []string                   `json:"evening"`
-	WeekNotes          string                     `json:"week_notes"`
-	SafetyNotes        string                     `json:"safety_notes"`
-	Encouragement      string                     `json:"encouragement"`
-	SkinReadback       string                     `json:"skin_readback"`
-	Rationale          string                     `json:"rationale"`
-	ClosingReminder    string                     `json:"closing_reminder"`
-	ProductSuggestions []dto.ProductSuggestion    `json:"product_suggestions"`
-	ProductGuidance    []dto.ProductGuidanceItem  `json:"product_guidance,omitempty"`
+	Morning            []string                  `json:"morning"`
+	Evening            []string                  `json:"evening"`
+	WeekNotes          string                    `json:"week_notes"`
+	SafetyNotes        string                    `json:"safety_notes"`
+	Encouragement      string                    `json:"encouragement"`
+	SkinReadback       string                    `json:"skin_readback"`
+	Rationale          string                    `json:"rationale"`
+	ClosingReminder    string                    `json:"closing_reminder"`
+	ProductSuggestions []dto.ProductSuggestion   `json:"product_suggestions"`
+	ProductGuidance    []dto.ProductGuidanceItem `json:"product_guidance,omitempty"`
 }
 
 // starterUserMessage shapes the user turn for Claude / OpenAI JSON.
@@ -104,7 +104,7 @@ func normalizeStarterRoutine(s *StarterRoutine) {
 	s.WeekNotes = ""
 }
 
-// GenerateStarterRoutine uses Anthropic when configured; otherwise OpenAI JSON chat (Model field).
+// GenerateStarterRoutine asks the text coach (TextCoachProviderOrder) for JSON.
 // locale should be "vi" or "en" (UI locale); controls language of all string fields in the JSON result.
 //
 // userMemory is optional. Pass BuildUserMemoryContext output when the caller
@@ -126,7 +126,6 @@ func GenerateStarterRoutine(ctx context.Context, cfg *config.Config, onboardingJ
 		)
 	}
 
-	// Hybrid: Claude Sonnet primary; GPT-4o text fallback on missing key or Claude error.
 	result, err := TextCoachCompletion(ctx, cfg, client, "starter-routine", StarterRoutineSystemPrompt(), userMsg)
 	if err != nil {
 		return zero, err

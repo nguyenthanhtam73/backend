@@ -82,6 +82,7 @@ func (h *AuthHandler) RegisterRoutes(public fiber.Router, jwt fiber.Handler) {
 	if jwt != nil {
 		public.Get("/me", jwt, h.Me)
 		public.Post("/auth/logout", jwt, h.Logout)
+		public.Post("/auth/logout-all", jwt, h.LogoutAll)
 	}
 	g := public.Group("/auth")
 	g.Post("/register", h.Register)
@@ -98,6 +99,7 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "request body must be valid JSON")
 	}
+	body.Client = authuc.ResolveClientKind(c.Get(authuc.ClientHeader), body.Client)
 	if h.turnstileSecret != "" {
 		if err := turnstile.Verify(c.UserContext(), h.turnstileSecret, body.TurnstileToken, c.IP()); err != nil {
 			switch {
@@ -130,6 +132,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "request body must be valid JSON")
 	}
+	body.Client = authuc.ResolveClientKind(c.Get(authuc.ClientHeader), body.Client)
 	res, err := h.auth.Login(c.UserContext(), body)
 	if err != nil {
 		return mapAuthError(c, err)
@@ -150,7 +153,7 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "request body must be valid JSON")
 	}
-	res, err := h.auth.Refresh(c.UserContext(), body.RefreshToken)
+	res, err := h.auth.Refresh(c.UserContext(), body.RefreshToken, authuc.ResolveClientKind(c.Get(authuc.ClientHeader), body.Client))
 	if err != nil {
 		return mapAuthError(c, err)
 	}
@@ -161,7 +164,9 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 	}, "refreshed")
 }
 
-// Logout handles POST /auth/logout (JWT required). Revokes refresh sessions server-side.
+// Logout handles POST /auth/logout (JWT required).
+// A refresh_token in the body revokes only that session when it belongs to the
+// caller. Without one, every refresh session for the user is revoked.
 func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 	if h == nil || h.auth == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "authentication is not available")
@@ -173,6 +178,24 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 	var body dto.LogoutRequest
 	_ = c.BodyParser(&body) // body optional
 	if err := h.auth.Logout(c.UserContext(), uid, body.RefreshToken); err != nil {
+		return mapAuthError(c, err)
+	}
+	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
+		"logged_out": true,
+	}, "logged_out")
+}
+
+// LogoutAll handles POST /auth/logout-all (JWT required).
+// Revokes every refresh session for the caller.
+func (h *AuthHandler) LogoutAll(c *fiber.Ctx) error {
+	if h == nil || h.auth == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "authentication is not available")
+	}
+	uid := middleware.UserIDFromLocals(c)
+	if uid == uuid.Nil {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "user context missing")
+	}
+	if err := h.auth.LogoutAll(c.UserContext(), uid); err != nil {
 		return mapAuthError(c, err)
 	}
 	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{

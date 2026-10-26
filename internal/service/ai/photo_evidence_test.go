@@ -62,11 +62,11 @@ func TestApplyPhotoEvidenceToScores(t *testing.T) {
 
 func TestBuildSkinCheckCoachUserMessage_PhotoEvidence(t *testing.T) {
 	t.Parallel()
-	skip := buildSkinCheckCoachUserMessage(nil, nil, "", "", "skipped_no_photo", "TODAY tags only")
+	skip := buildSkinCheckCoachUserMessage(nil, nil, "", "", "skipped_no_photo", "TODAY tags only", CheckInCoachFacts{})
 	mustContain(t, skip, "PHOTO_EVIDENCE: skip")
 
 	blur := `{"photo_assessment":{"limitations":"ảnh hơi mờ, thiếu sáng"},"visible_observations":["má: nốt"]}`
-	lim := buildSkinCheckCoachUserMessage(nil, nil, "", blur, "ok", "TODAY")
+	lim := buildSkinCheckCoachUserMessage(nil, nil, "", blur, "ok", "TODAY", CheckInCoachFacts{})
 	mustContain(t, lim, "PHOTO_EVIDENCE: limited")
 	mustContain(t, lim, "VISION_SUMMARY_JSON")
 }

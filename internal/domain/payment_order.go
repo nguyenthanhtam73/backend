@@ -36,8 +36,10 @@ const (
 // PaymentOrder is a local record created before redirecting to SePay checkout.
 // InvoiceNumber is the merchant-side id sent as order_invoice_number (must be unique).
 type PaymentOrder struct {
-	ID     uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
+	ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	// Nullable so account deletion can detach the order from the person
+	// while keeping amount, dates, and provider ids for accounting.
+	UserID uuid.UUID `gorm:"type:uuid;index" json:"user_id"`
 
 	// InvoiceNumber → SePay order_invoice_number (unique, never reused).
 	InvoiceNumber string `gorm:"size:64;not null;uniqueIndex" json:"invoice_number"`

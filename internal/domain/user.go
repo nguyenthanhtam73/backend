@@ -87,6 +87,23 @@ type User struct {
 	// PushOptInReshowUsedAt is set the one time that card is allowed again.
 	PushOptInSkippedAt    *time.Time `json:"-"`
 	PushOptInReshowUsedAt *time.Time `json:"-"`
+	// ReminderEnabled is the capture/check-in reminder switch.
+	// nil means never set: the fixed-clock jobs behave as today, and
+	// scheduled_capture does not select the user.
+	// false stops every outbound reminder in reminder.All.
+	// true with ReminderTime set is a saved schedule: scheduled_capture sends
+	// the one capture moment, and the fixed-clock jobs skip the user.
+	// true without ReminderTime stays on the fixed clocks.
+	// Transactional mail does not read this column.
+	ReminderEnabled *bool `gorm:"column:reminder_enabled" json:"-"`
+	// ReminderTime is a local HH:MM wall clock. With ReminderEnabled true it
+	// is the user's capture time. A 5-minute tick sends at or after that
+	// minute, at most 2 hours late, and never after local midnight. One row
+	// in capture_reminder_claims locks the local civil date.
+	ReminderTime *string `gorm:"column:reminder_time;size:5" json:"-"`
+	// ReminderTimezone is an IANA name such as Asia/Ho_Chi_Minh.
+	// Empty or invalid uses Asia/Ho_Chi_Minh.
+	ReminderTimezone *string `gorm:"column:reminder_timezone;size:64" json:"-"`
 
 	// First-touch attribution captured at register. Nil means the client did
 	// not send a value, or the value was dropped (it contained '@', or a

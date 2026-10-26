@@ -11,6 +11,7 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/reminder"
 	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -216,6 +217,38 @@ func (r *GormSkinCheckRepository) HasCheckedInToday(
 	return count > 0, nil
 }
 
+// HasCheckedInBetween reports whether the user has a skin check whose
+// created_at falls in [start, end). Callers pass the user's local civil day
+// so a reminder can skip someone who already checked in on that local date,
+// including when that date is not the Vietnam civil day stored in check_date.
+func (r *GormSkinCheckRepository) HasCheckedInBetween(
+	ctx context.Context,
+	userID uuid.UUID,
+	start, end time.Time,
+) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if userID == uuid.Nil {
+		return false, fmt.Errorf("user id required")
+	}
+	if !end.After(start) {
+		return false, nil
+	}
+	conn := DBFromContext(ctx, db)
+	var count int64
+	err = conn.
+		Model(&domain.SkinCheck{}).
+		Where("user_id = ? AND created_at >= ? AND created_at < ?", userID, start, end).
+		Limit(1).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 const adminActivityListCap = 200
 
 // ListByCheckDate returns every check-in on a Vietnam civil day (UTC-midnight
@@ -324,11 +357,16 @@ type FirstCheckCohort struct {
 }
 
 // ListUsersByFirstCheckDates returns users whose MIN(check_date) is one of
-// dates (Vietnam civil days, UTC midnight). Used by the 19:30 D1/D3 email.
+// dates (Vietnam civil days, UTC midnight). The 19:30 D1/Day-3 email passes
+// reminder.JobEveningEmail. reminder.ExcludeMuted drops reminder_enabled =
+// false. reminder.ExcludeScheduled drops a saved schedule; that email is
+// sent inside the user's one scheduled moment instead. NULL and
+// true-without-time stay in the cohort. The hourly D0 email uses ListDue.
 func (r *GormSkinCheckRepository) ListUsersByFirstCheckDates(
 	ctx context.Context,
 	dates []time.Time,
 	limit int,
+	job reminder.JobID,
 ) ([]FirstCheckCohort, error) {
 	db, err := r.dbOrErr()
 	if err != nil {
@@ -344,10 +382,12 @@ func (r *GormSkinCheckRepository) ListUsersByFirstCheckDates(
 	for _, d := range dates {
 		norm = append(norm, streaktime.DateOf(d))
 	}
-	sqlRows, err := db.WithContext(ctx).
+	sqlRows, err := reminder.ExcludeScheduled(reminder.ExcludeMuted(ctx, db.WithContext(ctx).
 		Model(&domain.SkinCheck{}).
-		Select("CAST(user_id AS TEXT) AS user_id, MIN(check_date) AS first_check").
-		Group("user_id").
+		Select("CAST(user_id AS TEXT) AS user_id, MIN(check_date) AS first_check"),
+		"user_id",
+		job,
+	), "user_id").Group("user_id").
 		Having("MIN(check_date) IN ?", norm).
 		Limit(limit).
 		Rows()
@@ -632,6 +672,21 @@ func (r *GormSkinCheckRepository) ListFunnelCheckDates(ctx context.Context) ([]F
 		Distinct("user_id", "check_date").
 		Find(&rows).Error
 	return rows, err
+}
+
+// SetClientKind stores the coach-voice client for one skin check.
+// kind is normalized to "android" or "web" by the caller.
+func (r *GormSkinCheckRepository) SetClientKind(ctx context.Context, id uuid.UUID, kind string) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if id == uuid.Nil {
+		return fmt.Errorf("skin check id required")
+	}
+	return db.WithContext(ctx).Model(&domain.SkinCheck{}).
+		Where("id = ?", id).
+		Update("client_kind", kind).Error
 }
 
 // SaveAnalysis updates an existing analysis row.

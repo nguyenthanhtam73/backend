@@ -2,6 +2,28 @@ package push
 
 import "testing"
 
+func TestReminderTypesSameVNDay_IncludesStreakAtRisk(t *testing.T) {
+	want := map[string]bool{
+		string(NotificationTypeDailyReminder): true,
+		string(NotificationTypeD0Reminder):    true,
+		string(NotificationTypeD1Reminder):    true,
+		string(NotificationTypeStreakAtRisk):  true,
+	}
+	if len(ReminderTypesSameVNDay) != len(want) {
+		t.Fatalf("same-day types: %v", ReminderTypesSameVNDay)
+	}
+	seen := map[string]bool{}
+	for _, typ := range ReminderTypesSameVNDay {
+		if !want[typ] {
+			t.Fatalf("unexpected same-day type %q", typ)
+		}
+		if seen[typ] {
+			t.Fatalf("duplicate same-day type %q", typ)
+		}
+		seen[typ] = true
+	}
+}
+
 func TestTTLForType(t *testing.T) {
 	if TTLForType(NotificationTypeDailyReminder) != TTLDailyReminder {
 		t.Fatalf("daily TTL: got %d", TTLForType(NotificationTypeDailyReminder))

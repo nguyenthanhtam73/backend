@@ -54,7 +54,7 @@ func newR2(cfg config.R2Config) (*r2Storage, error) {
 }
 
 func (r *r2Storage) Save(ctx context.Context, key string, data []byte, contentType string) error {
-	k, err := safeClean(key)
+	k, err := normalizeKey(key)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (r *r2Storage) Save(ctx context.Context, key string, data []byte, contentTy
 }
 
 func (r *r2Storage) Read(ctx context.Context, key string) ([]byte, error) {
-	k, err := safeClean(key)
+	k, err := normalizeKey(key)
 	if err != nil {
 		return nil, err
 	}
@@ -89,9 +89,12 @@ func (r *r2Storage) Read(ctx context.Context, key string) ([]byte, error) {
 }
 
 func (r *r2Storage) DeletePrefix(ctx context.Context, prefix string) error {
-	p, err := safeClean(prefix)
+	p, err := userScopedPrefix(prefix)
 	if err != nil {
 		return err
+	}
+	if r.client == nil {
+		return fmt.Errorf("storage(r2): client unavailable")
 	}
 	paginator := s3.NewListObjectsV2Paginator(r.client, &s3.ListObjectsV2Input{
 		Bucket: aws.String(r.bucket),

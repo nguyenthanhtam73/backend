@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/dadiary/backend/internal/reminder"
 	pushsvc "github.com/dadiary/backend/internal/service/push"
 	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
@@ -120,13 +121,18 @@ func (s *Service) SendDailyReminderToUser(ctx context.Context, userID uuid.UUID)
 // push subscription who has not checked in today and is not streak-at-risk
 // (including days_since == 2 savable cases from ListUsersAtRisk). At-risk users
 // are skipped so streak_at_risk is their only evening nudge.
+//
+// ListActiveUserIDs calls reminder.ExcludeMuted for this job, so
+// reminder_enabled = false is left out. It also calls ExcludeScheduled, so a
+// saved schedule is left out — scheduled_capture sends that user's one moment
+// at their local time. NULL and true-without-time stay on this 20:00 clock.
 func (s *Service) SendDailyRemindersToAll(ctx context.Context) (DailyReminderBatchResult, error) {
 	var result DailyReminderBatchResult
 	if s == nil || s.sender == nil || s.repo == nil {
 		return result, ErrSenderUnavailable
 	}
 
-	userIDs, err := s.repo.ListActiveUserIDs(ctx)
+	userIDs, err := s.repo.ListActiveUserIDs(ctx, reminder.JobDailyPush)
 	if err != nil {
 		slog.Error("daily_reminder: list active users failed", "err", err)
 		return result, err

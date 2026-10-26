@@ -24,6 +24,13 @@ type UserMemoryResponse struct {
 	// MemoryText is the markdown-style block exactly as injected into
 	// AI prompts. Newline-separated; safe to render in a <pre>.
 	MemoryText string `json:"memory_text"`
+	// Summary is a user-readable Vietnamese list for the
+	// "DaDiary nhớ gì về bạn" screen. Newest check-in first.
+	// Each item looks like "Ngày 22/10 · 1 ảnh".
+	// Older years include the year: "Ngày 22/10/2025 · 1 ảnh".
+	// An empty list means there is no check-in yet.
+	// Existing fields are unchanged so older Android builds keep working.
+	Summary []string `json:"summary"`
 	// Stats is a small diagnostic snapshot — character count, cache size,
 	// total checks on file. Helps tune token budgets without scraping
 	// every response.

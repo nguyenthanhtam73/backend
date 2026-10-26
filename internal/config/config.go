@@ -169,6 +169,14 @@ type AIConfig struct {
 	// Retry controls exponential-backoff retries for transient AI failures
 	// (network errors, HTTP 429 rate limits, HTTP 5xx). See pkg/retry.
 	Retry retry.Config `mapstructure:"retry"`
+	// PrimaryProvider is the raw AI_PRIMARY_PROVIDER value.
+	// "openai" (also the default when unset or unrecognised) tries GPT-4o first
+	// and falls back to Claude. "anthropic" tries Claude first and falls back
+	// to GPT-4o. The name is exactly AI_PRIMARY_PROVIDER — it is not prefixed
+	// with DADIARY_, and DADIARY_AI_PRIMARY_PROVIDER is ignored.
+	// Order is resolved in ai.TextCoachProviderOrder; call sites do not rank
+	// providers themselves.
+	PrimaryProvider string `mapstructure:"primary_provider"`
 }
 
 // TurnstileConfig is Cloudflare Turnstile — used to reduce spam on POST /auth/register.
@@ -205,18 +213,20 @@ type R2Config struct {
 	Endpoint string `mapstructure:"endpoint"`
 }
 
-// OpenAIConfig holds API access for moderation, **vision** (skin photos), and optional legacy/fallback text calls.
+// OpenAIConfig holds API access for moderation, **vision** (skin photos), and text coaching.
 type OpenAIConfig struct {
 	APIKey string `mapstructure:"api_key"`
-	// Model is used for: (1) legacy single-pass multimodal when Anthropic is OFF, (2) optional text calls (e.g. starter fallback).
+	// Model is the GPT text-coach model (default gpt-4o). Whether it is tried
+	// first or as fallback is AI_PRIMARY_PROVIDER, not this field.
 	Model string `mapstructure:"model"`
 	// VisionModel is the chat/vision model for the observation-only photo pass (e.g. gpt-4o, gpt-4o-mini).
 	// When empty, Model is used, then default gpt-4o.
 	VisionModel string `mapstructure:"vision_model"`
 }
 
-// AnthropicConfig is the **primary** text coach (daily feedback, routine suggest, starter routine).
-// Vision stays on OpenAI. On Claude error/timeout, TextCoachCompletion falls back to OpenAI text model.
+// AnthropicConfig is the Claude text coach (daily feedback, routine suggest, starter routine, skin check-in, onboarding).
+// Vision stays on OpenAI. Whether Claude is tried first or as fallback is AI_PRIMARY_PROVIDER
+// (default: GPT-4o first). Timeouts and API key env vars are unchanged.
 type AnthropicConfig struct {
 	APIKey string `mapstructure:"api_key"`
 	// Model — recommended Sonnet IDs (override via DADIARY_ANTHROPIC_MODEL):
@@ -253,11 +263,16 @@ type DatabaseConfig struct {
 	URL string `mapstructure:"url"`
 }
 
+// DefaultAppRefreshTTL is the Android refresh-token lifetime (90 days).
+// Web sessions keep jwt.refresh_ttl. Override with DADIARY_JWT_APP_REFRESH_TTL.
+const DefaultAppRefreshTTL = 2160 * time.Hour
+
 // JWTConfig holds signing and TTL settings for access/refresh tokens.
 type JWTConfig struct {
-	Secret     string        `mapstructure:"secret"`
-	AccessTTL  time.Duration `mapstructure:"access_ttl"`
-	RefreshTTL time.Duration `mapstructure:"refresh_ttl"`
+	Secret        string        `mapstructure:"secret"`
+	AccessTTL     time.Duration `mapstructure:"access_ttl"`
+	RefreshTTL    time.Duration `mapstructure:"refresh_ttl"`
+	AppRefreshTTL time.Duration `mapstructure:"app_refresh_ttl"`
 }
 
 // MediaConfig signs short-lived URLs for user photos under /uploads.
@@ -295,6 +310,9 @@ func Load(relativeEnvPath string) (*Config, error) {
 	_ = v.BindEnv("env", "DADIARY_ENV")
 	_ = v.BindEnv("database.url", "DADIARY_DATABASE_URL")
 	_ = v.BindEnv("jwt.secret", "DADIARY_JWT_SECRET")
+	_ = v.BindEnv("jwt.access_ttl", "DADIARY_JWT_ACCESS_TTL")
+	_ = v.BindEnv("jwt.refresh_ttl", "DADIARY_JWT_REFRESH_TTL")
+	_ = v.BindEnv("jwt.app_refresh_ttl", "DADIARY_JWT_APP_REFRESH_TTL")
 	_ = v.BindEnv("media.signing_key", "DADIARY_MEDIA_SIGNING_KEY")
 	_ = v.BindEnv("media.url_ttl", "DADIARY_MEDIA_URL_TTL")
 	_ = v.BindEnv("http.port", "DADIARY_HTTP_PORT")
@@ -389,6 +407,9 @@ func Load(relativeEnvPath string) (*Config, error) {
 	if cfg.JWT.RefreshTTL == 0 {
 		cfg.JWT.RefreshTTL = 7 * 24 * time.Hour
 	}
+	if cfg.JWT.AppRefreshTTL == 0 {
+		cfg.JWT.AppRefreshTTL = DefaultAppRefreshTTL
+	}
 	cfg.Env = strings.TrimSpace(cfg.Env)
 	if raw := strings.TrimSpace(os.Getenv("DADIARY_ENV")); raw != "" {
 		cfg.Env = raw
@@ -433,6 +454,21 @@ func Load(relativeEnvPath string) (*Config, error) {
 	}
 	if cfg.AI.Retry.BackoffMultiplier <= 1 {
 		cfg.AI.Retry.BackoffMultiplier = 2
+	}
+	// Text-coach order. Only AI_PRIMARY_PROVIDER counts. Viper AutomaticEnv
+	// would also map ai.primary_provider to DADIARY_AI_PRIMARY_PROVIDER and
+	// prefer that name; overwrite so the unprefixed var is the single switch.
+	// Unset stays empty — ai.TextCoachProviderOrder treats that as openai.
+	if raw, ok := os.LookupEnv("AI_PRIMARY_PROVIDER"); ok {
+		cfg.AI.PrimaryProvider = strings.TrimSpace(raw)
+	} else {
+		prefixed := strings.TrimSpace(os.Getenv("DADIARY_AI_PRIMARY_PROVIDER"))
+		current := strings.TrimSpace(cfg.AI.PrimaryProvider)
+		if prefixed != "" && strings.EqualFold(current, prefixed) {
+			cfg.AI.PrimaryProvider = ""
+		} else {
+			cfg.AI.PrimaryProvider = current
+		}
 	}
 
 	// Admin / skin-review emails: support comma-separated env for Beta gating.

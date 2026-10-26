@@ -40,6 +40,7 @@ type Service struct {
 	secret   string
 	events   *repository.EmailEngagementRepository
 	receipts *repository.EmailSendReceiptRepository
+	users    *repository.GormUserRepository
 	now      func() time.Time
 }
 
@@ -55,11 +56,13 @@ func NewService(
 	secret string,
 	events *repository.EmailEngagementRepository,
 	receipts *repository.EmailSendReceiptRepository,
+	users *repository.GormUserRepository,
 ) *Service {
 	return &Service{
 		secret:   strings.TrimSpace(secret),
 		events:   events,
 		receipts: receipts,
+		users:    users,
 		now:      time.Now,
 	}
 }
@@ -103,6 +106,22 @@ func (s *Service) Handle(ctx context.Context, id, timestamp, signature string, b
 			return zero, err
 		}
 		if rec != nil {
+			if s.users == nil {
+				return zero, errors.New("resend webhook user lookup unavailable")
+			}
+			account, err := s.users.GetByID(ctx, rec.UserID)
+			if err != nil {
+				return zero, err
+			}
+			// The receipt can outlive the account (user_id is replaced on
+			// deletion). Do not insert a row and do not recreate the user.
+			if account == nil {
+				slog.Info("resend_webhook: ignored, account gone",
+					"resend_event_id", strings.TrimSpace(id),
+					"event_type", eventType,
+				)
+				return Outcome{Ignored: true, EventType: eventType}, nil
+			}
 			idCopy := rec.UserID
 			userID = &idCopy
 			kind = rec.Kind

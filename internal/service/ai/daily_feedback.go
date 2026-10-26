@@ -48,7 +48,11 @@ func GenerateDailyFeedbackWithMemory(ctx context.Context, cfg *config.Config, in
 	if skill == "" {
 		skill = ResolveCoachSkillLevel(in.Check, in.Profile)
 	}
-	return GenerateDailyFeedback(ctx, cfg, userCtx.String(), skill)
+	clientKind := ""
+	if in.Check != nil {
+		clientKind = in.Check.ClientKind
+	}
+	return generateDailyFeedback(ctx, cfg, userCtx.String(), skill, clientKind)
 }
 
 // LogMemoryInjection emits a structured debug line when USER_MEMORY is wired
@@ -76,6 +80,14 @@ func LogMemoryInjection(pipeline string, userID, skinCheckID uuid.UUID, d Memory
 // userContextMarkdown should include USER_MEMORY when personalisation is desired.
 // skillLevel: "beginner" | "intermediate" | "advanced".
 func GenerateDailyFeedback(ctx context.Context, cfg *config.Config, userContextMarkdown string, skillLevel string) (*CoachStructuredOutput, error) {
+	u := strings.TrimSpace(userContextMarkdown)
+	if u == "" {
+		return nil, fmt.Errorf("ai daily feedback: user context required")
+	}
+	return generateDailyFeedback(ctx, cfg, u, skillLevel, "")
+}
+
+func generateDailyFeedback(ctx context.Context, cfg *config.Config, userContextMarkdown, skillLevel, clientKind string) (*CoachStructuredOutput, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("ai daily feedback: config required")
 	}
@@ -85,7 +97,7 @@ func GenerateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 	}
 	client := &http.Client{Timeout: 4 * time.Minute}
 
-	system, textBody := buildDailyFeedbackPrompt(u, skillLevel)
+	system, textBody := buildDailyFeedbackPromptForClient(u, skillLevel, clientKind)
 
 	out, err := callDailyFeedbackLLM(ctx, cfg, client, system, textBody)
 	if err != nil {
@@ -102,10 +114,17 @@ func GenerateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 			out = retryOut
 		}
 	}
+	if IsAndroidCoachVoice(clientKind) && SanitizeAndroidCoachOutput(out) {
+		slog.Warn("daily-feedback: android voice safety net rewrote coach text")
+	}
 	return out, nil
 }
 
 func buildDailyFeedbackPrompt(userContextMarkdown, skillLevel string) (system, user string) {
+	return buildDailyFeedbackPromptForClient(userContextMarkdown, skillLevel, "")
+}
+
+func buildDailyFeedbackPromptForClient(userContextMarkdown, skillLevel, clientKind string) (system, user string) {
 	u := strings.TrimSpace(userContextMarkdown)
 	var userMsg strings.Builder
 	userMsg.WriteString("The user did not attach new photos for this turn. Base your coaching ONLY on USER_CONTEXT below (and acknowledge you have no fresh vision cues).\n")
@@ -116,17 +135,17 @@ func buildDailyFeedbackPrompt(userContextMarkdown, skillLevel string) (system, u
 	}
 	userMsg.WriteString("USER_CONTEXT:\n")
 	userMsg.WriteString(u)
-	userMsg.WriteString(coachMemoryTurnChecklist(u))
+	userMsg.WriteString(coachMemoryTurnChecklistForVoice(u, clientKind))
 	AppendCoachKnowledgeContext(&userMsg, u)
 	AppendAffiliateCoachContext(&userMsg)
 	userMsg.WriteString("\n\nNow produce the FINAL coach output as ONE JSON object matching this schema exactly.\n\n")
-	userMsg.WriteString(CoachOutputJSONSchemaBlock)
+	userMsg.WriteString(coachOutputSchemaForClient(clientKind))
 
 	skill := strings.TrimSpace(skillLevel)
 	if skill == "" {
 		skill = "intermediate"
 	}
-	return GetCoachPrompt(skill), userMsg.String()
+	return GetCoachPromptForClient(skill, clientKind), userMsg.String()
 }
 
 func callDailyFeedbackLLM(ctx context.Context, cfg *config.Config, client *http.Client, system, textBody string) (*CoachStructuredOutput, error) {

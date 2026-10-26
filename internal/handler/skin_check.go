@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/analysis"
 	"github.com/dadiary/backend/internal/storage"
+	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	"github.com/dadiary/backend/pkg/response"
@@ -84,6 +86,17 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 	var climateJSON json.RawMessage
 	if climateRaw != "" {
 		climateJSON = json.RawMessage(climateRaw)
+	}
+	photoContext, pcErr := dto.ParsePhotoContext(
+		firstValue(form.Value["photo_meta"]),
+		firstValue(form.Value["skin_context"]),
+		len(files),
+	)
+	if pcErr != nil {
+		if pe, ok := dto.IsPhotoContextError(pcErr); ok {
+			return response.Error(c, fiber.StatusBadRequest, pe.Code, pe.Msg)
+		}
+		return response.Error(c, fiber.StatusBadRequest, "invalid_photo_meta", "could not read photo context")
 	}
 
 	hasTextSignal := strings.TrimSpace(userNote) != "" ||
@@ -172,9 +185,13 @@ func (h *SkinCheckHandler) Create(c *fiber.Ctx) error {
 		Visibility:      vis,
 		Images:          images,
 		SkipMode:        skipMode && len(images) == 0,
+		// Header only. climate_context.client ("dadiary-android") is not a voice
+		// selector — same exact-value rule as refresh sessions.
+		ClientKind:   authuc.ResolveClientKind(c.Get(authuc.ClientHeader), ""),
+		PhotoContext: photoContext,
 	}
 
-	res, err := h.svc.Create(c.UserContext(), userID, in)
+	res, err := h.svc.Create(skinCheckDeviceContext(c), userID, in)
 	if err != nil {
 		return mapSkinCheckError(c, err)
 	}
@@ -233,12 +250,23 @@ func (h *SkinCheckHandler) Reanalyze(c *fiber.Ctx) error {
 	if err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_id", "skin check id must be a valid uuid")
 	}
-	res, err := h.svc.Reanalyze(c.UserContext(), userID, id)
+	// Current header upgrades a web check to the polite voice. A missing or
+	// non-android header keeps the stored kind (never downgrades).
+	res, err := h.svc.Reanalyze(skinCheckDeviceContext(c), userID, id, authuc.ResolveClientKind(c.Get(authuc.ClientHeader), ""))
 	if err != nil {
 		return mapSkinCheckError(c, err)
 	}
 	stripSkinCheckAds(c.UserContext(), h.premium, userID, &res, uiLocaleFromClimateJSON(res.Check.ClimateContext))
 	return response.JSON(c, fiber.StatusOK, res)
+}
+
+// skinCheckDeviceContext classifies this request once. The background analysis
+// job reads the coarse value; the raw User-Agent is not stored or logged.
+func skinCheckDeviceContext(c *fiber.Ctx) context.Context {
+	return skincheckuc.WithDeviceType(c.UserContext(), skincheckuc.ClassifyDevice(
+		c.Get(authuc.ClientHeader),
+		c.Get("User-Agent"),
+	))
 }
 
 func firstValue(v []string) string {

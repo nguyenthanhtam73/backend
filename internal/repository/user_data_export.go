@@ -3,12 +3,15 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
+	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 )
 
 const (
@@ -33,6 +36,17 @@ func (r *UserDataRepository) ExportBundle(
 	out.SkinChecks = []dto.ExportSkinCheck{}
 	out.Routines = []dto.ExportRoutineDay{}
 	out.Wardrobe = []dto.ExportWardrobeItem{}
+
+	var account domain.User
+	if err := db.WithContext(ctx).Where("id = ?", userID).First(&account).Error; err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return out, err
+	} else if err == nil {
+		out.Reminder = dto.ExportReminderSettings{
+			Enabled:  account.ReminderEnabled,
+			Time:     account.ReminderTime,
+			Timezone: account.ReminderTimezone,
+		}
+	}
 
 	var profile domain.SkinProfile
 	if err := db.WithContext(ctx).Where("user_id = ?", userID).First(&profile).Error; err == nil {
@@ -72,10 +86,13 @@ func (r *UserDataRepository) ExportBundle(
 			UserNote:   c.UserNote,
 			Conditions: conds,
 			Symptoms:   syms,
-			ImageURLs:  urls,
+			ImageURLs:  mediaurl.SignEach(urls),
 		}
 		if c.Analysis != nil {
 			item.CoachNotes = c.Analysis.SummaryNotes
+		}
+		if len(c.PhotoContext) > 0 && string(c.PhotoContext) != "null" {
+			item.PhotoContext = append(json.RawMessage(nil), c.PhotoContext...)
 		}
 		out.SkinChecks = append(out.SkinChecks, item)
 	}

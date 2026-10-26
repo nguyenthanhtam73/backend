@@ -20,9 +20,11 @@ type RefreshSessionStore = repository.RefreshSessionRepository
 type TokenIssuer interface {
 	SignAccess(userID uuid.UUID) (string, error)
 	SignRefresh(userID uuid.UUID) (token string, jti uuid.UUID, err error)
+	SignRefreshWithTTL(userID uuid.UUID, ttl time.Duration) (token string, jti uuid.UUID, expiresAt time.Time, err error)
 	ParseRefreshToken(tokenString string) (userID, jti uuid.UUID, err error)
 	AccessTTL() time.Duration
 	RefreshTTL() time.Duration
+	AppRefreshTTL() time.Duration
 }
 
 // UserReaderWriter is retained as an alias for older call sites / tests.

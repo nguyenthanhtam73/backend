@@ -78,11 +78,17 @@ const (
 	NotificationTypeD1Reminder    NotificationType = "d1_reminder"
 )
 
-// ReminderTypesSameVNDay are mutually exclusive evening/D0/D1 nudges for one VN day.
+// ReminderTypesSameVNDay are mutually exclusive check-in nudges for one
+// Vietnam civil day (Asia/Ho_Chi_Minh). A successful send of any type in
+// this list records a push receipt; every sender that consults the list
+// then skips, so a user gets at most one reminder that day. streak_at_risk
+// is included so a noon D0/D1 nudge blocks the evening at-risk push, and
+// an earlier streak push blocks a later D0/D1 or daily nudge.
 var ReminderTypesSameVNDay = []string{
 	string(NotificationTypeDailyReminder),
 	string(NotificationTypeD0Reminder),
 	string(NotificationTypeD1Reminder),
+	string(NotificationTypeStreakAtRisk),
 }
 
 // Web Push TTL (seconds): how long the push service may retain an undelivered

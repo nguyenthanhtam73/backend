@@ -28,21 +28,17 @@ func newLocal(dir string) (*localStorage, error) {
 	return &localStorage{root: abs}, nil
 }
 
-// abs resolves key under the upload root. Keys that escape the root — including
-// ".." segments that filepath.Join would clean — are rejected.
+// abs resolves key under the upload root. normalizeKey rejects "..", absolute
+// paths, and signed-URL query strings before Join can escape the root.
 func (l *localStorage) abs(key string) (string, error) {
-	if !SafeObjectKey(key) {
-		return "", fmt.Errorf("storage(local): unsafe key")
+	cleaned, err := normalizeKey(key)
+	if err != nil {
+		return "", err
 	}
-	rel := filepath.FromSlash(CleanKey(key))
-	if rel == "" || rel == "." {
-		return "", fmt.Errorf("storage(local): empty key")
-	}
-	root := filepath.Clean(l.root)
-	full := filepath.Clean(filepath.Join(root, rel))
-	r, err := filepath.Rel(root, full)
-	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("storage(local): path escapes upload root")
+	full := filepath.Join(l.root, filepath.FromSlash(cleaned))
+	rel, err := filepath.Rel(l.root, full)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", errUnsafeKey
 	}
 	return full, nil
 }
@@ -74,8 +70,11 @@ func (l *localStorage) DeletePrefix(_ context.Context, prefix string) error {
 	if err != nil {
 		return err
 	}
-	// RemoveAll tolerates missing paths and removes the whole subtree.
-	return os.RemoveAll(p)
+	// RemoveAll tolerates a missing path and removes the whole subtree.
+	if err := os.RemoveAll(p); err != nil {
+		return fmt.Errorf("storage(local): delete: %w", err)
+	}
+	return nil
 }
 
 func (l *localStorage) Driver() string   { return "local" }

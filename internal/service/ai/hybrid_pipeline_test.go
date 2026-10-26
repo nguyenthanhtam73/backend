@@ -132,8 +132,13 @@ func wireHybridEndpoints(t *testing.T, srv *httptest.Server) func() {
 	}
 }
 
+// hybridTestConfig pins AI_PRIMARY_PROVIDER=anthropic so these cases keep
+// asserting Claude-first behaviour. The default order is GPT-4o first; that
+// path is covered by TestTextCoachProviderOrder and
+// TestTextCoachCompletion_FallbackWhenPrimaryFails.
 func hybridTestConfig() *config.Config {
 	return &config.Config{
+		AI:        config.AIConfig{PrimaryProvider: "anthropic"},
 		Anthropic: config.AnthropicConfig{APIKey: "sk-ant-test", Model: "claude-sonnet-4-20250514"},
 		OpenAI:    config.OpenAIConfig{APIKey: "sk-test", Model: "gpt-4o", VisionModel: "gpt-4o-mini"},
 	}
@@ -282,7 +287,7 @@ func TestHybridPipeline_OpenAIOnlyDoesNotCrash(t *testing.T) {
 	ctx := context.Background()
 	// No images on the check → the pipeline returns before touching storage, so a
 	// nil store is fine here (we only assert it degrades gracefully, not crashes).
-	_, _, err := RunSkinCheckCoach(ctx, cfg, srv.Client(), nil, check, profile, "")
+	_, _, err := RunSkinCheckCoach(ctx, cfg, srv.Client(), nil, check, profile, "", CheckInCoachFacts{})
 	if err == nil {
 		// expected: no images — but should not panic; vision skipped gracefully
 	}

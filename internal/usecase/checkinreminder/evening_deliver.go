@@ -5,10 +5,17 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/dadiary/backend/internal/reminder"
 	"github.com/dadiary/backend/internal/streaktime"
 )
 
 // DeliverEveningEmails sends the 19:30 ICT D1 and Day-3 reminder emails.
+//
+// The candidate query calls reminder.ExcludeMuted for this job, so
+// reminder_enabled = false is left out. ExcludeScheduled drops a saved
+// schedule; that email goes out inside scheduled_capture's one moment, at
+// the user's local time, not in this 19:30–21:30 window. NULL and
+// true-without-time still receive the email here.
 //
 // D1: calendar day after the user's first check-in, and they have not checked
 // in that Vietnam day. D3: three Vietnam days after the first check-in, only
@@ -33,7 +40,7 @@ func (s *Service) DeliverEveningEmails(ctx context.Context) (DeliveryResult, err
 	cohorts, err := s.checks.ListUsersByFirstCheckDates(ctx, []time.Time{
 		today.AddDate(0, 0, -1),
 		today.AddDate(0, 0, -3),
-	}, 5000)
+	}, 5000, reminder.JobEveningEmail)
 	if err != nil {
 		return out, err
 	}

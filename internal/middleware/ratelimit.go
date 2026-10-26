@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -56,6 +57,40 @@ func AILimiter(max int, expiration time.Duration) fiber.Handler {
 		// AI routes often call the vendor before returning an error (timeout,
 		// moderation, parse failure). Skipping failures would let an attacker
 		// burn OpenAI/Anthropic credit indefinitely without hitting 429.
+		SkipFailedRequests: false,
+	})
+}
+
+// AccountDeleteLimiter caps DELETE /me password attempts.
+// The message names the real window in English and Vietnamese. AILimiter's
+// shared copy says "a minute", which is wrong for this 15-minute bucket.
+func AccountDeleteLimiter(max int, window time.Duration) fiber.Handler {
+	if max <= 0 {
+		max = 5
+	}
+	if window < time.Second {
+		window = 15 * time.Minute
+	}
+	mins := int(window / time.Minute)
+	if mins < 1 {
+		mins = 1
+	}
+	message := fmt.Sprintf(
+		"Too many attempts. Please wait %d minutes and try again. Bạn đã thử quá nhiều lần. Vui lòng đợi %d phút rồi thử lại.",
+		mins, mins,
+	)
+	return limiter.New(limiter.Config{
+		Max:        max,
+		Expiration: window,
+		KeyGenerator: func(c *fiber.Ctx) string {
+			if id, ok := c.Locals(LocalsUserID).(uuid.UUID); ok && id != uuid.Nil {
+				return "acctdel:" + id.String()
+			}
+			return "acctdel-ip:" + c.IP()
+		},
+		LimitReached: func(c *fiber.Ctx) error {
+			return response.Error(c, fiber.StatusTooManyRequests, "rate_limited", message)
+		},
 		SkipFailedRequests: false,
 	})
 }

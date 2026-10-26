@@ -10,9 +10,11 @@ import (
 // PlanChangeLog records an admin grant/revoke of a user's plan_tier.
 // Used for internal testing audit trails (who changed what, when).
 type PlanChangeLog struct {
-	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID      uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`       // target account
-	ActorUserID uuid.UUID `gorm:"type:uuid;not null;index" json:"actor_user_id"` // admin who changed
+	ID uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
+	// UserID and ActorUserID are nullable so account deletion can detach the
+	// audit row. ActorEmail is cleared when it belongs to the deleted account.
+	UserID      uuid.UUID `gorm:"type:uuid;index" json:"user_id"`
+	ActorUserID uuid.UUID `gorm:"type:uuid;index" json:"actor_user_id"`
 	ActorEmail  string    `gorm:"size:255;not null" json:"actor_email"`
 	FromPlan    PlanTier  `gorm:"size:16;not null" json:"from_plan"`
 	ToPlan      PlanTier  `gorm:"size:16;not null" json:"to_plan"`

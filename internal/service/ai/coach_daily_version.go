@@ -71,4 +71,23 @@ package ai
 // v28 (2026-09-07) — Fix hedge contradiction: “nói thẳng / CẤM hedge” must not
 // force certainty on skip or weak photos. Speak plainly when PHOTO_EVIDENCE is
 // ok; MUST say chưa chắc when skip/limited. Persists photo_evidence fields for FE.
-const CoachDailyPromptVersion = 28
+//
+// v29 (2026-10-06) — Photo check-in detail. Vision returns zone_observations
+// (zone, cue, how visible). The photo check-in coach adds zone_notes and
+// skin_score_notes (one short reason for every gauge, including overall) in a
+// separate user-message block. Daily feedback does not send that block.
+// That block says "lớp bảo vệ da", never "hàng rào". Confidence and follow-up
+// questions are computed in Go. Old checks are not backfilled.
+//
+// Android (Play) checks use a parallel polite mình/bạn prompt selected by
+// skin_checks.client_kind. That voice does not bump this number by itself: the
+// web prompt text is unchanged. Successful android runs append "+android" to
+// model_version so per-prompt-version stats can separate the two voices.
+//
+// v30 (2026-10-23) — Check-in advice must match the user's real state.
+// The coach user message includes CHECK_IN_STATE (lifetime count, prior
+// history with scores, and today's self-rating). A first-ever check-in must
+// not be praised for consistency. Fine/good skin must not be asked whether a
+// sore spot will calm down. Go rewrites those lines if the model still
+// writes them.
+const CoachDailyPromptVersion = 30

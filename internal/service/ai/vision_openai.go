@@ -16,7 +16,8 @@ import (
 )
 
 // VisionObservationPass uses OpenAI vision to extract conservative JSON observations (pass 1 of 2).
-func VisionObservationPass(ctx context.Context, cfg *config.Config, httpClient *http.Client, store storage.Storage, relativeImagePaths []string) (string, error) {
+// hint is optional close-up / touch context. Empty leaves the prompt unchanged.
+func VisionObservationPass(ctx context.Context, cfg *config.Config, httpClient *http.Client, store storage.Storage, relativeImagePaths []string, hint string) (string, error) {
 	if cfg == nil || strings.TrimSpace(cfg.OpenAI.APIKey) == "" {
 		return "", fmt.Errorf("openai vision: missing api key")
 	}
@@ -29,6 +30,9 @@ func VisionObservationPass(ctx context.Context, cfg *config.Config, httpClient *
 	model := cfg.OpenAIVisionModel()
 	logVisionModelSelection("vision-observation", model)
 	userText := VisionObservationSchemaBlock + "\n\nThe images are user skin check-in photo(s)."
+	if h := strings.TrimSpace(hint); h != "" {
+		userText += "\n\n" + h
+	}
 	parts := []map[string]any{
 		{"type": "text", "text": userText},
 	}

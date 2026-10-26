@@ -5,7 +5,7 @@ Use this before pointing the SePay dashboard IPN at production.
 ## 1. Code on Railway
 
 - [ ] Merge / push payment routes (`POST /api/v1/payment/sepay/checkout`, `…/webhook`)
-- [ ] Confirm deploy finished (`railway` / GitHub Actions green)
+- [ ] Confirm deploy finished (Railway auto-deploys the backend service from `main`)
 - [ ] Health: `GET https://backend-production-bfaa.up.railway.app/api/v1/health` → `{"status":"ok"}`
 - [ ] Webhook route exists (not 404):
   ```bash

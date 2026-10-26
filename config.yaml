@@ -1,4 +1,6 @@
 # DaDiary API — default config (override with env: DADIARY_*)
+# development | dev | debug | local logs SQL with bound values.
+# production (and any other DADIARY_ENV) logs only slow/failed SQL, placeholders only.
 env: development
 
 http:
@@ -17,6 +19,9 @@ jwt:
   secret: "change-me-in-production-use-long-random-string"
   access_ttl: 24h
   refresh_ttl: 168h
+  # Android refresh sessions (X-DaDiary-Client: android). Web keeps refresh_ttl.
+  # Go duration; 2160h = 90 days. Override with DADIARY_JWT_APP_REFRESH_TTL.
+  app_refresh_ttl: 2160h
 
 upload:
   dir: "./data/uploads"
@@ -30,6 +35,8 @@ openai:
 # rate limits, HTTP 5xx) with exponential backoff + jitter. Auth (401/403),
 # bad-request (400), quota-exhausted and moderation errors are never retried.
 # Override any field via DADIARY_AI_RETRY_* env vars (e.g. DADIARY_AI_RETRY_MAX_RETRIES).
+# Text-coach order is the env var AI_PRIMARY_PROVIDER (not a key in this file,
+# and not DADIARY_AI_PRIMARY_PROVIDER). openai = GPT-4o first; anthropic = Claude first.
 ai:
   retry:
     max_retries: 3          # retries AFTER the first attempt (3 => up to 4 tries)

@@ -1,16 +1,28 @@
 package dto
 
+import "encoding/json"
+
 // ExportUserDataResponse is GET /api/v1/me/export — a portable diary dump (Premium+).
 type ExportUserDataResponse struct {
 	ExportedAt string `json:"exported_at"`
 	PlanTier   string `json:"plan_tier"`
 	UserID     string `json:"user_id"`
 
-	Profile    *ExportSkinProfile   `json:"profile,omitempty"`
-	Streak     *StreakResponse      `json:"streak,omitempty"`
-	SkinChecks []ExportSkinCheck    `json:"skin_checks"`
-	Routines   []ExportRoutineDay   `json:"routines"`
-	Wardrobe   []ExportWardrobeItem `json:"wardrobe"`
+	Profile    *ExportSkinProfile     `json:"profile,omitempty"`
+	Streak     *StreakResponse        `json:"streak,omitempty"`
+	Reminder   ExportReminderSettings `json:"reminder"`
+	SkinChecks []ExportSkinCheck      `json:"skin_checks"`
+	Routines   []ExportRoutineDay     `json:"routines"`
+	Wardrobe   []ExportWardrobeItem   `json:"wardrobe"`
+}
+
+// ExportReminderSettings is the saved reminder schedule.
+// Null fields mean the user has not set that value. enabled null means the
+// evening jobs still follow the default (same as never chosen).
+type ExportReminderSettings struct {
+	Enabled  *bool   `json:"enabled"`
+	Time     *string `json:"time"`
+	Timezone *string `json:"timezone"`
 }
 
 // ExportSkinProfile is a privacy-safe profile snapshot for export.
@@ -30,10 +42,11 @@ type ExportSkinCheck struct {
 	UserNote   string   `json:"user_note,omitempty"`
 	Conditions []string `json:"conditions,omitempty"`
 	Symptoms   []string `json:"symptoms,omitempty"`
-	// ImageURLs are storage keys (not fetchable /uploads links). Photo bytes
-	// are omitted. Opening a photo still requires a signed URL from the app.
-	ImageURLs  []string `json:"image_urls,omitempty"`
-	CoachNotes string   `json:"coach_notes,omitempty"`
+	// ImageURLs are short-lived signed /uploads links for the owner.
+	// Photo bytes are omitted. They are never a public R2 URL.
+	ImageURLs    []string        `json:"image_urls,omitempty"`
+	CoachNotes   string          `json:"coach_notes,omitempty"`
+	PhotoContext json.RawMessage `json:"photo_context,omitempty"`
 }
 
 // ExportRoutineDay is one day's AM/PM routine snapshot.

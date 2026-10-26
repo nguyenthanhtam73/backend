@@ -46,12 +46,17 @@ func (registerFailTokens) SignRefresh(uuid.UUID) (string, uuid.UUID, error) {
 	return "", uuid.Nil, errors.New("token should not be issued")
 }
 
+func (registerFailTokens) SignRefreshWithTTL(uuid.UUID, time.Duration) (string, uuid.UUID, time.Time, error) {
+	return "", uuid.Nil, time.Time{}, errors.New("token should not be issued")
+}
+
 func (registerFailTokens) ParseRefreshToken(string) (uuid.UUID, uuid.UUID, error) {
 	return uuid.Nil, uuid.Nil, errors.New("token should not be parsed")
 }
 
-func (registerFailTokens) AccessTTL() time.Duration  { return time.Hour }
-func (registerFailTokens) RefreshTTL() time.Duration { return 24 * time.Hour }
+func (registerFailTokens) AccessTTL() time.Duration     { return time.Hour }
+func (registerFailTokens) RefreshTTL() time.Duration    { return 24 * time.Hour }
+func (registerFailTokens) AppRefreshTTL() time.Duration { return 2160 * time.Hour }
 
 func TestRegisterHandler_RejectsInvalidEmail(t *testing.T) {
 	uc := authuc.NewUsecase(registerFailRepo{}, registerFailTokens{})

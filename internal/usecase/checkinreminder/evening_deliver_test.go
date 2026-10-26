@@ -140,3 +140,40 @@ func TestDeliverEveningEmails_D3OnlyWithoutDay2Return(t *testing.T) {
 		t.Fatalf("d3 copy: %s", mailer.sent[0].Text)
 	}
 }
+
+func TestDeliverEveningEmails_SkipsDeletedUser(t *testing.T) {
+	now := vnAt(2026, 10, 5, 19, 30)
+	svc, users, checks, db := setupReminderSvc(t, now)
+	u := createUser(t, users, "gone@test.com", vnAt(2026, 9, 1, 9, 0))
+	insertCheck(t, checks, u, vnAt(2026, 10, 4, 20, 0))
+	if err := db.Unscoped().Where("id = ?", u.ID).Delete(&domain.User{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	mailer := &stubMailer{ready: true}
+	svc.AttachOutbound(mailer, repository.NewEmailSendReceiptRepository(db), nil, nil, "https://dadiary.vn/check-in")
+
+	res, err := svc.DeliverEveningEmails(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.EmailSent != 0 || len(mailer.sent) != 0 {
+		t.Fatalf("sent to a deleted user: %+v emails=%d", res, len(mailer.sent))
+	}
+	if res.EmailSkipped < 1 {
+		t.Fatalf("missing user was not skipped: %+v", res)
+	}
+	var n int64
+	if err := db.Model(&domain.User{}).Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("deleted user recreated: %d", n)
+	}
+	var receipts int64
+	if err := db.Model(&domain.EmailSendReceipt{}).Count(&receipts).Error; err != nil {
+		t.Fatal(err)
+	}
+	if receipts != 0 {
+		t.Fatalf("receipt created for a deleted user: %d", receipts)
+	}
+}

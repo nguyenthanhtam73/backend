@@ -1,8 +1,8 @@
 // Package analysis runs the skin-check AI pipeline and persists SkinAnalysis rows.
 // skincheck.Service enqueues Process in the background; clients poll GET /skin-checks/:id for results.
 // It loads SkinProfile (when repo is wired) so Claude/GPT personalize feedback with long-term skin type, undertone, and onboarding goals.
-// Preferred path: GPT vision (observations only) → Anthropic Claude (structured coach JSON).
-// Fallback: single GPT multimodal call when DADIARY_ANTHROPIC_API_KEY is not set.
+// Preferred path: GPT vision (observations only) → text coach JSON.
+// Text-coach order is AI_PRIMARY_PROVIDER (default GPT-4o, Claude fallback).
 package analysis
 
 import (
@@ -21,6 +21,7 @@ import (
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/dadiary/backend/internal/storage"
+	"github.com/dadiary/backend/pkg/usermsg"
 	"github.com/google/uuid"
 )
 
@@ -31,7 +32,7 @@ const (
 	analysisHTTPTimeout = 2 * time.Minute
 	// staleAnalysisAge marks pending/processing rows as failed when polled after the job should have finished.
 	staleAnalysisAge   = analysisJobTimeout + 30*time.Second
-	staleFailedMessage = "Analysis timed out. Please try submitting again."
+	staleFailedMessage = "Phân tích hơi lâu nên dừng lại. Bạn gửi lại giúp mình nhé."
 )
 
 // pipelineStats is a process-local rolling aggregate of skin-check wall times.
@@ -108,16 +109,22 @@ func New(
 
 // EnqueueAnalysis starts a background job.
 func (s *Service) EnqueueAnalysis(skinCheckID uuid.UUID) {
+	s.EnqueueAnalysisWithDevice(skinCheckID, "")
+}
+
+// EnqueueAnalysisWithDevice starts a background job and keeps the coarse device
+// class for the measurement log. deviceType is not stored.
+func (s *Service) EnqueueAnalysisWithDevice(skinCheckID uuid.UUID, deviceType string) {
 	if s == nil || skinCheckID == uuid.Nil {
 		return
 	}
-	go func(id uuid.UUID) {
+	go func(id uuid.UUID, device string) {
 		ctx, cancel := context.WithTimeout(context.Background(), analysisJobTimeout)
 		defer cancel()
-		if err := s.Process(ctx, id); err != nil {
+		if err := s.Process(ctx, id, device); err != nil {
 			slog.Warn("skin-check: background analysis failed", "check_id", id, "err", err)
 		}
-	}(skinCheckID)
+	}(skinCheckID, deviceType)
 }
 
 // ExpireStaleAnalysis marks long-running pending/processing rows as failed so clients stop polling forever.
@@ -145,7 +152,9 @@ func ExpireStaleAnalysis(ctx context.Context, checks *repository.GormSkinCheckRe
 }
 
 // Process loads images, runs the AI coach pipeline, and saves structured fields to SkinAnalysis.
-func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
+// deviceType is the coarse client class captured on the request. Empty falls back
+// to android-app when the stored client kind is android, otherwise unknown.
+func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType string) error {
 	jobStart := time.Now()
 	if s == nil || s.checks == nil || s.cfg == nil {
 		return fmt.Errorf("analysis: not configured")
@@ -160,9 +169,27 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 
 	urls, urlErr := dto.DecodeStringSlice(o.ImageURLs)
 	skipPhoto := urlErr != nil || len(urls) == 0
+	// visionMs + coachMs is the AI time logged after the job. Declared here so
+	// early photo failures can emit the same measurement line with a zero latency.
+	var visionMs, coachMs int64
+	emitAIResult := func(outcome, confidence string, fallback bool) {
+		if skipPhoto {
+			return
+		}
+		logSkinCheckAIResult(aiResultLog{
+			CheckID:      skinCheckID,
+			Confidence:   confidence,
+			DeviceType:   deviceTypeForLog(deviceType, o.ClientKind),
+			PhotoPresent: true,
+			AILatencyMs:  visionMs + coachMs,
+			Outcome:      outcome,
+			Fallback:     fallback,
+		})
+	}
 	// Photo check-ins need OpenAI for the vision pass; tag/notes-only skip-mode
 	// goes straight to the text coach (Anthropic / OpenAI text).
 	if !skipPhoto && strings.TrimSpace(s.cfg.OpenAI.APIKey) == "" {
+		emitAIResult("failed", "", false)
 		return s.failWithMessage(ctx, skinCheckID, "OpenAI API key missing (required for photo analysis vision pass)")
 	}
 
@@ -171,6 +198,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	// Placeholder until pipeline returns the real version string (includes Claude + vision models).
 	a.ModelVersion = "pending"
 	if err := s.checks.SaveAnalysis(ctx, a); err != nil {
+		emitAIResult("failed", "", false)
 		return err
 	}
 
@@ -188,7 +216,6 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		visionRaw    string
 		visionStatus string
 		memMs        int64
-		visionMs     int64
 	)
 	// vision + memory are independent, so run them concurrently: wall time is
 	// max(vision, memory) instead of their sum. Each leg is timed separately so
@@ -221,7 +248,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 			visionRaw, visionStatus = "", "skipped_no_photo"
 		} else {
 			visionRaw, visionStatus = ai.RunVisionObservationPassForCheck(
-				ctx, s.cfg, s.httpClient, s.store, urls,
+				ctx, s.cfg, s.httpClient, s.store, urls, ai.BuildCheckInVisionHint(o),
 			)
 		}
 		visionMs = time.Since(start).Milliseconds()
@@ -230,11 +257,25 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	parallelMs := time.Since(parallelStart).Milliseconds()
 	ai.LogMemoryInjection("skin-check", o.UserID, o.ID, memDebug)
 
+	facts := ai.DeriveCheckInCoachFacts(o)
+	if s.checks != nil {
+		if n, countErr := s.checks.CountForUser(ctx, o.UserID); countErr == nil {
+			facts.CountKnown = true
+			facts.TotalIncludesToday = n
+		} else {
+			slog.Warn("skin-check: check-in count unavailable", "check_id", o.ID, "err", countErr)
+		}
+		if rows, histErr := s.checks.ListRecentWithAnalysis(ctx, o.UserID, o.ID, 6); histErr == nil {
+			facts.History = ai.HistoryFactsFromChecks(rows)
+		} else {
+			slog.Warn("skin-check: check-in history unavailable", "check_id", o.ID, "err", histErr)
+		}
+	}
 	coachStart := time.Now()
 	parsed, ver, err := ai.RunSkinCheckCoachAfterVision(
-		ctx, s.cfg, s.httpClient, o, prof, memory, visionRaw, visionStatus,
+		ctx, s.cfg, s.httpClient, o, prof, memory, visionRaw, visionStatus, facts,
 	)
-	coachMs := time.Since(coachStart).Milliseconds()
+	coachMs = time.Since(coachStart).Milliseconds()
 	totalMs := time.Since(jobStart).Milliseconds()
 	// Fold this job into the process-local rolling average so the trend is visible
 	// in logs (e.g. to confirm the <80s target holds across many check-ins).
@@ -246,16 +287,19 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		"vision_memory_parallel_ms", parallelMs,
 		"coach_ms", coachMs,
 		"vision_status", visionStatus,
+		"client_kind", domain.NormalizeRefreshClient(o.ClientKind),
 		"total_ms", totalMs,
 		"avg_total_ms", avgTotalMs,
 		"sample_count", sampleCount,
 	)
 	if err != nil {
+		emitAIResult("failed", "", analysisUsedFallback("", visionStatus))
 		return s.failWithMessage(ctx, skinCheckID, err.Error())
 	}
 
 	a2, err := s.checks.GetByID(ctx, skinCheckID)
 	if err != nil || a2 == nil || a2.Analysis == nil {
+		emitAIResult("failed", "", analysisUsedFallback("", visionStatus))
 		return s.failWithMessage(ctx, skinCheckID, "could not reload analysis after coach run")
 	}
 	up := a2.Analysis
@@ -279,7 +323,21 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	if phase := strings.TrimSpace(parsed.CarePhase); phase != "" {
 		labels["care_phase"] = phase
 	}
-	ai.ApplyPhotoEvidenceToScores(labels, ai.ClassifyCheckInPhotoEvidence(visionStatus, visionRaw))
+	ev := ai.ClassifyCheckInPhotoEvidence(visionStatus, visionRaw)
+	ai.ApplyPhotoEvidenceToScores(labels, ev)
+	ai.ApplyCheckInDetail(labels, parsed, visionRaw, o.PhotoContext, ev, o.ClientKind, ai.CheckLocale(o))
+	if ai.IsAndroidCoachVoice(o.ClientKind) {
+		// Coach prose is already rewritten in the prompt pipeline. The photo note
+		// is copied from vision after that, so scrub it here before the row is saved.
+		if n, ok := labels["photo_limited_note"].(string); ok {
+			cleaned := strings.TrimSpace(ai.SanitizeAndroidVoiceText(n))
+			if cleaned == "" {
+				delete(labels, "photo_limited_note")
+			} else {
+				labels["photo_limited_note"] = cleaned
+			}
+		}
+	}
 	ss, _ := json.Marshal(labels)
 
 	str, _ := json.Marshal(parsed.Strengths)
@@ -328,6 +386,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 			"model_version_len", len(up.ModelVersion),
 			"err", err,
 		)
+		emitAIResult("failed", confidenceFromLabels(labels), analysisUsedFallback(ver, visionStatus))
 		return s.failWithMessage(ctx, skinCheckID, "could not save completed analysis")
 	}
 	// Fresh analysis row → next AI call (Routine Suggest, Daily Feedback,
@@ -336,6 +395,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	if s.cache != nil {
 		s.cache.Bust(o.UserID)
 	}
+	emitAIResult("completed", confidenceFromLabels(labels), analysisUsedFallback(ver, visionStatus))
 	return nil
 }
 
@@ -351,7 +411,7 @@ func (s *Service) failWithMessage(_ context.Context, skinCheckID uuid.UUID, msg 
 	}
 	a := o.Analysis
 	a.Status = domain.AnalysisStatusFailed
-	a.ErrorMessage = msg
+	a.ErrorMessage = usermsg.Plain(msg)
 	if err := s.checks.SaveAnalysis(saveCtx, a); err != nil {
 		return fmt.Errorf("%s (save failed: %v)", msg, err)
 	}

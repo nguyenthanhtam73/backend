@@ -20,6 +20,9 @@ import (
 var (
 	ErrUnavailable = errors.New("user data service unavailable")
 	ErrInvalidUser = errors.New("invalid user id")
+	// ErrSchemaNotReady means migration 024 has not made the accounting
+	// user-id columns nullable. The handler maps this to 503.
+	ErrSchemaNotReady = errors.New("account deletion schema is not ready")
 )
 
 // Service wipes diary data while keeping the auth account.
@@ -28,6 +31,9 @@ type Service struct {
 	store   storage.Storage
 	cache   *ai.MemoryCache
 	premium *premiumuc.Service
+	// onPhotosDone runs when a background account-photo delete finishes.
+	// Tests set it. Production leaves it nil.
+	onPhotosDone func()
 }
 
 // NewService wires dependencies. cache / premium may be nil.

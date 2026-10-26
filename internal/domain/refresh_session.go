@@ -1,19 +1,38 @@
 package domain
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
+const (
+	// RefreshClientWeb is the default session kind (browser and anything that is not the Android app).
+	RefreshClientWeb = "web"
+	// RefreshClientAndroid is the only client value that receives the long app refresh TTL.
+	RefreshClientAndroid = "android"
+)
+
+// NormalizeRefreshClient maps a client marker to a stored session kind.
+// Only the exact value "android" (surrounding space trimmed) selects the app session.
+func NormalizeRefreshClient(raw string) string {
+	if strings.TrimSpace(raw) == RefreshClientAndroid {
+		return RefreshClientAndroid
+	}
+	return RefreshClientWeb
+}
+
 // RefreshSession is a server-tracked refresh token (jti + hash) so logout can revoke.
 type RefreshSession struct {
-	ID        uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"` // JWT jti
-	UserID    uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
-	TokenHash string    `gorm:"size:64;not null" json:"-"` // sha256 hex of raw refresh JWT
-	ExpiresAt time.Time `gorm:"not null;index" json:"expires_at"`
+	ID        uuid.UUID  `gorm:"type:uuid;primaryKey" json:"id"` // JWT jti
+	UserID    uuid.UUID  `gorm:"type:uuid;not null;index" json:"user_id"`
+	TokenHash string     `gorm:"size:64;not null" json:"-"` // sha256 hex of raw refresh JWT
+	ExpiresAt time.Time  `gorm:"not null;index" json:"expires_at"`
 	RevokedAt *time.Time `json:"revoked_at,omitempty"`
+	// ClientKind is web or android. Existing rows default to web via AutoMigrate.
+	ClientKind string `gorm:"column:client_kind;size:16;not null;default:'web'" json:"-"`
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
