@@ -109,16 +109,22 @@ func New(
 
 // EnqueueAnalysis starts a background job.
 func (s *Service) EnqueueAnalysis(skinCheckID uuid.UUID) {
+	s.EnqueueAnalysisWithDevice(skinCheckID, "")
+}
+
+// EnqueueAnalysisWithDevice starts a background job and keeps the coarse device
+// class for the measurement log. deviceType is not stored.
+func (s *Service) EnqueueAnalysisWithDevice(skinCheckID uuid.UUID, deviceType string) {
 	if s == nil || skinCheckID == uuid.Nil {
 		return
 	}
-	go func(id uuid.UUID) {
+	go func(id uuid.UUID, device string) {
 		ctx, cancel := context.WithTimeout(context.Background(), analysisJobTimeout)
 		defer cancel()
-		if err := s.Process(ctx, id); err != nil {
+		if err := s.Process(ctx, id, device); err != nil {
 			slog.Warn("skin-check: background analysis failed", "check_id", id, "err", err)
 		}
-	}(skinCheckID)
+	}(skinCheckID, deviceType)
 }
 
 // ExpireStaleAnalysis marks long-running pending/processing rows as failed so clients stop polling forever.
@@ -146,7 +152,9 @@ func ExpireStaleAnalysis(ctx context.Context, checks *repository.GormSkinCheckRe
 }
 
 // Process loads images, runs the AI coach pipeline, and saves structured fields to SkinAnalysis.
-func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
+// deviceType is the coarse client class captured on the request. Empty falls back
+// to android-app when the stored client kind is android, otherwise unknown.
+func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType string) error {
 	jobStart := time.Now()
 	if s == nil || s.checks == nil || s.cfg == nil {
 		return fmt.Errorf("analysis: not configured")
@@ -161,9 +169,27 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 
 	urls, urlErr := dto.DecodeStringSlice(o.ImageURLs)
 	skipPhoto := urlErr != nil || len(urls) == 0
+	// visionMs + coachMs is the AI time logged after the job. Declared here so
+	// early photo failures can emit the same measurement line with a zero latency.
+	var visionMs, coachMs int64
+	emitAIResult := func(outcome, confidence string, fallback bool) {
+		if skipPhoto {
+			return
+		}
+		logSkinCheckAIResult(aiResultLog{
+			CheckID:      skinCheckID,
+			Confidence:   confidence,
+			DeviceType:   deviceTypeForLog(deviceType, o.ClientKind),
+			PhotoPresent: true,
+			AILatencyMs:  visionMs + coachMs,
+			Outcome:      outcome,
+			Fallback:     fallback,
+		})
+	}
 	// Photo check-ins need OpenAI for the vision pass; tag/notes-only skip-mode
 	// goes straight to the text coach (Anthropic / OpenAI text).
 	if !skipPhoto && strings.TrimSpace(s.cfg.OpenAI.APIKey) == "" {
+		emitAIResult("failed", "", false)
 		return s.failWithMessage(ctx, skinCheckID, "OpenAI API key missing (required for photo analysis vision pass)")
 	}
 
@@ -172,6 +198,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	// Placeholder until pipeline returns the real version string (includes Claude + vision models).
 	a.ModelVersion = "pending"
 	if err := s.checks.SaveAnalysis(ctx, a); err != nil {
+		emitAIResult("failed", "", false)
 		return err
 	}
 
@@ -189,7 +216,6 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		visionRaw    string
 		visionStatus string
 		memMs        int64
-		visionMs     int64
 	)
 	// vision + memory are independent, so run them concurrently: wall time is
 	// max(vision, memory) instead of their sum. Each leg is timed separately so
@@ -249,7 +275,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	parsed, ver, err := ai.RunSkinCheckCoachAfterVision(
 		ctx, s.cfg, s.httpClient, o, prof, memory, visionRaw, visionStatus, facts,
 	)
-	coachMs := time.Since(coachStart).Milliseconds()
+	coachMs = time.Since(coachStart).Milliseconds()
 	totalMs := time.Since(jobStart).Milliseconds()
 	// Fold this job into the process-local rolling average so the trend is visible
 	// in logs (e.g. to confirm the <80s target holds across many check-ins).
@@ -267,11 +293,13 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 		"sample_count", sampleCount,
 	)
 	if err != nil {
+		emitAIResult("failed", "", analysisUsedFallback("", visionStatus))
 		return s.failWithMessage(ctx, skinCheckID, err.Error())
 	}
 
 	a2, err := s.checks.GetByID(ctx, skinCheckID)
 	if err != nil || a2 == nil || a2.Analysis == nil {
+		emitAIResult("failed", "", analysisUsedFallback("", visionStatus))
 		return s.failWithMessage(ctx, skinCheckID, "could not reload analysis after coach run")
 	}
 	up := a2.Analysis
@@ -358,6 +386,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 			"model_version_len", len(up.ModelVersion),
 			"err", err,
 		)
+		emitAIResult("failed", confidenceFromLabels(labels), analysisUsedFallback(ver, visionStatus))
 		return s.failWithMessage(ctx, skinCheckID, "could not save completed analysis")
 	}
 	// Fresh analysis row → next AI call (Routine Suggest, Daily Feedback,
@@ -366,6 +395,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID) error {
 	if s.cache != nil {
 		s.cache.Bust(o.UserID)
 	}
+	emitAIResult("completed", confidenceFromLabels(labels), analysisUsedFallback(ver, visionStatus))
 	return nil
 }
 

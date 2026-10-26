@@ -33,8 +33,29 @@ var (
 
 // AnalysisEnqueuer starts the shared skin-check AI pipeline in the background.
 // *analysis.Service implements this; tests may stub it to avoid LLM calls.
+//
+// The concrete service also implements EnqueueAnalysisWithDevice so the job can
+// log a coarse device class. Stubs that only implement EnqueueAnalysis still
+// work; the device is then taken from the stored client kind.
 type AnalysisEnqueuer interface {
 	EnqueueAnalysis(skinCheckID uuid.UUID)
+}
+
+// enqueueAnalysis starts one background job. deviceType is a ClassifyDevice
+// result (web-android, web-ios, web-desktop, android-app, or unknown). It is
+// not stored and is not part of the API response.
+func enqueueAnalysis(a AnalysisEnqueuer, id uuid.UUID, deviceType string) {
+	if a == nil || id == uuid.Nil {
+		return
+	}
+	type withDevice interface {
+		EnqueueAnalysisWithDevice(id uuid.UUID, deviceType string)
+	}
+	if e, ok := a.(withDevice); ok {
+		e.EnqueueAnalysisWithDevice(id, deviceType)
+		return
+	}
+	a.EnqueueAnalysis(id)
 }
 
 // UploadImage is one decoded, validated photo handed from the HTTP layer. Bytes
@@ -272,7 +293,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 	}
 
 	if s.analyzer != nil {
-		s.analyzer.EnqueueAnalysis(check.ID)
+		enqueueAnalysis(s.analyzer, check.ID, DeviceTypeFromContext(ctx))
 	} else {
 		slog.Warn("skin-check: analysis service not configured", "check_id", check.ID)
 	}
