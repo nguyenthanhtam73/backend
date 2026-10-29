@@ -346,17 +346,12 @@ func CheckInVisionPhotoLimited(raw string) (limited bool, note string) {
 	if note == "" {
 		return false, ""
 	}
-	// Only treat it as limiting when it names a real photo problem.
-	low := strings.ToLower(lim + " " + unc)
-	for _, n := range []string{
-		"mờ", "mo ", "tối", "toi ", "thiếu sáng", "crop", "cắt", "blur", "dark", "lighting",
-		"shadow", "bóng", "khó đọc", "hard to", "cannot", "không đọc", "low light", "overexpos",
-	} {
-		if strings.Contains(low, n) {
-			return true, note
-		}
+	// Same needles and join as PhotoNoteTag. A note that does not name a photo
+	// problem (tag other / none) is not limited.
+	if !photoNoteHasProblemKeyword(lim, unc) {
+		return false, ""
 	}
-	return false, ""
+	return true, note
 }
 
 // RetakePhotoTips returns short retake instructions, including the oblique-light ask
