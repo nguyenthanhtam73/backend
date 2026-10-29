@@ -171,12 +171,17 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	skipPhoto := urlErr != nil || len(urls) == 0
 	// visionMs + coachMs is the AI time logged after the job. Declared here so
 	// early photo failures can emit the same measurement line with a zero latency.
+	// Reason fields stay at their zero values until visionReady, so a failure
+	// before the vision pass logs photo_evidence=unknown rather than skip.
 	var visionMs, coachMs int64
+	var visionRaw, visionStatus string
+	var resultLabels map[string]any
+	visionReady := false
 	emitAIResult := func(outcome, confidence string, fallback bool) {
 		if skipPhoto {
 			return
 		}
-		logSkinCheckAIResult(aiResultLog{
+		entry := aiResultLog{
 			CheckID:      skinCheckID,
 			Confidence:   confidence,
 			DeviceType:   deviceTypeForLog(deviceType, o.ClientKind),
@@ -184,7 +189,11 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 			AILatencyMs:  visionMs + coachMs,
 			Outcome:      outcome,
 			Fallback:     fallback,
-		})
+		}
+		if visionReady {
+			applyLowConfidenceLogFields(&entry, visionStatus, visionRaw, resultLabels)
+		}
+		logSkinCheckAIResult(entry)
 	}
 	// Photo check-ins need OpenAI for the vision pass; tag/notes-only skip-mode
 	// goes straight to the text coach (Anthropic / OpenAI text).
@@ -211,11 +220,9 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	}
 
 	var (
-		memory       string
-		memDebug     ai.MemoryDebug
-		visionRaw    string
-		visionStatus string
-		memMs        int64
+		memory   string
+		memDebug ai.MemoryDebug
+		memMs    int64
 	)
 	// vision + memory are independent, so run them concurrently: wall time is
 	// max(vision, memory) instead of their sum. Each leg is timed separately so
@@ -254,6 +261,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 		visionMs = time.Since(start).Milliseconds()
 	}()
 	wg.Wait()
+	visionReady = true
 	parallelMs := time.Since(parallelStart).Milliseconds()
 	ai.LogMemoryInjection("skin-check", o.UserID, o.ID, memDebug)
 
@@ -338,6 +346,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 			}
 		}
 	}
+	resultLabels = labels
 	ss, _ := json.Marshal(labels)
 
 	str, _ := json.Marshal(parsed.Strengths)
