@@ -17,6 +17,7 @@ import (
 	adminfunneluc "github.com/dadiary/backend/internal/usecase/adminfunnel"
 	adminmetricsuc "github.com/dadiary/backend/internal/usecase/adminmetrics"
 	adminskinreviewuc "github.com/dadiary/backend/internal/usecase/adminskinreview"
+	adminstatsuc "github.com/dadiary/backend/internal/usecase/adminstats"
 	adminuseruc "github.com/dadiary/backend/internal/usecase/adminuser"
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
@@ -432,6 +433,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			adminfunneluc.NewService(userRepo, repo, payOrders, paywallViewRepo),
 		)
 		api.Get("/admin/funnel-stats", jwt, admin, adminFunnelH.Get)
+		// Daily signup counts from users.utm_source / fbclid / ttclid.
+		// Same admin gate as funnel-stats. Response is counts only.
+		adminStatsH := NewAdminStatsHandler(adminstatsuc.NewService(userRepo))
+		api.Get("/admin/stats/registrations-by-source", jwt, admin, adminStatsH.RegistrationsBySource)
 
 		// Admin Skin Review — deep observations-only AI (bypasses Free quota;
 		// no AILimiter — gated by RequireSkinReview: full admin OR skin-review list).
