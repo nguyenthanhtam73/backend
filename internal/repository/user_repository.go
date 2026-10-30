@@ -736,3 +736,29 @@ func (r *GormUserRepository) ListFunnelSignups(ctx context.Context) ([]FunnelSig
 		Find(&rows).Error
 	return rows, err
 }
+
+// RegistrationAttributionRow is the first-touch slice used to bucket a signup.
+// Email, username, and user id are not selected.
+type RegistrationAttributionRow struct {
+	CreatedAt time.Time `gorm:"column:created_at"`
+	UTMSource *string   `gorm:"column:utm_source"`
+	FBCLID    *string   `gorm:"column:fbclid"`
+	TTCLID    *string   `gorm:"column:ttclid"`
+}
+
+// ListRegistrationAttributionSince returns attribution columns for non-deleted
+// users with created_at >= since. Inactive accounts are included: they still
+// registered. Soft-deleted rows are excluded by the users model scope.
+func (r *GormUserRepository) ListRegistrationAttributionSince(ctx context.Context, since time.Time) ([]RegistrationAttributionRow, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var rows []RegistrationAttributionRow
+	err = db.WithContext(ctx).Model(&domain.User{}).
+		Select("created_at", "utm_source", "fbclid", "ttclid").
+		Where("created_at >= ?", since.UTC()).
+		Order("created_at ASC").
+		Find(&rows).Error
+	return rows, err
+}
