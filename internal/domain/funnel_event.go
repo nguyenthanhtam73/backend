@@ -11,13 +11,15 @@ import (
 // Check-in funnel events the client may report.
 // Keep in sync with the frontend check-in analytics calls.
 const (
-	FunnelCheckinPageView      = "checkin_page_view"
-	FunnelCheckinFormView      = "checkin_form_view"
-	FunnelCheckinPhotoStaged   = "checkin_photo_staged"
-	FunnelCheckinSkipSelected  = "checkin_skip_selected"
-	FunnelCheckinSubmitClicked = "checkin_submit_clicked"
-	FunnelCheckinSubmitSuccess = "checkin_submit_success"
-	FunnelCheckinSubmitError   = "checkin_submit_error"
+	FunnelCheckinPageView        = "checkin_page_view"
+	FunnelCheckinFormView        = "checkin_form_view"
+	FunnelCheckinPhotoStaged     = "checkin_photo_staged"
+	FunnelCheckinPhotoBlurShown  = "checkin_photo_blur_shown"
+	FunnelCheckinPhotoBlurChoice = "checkin_photo_blur_choice"
+	FunnelCheckinSkipSelected    = "checkin_skip_selected"
+	FunnelCheckinSubmitClicked   = "checkin_submit_clicked"
+	FunnelCheckinSubmitSuccess   = "checkin_submit_success"
+	FunnelCheckinSubmitError     = "checkin_submit_error"
 
 	FunnelRegisterFormView      = "register_form_view"
 	FunnelRegisterSubmitAttempt = "register_submit_attempt"
@@ -48,6 +50,8 @@ var AllFunnelEvents = []string{
 	FunnelCheckinPageView,
 	FunnelCheckinFormView,
 	FunnelCheckinPhotoStaged,
+	FunnelCheckinPhotoBlurShown,
+	FunnelCheckinPhotoBlurChoice,
 	FunnelCheckinSkipSelected,
 	FunnelCheckinSubmitClicked,
 	FunnelCheckinSubmitSuccess,

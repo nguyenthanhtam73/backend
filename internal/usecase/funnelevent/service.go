@@ -41,7 +41,9 @@ func NewService(events *repository.GormFunnelEventRepository) *Service {
 
 // Log validates and inserts one event.
 // userID uuid.Nil stores a NULL user_id (guest). userAgent is trimmed, never required.
-func (s *Service) Log(ctx context.Context, userID uuid.UUID, userAgent string, req dto.LogFunnelEventRequest) error {
+// device is a coarse client class from ClassifyDevice. It may be logged for the
+// photo funnel events and is not stored. The raw User-Agent is not logged.
+func (s *Service) Log(ctx context.Context, userID uuid.UUID, userAgent, device string, req dto.LogFunnelEventRequest) error {
 	if s == nil || s.events == nil {
 		return ErrUnavailable
 	}
@@ -54,6 +56,7 @@ func (s *Service) Log(ctx context.Context, userID uuid.UUID, userAgent string, r
 		slog.Error("funnel_event_insert_failed", "err", err)
 		return err
 	}
+	logCheckinPhotoFunnel(row.Event, row.Props, device)
 	return nil
 }
 
