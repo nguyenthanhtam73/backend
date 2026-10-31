@@ -1,9 +1,11 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -773,5 +775,123 @@ func TestFunnelEvents_InvalidSessionDoesNotSpendGlobalBudget(t *testing.T) {
 	status, raw, _ := postFunnel(t, app, "", "", "", ok)
 	if status != http.StatusNoContent {
 		t.Fatalf("valid session status=%d body=%s", status, raw)
+	}
+}
+
+func TestFunnelEvents_LogsCheckinPhotoFunnel(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	app, db, tok := newFunnelFixture(t, false)
+	uid := uuid.MustParse("6b1c2a30-7c3e-4f2a-9d1b-0a1b2c3d4e5f")
+	access, err := tok.SignAccess(uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ua := "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 user@dadiary.vn https://cdn.example/uploads/checks/face.jpg"
+
+	shown := funnelBody(domain.FunnelCheckinPhotoBlurShown, "blur-shown-sess", "/check-in?email=person@example.com", `{
+		"slot": 0,
+		"score": 0.086,
+		"never_checked_in": true,
+		"photo_url": "https://cdn.example/uploads/checks/face.jpg",
+		"user_id": "6b1c2a30-7c3e-4f2a-9d1b-0a1b2c3d4e5f"
+	}`)
+	status, raw, _ := postFunnel(t, app, "Bearer "+access, ua, "", shown)
+	if status != http.StatusNoContent {
+		t.Fatalf("shown status=%d body=%s", status, raw)
+	}
+
+	choice := funnelBody(domain.FunnelCheckinPhotoBlurChoice, "blur-choice-sess", "/check-in", `{
+		"slot": 1,
+		"score": 0.04,
+		"choice": "send_anyway",
+		"via": "submit",
+		"url": "blob:https://dadiary.vn/photo"
+	}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/funnel-events", strings.NewReader(choice))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", ua)
+	req.Header.Set("X-DaDiary-Client", "android")
+	res, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNoContent {
+		t.Fatalf("choice status=%d", res.StatusCode)
+	}
+
+	staged := funnelBody(domain.FunnelCheckinPhotoStaged, "staged-sess", "/check-in", `{"slot":0,"count":1}`)
+	status, raw, _ = postFunnel(t, app, "", "", "", staged)
+	if status != http.StatusNoContent {
+		t.Fatalf("staged status=%d body=%s", status, raw)
+	}
+
+	other := funnelBody(domain.FunnelCheckinPageView, "page-sess", "/check-in", `{"slot":0,"score":0.1,"choice":"retake","via":"button"}`)
+	status, raw, _ = postFunnel(t, app, "", ua, "", other)
+	if status != http.StatusNoContent {
+		t.Fatalf("page status=%d body=%s", status, raw)
+	}
+
+	rejected := funnelBody(domain.FunnelCheckinPhotoBlurShown, "email-sess", "/check-in", `{"slot":0,"note":"person@example.com"}`)
+	status, raw, _ = postFunnel(t, app, "", ua, "", rejected)
+	if status != http.StatusBadRequest {
+		t.Fatalf("email status=%d body=%s", status, raw)
+	}
+
+	var lines []map[string]any
+	for _, line := range strings.Split(buf.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			t.Fatalf("decode %s: %v", line, err)
+		}
+		if obj["msg"] == "funnel_event" {
+			lines = append(lines, obj)
+		}
+	}
+	if len(lines) != 3 {
+		t.Fatalf("lines=%d body=%s", len(lines), buf.String())
+	}
+	if lines[0]["event"] != domain.FunnelCheckinPhotoBlurShown || lines[0]["slot"] != float64(0) || lines[0]["score"] != 0.09 || lines[0]["device"] != "web-android" {
+		t.Fatalf("shown line %#v", lines[0])
+	}
+	if _, ok := lines[0]["choice"]; ok {
+		t.Fatalf("shown line has choice %#v", lines[0])
+	}
+	if lines[1]["event"] != domain.FunnelCheckinPhotoBlurChoice || lines[1]["choice"] != "send_anyway" || lines[1]["via"] != "submit" || lines[1]["slot"] != float64(1) || lines[1]["device"] != "android-app" {
+		t.Fatalf("choice line %#v", lines[1])
+	}
+	if lines[2]["event"] != domain.FunnelCheckinPhotoStaged || lines[2]["slot"] != float64(0) {
+		t.Fatalf("staged line %#v", lines[2])
+	}
+	if _, ok := lines[2]["device"]; ok {
+		t.Fatalf("staged line logged a device without a class %#v", lines[2])
+	}
+	lower := strings.ToLower(buf.String())
+	for _, bad := range []string{
+		"@", "https://", "blob:", "mozilla/", uid.String(), "blur-shown-sess", "person@example.com", "photo_url", "user_id", "face.jpg",
+		domain.FunnelCheckinPageView,
+	} {
+		if strings.Contains(lower, strings.ToLower(bad)) {
+			t.Fatalf("log contains %q: %s", bad, buf.String())
+		}
+	}
+
+	var row domain.FunnelEvent
+	if err := db.Where("session_id = ?", "blur-shown-sess").First(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	if row.UserID == nil || *row.UserID != uid {
+		t.Fatalf("stored user_id=%v", row.UserID)
+	}
+	if row.Path != "/check-in" {
+		t.Fatalf("path=%q", row.Path)
 	}
 }

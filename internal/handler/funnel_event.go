@@ -6,7 +6,9 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
+	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	funneleventuc "github.com/dadiary/backend/internal/usecase/funnelevent"
+	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
 )
@@ -35,7 +37,13 @@ func (h *FunnelEventHandler) Log(c *fiber.Ctx) error {
 	if err := c.BodyParser(&body); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
 	}
-	err := h.svc.Log(c.UserContext(), middleware.UserIDFromLocals(c), c.Get("User-Agent"), body)
+	err := h.svc.Log(
+		c.UserContext(),
+		middleware.UserIDFromLocals(c),
+		c.Get("User-Agent"),
+		skincheckuc.ClassifyDevice(c.Get(authuc.ClientHeader), c.Get("User-Agent")),
+		body,
+	)
 	if err != nil {
 		var invalid *funneleventuc.ValidationError
 		if errors.As(err, &invalid) {
