@@ -16,6 +16,14 @@ func TestPlain_AuthAndIdempotent(t *testing.T) {
 	if Plain(vi) != vi {
 		t.Fatalf("rewrote Vietnamese email message: %q", Plain(vi))
 	}
+
+	unusual := Plain("email or name has an unusual character")
+	if unusual != "Email hoặc tên có ký tự lạ, bạn kiểm tra lại giúp nhé" {
+		t.Fatalf("unusual character: %q", unusual)
+	}
+	if again := Plain(unusual); again != unusual {
+		t.Fatalf("second pass changed unusual-character message: %q", again)
+	}
 }
 
 func TestPlain_Patterns(t *testing.T) {

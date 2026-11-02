@@ -74,28 +74,33 @@ func (s *Service) Register(ctx context.Context, req dto.RegisterRequest) (Result
 	if email == "" || password == "" {
 		return zero, appInvalidInput("email and password are required")
 	}
+
+	username := strings.TrimSpace(req.Username)
+	if username == "" {
+		username = deriveUsername(email)
+	}
+	displayName := strings.TrimSpace(req.DisplayName)
+	// Reject text that can make Postgres fail the query before any lookup.
+	if err := registerInputError(email, username, displayName); err != nil {
+		return zero, err
+	}
 	if !validAccountEmail(email) {
 		return zero, appInvalidEmail()
 	}
 	if len(password) < minPasswordLen {
 		return zero, appInvalidInput(fmt.Sprintf("password must be at least %d characters", minPasswordLen))
 	}
-
-	username := strings.TrimSpace(req.Username)
-	if username == "" {
-		username = deriveUsername(email)
-	}
 	if err := validateUsername(username); err != nil {
 		return zero, err
 	}
-	username, err := s.ensureUniqueUsername(ctx, username)
+	username, err := s.ensureUniqueUsername(ctx, username, email, password)
 	if err != nil {
 		return zero, err
 	}
 
 	existing, err := s.repo.GetByEmail(ctx, email)
 	if err != nil {
-		return zero, appDatabase(err)
+		return zero, registerDatabase("get_by_email", email, username, password, err)
 	}
 	if existing != nil {
 		return zero, appEmailTaken()
@@ -110,7 +115,7 @@ func (s *Service) Register(ctx context.Context, req dto.RegisterRequest) (Result
 		Email:        email,
 		Username:     username,
 		PasswordHash: string(hash),
-		DisplayName:  strings.TrimSpace(req.DisplayName),
+		DisplayName:  displayName,
 		Provider:     domain.AuthProviderLocal,
 		IsActive:     true,
 	}
@@ -125,7 +130,7 @@ func (s *Service) Register(ctx context.Context, req dto.RegisterRequest) (Result
 			}
 			return zero, appUsernameTaken()
 		}
-		return zero, appDatabase(err)
+		return zero, registerDatabase("create_user", email, username, password, err)
 	}
 
 	return s.issueResult(ctx, user, domain.NormalizeRefreshClient(req.Client))
@@ -412,12 +417,15 @@ func validateUsername(username string) error {
 	return nil
 }
 
-func (s *Service) ensureUniqueUsername(ctx context.Context, base string) (string, error) {
+// ensureUniqueUsername picks a free username. normalizedEmail and password are
+// not stored; they are passed through so a driver error can be redacted
+// before it is logged.
+func (s *Service) ensureUniqueUsername(ctx context.Context, base, normalizedEmail, password string) (string, error) {
 	candidate := base
 	for i := 0; i < 20; i++ {
 		exists, err := s.repo.UsernameExists(ctx, candidate)
 		if err != nil {
-			return "", appDatabase(err)
+			return "", registerDatabase("ensure_unique_username", normalizedEmail, candidate, password, err)
 		}
 		if !exists {
 			return candidate, nil
