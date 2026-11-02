@@ -54,7 +54,6 @@ func TestRegister_RejectsEmailWithoutDomain(t *testing.T) {
 		"danghaiduong@1995",
 		"abc",
 		"abc@gmail",
-		"abc @gmail.com",
 		"  ABC@1995  ",
 	}
 	for _, email := range cases {

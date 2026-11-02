@@ -37,6 +37,7 @@ var exact = map[string]string{
 	"database error":                          "Hệ thống đang bận. Bạn thử lại sau nhé.",
 	"something went wrong":                    Generic,
 	"invalid email":                           "Email chưa đúng, ví dụ: ten@gmail.com",
+	"email or name has an unusual character":  "Email hoặc tên có ký tự lạ, bạn kiểm tra lại giúp nhé",
 	"invalid input":                           "Thông tin chưa đúng. Bạn kiểm tra lại nhé.",
 	"invalid password":                        "Mật khẩu chưa đúng.",
 	"authentication is not available":         "Đăng nhập đang tạm ngưng. Bạn thử lại sau nhé.",
