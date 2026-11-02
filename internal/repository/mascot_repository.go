@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/google/uuid"
@@ -110,6 +111,73 @@ func (r *MascotRepository) Create(ctx context.Context, row *domain.UserMascot) e
 		return fmt.Errorf("mascot required")
 	}
 	return db.WithContext(ctx).Omit("User").Create(row).Error
+}
+
+// EnsureFreeGrants inserts a permanent free grant for each starter the user
+// does not already hold. Existing rows are left alone, including expired ones.
+func (r *MascotRepository) EnsureFreeGrants(ctx context.Context, userID uuid.UUID, now time.Time) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	for _, item := range domain.DefaultMascotItems() {
+		if !item.IsFree {
+			continue
+		}
+		var n int64
+		err := db.WithContext(ctx).Model(&domain.UserMascotItem{}).
+			Where("user_id = ? AND item_id = ?", userID, item.ID).
+			Count(&n).Error
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
+		row := domain.UserMascotItem{
+			UserID:     userID,
+			ItemID:     item.ID,
+			Source:     domain.MascotSourceFree,
+			AcquiredAt: now.UTC(),
+		}
+		if err := db.WithContext(ctx).Omit("User", "Item").Create(&row).Error; err != nil {
+			if IsUniqueConflict(err) {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+// ActiveItemIDs returns grants that have not expired. expires_at NULL is permanent.
+// Expired rows stay in the table; callers just skip them.
+func (r *MascotRepository) ActiveItemIDs(ctx context.Context, userID uuid.UUID, now time.Time) (map[string]struct{}, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	var ids []string
+	err = db.WithContext(ctx).Model(&domain.UserMascotItem{}).
+		Where("user_id = ? AND (expires_at IS NULL OR expires_at > ?)", userID, now.UTC()).
+		Pluck("item_id", &ids).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		out[id] = struct{}{}
+	}
+	return out, nil
 }
 
 // SaveLoadout replaces the JSON look.

@@ -28,3 +28,17 @@ INSERT INTO mascot_items (id, layer, name, is_free, price) VALUES
     ('accessory_default', 'accessory', 'Nơ nhỏ', TRUE, NULL),
     ('room_plant', 'room', 'Cây nhỏ', TRUE, NULL)
 ON CONFLICT (id) DO NOTHING;
+
+-- Owned items belong to the user, not to a room. source_room_id is a label
+-- only (no foreign key), so closing a room must not delete grants.
+-- expires_at NULL means permanent. Readers filter expires_at > now(); no cron.
+-- Free defaults are inserted per user on first mascot read, not here.
+CREATE TABLE IF NOT EXISTS user_mascot_items (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    item_id VARCHAR(64) NOT NULL REFERENCES mascot_items(id),
+    source VARCHAR(32) NOT NULL,
+    source_room_id VARCHAR(64),
+    acquired_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ,
+    PRIMARY KEY (user_id, item_id)
+);

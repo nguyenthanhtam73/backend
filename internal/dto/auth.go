@@ -99,6 +99,16 @@ type UserPublic struct {
 	// onboarding (from users.onboarding_skipped).
 	OnboardingSkipped bool   `json:"onboarding_skipped"`
 	CreatedAt         string `json:"created_at"`
+	// Features tells clients which product surfaces to show.
+	// Set on GET /me only. Omitted on register and login.
+	Features *UserFeatures `json:"features,omitempty"`
+}
+
+// UserFeatures is the client-facing flag set on GET /me.
+// Mascot is Góc bình yên / Bé Da. While the feature is admin-only this is
+// true only for the admin allow-list.
+type UserFeatures struct {
+	Mascot bool `json:"mascot"`
 }
 
 // SubscriptionSnapshot is a minimal view applied onto UserPublic (from SubscriptionService).

@@ -225,7 +225,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			repo,
 			routineRepo,
 			streakRepo,
-		))
+		), cfg)
 		api.Get("/me/mascot", jwt, mascotH.Get)
 		api.Put("/me/mascot/loadout", jwt, mascotH.PutLoadout)
 

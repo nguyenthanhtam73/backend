@@ -48,7 +48,7 @@ func (r *UserDataRepository) FindUser(ctx context.Context, userID uuid.UUID) (*d
 // skincare_products, ai_user_feedbacks, feedbacks, affiliate_clicks,
 // progress_logs, push_subscriptions, push_send_receipts, push_click_events,
 // capture_reminder_claims, checkin_reminder_flags, routine_suggest_jobs,
-// streaks, user_usages, user_mascot,
+// streaks, user_usages, user_mascot, user_mascot_items,
 // subscriptions, admin_skin_reviews owned by this account, beta_signups whose
 // email matches.
 //

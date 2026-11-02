@@ -8,7 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
@@ -23,6 +25,11 @@ import (
 
 func newMascotApp(t *testing.T) (*fiber.App, *gorm.DB, uuid.UUID) {
 	t.Helper()
+	return newMascotAppFor(t, true)
+}
+
+func newMascotAppFor(t *testing.T, asAdmin bool) (*fiber.App, *gorm.DB, uuid.UUID) {
+	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:mascot_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
@@ -32,6 +39,7 @@ func newMascotApp(t *testing.T) (*fiber.App, *gorm.DB, uuid.UUID) {
 	if err := db.AutoMigrate(
 		&domain.User{},
 		&domain.UserMascot{},
+		&domain.UserMascotItem{},
 		&domain.MascotItem{},
 		&domain.RoutineEntry{},
 		&domain.SkinCheck{},
@@ -45,15 +53,21 @@ func newMascotApp(t *testing.T) (*fiber.App, *gorm.DB, uuid.UUID) {
 	if err := users.Create(context.Background(), u); err != nil {
 		t.Fatal(err)
 	}
+	var admins []string
+	if asAdmin {
+		admins = []string{u.Email}
+	}
+	cfg := &config.Config{AdminEmails: admins}
 	h := NewMascotHandler(mascotuc.NewService(
 		repository.NewMascotRepository(db),
 		repository.NewSkinCheckRepository(db),
 		repository.NewRoutineEntryRepository(db),
 		repository.NewStreakRepository(db),
-	))
+	), cfg)
 	app := fiber.New()
 	auth := func(c *fiber.Ctx) error {
 		c.Locals(middleware.LocalsUserID, u.ID)
+		c.Locals(middleware.LocalsUserEmail, u.Email)
 		return c.Next()
 	}
 	app.Get("/api/v1/me/mascot", auth, h.Get)
@@ -153,7 +167,7 @@ func TestMascotGetCreatesDefaultAndPutValidates(t *testing.T) {
 	}
 	bad := `{"body":"body_default","hair":"hair_default","outfit":"outfit_gold","accessory":"accessory_default","room_items":["room_plant"]}`
 	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", bad)
-	if status != http.StatusBadRequest || mascotCode(t, env) != "item_not_free" {
+	if status != http.StatusBadRequest || mascotCode(t, env) != "item_not_owned" {
 		t.Fatalf("paid %d %#v", status, env)
 	}
 
@@ -203,5 +217,105 @@ func TestMascotGetSleepyAfterTwoMissedDays(t *testing.T) {
 	routine, _ := data["routine_today"].(map[string]any)
 	if routine["am_total"] != float64(1) || routine["am_done"] != float64(0) {
 		t.Fatalf("today %#v", routine)
+	}
+}
+
+func TestMascotHiddenFromNonAdmin(t *testing.T) {
+	app, db, _ := newMascotAppFor(t, false)
+	status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusNotFound || mascotCode(t, env) != "not_found" {
+		t.Fatalf("get %d %#v", status, env)
+	}
+	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", `{"body":"body_default"}`)
+	if status != http.StatusNotFound {
+		t.Fatalf("put %d %#v", status, env)
+	}
+	var mascots, grants int64
+	if err := db.Model(&domain.UserMascot{}).Count(&mascots).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&domain.UserMascotItem{}).Count(&grants).Error; err != nil {
+		t.Fatal(err)
+	}
+	if mascots != 0 || grants != 0 {
+		t.Fatalf("non-admin wrote mascot=%d grants=%d", mascots, grants)
+	}
+}
+
+func TestMascotSeedsFreeGrantsAndSkipsExpired(t *testing.T) {
+	app, db, userID := newMascotApp(t)
+	status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK {
+		t.Fatalf("get %d %#v", status, env)
+	}
+	var grants []domain.UserMascotItem
+	if err := db.Where("user_id = ?", userID).Find(&grants).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(grants) != len(domain.DefaultMascotItems()) {
+		t.Fatalf("grants %d", len(grants))
+	}
+	for _, g := range grants {
+		if g.Source != domain.MascotSourceFree || g.ExpiresAt != nil || g.SourceRoomID != nil {
+			t.Fatalf("grant %+v", g)
+		}
+	}
+
+	past := time.Now().UTC().Add(-time.Hour)
+	room := "room_week_1"
+	if err := db.Create(&domain.MascotItem{ID: "bow_temp", Layer: domain.MascotLayerAccessory, Name: "Nơ tạm", IsFree: false}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Omit("User", "Item").Create(&domain.UserMascotItem{
+		UserID:       userID,
+		ItemID:       "bow_temp",
+		Source:       domain.MascotSourceRoomReward,
+		SourceRoomID: &room,
+		AcquiredAt:   past,
+		ExpiresAt:    &past,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(domain.MascotLoadout{
+		Body: domain.MascotItemBodyDefault, Hair: domain.MascotItemHairDefault,
+		Outfit: domain.MascotItemOutfitDefault, Accessory: "bow_temp",
+		RoomItems: []string{domain.MascotItemRoomPlant},
+	})
+	if err := db.Model(&domain.UserMascot{}).Where("user_id = ?", userID).Update("loadout", raw).Error; err != nil {
+		t.Fatal(err)
+	}
+	status, env = mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK {
+		t.Fatalf("get expired %d %#v", status, env)
+	}
+	loadout, _ := mascotData(t, env)["loadout"].(map[string]any)
+	if loadout["accessory"] != "" {
+		t.Fatalf("expired accessory still equipped: %#v", loadout)
+	}
+	var still int64
+	if err := db.Model(&domain.UserMascotItem{}).Where("item_id = ?", "bow_temp").Count(&still).Error; err != nil {
+		t.Fatal(err)
+	}
+	if still != 1 {
+		t.Fatal("expired grant was deleted")
+	}
+
+	body := `{"body":"body_default","hair":"hair_default","outfit":"outfit_default","accessory":"bow_temp","room_items":[]}`
+	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", body)
+	if status != http.StatusBadRequest || mascotCode(t, env) != "item_not_owned" {
+		t.Fatalf("put expired %d %#v", status, env)
+	}
+
+	future := time.Now().UTC().Add(72 * time.Hour)
+	if err := db.Model(&domain.UserMascotItem{}).Where("item_id = ?", "bow_temp").Update("expires_at", future).Error; err != nil {
+		t.Fatal(err)
+	}
+	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", body)
+	if status != http.StatusOK {
+		t.Fatalf("put active reward %d %#v", status, env)
+	}
+	loadout, _ = mascotData(t, env)["loadout"].(map[string]any)
+	if loadout["accessory"] != "bow_temp" {
+		t.Fatalf("reward not equipped: %#v", loadout)
 	}
 }

@@ -11,9 +11,9 @@ const maxRoomItems = 12
 
 var itemIDPattern = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 
-// ValidateLoadout checks slots against the catalog.
-// An item is allowed when it is free or present in owned (a future shop).
-// There is no ownership table yet, so owned is empty and only free items pass.
+// ValidateLoadout checks slots against the catalog and the caller's active grants.
+// owned is the set of item ids that are still valid at now (expires_at null or in the future).
+// A free catalog row is not enough: the user must hold a user_mascot_items grant.
 func ValidateLoadout(loadout domain.MascotLoadout, catalog map[string]domain.MascotItem, owned map[string]struct{}) error {
 	if err := slot(loadout.Body, domain.MascotLayerBody, true, catalog, owned); err != nil {
 		return err
@@ -61,11 +61,8 @@ func slot(id, layer string, required bool, catalog map[string]domain.MascotItem,
 	if item.Layer != layer {
 		return domain.BadRequest("wrong_layer", layer+" does not match that item")
 	}
-	if item.IsFree {
-		return nil
-	}
 	if _, owns := owned[id]; owns {
 		return nil
 	}
-	return domain.BadRequest("item_not_free", "that item is not free")
+	return domain.BadRequest("item_not_owned", "that item is not owned")
 }

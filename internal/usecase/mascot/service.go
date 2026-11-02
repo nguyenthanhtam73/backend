@@ -47,6 +47,13 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID) (dto.MascotResponse
 	return s.view(ctx, userID, row)
 }
 
+func (s *Service) activeGrants(ctx context.Context, userID uuid.UUID) (map[string]struct{}, error) {
+	if err := s.mascots.EnsureFreeGrants(ctx, userID, time.Now().UTC()); err != nil {
+		return nil, err
+	}
+	return s.mascots.ActiveItemIDs(ctx, userID, time.Now().UTC())
+}
+
 // UpdateLoadout saves a lookout of free (or owned) items and returns the fresh view.
 func (s *Service) UpdateLoadout(ctx context.Context, userID uuid.UUID, loadout domain.MascotLoadout) (dto.MascotResponse, error) {
 	var zero dto.MascotResponse
@@ -68,7 +75,11 @@ func (s *Service) UpdateLoadout(ctx context.Context, userID uuid.UUID, loadout d
 	for _, item := range items {
 		catalog[item.ID] = item
 	}
-	if err := ValidateLoadout(loadout, catalog, nil); err != nil {
+	owned, err := s.activeGrants(ctx, userID)
+	if err != nil {
+		return zero, err
+	}
+	if err := ValidateLoadout(loadout, catalog, owned); err != nil {
 		return zero, err
 	}
 	raw, err := json.Marshal(loadout)
@@ -149,7 +160,41 @@ func (s *Service) view(ctx context.Context, userID uuid.UUID, row *domain.UserMa
 
 	derived := Derive(in)
 	loadout := decodeLoadout(row)
+	owned, err := s.activeGrants(ctx, userID)
+	if err != nil {
+		return zero, err
+	}
+	loadout = visibleLoadout(loadout, owned)
 	return toResponse(loadout, derived), nil
+}
+
+// visibleLoadout drops equipped items whose grant is missing or expired.
+// Required slots fall back to the free default when that grant is still active.
+func visibleLoadout(loadout domain.MascotLoadout, owned map[string]struct{}) domain.MascotLoadout {
+	loadout.Body = keepOrDefault(loadout.Body, domain.MascotItemBodyDefault, owned)
+	loadout.Hair = keepOrDefault(loadout.Hair, domain.MascotItemHairDefault, owned)
+	loadout.Outfit = keepOrDefault(loadout.Outfit, domain.MascotItemOutfitDefault, owned)
+	if _, ok := owned[loadout.Accessory]; !ok {
+		loadout.Accessory = ""
+	}
+	rooms := make([]string, 0, len(loadout.RoomItems))
+	for _, id := range loadout.RoomItems {
+		if _, ok := owned[id]; ok {
+			rooms = append(rooms, id)
+		}
+	}
+	loadout.RoomItems = rooms
+	return loadout
+}
+
+func keepOrDefault(id, fallback string, owned map[string]struct{}) string {
+	if _, ok := owned[id]; ok {
+		return id
+	}
+	if _, ok := owned[fallback]; ok {
+		return fallback
+	}
+	return id
 }
 
 func toResponse(loadout domain.MascotLoadout, derived Result) dto.MascotResponse {

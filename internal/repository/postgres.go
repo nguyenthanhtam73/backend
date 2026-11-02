@@ -63,6 +63,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.AccountDeleteOrphanKey{},
 		&domain.MascotItem{},
 		&domain.UserMascot{},
+		&domain.UserMascotItem{},
 	); err != nil {
 		return err
 	}

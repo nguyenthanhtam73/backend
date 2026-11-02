@@ -22,7 +22,12 @@ func TestMascotMigrationSeedsDefaultIDs(t *testing.T) {
 			t.Fatalf("migration missing layer %s", item.Layer)
 		}
 	}
-	if !strings.Contains(sql, "user_mascot") || !strings.Contains(sql, "mascot_items") {
+	if !strings.Contains(sql, "user_mascot") || !strings.Contains(sql, "mascot_items") || !strings.Contains(sql, "user_mascot_items") {
 		t.Fatal("tables")
+	}
+	for _, col := range []string{"expires_at", "source_room_id", "acquired_at", "source"} {
+		if !strings.Contains(sql, col) {
+			t.Fatalf("migration missing %s", col)
+		}
 	}
 }

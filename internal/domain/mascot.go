@@ -16,6 +16,26 @@ const (
 	MascotLayerRoom      = "room"
 )
 
+// MascotOpenToEveryone opens Góc bình yên / Bé Da to every account.
+// While false, only the DADIARY_ADMIN_EMAILS allow-list can see it — the same
+// check as /admin. Flip this constant to open the feature without a migration.
+const MascotOpenToEveryone = false
+
+// MascotVisible reports whether this account should see Bé Da.
+// isAdmin comes from config.IsAdminEmail (already loaded on GET /me).
+func MascotVisible(isAdmin bool) bool {
+	return MascotOpenToEveryone || isAdmin
+}
+
+// How a user came to own an item. Ownership is per user, never per room:
+// closing a room must not delete these rows. source_room_id is a note only.
+const (
+	MascotSourceFree           = "free"
+	MascotSourceRoomReward     = "room_reward"
+	MascotSourceRoomGraduation = "room_graduation"
+	MascotSourceShop           = "shop"
+)
+
 // Free starter ids. A later shop inserts more mascot_items rows; loadout stays JSON.
 const (
 	MascotItemBodyDefault      = "body_default"
@@ -78,3 +98,20 @@ type UserMascot struct {
 }
 
 func (UserMascot) TableName() string { return "user_mascot" }
+
+// UserMascotItem is one owned item. ExpiresAt nil means permanent.
+// Callers ignore rows whose expiry is in the past; nothing deletes them on a schedule.
+// There is no foreign key to a room, so retiring a room leaves the grant in place.
+type UserMascotItem struct {
+	UserID       uuid.UUID  `gorm:"type:uuid;primaryKey" json:"user_id"`
+	ItemID       string     `gorm:"primaryKey;size:64" json:"item_id"`
+	Source       string     `gorm:"size:32;not null" json:"source"`
+	SourceRoomID *string    `gorm:"size:64" json:"source_room_id,omitempty"`
+	AcquiredAt   time.Time  `gorm:"not null" json:"acquired_at"`
+	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+
+	User User       `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
+	Item MascotItem `gorm:"foreignKey:ItemID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`
+}
+
+func (UserMascotItem) TableName() string { return "user_mascot_items" }
