@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
+	"github.com/dadiary/backend/internal/lobby"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
@@ -229,6 +230,19 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Get("/me/mascot", jwt, mascotH.Get)
 		api.Put("/me/mascot/loadout", jwt, mascotH.PutLoadout)
 		api.Post("/me/mascot/glow/seen", jwt, mascotH.AckGlowSeen)
+
+		// Bé Da shared lobby. In memory only. Same access JWT and the same
+		// features.mascot gate as GET /me. Nothing here is deployed or configured
+		// outside this process.
+		if tok != nil {
+			lobbyHub := lobby.NewHub(lobby.Config{})
+			lobbyHub.Start()
+			app.Hooks().OnShutdown(func() error {
+				lobbyHub.Stop()
+				return nil
+			})
+			NewLobbyHandler(lobbyHub, tok, cfg, userLookup).Register(api)
+		}
 
 		reminderFlags := repository.NewCheckInReminderRepository(db)
 		reminderSvc := checkinreminderuc.NewService(userRepo, repo, reminderFlags, cfg != nil && cfg.HasVAPIDKeys())
