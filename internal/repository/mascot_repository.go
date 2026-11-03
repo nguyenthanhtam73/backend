@@ -156,9 +156,10 @@ func (r *MascotRepository) EnsureFreeGrants(ctx context.Context, userID uuid.UUI
 	return nil
 }
 
-// ActiveItemIDs returns grants that have not expired. expires_at NULL is permanent.
+// ActiveItemSources returns grants that have not expired, keyed by item id.
+// The value is the grant source (free, shop, …). expires_at NULL is permanent.
 // Expired rows stay in the table; callers just skip them.
-func (r *MascotRepository) ActiveItemIDs(ctx context.Context, userID uuid.UUID, now time.Time) (map[string]struct{}, error) {
+func (r *MascotRepository) ActiveItemSources(ctx context.Context, userID uuid.UUID, now time.Time) (map[string]string, error) {
 	db, err := r.dbOrErr()
 	if err != nil {
 		return nil, err
@@ -166,33 +167,73 @@ func (r *MascotRepository) ActiveItemIDs(ctx context.Context, userID uuid.UUID, 
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	var ids []string
-	err = db.WithContext(ctx).Model(&domain.UserMascotItem{}).
+	var rows []domain.UserMascotItem
+	err = db.WithContext(ctx).
+		Select("item_id", "source").
 		Where("user_id = ? AND (expires_at IS NULL OR expires_at > ?)", userID, now.UTC()).
-		Pluck("item_id", &ids).Error
+		Find(&rows).Error
 	if err != nil {
 		return nil, err
 	}
-	out := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		out[id] = struct{}{}
+	out := make(map[string]string, len(rows))
+	for _, row := range rows {
+		out[row.ItemID] = row.Source
 	}
 	return out, nil
 }
 
-// SaveLoadout replaces the JSON look.
+// SaveLoadout replaces the JSON look without writing the glow columns.
 func (r *MascotRepository) SaveLoadout(ctx context.Context, userID uuid.UUID, raw json.RawMessage) error {
-	row, err := r.Get(ctx, userID)
-	if err != nil {
-		return err
-	}
-	if row == nil {
-		return gorm.ErrRecordNotFound
-	}
-	row.Loadout = raw
 	db, err := r.dbOrErr()
 	if err != nil {
 		return err
 	}
-	return db.WithContext(ctx).Omit("User").Save(row).Error
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	res := db.WithContext(ctx).Model(&domain.UserMascot{}).
+		Where("user_id = ?", userID).
+		Update("loadout", raw)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
+// SaveGlowLevel raises the stored high water. A lower value is not written.
+func (r *MascotRepository) SaveGlowLevel(ctx context.Context, userID uuid.UUID, level int) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	if level < 1 {
+		level = 1
+	}
+	res := db.WithContext(ctx).Model(&domain.UserMascot{}).
+		Where("user_id = ? AND glow_level < ?", userID, level).
+		Update("glow_level", level)
+	return res.Error
+}
+
+// SaveGlowSeen records the level the client just acknowledged.
+func (r *MascotRepository) SaveGlowSeen(ctx context.Context, userID uuid.UUID, seen int) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	if seen < 1 {
+		seen = 1
+	}
+	return db.WithContext(ctx).Model(&domain.UserMascot{}).
+		Where("user_id = ?", userID).
+		Update("glow_level_seen", seen).Error
 }

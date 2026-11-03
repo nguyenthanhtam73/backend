@@ -88,6 +88,8 @@ type MascotLoadout struct {
 
 // DefaultMascotLoadout is the free look created on the first GET.
 // Accessories follows frontend DEFAULT_ACCESSORY_IDS (headband, then star clip).
+// GET hides the headband until glow level 3 and the star clip until 4.
+// A grant with source shop is shown at any level.
 func DefaultMascotLoadout() MascotLoadout {
 	accessories := []string{MascotItemAccessoryPinkHeadband, MascotItemAccessoryStarClip}
 	return MascotLoadout{
@@ -101,11 +103,16 @@ func DefaultMascotLoadout() MascotLoadout {
 }
 
 // UserMascot is one row per account. Mood is not stored; it is derived on read.
+// GlowLevel is the highest glow reached and is only written upward.
+// GlowLevelSeen is the level the client last acknowledged. Default 1 is the
+// starting level, so a new Bé Da does not celebrate.
 type UserMascot struct {
-	UserID    uuid.UUID       `gorm:"type:uuid;primaryKey" json:"user_id"`
-	Loadout   json.RawMessage `gorm:"type:jsonb;not null" json:"loadout"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	UserID        uuid.UUID       `gorm:"type:uuid;primaryKey" json:"user_id"`
+	Loadout       json.RawMessage `gorm:"type:jsonb;not null" json:"loadout"`
+	GlowLevel     int             `gorm:"not null;default:1" json:"-"`
+	GlowLevelSeen int             `gorm:"not null;default:1" json:"-"`
+	CreatedAt     time.Time       `json:"created_at"`
+	UpdatedAt     time.Time       `json:"updated_at"`
 
 	User User `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
 }

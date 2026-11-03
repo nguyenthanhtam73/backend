@@ -100,7 +100,8 @@ type Result struct {
 // Derive picks mood, lines, marks, and missed days.
 // A finished session today (all AM or all PM) resets missed days and messy level.
 // Coming back from a miss is hug_return; the line says happy comes next.
-// Otherwise a miss uses the stage table. Skin marks always come from check-ins.
+// Otherwise a miss uses the stage table. Skin marks always come from the latest
+// check-in. Glow points are not an input and must not add or remove a mark.
 func Derive(in Input) Result {
 	today := civil(in.Today)
 	marks := marksFrom(in.Latest)

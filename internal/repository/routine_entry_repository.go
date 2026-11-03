@@ -175,6 +175,25 @@ func (r *GormRoutineEntryRepository) ListForUserSince(ctx context.Context, userI
 
 const adminActivityRoutineCap = 200
 
+// ListAllForUser returns every routine row for the user, oldest day first.
+// Glow scoring needs the full history. The 365-day cap on ListForUserSince
+// does not apply here.
+func (r *GormRoutineEntryRepository) ListAllForUser(ctx context.Context, userID uuid.UUID) ([]domain.RoutineEntry, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if userID == uuid.Nil {
+		return nil, fmt.Errorf("user id required")
+	}
+	var rows []domain.RoutineEntry
+	err = db.WithContext(ctx).
+		Where("user_id = ?", userID).
+		Order("routine_date ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
 // ListByDate returns every routine row for a calendar day, newest updates first,
 // with User preloaded for the admin activity view.
 func (r *GormRoutineEntryRepository) ListByDate(ctx context.Context, day time.Time) ([]domain.RoutineEntry, error) {
