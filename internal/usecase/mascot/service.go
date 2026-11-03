@@ -47,11 +47,42 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID) (dto.MascotResponse
 	return s.view(ctx, userID, row)
 }
 
-func (s *Service) activeGrants(ctx context.Context, userID uuid.UUID) (map[string]struct{}, error) {
+func (s *Service) activeGrants(ctx context.Context, userID uuid.UUID) (map[string]string, error) {
 	if err := s.mascots.EnsureFreeGrants(ctx, userID, time.Now().UTC()); err != nil {
 		return nil, err
 	}
-	return s.mascots.ActiveItemIDs(ctx, userID, time.Now().UTC())
+	return s.mascots.ActiveItemSources(ctx, userID, time.Now().UTC())
+}
+
+func grantIDs(sources map[string]string) map[string]struct{} {
+	out := make(map[string]struct{}, len(sources))
+	for id := range sources {
+		out[id] = struct{}{}
+	}
+	return out
+}
+
+// AckGlowSeen sets glow_level_seen to the current level so the celebration shows once.
+func (s *Service) AckGlowSeen(ctx context.Context, userID uuid.UUID) (dto.MascotResponse, error) {
+	var zero dto.MascotResponse
+	if s == nil || s.mascots == nil {
+		return zero, domain.Unavailable("service_unavailable", "mascot unavailable")
+	}
+	if userID == uuid.Nil {
+		return zero, domain.Unauthorized("unauthorized", "missing user")
+	}
+	row, err := s.ensureRow(ctx, userID, nil)
+	if err != nil {
+		return zero, err
+	}
+	glow, err := s.syncGlow(ctx, userID, row)
+	if err != nil {
+		return zero, err
+	}
+	if err := s.mascots.SaveGlowSeen(ctx, userID, glow.Level); err != nil {
+		return zero, err
+	}
+	return s.Get(ctx, userID)
 }
 
 // UpdateLoadout saves a lookout of free (or owned) items and returns the fresh view.
@@ -75,11 +106,18 @@ func (s *Service) UpdateLoadout(ctx context.Context, userID uuid.UUID, loadout d
 	for _, item := range items {
 		catalog[item.ID] = item
 	}
-	owned, err := s.activeGrants(ctx, userID)
+	sources, err := s.activeGrants(ctx, userID)
 	if err != nil {
 		return zero, err
 	}
-	if err := ValidateLoadout(loadout, catalog, owned); err != nil {
+	if err := ValidateLoadout(loadout, catalog, grantIDs(sources)); err != nil {
+		return zero, err
+	}
+	level, err := s.glowLevelFor(ctx, userID)
+	if err != nil {
+		return zero, err
+	}
+	if err := ValidateGlowWear(loadout, level, sources); err != nil {
 		return zero, err
 	}
 	raw, err := json.Marshal(loadout)
@@ -112,7 +150,7 @@ func (s *Service) ensureRow(ctx context.Context, userID uuid.UUID, loadout json.
 			return nil, err
 		}
 	}
-	row = &domain.UserMascot{UserID: userID, Loadout: loadout}
+	row = &domain.UserMascot{UserID: userID, Loadout: loadout, GlowLevel: 1, GlowLevelSeen: 1}
 	if err := s.mascots.Create(ctx, row); err != nil {
 		if repository.IsUniqueConflict(err) {
 			return s.mascots.Get(ctx, userID)
@@ -160,17 +198,99 @@ func (s *Service) view(ctx context.Context, userID uuid.UUID, row *domain.UserMa
 
 	derived := Derive(in)
 	loadout := decodeLoadout(row)
-	owned, err := s.activeGrants(ctx, userID)
+	sources, err := s.activeGrants(ctx, userID)
 	if err != nil {
 		return zero, err
 	}
-	loadout = visibleLoadout(loadout, owned)
-	return toResponse(loadout, derived), nil
+	glow, err := s.syncGlow(ctx, userID, row)
+	if err != nil {
+		return zero, err
+	}
+	loadout = visibleLoadout(loadout, sources, glow.Level)
+	out := toResponse(loadout, derived)
+	out.GlowLevel = glow.Level
+	out.CheckInDays = glow.Days
+	out.NextLevelAt = glow.Next
+	out.LevelUp = glow.LevelUp
+	return out, nil
 }
 
-// visibleLoadout drops equipped items whose grant is missing or expired.
-// Required slots fall back to the free default when that grant is still active.
-func visibleLoadout(loadout domain.MascotLoadout, owned map[string]struct{}) domain.MascotLoadout {
+type glowView struct {
+	Level   int
+	Days    int
+	Next    *int
+	LevelUp bool
+}
+
+// syncGlow returns the level to show and raises the stored high water when
+// check-in days have reached a higher band. It never writes a lower level.
+func (s *Service) syncGlow(ctx context.Context, userID uuid.UUID, row *domain.UserMascot) (glowView, error) {
+	var zero glowView
+	days, err := s.checkInDays(ctx, userID)
+	if err != nil {
+		return zero, err
+	}
+	stored := 1
+	seen := 1
+	if row != nil {
+		if row.GlowLevel > stored {
+			stored = row.GlowLevel
+		}
+		if row.GlowLevelSeen > seen {
+			seen = row.GlowLevelSeen
+		}
+	}
+	level := EffectiveGlow(stored, days)
+	if row != nil && level > row.GlowLevel {
+		if err := s.mascots.SaveGlowLevel(ctx, userID, level); err != nil {
+			return zero, err
+		}
+		row.GlowLevel = level
+	}
+	return glowView{
+		Level:   level,
+		Days:    days,
+		Next:    NextLevelAt(level),
+		LevelUp: level > seen,
+	}, nil
+}
+
+// glowLevelFor is the level PUT validation uses. It matches syncGlow without
+// requiring the mascot row to exist yet.
+func (s *Service) glowLevelFor(ctx context.Context, userID uuid.UUID) (int, error) {
+	days, err := s.checkInDays(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	stored := 1
+	row, err := s.mascots.Get(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	if row != nil && row.GlowLevel > stored {
+		stored = row.GlowLevel
+	}
+	return EffectiveGlow(stored, days), nil
+}
+
+func (s *Service) checkInDays(ctx context.Context, userID uuid.UUID) (int, error) {
+	if s.checks == nil {
+		return 0, nil
+	}
+	dates, err := s.checks.ListDistinctCheckDates(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	return distinctCheckInDays(dates), nil
+}
+
+// visibleLoadout drops equipped items whose grant is missing, expired, or
+// still locked behind the glow level. Required slots fall back to the free
+// default when that grant is still active. The free headband and star clip
+// stay in the stored default and appear here once the level unlocks them.
+// A shop grant shows at any level.
+func visibleLoadout(loadout domain.MascotLoadout, sources map[string]string, level int) domain.MascotLoadout {
+	owned := grantIDs(sources)
 	loadout.Body = keepOrDefault(loadout.Body, domain.MascotItemBodyChibi, owned)
 	loadout.Hair = keepOrDefault(loadout.Hair, domain.MascotItemHairSleepBuns, owned)
 	loadout.Outfit = keepOrDefault(loadout.Outfit, domain.MascotItemOutfitCozyPajamas, owned)
@@ -180,15 +300,16 @@ func visibleLoadout(loadout domain.MascotLoadout, owned map[string]struct{}) dom
 	}
 	kept := make([]string, 0, len(raw))
 	for _, id := range raw {
-		if _, ok := owned[id]; ok {
+		if accessoryShown(id, sources, level) {
 			kept = append(kept, id)
 		}
 	}
-	// Every equipped accessory expired. Put the free pair back when still owned.
-	// An explicit empty list stays empty so the user can take them off.
+	// Every equipped accessory expired. Put the free pair back when still
+	// owned and unlocked. An explicit empty list stays empty so the user
+	// can take them off. A locked free accessory is not put back.
 	if len(kept) == 0 && len(raw) > 0 {
 		for _, id := range []string{domain.MascotItemAccessoryPinkHeadband, domain.MascotItemAccessoryStarClip} {
-			if _, ok := owned[id]; ok {
+			if accessoryShown(id, sources, level) {
 				kept = append(kept, id)
 			}
 		}
@@ -207,6 +328,14 @@ func visibleLoadout(loadout domain.MascotLoadout, owned map[string]struct{}) dom
 	}
 	loadout.RoomItems = rooms
 	return loadout
+}
+
+func accessoryShown(id string, sources map[string]string, level int) bool {
+	source, ok := sources[id]
+	if !ok {
+		return false
+	}
+	return AccessoryWearable(id, level, source)
 }
 
 func keepOrDefault(id, fallback string, owned map[string]struct{}) string {

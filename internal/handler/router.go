@@ -228,6 +228,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		), cfg)
 		api.Get("/me/mascot", jwt, mascotH.Get)
 		api.Put("/me/mascot/loadout", jwt, mascotH.PutLoadout)
+		api.Post("/me/mascot/glow/seen", jwt, mascotH.AckGlowSeen)
 
 		reminderFlags := repository.NewCheckInReminderRepository(db)
 		reminderSvc := checkinreminderuc.NewService(userRepo, repo, reminderFlags, cfg != nil && cfg.HasVAPIDKeys())

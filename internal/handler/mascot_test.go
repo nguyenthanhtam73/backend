@@ -72,7 +72,9 @@ func newMascotAppFor(t *testing.T, asAdmin bool) (*fiber.App, *gorm.DB, uuid.UUI
 	}
 	app.Get("/api/v1/me/mascot", auth, h.Get)
 	app.Put("/api/v1/me/mascot/loadout", auth, h.PutLoadout)
+	app.Post("/api/v1/me/mascot/glow/seen", auth, h.AckGlowSeen)
 	app.Get("/api/v1/me/mascot-open", h.Get)
+	app.Post("/api/v1/me/mascot-open/glow/seen", h.AckGlowSeen)
 	return app, db, u.ID
 }
 
@@ -128,6 +130,10 @@ func TestMascotGetCreatesDefaultAndPutValidates(t *testing.T) {
 	if status != http.StatusUnauthorized || mascotCode(t, env) != "unauthorized" {
 		t.Fatalf("open: %d %#v", status, env)
 	}
+	status, env = mascotCall(t, app, http.MethodPost, "/api/v1/me/mascot-open/glow/seen", "")
+	if status != http.StatusUnauthorized || mascotCode(t, env) != "unauthorized" {
+		t.Fatalf("open seen: %d %#v", status, env)
+	}
 
 	status, env = mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
 	if status != http.StatusOK {
@@ -138,12 +144,17 @@ func TestMascotGetCreatesDefaultAndPutValidates(t *testing.T) {
 	if loadout["body"] != domain.MascotItemBodyChibi || data["mood"] != "happy" {
 		t.Fatalf("default %#v", data)
 	}
-	if loadout["accessory"] != domain.MascotItemAccessoryPinkHeadband {
-		t.Fatalf("accessory %#v", loadout["accessory"])
-	}
+	// Level 1 keeps the free headband and star clip in the stored default,
+	// but they are not shown until glow 3 and 4.
 	acc, _ := loadout["accessories"].([]any)
-	if len(acc) != 2 || acc[0] != domain.MascotItemAccessoryPinkHeadband || acc[1] != domain.MascotItemAccessoryStarClip {
-		t.Fatalf("accessories %#v", loadout["accessories"])
+	if loadout["accessory"] != "" || len(acc) != 0 {
+		t.Fatalf("locked default accessories %#v", loadout)
+	}
+	if data["glow_level"] != float64(1) || data["checkin_days"] != float64(0) || data["level_up"] != false {
+		t.Fatalf("glow %#v", data)
+	}
+	if data["next_level_at"] != float64(3) {
+		t.Fatalf("next %#v", data["next_level_at"])
 	}
 	if _, ok := data["messy_level"]; !ok {
 		t.Fatal("messy_level missing")
@@ -237,6 +248,10 @@ func TestMascotHiddenFromNonAdmin(t *testing.T) {
 	if status != http.StatusNotFound {
 		t.Fatalf("put %d %#v", status, env)
 	}
+	status, env = mascotCall(t, app, http.MethodPost, "/api/v1/me/mascot/glow/seen", "")
+	if status != http.StatusNotFound || mascotCode(t, env) != "not_found" {
+		t.Fatalf("seen %d %#v", status, env)
+	}
 	var mascots, grants int64
 	if err := db.Model(&domain.UserMascot{}).Count(&mascots).Error; err != nil {
 		t.Fatal(err)
@@ -288,7 +303,10 @@ func TestMascotSeedsFreeGrantsAndSkipsExpired(t *testing.T) {
 		Outfit: domain.MascotItemOutfitCozyPajamas, Accessory: "bow_temp",
 		RoomItems: []string{domain.MascotItemRoomPlant},
 	})
-	if err := db.Model(&domain.UserMascot{}).Where("user_id = ?", userID).Update("loadout", raw).Error; err != nil {
+	if err := db.Model(&domain.UserMascot{}).Where("user_id = ?", userID).Updates(map[string]any{
+		"loadout":    raw,
+		"glow_level": 5,
+	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	status, env = mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")

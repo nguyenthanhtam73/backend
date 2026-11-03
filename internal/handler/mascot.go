@@ -10,7 +10,8 @@ import (
 	"github.com/google/uuid"
 )
 
-// MascotHandler serves GET /api/v1/me/mascot and PUT /api/v1/me/mascot/loadout.
+// MascotHandler serves GET /api/v1/me/mascot, PUT /api/v1/me/mascot/loadout,
+// and POST /api/v1/me/mascot/glow/seen.
 type MascotHandler struct {
 	svc *mascotuc.Service
 	cfg *config.Config
@@ -52,6 +53,23 @@ func (h *MascotHandler) Get(c *fiber.Ctx) error {
 		return nil
 	}
 	view, err := h.svc.Get(c.UserContext(), uid)
+	if err != nil {
+		return writeMascotErr(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, view)
+}
+
+// AckGlowSeen handles POST /api/v1/me/mascot/glow/seen.
+// It sets glow_level_seen to the current level so level_up is true only once.
+func (h *MascotHandler) AckGlowSeen(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "mascot unavailable")
+	}
+	uid, ok := h.allow(c)
+	if !ok {
+		return nil
+	}
+	view, err := h.svc.AckGlowSeen(c.UserContext(), uid)
 	if err != nil {
 		return writeMascotErr(c, err)
 	}

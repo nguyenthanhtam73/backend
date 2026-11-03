@@ -31,3 +31,23 @@ func TestMascotMigrationSeedsDefaultIDs(t *testing.T) {
 		}
 	}
 }
+
+func TestMascotGlowMigrationColumns(t *testing.T) {
+	raw, err := os.ReadFile("../../migrations/031_mascot_glow_level.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sql := string(raw)
+	for _, col := range []string{"glow_level", "glow_level_seen", "user_mascot"} {
+		if !strings.Contains(sql, col) {
+			t.Fatalf("migration missing %s", col)
+		}
+	}
+	down, err := os.ReadFile("../../migrations/031_mascot_glow_level.down.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(down), "glow_level") || !strings.Contains(string(down), "glow_level_seen") {
+		t.Fatal("down migration")
+	}
+}
