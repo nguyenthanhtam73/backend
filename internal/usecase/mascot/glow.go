@@ -8,10 +8,10 @@ import (
 )
 
 // GlowThresholds is the distinct check-in day count where each level after 1 starts.
-// The list is ascending. Level 1 is every count below the first entry.
-// The highest level is len(GlowThresholds)+1, so a longer list adds levels.
+// Level 1 is 0 days, then 2 at 3, 3 at 10, 4 at 25, 5 at 50, 6 at 90.
+// The list is ascending. The highest level is len(GlowThresholds)+1.
 // Keep this as the only copy of the numbers. GlowLevel, NextLevelAt, and the tests read it.
-var GlowThresholds = []int{3, 7, 14, 21}
+var GlowThresholds = []int{3, 10, 25, 50, 90}
 
 const (
 	glowUnlockHeadband = 3
