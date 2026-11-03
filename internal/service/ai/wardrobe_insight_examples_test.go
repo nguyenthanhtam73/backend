@@ -165,7 +165,7 @@ func TestFallbackCardLogsValidationProblems(t *testing.T) {
 	prev := wardrobeInsightWarn
 	wardrobeInsightWarn = func(msg string, args ...any) {
 		msgs = append(msgs, msg)
-		argBlobs = append(argBlobs, fmt.Sprint(args))
+		argBlobs = append(argBlobs, fmt.Sprint(args...))
 	}
 	t.Cleanup(func() { wardrobeInsightWarn = prev })
 
