@@ -39,13 +39,14 @@ const (
 // Free starter ids. These match the SVG filenames in the frontend mascot
 // (public/mascot on cursor/be-da-mascot-3bf9) and DEFAULT_LOADOUT.
 const (
-	MascotItemBodyChibi         = "body_chibi"
-	MascotItemHairSleepBuns     = "hair_sleep_buns"
-	MascotItemOutfitCozyPajamas = "outfit_cozy_pajamas"
-	MascotItemAccessoryStarClip = "accessory_star_clip"
-	MascotItemRoomMoon          = "room_moon"
-	MascotItemRoomPlant         = "room_plant"
-	MascotItemRoomPillow        = "room_pillow"
+	MascotItemBodyChibi             = "body_chibi"
+	MascotItemHairSleepBuns         = "hair_sleep_buns"
+	MascotItemOutfitCozyPajamas     = "outfit_cozy_pajamas"
+	MascotItemAccessoryStarClip     = "accessory_star_clip"
+	MascotItemAccessoryPinkHeadband = "accessory_pink_headband"
+	MascotItemRoomMoon              = "room_moon"
+	MascotItemRoomPlant             = "room_plant"
+	MascotItemRoomPillow            = "room_pillow"
 )
 
 // MascotItem is one catalog row. Price is nil when the item is not sold.
@@ -64,8 +65,9 @@ func DefaultMascotItems() []MascotItem {
 	return []MascotItem{
 		{ID: MascotItemBodyChibi, Layer: MascotLayerBody, Name: "Bé Da", IsFree: true},
 		{ID: MascotItemHairSleepBuns, Layer: MascotLayerHair, Name: "Tóc búi ngủ", IsFree: true},
-		{ID: MascotItemOutfitCozyPajamas, Layer: MascotLayerOutfit, Name: "Pyjama hồng", IsFree: true},
+		{ID: MascotItemOutfitCozyPajamas, Layer: MascotLayerOutfit, Name: "Pijama ấm", IsFree: true},
 		{ID: MascotItemAccessoryStarClip, Layer: MascotLayerAccessory, Name: "Kẹp sao", IsFree: true},
+		{ID: MascotItemAccessoryPinkHeadband, Layer: MascotLayerAccessory, Name: "Băng đô hồng", IsFree: true},
 		{ID: MascotItemRoomMoon, Layer: MascotLayerRoom, Name: "Trăng", IsFree: true},
 		{ID: MascotItemRoomPlant, Layer: MascotLayerRoom, Name: "Cây nhỏ", IsFree: true},
 		{ID: MascotItemRoomPillow, Layer: MascotLayerRoom, Name: "Gối", IsFree: true},
@@ -73,22 +75,28 @@ func DefaultMascotItems() []MascotItem {
 }
 
 // MascotLoadout is the equipped look. Stored as JSON so new items need no migration.
+// Accessories is the full worn set. Accessory is the first entry, kept so older
+// clients that only read one id still see a clip.
 type MascotLoadout struct {
-	Body      string   `json:"body"`
-	Hair      string   `json:"hair"`
-	Outfit    string   `json:"outfit"`
-	Accessory string   `json:"accessory"`
-	RoomItems []string `json:"room_items"`
+	Body        string   `json:"body"`
+	Hair        string   `json:"hair"`
+	Outfit      string   `json:"outfit"`
+	Accessory   string   `json:"accessory"`
+	Accessories []string `json:"accessories"`
+	RoomItems   []string `json:"room_items"`
 }
 
 // DefaultMascotLoadout is the free look created on the first GET.
+// Accessories follows frontend DEFAULT_ACCESSORY_IDS (headband, then star clip).
 func DefaultMascotLoadout() MascotLoadout {
+	accessories := []string{MascotItemAccessoryPinkHeadband, MascotItemAccessoryStarClip}
 	return MascotLoadout{
-		Body:      MascotItemBodyChibi,
-		Hair:      MascotItemHairSleepBuns,
-		Outfit:    MascotItemOutfitCozyPajamas,
-		Accessory: MascotItemAccessoryStarClip,
-		RoomItems: []string{MascotItemRoomMoon, MascotItemRoomPlant, MascotItemRoomPillow},
+		Body:        MascotItemBodyChibi,
+		Hair:        MascotItemHairSleepBuns,
+		Outfit:      MascotItemOutfitCozyPajamas,
+		Accessory:   accessories[0],
+		Accessories: accessories,
+		RoomItems:   []string{MascotItemRoomMoon, MascotItemRoomPlant, MascotItemRoomPillow},
 	}
 }
 

@@ -138,6 +138,13 @@ func TestMascotGetCreatesDefaultAndPutValidates(t *testing.T) {
 	if loadout["body"] != domain.MascotItemBodyChibi || data["mood"] != "happy" {
 		t.Fatalf("default %#v", data)
 	}
+	if loadout["accessory"] != domain.MascotItemAccessoryPinkHeadband {
+		t.Fatalf("accessory %#v", loadout["accessory"])
+	}
+	acc, _ := loadout["accessories"].([]any)
+	if len(acc) != 2 || acc[0] != domain.MascotItemAccessoryPinkHeadband || acc[1] != domain.MascotItemAccessoryStarClip {
+		t.Fatalf("accessories %#v", loadout["accessories"])
+	}
 	if _, ok := data["messy_level"]; !ok {
 		t.Fatal("messy_level missing")
 	}
@@ -289,8 +296,9 @@ func TestMascotSeedsFreeGrantsAndSkipsExpired(t *testing.T) {
 		t.Fatalf("get expired %d %#v", status, env)
 	}
 	loadout, _ := mascotData(t, env)["loadout"].(map[string]any)
-	if loadout["accessory"] != "" {
-		t.Fatalf("expired accessory still equipped: %#v", loadout)
+	acc, _ := loadout["accessories"].([]any)
+	if loadout["accessory"] != domain.MascotItemAccessoryPinkHeadband || len(acc) != 2 {
+		t.Fatalf("expired accessory should fall back to the free pair: %#v", loadout)
 	}
 	var still int64
 	if err := db.Model(&domain.UserMascotItem{}).Where("item_id = ?", "bow_temp").Count(&still).Error; err != nil {

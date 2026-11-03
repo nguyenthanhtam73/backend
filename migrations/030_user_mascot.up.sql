@@ -24,8 +24,9 @@ CREATE TABLE IF NOT EXISTS user_mascot (
 INSERT INTO mascot_items (id, layer, name, is_free, price) VALUES
     ('body_chibi', 'body', 'Bé Da', TRUE, NULL),
     ('hair_sleep_buns', 'hair', 'Tóc búi ngủ', TRUE, NULL),
-    ('outfit_cozy_pajamas', 'outfit', 'Pyjama hồng', TRUE, NULL),
+    ('outfit_cozy_pajamas', 'outfit', 'Pijama ấm', TRUE, NULL),
     ('accessory_star_clip', 'accessory', 'Kẹp sao', TRUE, NULL),
+    ('accessory_pink_headband', 'accessory', 'Băng đô hồng', TRUE, NULL),
     ('room_moon', 'room', 'Trăng', TRUE, NULL),
     ('room_plant', 'room', 'Cây nhỏ', TRUE, NULL),
     ('room_pillow', 'room', 'Gối', TRUE, NULL)

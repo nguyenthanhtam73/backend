@@ -174,7 +174,29 @@ func visibleLoadout(loadout domain.MascotLoadout, owned map[string]struct{}) dom
 	loadout.Body = keepOrDefault(loadout.Body, domain.MascotItemBodyChibi, owned)
 	loadout.Hair = keepOrDefault(loadout.Hair, domain.MascotItemHairSleepBuns, owned)
 	loadout.Outfit = keepOrDefault(loadout.Outfit, domain.MascotItemOutfitCozyPajamas, owned)
-	if _, ok := owned[loadout.Accessory]; !ok {
+	raw := loadout.Accessories
+	if len(raw) == 0 && loadout.Accessory != "" {
+		raw = []string{loadout.Accessory}
+	}
+	kept := make([]string, 0, len(raw))
+	for _, id := range raw {
+		if _, ok := owned[id]; ok {
+			kept = append(kept, id)
+		}
+	}
+	// Every equipped accessory expired. Put the free pair back when still owned.
+	// An explicit empty list stays empty so the user can take them off.
+	if len(kept) == 0 && len(raw) > 0 {
+		for _, id := range []string{domain.MascotItemAccessoryPinkHeadband, domain.MascotItemAccessoryStarClip} {
+			if _, ok := owned[id]; ok {
+				kept = append(kept, id)
+			}
+		}
+	}
+	loadout.Accessories = kept
+	if len(kept) > 0 {
+		loadout.Accessory = kept[0]
+	} else {
 		loadout.Accessory = ""
 	}
 	rooms := make([]string, 0, len(loadout.RoomItems))
@@ -200,6 +222,9 @@ func keepOrDefault(id, fallback string, owned map[string]struct{}) string {
 func toResponse(loadout domain.MascotLoadout, derived Result) dto.MascotResponse {
 	if loadout.RoomItems == nil {
 		loadout.RoomItems = []string{}
+	}
+	if loadout.Accessories == nil {
+		loadout.Accessories = []string{}
 	}
 	out := dto.MascotResponse{
 		Loadout:       loadout,
@@ -266,6 +291,28 @@ func normalizeLoadout(in domain.MascotLoadout) domain.MascotLoadout {
 		items = append(items, id)
 	}
 	in.RoomItems = items
+	acc := make([]string, 0, len(in.Accessories))
+	seen := map[string]struct{}{}
+	for _, id := range in.Accessories {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		acc = append(acc, id)
+	}
+	if len(acc) == 0 && in.Accessory != "" {
+		acc = []string{in.Accessory}
+	}
+	in.Accessories = acc
+	if len(acc) > 0 {
+		in.Accessory = acc[0]
+	} else {
+		in.Accessory = ""
+	}
 	return in
 }
 

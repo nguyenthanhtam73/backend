@@ -6,50 +6,46 @@ import (
 	"testing"
 )
 
-// frontendMascotItemIDs is the equippable set from frontend PR
-// nguyenthanhtam73/frontend#82, branch cursor/be-da-mascot-3bf9:
-// public/mascot asset filenames plus DEFAULT_LOADOUT in lib/mascot/model.ts.
-// Mood-only files (body_sit, body_back, faces, messy, fx) are not shop items.
-var frontendMascotItemIDs = map[string]string{
-	"body_chibi":          MascotLayerBody,
-	"hair_sleep_buns":     MascotLayerHair,
-	"outfit_cozy_pajamas": MascotLayerOutfit,
-	"accessory_star_clip": MascotLayerAccessory,
-	"room_moon":           MascotLayerRoom,
-	"room_plant":          MascotLayerRoom,
-	"room_pillow":         MascotLayerRoom,
+// frontendCatalog is MASCOT_CATALOG from frontend lib/mascot/catalog.ts
+// on branch cursor/be-da-mascot-3bf9 (PR nguyenthanhtam73/frontend#82).
+var frontendCatalog = []MascotItem{
+	{ID: "body_chibi", Layer: MascotLayerBody, Name: "Bé Da", IsFree: true},
+	{ID: "hair_sleep_buns", Layer: MascotLayerHair, Name: "Tóc búi ngủ", IsFree: true},
+	{ID: "outfit_cozy_pajamas", Layer: MascotLayerOutfit, Name: "Pijama ấm", IsFree: true},
+	{ID: "accessory_star_clip", Layer: MascotLayerAccessory, Name: "Kẹp sao", IsFree: true},
+	{ID: "accessory_pink_headband", Layer: MascotLayerAccessory, Name: "Băng đô hồng", IsFree: true},
+	{ID: "room_moon", Layer: MascotLayerRoom, Name: "Trăng", IsFree: true},
+	{ID: "room_plant", Layer: MascotLayerRoom, Name: "Cây nhỏ", IsFree: true},
+	{ID: "room_pillow", Layer: MascotLayerRoom, Name: "Gối", IsFree: true},
 }
 
-func TestDefaultMascotIDsMatchFrontendAssets(t *testing.T) {
-	seen := map[string]struct{}{}
-	for _, item := range DefaultMascotItems() {
-		layer, ok := frontendMascotItemIDs[item.ID]
-		if !ok {
-			t.Fatalf("seeded id %q is not a frontend mascot asset", item.ID)
-		}
-		if item.Layer != layer {
-			t.Fatalf("%s layer %s, frontend %s", item.ID, item.Layer, layer)
-		}
-		if !item.IsFree {
-			t.Fatalf("%s should be a free default", item.ID)
-		}
-		seen[item.ID] = struct{}{}
+func TestDefaultMascotIDsMatchFrontendCatalog(t *testing.T) {
+	got := DefaultMascotItems()
+	if len(got) != len(frontendCatalog) {
+		t.Fatalf("seeded %d ids, catalog.ts %d", len(got), len(frontendCatalog))
 	}
-	if len(seen) != len(frontendMascotItemIDs) {
-		t.Fatalf("seeded %d ids, frontend catalog %d", len(seen), len(frontendMascotItemIDs))
+	for i, item := range got {
+		want := frontendCatalog[i]
+		if item.ID != want.ID || item.Layer != want.Layer || item.Name != want.Name || !item.IsFree {
+			t.Fatalf("item %d: got %+v want %+v", i, item, want)
+		}
 	}
 
 	loadout := DefaultMascotLoadout()
-	for _, id := range []string{loadout.Body, loadout.Hair, loadout.Outfit, loadout.Accessory} {
-		if _, ok := seen[id]; !ok {
-			t.Fatalf("default loadout id %q is not seeded", id)
+	if loadout.Body != "body_chibi" || loadout.Hair != "hair_sleep_buns" || loadout.Outfit != "outfit_cozy_pajamas" {
+		t.Fatalf("loadout %+v", loadout)
+	}
+	wantAcc := []string{"accessory_pink_headband", "accessory_star_clip"}
+	if len(loadout.Accessories) != len(wantAcc) {
+		t.Fatalf("accessories %+v", loadout.Accessories)
+	}
+	for i, id := range wantAcc {
+		if loadout.Accessories[i] != id {
+			t.Fatalf("accessories %+v", loadout.Accessories)
 		}
 	}
-	if loadout.Body != "body_chibi" ||
-		loadout.Hair != "hair_sleep_buns" ||
-		loadout.Outfit != "outfit_cozy_pajamas" ||
-		loadout.Accessory != "accessory_star_clip" {
-		t.Fatalf("loadout %+v", loadout)
+	if loadout.Accessory != wantAcc[0] {
+		t.Fatalf("accessory compat field %q, want first %q", loadout.Accessory, wantAcc[0])
 	}
 	wantRooms := []string{"room_moon", "room_plant", "room_pillow"}
 	if len(loadout.RoomItems) != len(wantRooms) {
@@ -59,9 +55,6 @@ func TestDefaultMascotIDsMatchFrontendAssets(t *testing.T) {
 		if loadout.RoomItems[i] != id {
 			t.Fatalf("rooms %+v", loadout.RoomItems)
 		}
-		if _, ok := seen[id]; !ok {
-			t.Fatalf("room %s is not seeded", id)
-		}
 	}
 
 	raw, err := os.ReadFile("../../migrations/030_user_mascot.up.sql")
@@ -69,9 +62,9 @@ func TestDefaultMascotIDsMatchFrontendAssets(t *testing.T) {
 		t.Fatal(err)
 	}
 	sql := string(raw)
-	for id := range frontendMascotItemIDs {
-		if !strings.Contains(sql, "'"+id+"'") {
-			t.Fatalf("migration missing %s", id)
+	for _, item := range frontendCatalog {
+		if !strings.Contains(sql, "'"+item.ID+"'") {
+			t.Fatalf("migration missing %s", item.ID)
 		}
 	}
 	for _, retired := range []string{"body_default", "hair_default", "outfit_default", "accessory_default"} {

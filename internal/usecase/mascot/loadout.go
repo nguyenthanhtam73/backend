@@ -7,7 +7,10 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 )
 
-const maxRoomItems = 12
+const (
+	maxRoomItems   = 12
+	maxAccessories = 8
+)
 
 var itemIDPattern = regexp.MustCompile(`^[a-z0-9_]{1,64}$`)
 
@@ -26,6 +29,19 @@ func ValidateLoadout(loadout domain.MascotLoadout, catalog map[string]domain.Mas
 	}
 	if err := slot(loadout.Accessory, domain.MascotLayerAccessory, false, catalog, owned); err != nil {
 		return err
+	}
+	if len(loadout.Accessories) > maxAccessories {
+		return domain.BadRequest("invalid_loadout", "too many accessories")
+	}
+	seenAcc := map[string]struct{}{}
+	for _, id := range loadout.Accessories {
+		if _, dup := seenAcc[id]; dup {
+			return domain.BadRequest("invalid_loadout", "accessories must be unique")
+		}
+		seenAcc[id] = struct{}{}
+		if err := slot(id, domain.MascotLayerAccessory, true, catalog, owned); err != nil {
+			return err
+		}
 	}
 	if len(loadout.RoomItems) > maxRoomItems {
 		return domain.BadRequest("invalid_loadout", "too many room items")
