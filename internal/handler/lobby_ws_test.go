@@ -69,6 +69,44 @@ func TestLobbyOriginGate(t *testing.T) {
 		assertHelloHidesAccount(t, joinAndHello(t, conn), admin.ID)
 	})
 
+	t.Run("no origin cookie rejected before auth", func(t *testing.T) {
+		before := lookups.Load()
+		status, body := lobbyHTTP(t, httpBase, map[string]string{
+			"Cookie": cookie,
+		})
+		if status != http.StatusForbidden || !strings.Contains(body, "forbidden") {
+			t.Fatalf("status %d body %s", status, body)
+		}
+		if strings.Contains(body, access) {
+			t.Fatal("rejection echoed the access token")
+		}
+		if lookups.Load() != before {
+			t.Fatal("cookie without origin reached auth")
+		}
+	})
+
+	t.Run("no origin alternate cookie name rejected", func(t *testing.T) {
+		before := lookups.Load()
+		status, body := lobbyHTTP(t, httpBase, map[string]string{
+			"Cookie": "access_token=" + access,
+		})
+		if status != http.StatusForbidden || !strings.Contains(body, "forbidden") {
+			t.Fatalf("status %d body %s", status, body)
+		}
+		if lookups.Load() != before {
+			t.Fatal("access_token cookie without origin reached auth")
+		}
+	})
+
+	t.Run("no origin bearer still wins when a cookie is also sent", func(t *testing.T) {
+		conn := dialLobby(t, wsBase, http.Header{
+			"Authorization": []string{"Bearer " + access},
+			"Cookie":        []string{cookie},
+		})
+		defer conn.Close()
+		assertHelloHidesAccount(t, joinAndHello(t, conn), admin.ID)
+	})
+
 	t.Run("query token with origin rejected before auth", func(t *testing.T) {
 		before := lookups.Load()
 		status, body := lobbyHTTP(t, httpBase+"?access_token="+url.QueryEscape(access), map[string]string{

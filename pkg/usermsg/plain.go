@@ -53,6 +53,7 @@ var exact = map[string]string{
 	"websocket upgrade required":              "Kết nối này cần WebSocket.",
 	"origin not allowed":                      "Trang này không kết nối được.",
 	"query token not allowed":                 "Phiên đăng nhập không gửi trên đường dẫn.",
+	"cookie requires origin":                  "Phiên đăng nhập từ ứng dụng cần mã Bearer.",
 	"empty bearer token":                      "Bạn cần đăng nhập lại.",
 	"access token invalid or expired":         "Phiên đăng nhập hết hạn. Bạn đăng nhập lại nhé.",
 	"JWT service not configured":              "Đăng nhập đang lỗi. Bạn thử lại sau nhé.",
