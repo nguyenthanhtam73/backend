@@ -22,7 +22,8 @@ const (
 	Route = "/mascot/lobby/ws"
 
 	// AccessCookie is the browser cookie that carries the same access JWT
-	// Android sends as Authorization: Bearer. access_token is accepted too.
+	// Android sends as Authorization: Bearer. The access_token cookie name
+	// is accepted too. Browsers do not pass the token on the query string.
 	AccessCookie = "dadiary_access_token"
 
 	// LobbyCap is how many people one Sảnh holds, including someone in the

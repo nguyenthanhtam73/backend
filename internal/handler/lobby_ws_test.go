@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +20,99 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
+
+func TestLobbyOriginGate(t *testing.T) {
+	admin := &domain.User{ID: uuid.New(), Email: "admin@example.com", IsActive: true}
+	var lookups atomic.Int32
+	wsBase, httpBase, tok := startLobbyServerLookup(t, "", func() { lookups.Add(1) }, admin)
+	access, err := tok.SignAccess(admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := lobby.AccessCookie + "=" + access
+
+	t.Run("foreign origin cookie blocked before auth", func(t *testing.T) {
+		before := lookups.Load()
+		status, body := lobbyHTTP(t, httpBase, map[string]string{
+			"Origin": "https://evil.example",
+			"Cookie": cookie,
+		})
+		if status != http.StatusForbidden || !strings.Contains(body, "forbidden") {
+			t.Fatalf("status %d body %s", status, body)
+		}
+		if lookups.Load() != before {
+			t.Fatal("foreign origin reached auth")
+		}
+	})
+
+	t.Run("dadiary.vn cookie allowed", func(t *testing.T) {
+		conn := dialLobby(t, wsBase, http.Header{
+			"Cookie": []string{cookie},
+			"Origin": []string{"https://dadiary.vn"},
+		})
+		defer conn.Close()
+		assertHelloHidesAccount(t, joinAndHello(t, conn), admin.ID)
+	})
+
+	t.Run("www.dadiary.vn cookie allowed", func(t *testing.T) {
+		conn := dialLobby(t, wsBase, http.Header{
+			"Cookie": []string{cookie},
+			"Origin": []string{"https://www.dadiary.vn"},
+		})
+		defer conn.Close()
+		assertHelloHidesAccount(t, joinAndHello(t, conn), admin.ID)
+	})
+
+	t.Run("no origin bearer allowed", func(t *testing.T) {
+		conn := dialLobby(t, wsBase, http.Header{"Authorization": []string{"Bearer " + access}})
+		defer conn.Close()
+		assertHelloHidesAccount(t, joinAndHello(t, conn), admin.ID)
+	})
+
+	t.Run("query token with origin rejected before auth", func(t *testing.T) {
+		before := lookups.Load()
+		status, body := lobbyHTTP(t, httpBase+"?access_token="+url.QueryEscape(access), map[string]string{
+			"Origin": "https://dadiary.vn",
+			"Cookie": cookie,
+		})
+		if status != http.StatusForbidden || !strings.Contains(body, "forbidden") {
+			t.Fatalf("status %d body %s", status, body)
+		}
+		if lookups.Load() != before {
+			t.Fatal("query token on a browser origin reached auth")
+		}
+	})
+
+	t.Run("localhost allowed outside production", func(t *testing.T) {
+		conn := dialLobby(t, wsBase, http.Header{
+			"Cookie": []string{cookie},
+			"Origin": []string{"http://localhost:3000"},
+		})
+		defer conn.Close()
+		assertHelloHidesAccount(t, joinAndHello(t, conn), admin.ID)
+	})
+}
+
+func TestLobbyOriginProductionRejectsLocalhost(t *testing.T) {
+	admin := &domain.User{ID: uuid.New(), Email: "admin@example.com", IsActive: true}
+	var lookups atomic.Int32
+	_, httpBase, tok := startLobbyServerLookup(t, "production", func() { lookups.Add(1) }, admin)
+	access, err := tok.SignAccess(admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := lookups.Load()
+	status, body := lobbyHTTP(t, httpBase, map[string]string{
+		"Origin": "http://localhost:3000",
+		"Cookie": lobby.AccessCookie + "=" + access,
+	})
+	if status != http.StatusForbidden || !strings.Contains(body, "forbidden") {
+		t.Fatalf("status %d body %s", status, body)
+	}
+	if lookups.Load() != before {
+		t.Fatal("localhost on production reached auth")
+	}
+}
 
 func TestLobbyAuthBearerCookieAndQuery(t *testing.T) {
 	admin := &domain.User{ID: uuid.New(), Email: "admin@example.com", IsActive: true}
@@ -73,12 +167,15 @@ func TestLobbyAuthBearerCookieAndQuery(t *testing.T) {
 	})
 
 	t.Run("cookie", func(t *testing.T) {
-		conn := dialLobby(t, wsBase, http.Header{"Cookie": []string{lobby.AccessCookie + "=" + access}})
+		conn := dialLobby(t, wsBase, http.Header{
+			"Cookie": []string{lobby.AccessCookie + "=" + access},
+			"Origin": []string{"https://dadiary.vn"},
+		})
 		defer conn.Close()
 		assertHelloHidesAccount(t, joinAndHello(t, conn), admin.ID)
 	})
 
-	t.Run("query", func(t *testing.T) {
+	t.Run("query without origin", func(t *testing.T) {
 		conn := dialLobby(t, wsBase+"?access_token="+url.QueryEscape(access), nil)
 		defer conn.Close()
 		assertHelloHidesAccount(t, joinAndHello(t, conn), admin.ID)
@@ -90,6 +187,45 @@ func TestLobbyAuthBearerCookieAndQuery(t *testing.T) {
 			t.Fatalf("status %d body %s", status, body)
 		}
 	})
+}
+
+// startLobbyServerLookup is startLobbyServer with an env and a lookup counter.
+func startLobbyServerLookup(t *testing.T, env string, onLookup func(), users ...*domain.User) (wsBase, httpBase string, tok *token.Service) {
+	t.Helper()
+	tok, err := token.NewService(config.JWTConfig{
+		Secret:     "test-secret-for-lobby-ws-32b!",
+		AccessTTL:  time.Hour,
+		RefreshTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[uuid.UUID]*domain.User, len(users))
+	var emails []string
+	for _, u := range users {
+		byID[u.ID] = u
+		if u.Email == "admin@example.com" || strings.HasPrefix(u.Email, "admin-") {
+			emails = append(emails, u.Email)
+		}
+	}
+	hub := lobby.NewHub(lobby.Config{})
+	hub.Start()
+	t.Cleanup(hub.Stop)
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	NewLobbyHandler(hub, tok, &config.Config{Env: env, AdminEmails: emails}, func(_ context.Context, id uuid.UUID) (*domain.User, error) {
+		if onLookup != nil {
+			onLookup()
+		}
+		return byID[id], nil
+	}).Register(app.Group("/api/v1"))
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = app.Listener(ln) }()
+	t.Cleanup(func() { _ = app.Shutdown() })
+	host := ln.Addr().String()
+	return "ws://" + host + lobby.PublicPath, "http://" + host + lobby.PublicPath, tok
 }
 
 // startLobbyServer listens on 127.0.0.1:0.
