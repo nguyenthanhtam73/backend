@@ -171,9 +171,9 @@ func (s *Service) view(ctx context.Context, userID uuid.UUID, row *domain.UserMa
 // visibleLoadout drops equipped items whose grant is missing or expired.
 // Required slots fall back to the free default when that grant is still active.
 func visibleLoadout(loadout domain.MascotLoadout, owned map[string]struct{}) domain.MascotLoadout {
-	loadout.Body = keepOrDefault(loadout.Body, domain.MascotItemBodyDefault, owned)
-	loadout.Hair = keepOrDefault(loadout.Hair, domain.MascotItemHairDefault, owned)
-	loadout.Outfit = keepOrDefault(loadout.Outfit, domain.MascotItemOutfitDefault, owned)
+	loadout.Body = keepOrDefault(loadout.Body, domain.MascotItemBodyChibi, owned)
+	loadout.Hair = keepOrDefault(loadout.Hair, domain.MascotItemHairSleepBuns, owned)
+	loadout.Outfit = keepOrDefault(loadout.Outfit, domain.MascotItemOutfitCozyPajamas, owned)
 	if _, ok := owned[loadout.Accessory]; !ok {
 		loadout.Accessory = ""
 	}

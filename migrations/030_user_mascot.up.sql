@@ -22,11 +22,13 @@ CREATE TABLE IF NOT EXISTS user_mascot (
 );
 
 INSERT INTO mascot_items (id, layer, name, is_free, price) VALUES
-    ('body_default', 'body', 'Bé Da', TRUE, NULL),
-    ('hair_default', 'hair', 'Tóc mềm', TRUE, NULL),
-    ('outfit_default', 'outfit', 'Áo thun', TRUE, NULL),
-    ('accessory_default', 'accessory', 'Nơ nhỏ', TRUE, NULL),
-    ('room_plant', 'room', 'Cây nhỏ', TRUE, NULL)
+    ('body_chibi', 'body', 'Bé Da', TRUE, NULL),
+    ('hair_sleep_buns', 'hair', 'Tóc búi ngủ', TRUE, NULL),
+    ('outfit_cozy_pajamas', 'outfit', 'Pyjama hồng', TRUE, NULL),
+    ('accessory_star_clip', 'accessory', 'Kẹp sao', TRUE, NULL),
+    ('room_moon', 'room', 'Trăng', TRUE, NULL),
+    ('room_plant', 'room', 'Cây nhỏ', TRUE, NULL),
+    ('room_pillow', 'room', 'Gối', TRUE, NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- Owned items belong to the user, not to a room. source_room_id is a label

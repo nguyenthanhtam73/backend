@@ -40,14 +40,14 @@ func TestValidateLoadout(t *testing.T) {
 	}{
 		{"missing body", func(l *domain.MascotLoadout) { l.Body = "" }, "invalid_loadout", nil},
 		{"unknown", func(l *domain.MascotLoadout) { l.Hair = "hair_nope" }, "unknown_item", nil},
-		{"wrong layer", func(l *domain.MascotLoadout) { l.Body = domain.MascotItemHairDefault }, "wrong_layer", nil},
+		{"wrong layer", func(l *domain.MascotLoadout) { l.Body = domain.MascotItemHairSleepBuns }, "wrong_layer", nil},
 		{"not owned", func(l *domain.MascotLoadout) { l.Outfit = "outfit_gold" }, "item_not_owned", nil},
-		{"free but not granted", func(l *domain.MascotLoadout) { l.Hair = domain.MascotItemHairDefault }, "item_not_owned", map[string]struct{}{}},
+		{"free but not granted", func(l *domain.MascotLoadout) { l.Hair = domain.MascotItemHairSleepBuns }, "item_not_owned", map[string]struct{}{}},
 		{"bad id", func(l *domain.MascotLoadout) { l.Hair = "Hair Default" }, "invalid_loadout", nil},
 		{"dup room", func(l *domain.MascotLoadout) {
 			l.RoomItems = []string{domain.MascotItemRoomPlant, domain.MascotItemRoomPlant}
 		}, "invalid_loadout", nil},
-		{"room layer", func(l *domain.MascotLoadout) { l.RoomItems = []string{domain.MascotItemBodyDefault} }, "wrong_layer", nil},
+		{"room layer", func(l *domain.MascotLoadout) { l.RoomItems = []string{domain.MascotItemBodyChibi} }, "wrong_layer", nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

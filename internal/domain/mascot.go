@@ -36,13 +36,16 @@ const (
 	MascotSourceShop           = "shop"
 )
 
-// Free starter ids. A later shop inserts more mascot_items rows; loadout stays JSON.
+// Free starter ids. These match the SVG filenames in the frontend mascot
+// (public/mascot on cursor/be-da-mascot-3bf9) and DEFAULT_LOADOUT.
 const (
-	MascotItemBodyDefault      = "body_default"
-	MascotItemHairDefault      = "hair_default"
-	MascotItemOutfitDefault    = "outfit_default"
-	MascotItemAccessoryDefault = "accessory_default"
-	MascotItemRoomPlant        = "room_plant"
+	MascotItemBodyChibi         = "body_chibi"
+	MascotItemHairSleepBuns     = "hair_sleep_buns"
+	MascotItemOutfitCozyPajamas = "outfit_cozy_pajamas"
+	MascotItemAccessoryStarClip = "accessory_star_clip"
+	MascotItemRoomMoon          = "room_moon"
+	MascotItemRoomPlant         = "room_plant"
+	MascotItemRoomPillow        = "room_pillow"
 )
 
 // MascotItem is one catalog row. Price is nil when the item is not sold.
@@ -59,11 +62,13 @@ func (MascotItem) TableName() string { return "mascot_items" }
 // DefaultMascotItems are the free starters. Keep migrations/030_user_mascot.up.sql in sync.
 func DefaultMascotItems() []MascotItem {
 	return []MascotItem{
-		{ID: MascotItemBodyDefault, Layer: MascotLayerBody, Name: "Bé Da", IsFree: true},
-		{ID: MascotItemHairDefault, Layer: MascotLayerHair, Name: "Tóc mềm", IsFree: true},
-		{ID: MascotItemOutfitDefault, Layer: MascotLayerOutfit, Name: "Áo thun", IsFree: true},
-		{ID: MascotItemAccessoryDefault, Layer: MascotLayerAccessory, Name: "Nơ nhỏ", IsFree: true},
+		{ID: MascotItemBodyChibi, Layer: MascotLayerBody, Name: "Bé Da", IsFree: true},
+		{ID: MascotItemHairSleepBuns, Layer: MascotLayerHair, Name: "Tóc búi ngủ", IsFree: true},
+		{ID: MascotItemOutfitCozyPajamas, Layer: MascotLayerOutfit, Name: "Pyjama hồng", IsFree: true},
+		{ID: MascotItemAccessoryStarClip, Layer: MascotLayerAccessory, Name: "Kẹp sao", IsFree: true},
+		{ID: MascotItemRoomMoon, Layer: MascotLayerRoom, Name: "Trăng", IsFree: true},
 		{ID: MascotItemRoomPlant, Layer: MascotLayerRoom, Name: "Cây nhỏ", IsFree: true},
+		{ID: MascotItemRoomPillow, Layer: MascotLayerRoom, Name: "Gối", IsFree: true},
 	}
 }
 
@@ -79,11 +84,11 @@ type MascotLoadout struct {
 // DefaultMascotLoadout is the free look created on the first GET.
 func DefaultMascotLoadout() MascotLoadout {
 	return MascotLoadout{
-		Body:      MascotItemBodyDefault,
-		Hair:      MascotItemHairDefault,
-		Outfit:    MascotItemOutfitDefault,
-		Accessory: MascotItemAccessoryDefault,
-		RoomItems: []string{MascotItemRoomPlant},
+		Body:      MascotItemBodyChibi,
+		Hair:      MascotItemHairSleepBuns,
+		Outfit:    MascotItemOutfitCozyPajamas,
+		Accessory: MascotItemAccessoryStarClip,
+		RoomItems: []string{MascotItemRoomMoon, MascotItemRoomPlant, MascotItemRoomPillow},
 	}
 }
 

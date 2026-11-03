@@ -135,7 +135,7 @@ func TestMascotGetCreatesDefaultAndPutValidates(t *testing.T) {
 	}
 	data := mascotData(t, env)
 	loadout, _ := data["loadout"].(map[string]any)
-	if loadout["body"] != domain.MascotItemBodyDefault || data["mood"] != "happy" {
+	if loadout["body"] != domain.MascotItemBodyChibi || data["mood"] != "happy" {
 		t.Fatalf("default %#v", data)
 	}
 	if _, ok := data["messy_level"]; !ok {
@@ -165,19 +165,19 @@ func TestMascotGetCreatesDefaultAndPutValidates(t *testing.T) {
 	if err := db.Create(&domain.MascotItem{ID: "outfit_gold", Layer: domain.MascotLayerOutfit, Name: "Áo vàng", IsFree: false, Price: &price}).Error; err != nil {
 		t.Fatal(err)
 	}
-	bad := `{"body":"body_default","hair":"hair_default","outfit":"outfit_gold","accessory":"accessory_default","room_items":["room_plant"]}`
+	bad := `{"body":"body_chibi","hair":"hair_sleep_buns","outfit":"outfit_gold","accessory":"accessory_star_clip","room_items":["room_plant"]}`
 	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", bad)
 	if status != http.StatusBadRequest || mascotCode(t, env) != "item_not_owned" {
 		t.Fatalf("paid %d %#v", status, env)
 	}
 
-	wrong := `{"body":"hair_default","hair":"hair_default","outfit":"outfit_default","accessory":"","room_items":[]}`
+	wrong := `{"body":"hair_sleep_buns","hair":"hair_sleep_buns","outfit":"outfit_cozy_pajamas","accessory":"","room_items":[]}`
 	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", wrong)
 	if status != http.StatusBadRequest || mascotCode(t, env) != "wrong_layer" {
 		t.Fatalf("layer %d %#v", status, env)
 	}
 
-	okBody := `{"body":"body_default","hair":"hair_default","outfit":"outfit_default","accessory":"","room_items":[]}`
+	okBody := `{"body":"body_chibi","hair":"hair_sleep_buns","outfit":"outfit_cozy_pajamas","accessory":"","room_items":[]}`
 	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", okBody)
 	if status != http.StatusOK {
 		t.Fatalf("put %d %#v", status, env)
@@ -226,7 +226,7 @@ func TestMascotHiddenFromNonAdmin(t *testing.T) {
 	if status != http.StatusNotFound || mascotCode(t, env) != "not_found" {
 		t.Fatalf("get %d %#v", status, env)
 	}
-	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", `{"body":"body_default"}`)
+	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", `{"body":"body_chibi"}`)
 	if status != http.StatusNotFound {
 		t.Fatalf("put %d %#v", status, env)
 	}
@@ -277,8 +277,8 @@ func TestMascotSeedsFreeGrantsAndSkipsExpired(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw, _ := json.Marshal(domain.MascotLoadout{
-		Body: domain.MascotItemBodyDefault, Hair: domain.MascotItemHairDefault,
-		Outfit: domain.MascotItemOutfitDefault, Accessory: "bow_temp",
+		Body: domain.MascotItemBodyChibi, Hair: domain.MascotItemHairSleepBuns,
+		Outfit: domain.MascotItemOutfitCozyPajamas, Accessory: "bow_temp",
 		RoomItems: []string{domain.MascotItemRoomPlant},
 	})
 	if err := db.Model(&domain.UserMascot{}).Where("user_id = ?", userID).Update("loadout", raw).Error; err != nil {
@@ -300,7 +300,7 @@ func TestMascotSeedsFreeGrantsAndSkipsExpired(t *testing.T) {
 		t.Fatal("expired grant was deleted")
 	}
 
-	body := `{"body":"body_default","hair":"hair_default","outfit":"outfit_default","accessory":"bow_temp","room_items":[]}`
+	body := `{"body":"body_chibi","hair":"hair_sleep_buns","outfit":"outfit_cozy_pajamas","accessory":"bow_temp","room_items":[]}`
 	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", body)
 	if status != http.StatusBadRequest || mascotCode(t, env) != "item_not_owned" {
 		t.Fatalf("put expired %d %#v", status, env)
