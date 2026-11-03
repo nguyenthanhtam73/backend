@@ -8,6 +8,7 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/streaktime"
+	mascotuc "github.com/dadiary/backend/internal/usecase/mascot"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -32,33 +33,22 @@ func TestMascotGlowCheckInDaysDedup(t *testing.T) {
 		t.Fatalf("get %d %#v", status, env)
 	}
 	data := mascotData(t, env)
-	if data["checkin_days"] != float64(2) || data["glow_level"] != float64(1) || data["next_level_at"] != float64(3) || data["level_up"] != false {
+	const days = 2
+	level := mascotuc.GlowLevel(days)
+	if data["checkin_days"] != float64(days) || data["glow_level"] != float64(level) || data["next_level_at"] != glowNextJSON(level) || data["level_up"] != (level > 1) {
 		t.Fatalf("glow %#v", data)
 	}
 }
 
 func TestMascotGlowThresholdsAndNeverDecreases(t *testing.T) {
 	app, db, userID := newMascotApp(t)
-	assertMascotGlow(t, app, 1, 0, float64(3), false)
+	assertMascotGlow(t, app, 1, 0, glowNextJSON(1), false)
 
-	steps := []struct {
-		days  int
-		level int
-		next  any
-	}{
-		{2, 1, float64(3)},
-		{3, 2, float64(7)},
-		{6, 2, float64(7)},
-		{7, 3, float64(14)},
-		{13, 3, float64(14)},
-		{14, 4, float64(21)},
-		{20, 4, float64(21)},
-		{21, 5, nil},
-	}
 	have := 0
 	start := streaktime.Today()
-	for _, step := range steps {
-		for have < step.days {
+	seedTo := func(n int) {
+		t.Helper()
+		for have < n {
 			have++
 			day := start.AddDate(0, 0, -(have - 1))
 			images := `[]`
@@ -67,55 +57,72 @@ func TestMascotGlowThresholdsAndNeverDecreases(t *testing.T) {
 			}
 			insertMascotCheck(t, db, userID, day, images, day)
 		}
-		wantUp := step.level > 1
-		assertMascotGlow(t, app, step.level, step.days, step.next, wantUp)
+	}
+	for _, at := range mascotuc.GlowThresholds {
+		if at > 0 {
+			seedTo(at - 1)
+			level := mascotuc.GlowLevel(at - 1)
+			assertMascotGlow(t, app, level, at-1, glowNextJSON(level), level > 1)
+		}
+		seedTo(at)
+		level := mascotuc.GlowLevel(at)
+		assertMascotGlow(t, app, level, at, glowNextJSON(level), level > 1)
 	}
 
+	top := len(mascotuc.GlowThresholds) + 1
+	topDays := 0
+	if len(mascotuc.GlowThresholds) > 0 {
+		topDays = mascotuc.GlowThresholds[len(mascotuc.GlowThresholds)-1]
+	}
 	var row domain.UserMascot
 	if err := db.Where("user_id = ?", userID).First(&row).Error; err != nil {
 		t.Fatal(err)
 	}
-	if row.GlowLevel != 5 {
-		t.Fatalf("stored %d", row.GlowLevel)
+	if row.GlowLevel != top {
+		t.Fatalf("stored %d want %d", row.GlowLevel, top)
 	}
 
 	status, env := mascotCall(t, app, http.MethodPost, "/api/v1/me/mascot/glow/seen", "")
 	if status != http.StatusOK {
 		t.Fatalf("seen %d %#v", status, env)
 	}
-	assertMascotGlow(t, app, 5, 21, nil, false)
+	assertMascotGlow(t, app, top, topDays, nil, false)
 	status, env = mascotCall(t, app, http.MethodPost, "/api/v1/me/mascot/glow/seen", "")
 	if status != http.StatusOK {
 		t.Fatalf("seen again %d %#v", status, env)
 	}
-	assertMascotGlow(t, app, 5, 21, nil, false)
+	assertMascotGlow(t, app, top, topDays, nil, false)
 	if err := db.Where("user_id = ?", userID).First(&row).Error; err != nil {
 		t.Fatal(err)
 	}
-	if row.GlowLevelSeen != 5 || row.GlowLevel != 5 {
+	if row.GlowLevelSeen != top || row.GlowLevel != top {
 		t.Fatalf("after ack %+v", row)
 	}
 
 	if err := db.Where("user_id = ?", userID).Delete(&domain.SkinCheck{}).Error; err != nil {
 		t.Fatal(err)
 	}
-	assertMascotGlow(t, app, 5, 0, nil, false)
+	assertMascotGlow(t, app, top, 0, nil, false)
 	if err := db.Where("user_id = ?", userID).First(&row).Error; err != nil {
 		t.Fatal(err)
 	}
-	if row.GlowLevel != 5 {
+	if row.GlowLevel != top {
 		t.Fatalf("stored fell to %d", row.GlowLevel)
 	}
 
+	if top == 1 {
+		return
+	}
 	// A stored level above the recomputed one is what GET returns.
-	if err := db.Model(&domain.UserMascot{}).Where("user_id = ?", userID).Update("glow_level", 4).Error; err != nil {
+	below := top - 1
+	if err := db.Model(&domain.UserMascot{}).Where("user_id = ?", userID).Update("glow_level", below).Error; err != nil {
 		t.Fatal(err)
 	}
-	assertMascotGlow(t, app, 4, 0, float64(21), false)
+	assertMascotGlow(t, app, below, 0, glowNextJSON(below), false)
 	if err := db.Where("user_id = ?", userID).First(&row).Error; err != nil {
 		t.Fatal(err)
 	}
-	if row.GlowLevel != 4 {
+	if row.GlowLevel != below {
 		t.Fatalf("read wrote level down to %d", row.GlowLevel)
 	}
 }
@@ -124,6 +131,11 @@ func TestMascotGlowUnlocksAccessories(t *testing.T) {
 	head := domain.MascotItemAccessoryPinkHeadband
 	star := domain.MascotItemAccessoryStarClip
 	base := `{"body":"body_chibi","hair":"hair_sleep_buns","outfit":"outfit_cozy_pajamas","room_items":["room_plant"]}`
+	headDays := mascotuc.DaysForGlowLevel(3)
+	starDays := mascotuc.DaysForGlowLevel(4)
+	if mascotuc.GlowLevel(headDays) != 3 || mascotuc.GlowLevel(starDays) != 4 {
+		t.Fatalf("GlowThresholds cannot reach accessory levels: head %d star %d", headDays, starDays)
+	}
 
 	t.Run("free locked until level", func(t *testing.T) {
 		app, db, userID := newMascotApp(t)
@@ -142,7 +154,7 @@ func TestMascotGlowUnlocksAccessories(t *testing.T) {
 			}
 		}
 
-		seedMascotCheckDays(t, db, userID, 7)
+		seedMascotCheckDays(t, db, userID, headDays)
 		status, env = mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
 		if status != http.StatusOK {
 			t.Fatal(status)
@@ -160,7 +172,7 @@ func TestMascotGlowUnlocksAccessories(t *testing.T) {
 			t.Fatalf("star at 3 %d %#v", status, env)
 		}
 
-		seedMascotCheckDays(t, db, userID, 14)
+		seedMascotCheckDays(t, db, userID, starDays)
 		status, env = mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
 		if status != http.StatusOK {
 			t.Fatal(status)
@@ -179,14 +191,14 @@ func TestMascotGlowUnlocksAccessories(t *testing.T) {
 			t.Fatalf("equipped %#v", acc)
 		}
 		data := mascotData(t, env)
-		if data["glow_level"] != float64(4) || data["checkin_days"] != float64(14) || data["next_level_at"] != float64(21) {
+		if data["glow_level"] != float64(4) || data["checkin_days"] != float64(starDays) || data["next_level_at"] != glowNextJSON(4) {
 			t.Fatalf("glow %#v", data)
 		}
 	})
 
 	t.Run("default loadout shows them as they unlock", func(t *testing.T) {
 		app, db, userID := newMascotApp(t)
-		seedMascotCheckDays(t, db, userID, 14)
+		seedMascotCheckDays(t, db, userID, starDays)
 		status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
 		if status != http.StatusOK {
 			t.Fatal(status)
@@ -196,7 +208,7 @@ func TestMascotGlowUnlocksAccessories(t *testing.T) {
 			t.Fatalf("level 4 default %#v", acc)
 		}
 		data := mascotData(t, env)
-		if data["glow_level"] != float64(4) || data["checkin_days"] != float64(14) || data["level_up"] != true {
+		if data["glow_level"] != float64(4) || data["checkin_days"] != float64(starDays) || data["level_up"] != true {
 			t.Fatalf("glow %#v", data)
 		}
 	})
@@ -243,6 +255,14 @@ func TestMascotGlowUnlocksAccessories(t *testing.T) {
 			t.Fatalf("reward %d %#v", status, env)
 		}
 	})
+}
+
+func glowNextJSON(level int) any {
+	n := mascotuc.NextLevelAt(level)
+	if n == nil {
+		return nil
+	}
+	return float64(*n)
 }
 
 func assertMascotGlow(t *testing.T, app *fiber.App, level, days int, next any, levelUp bool) {

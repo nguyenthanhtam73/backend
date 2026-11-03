@@ -7,51 +7,56 @@ import (
 	"github.com/dadiary/backend/internal/streaktime"
 )
 
-// Glow bands from distinct check-in days (Asia/Ho_Chi_Minh).
-// 1: 0–2, 2: 3–6, 3: 7–13, 4: 14–20, 5: 21+.
-const (
-	glowLevel2Days = 3
-	glowLevel3Days = 7
-	glowLevel4Days = 14
-	glowLevel5Days = 21
+// GlowThresholds is the distinct check-in day count where each level after 1 starts.
+// The list is ascending. Level 1 is every count below the first entry.
+// The highest level is len(GlowThresholds)+1, so a longer list adds levels.
+// Keep this as the only copy of the numbers. GlowLevel, NextLevelAt, and the tests read it.
+var GlowThresholds = []int{3, 7, 14, 21}
 
+const (
 	glowUnlockHeadband = 3
 	glowUnlockStarClip = 4
 )
 
-// GlowLevel maps a distinct check-in day count to a level from 1 to 5.
+// GlowLevel maps a distinct check-in day count onto GlowThresholds.
+// One level per entry, plus level 1 below the first entry.
 func GlowLevel(days int) int {
-	switch {
-	case days >= glowLevel5Days:
-		return 5
-	case days >= glowLevel4Days:
-		return 4
-	case days >= glowLevel3Days:
-		return 3
-	case days >= glowLevel2Days:
-		return 2
-	default:
-		return 1
+	level := 1
+	for _, at := range GlowThresholds {
+		if days < at {
+			break
+		}
+		level++
 	}
+	return level
 }
 
-// NextLevelAt is the distinct-day total where the next level starts.
-// Nil at level 5. It is that milestone (3, 7, 14, 21), not the days still remaining.
+// NextLevelAt is the GlowThresholds entry where the next level starts.
+// Nil at the highest level (and for a level below 1). It is that day total,
+// not the days still remaining.
 func NextLevelAt(level int) *int {
-	var n int
-	switch level {
-	case 1:
-		n = glowLevel2Days
-	case 2:
-		n = glowLevel3Days
-	case 3:
-		n = glowLevel4Days
-	case 4:
-		n = glowLevel5Days
-	default:
+	idx := level - 1
+	if idx < 0 || idx >= len(GlowThresholds) {
 		return nil
 	}
+	n := GlowThresholds[idx]
 	return &n
+}
+
+// DaysForGlowLevel is the smallest distinct-day count that reaches level.
+// Level 1 is 0. A level past the list returns the last threshold.
+func DaysForGlowLevel(level int) int {
+	if level <= 1 || len(GlowThresholds) == 0 {
+		return 0
+	}
+	idx := level - 2
+	if idx >= len(GlowThresholds) {
+		return GlowThresholds[len(GlowThresholds)-1]
+	}
+	if GlowThresholds[idx] < 0 {
+		return 0
+	}
+	return GlowThresholds[idx]
 }
 
 // EffectiveGlow is max(stored high water, the level implied by days).

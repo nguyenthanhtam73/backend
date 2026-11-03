@@ -21,8 +21,8 @@ type MascotResponse struct {
 	MessyLevel    int                  `json:"messy_level"`
 	// GlowLevel is max(stored high water, level from check-in days). It does not fall.
 	// CheckInDays counts distinct Asia/Ho_Chi_Minh days with a photo or skip check-in.
-	// NextLevelAt is the check-in day total that starts the next level
-	// (3, 7, 14, or 21). Null at level 5.
+	// NextLevelAt is the GlowThresholds day total that starts the next level.
+	// Null at the highest level.
 	// LevelUp is true when GlowLevel is above the level last acknowledged.
 	GlowLevel   int  `json:"glow_level"`
 	CheckInDays int  `json:"checkin_days"`

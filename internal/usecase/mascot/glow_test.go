@@ -9,52 +9,106 @@ import (
 )
 
 func TestGlowLevelThresholds(t *testing.T) {
-	cases := []struct {
-		days  int
-		level int
-		next  *int
-	}{
-		{days: -1, level: 1, next: intPtr(3)},
-		{days: 0, level: 1, next: intPtr(3)},
-		{days: 2, level: 1, next: intPtr(3)},
-		{days: 3, level: 2, next: intPtr(7)},
-		{days: 6, level: 2, next: intPtr(7)},
-		{days: 7, level: 3, next: intPtr(14)},
-		{days: 13, level: 3, next: intPtr(14)},
-		{days: 14, level: 4, next: intPtr(21)},
-		{days: 20, level: 4, next: intPtr(21)},
-		{days: 21, level: 5, next: nil},
-		{days: 40, level: 5, next: nil},
+	prev := -1
+	for i, at := range GlowThresholds {
+		if at <= prev {
+			t.Fatalf("GlowThresholds must be strictly ascending, [%d]=%d", i, at)
+		}
+		prev = at
 	}
-	for _, tc := range cases {
-		if got := GlowLevel(tc.days); got != tc.level {
-			t.Fatalf("days %d level %d want %d", tc.days, got, tc.level)
+
+	assertGlowBand(t, -1, 1)
+	assertGlowBand(t, 0, 1)
+	if len(GlowThresholds) == 0 {
+		assertGlowBand(t, 100, 1)
+		return
+	}
+	if GlowThresholds[0] > 0 {
+		assertGlowBand(t, GlowThresholds[0]-1, 1)
+	}
+	for i, at := range GlowThresholds {
+		level := i + 2
+		if at > 0 {
+			assertGlowBand(t, at-1, level-1)
 		}
-		got := NextLevelAt(tc.level)
-		if tc.next == nil {
-			if got != nil {
-				t.Fatalf("days %d next %d", tc.days, *got)
-			}
-			continue
+		assertGlowBand(t, at, level)
+		if DaysForGlowLevel(level) != at {
+			t.Fatalf("days for level %d = %d, threshold %d", level, DaysForGlowLevel(level), at)
 		}
-		if got == nil || *got != *tc.next {
-			t.Fatalf("days %d next %#v want %d", tc.days, got, *tc.next)
+	}
+	top := len(GlowThresholds) + 1
+	last := GlowThresholds[len(GlowThresholds)-1]
+	assertGlowBand(t, last+50, top)
+	if DaysForGlowLevel(1) != 0 {
+		t.Fatal("level 1 starts at 0 days")
+	}
+	if DaysForGlowLevel(top+3) != last {
+		t.Fatal("levels past the list stay on the last threshold")
+	}
+}
+
+func TestGlowLevelFollowsListLength(t *testing.T) {
+	saved := append([]int(nil), GlowThresholds...)
+	t.Cleanup(func() { GlowThresholds = saved })
+
+	GlowThresholds = []int{2, 5}
+	assertGlowBand(t, 1, 1)
+	assertGlowBand(t, 2, 2)
+	assertGlowBand(t, 4, 2)
+	assertGlowBand(t, 5, 3)
+	assertGlowBand(t, 9, 3)
+
+	GlowThresholds = []int{10, 20, 30, 40, 50}
+	assertGlowBand(t, 9, 1)
+	assertGlowBand(t, 10, 2)
+	assertGlowBand(t, 49, 5)
+	assertGlowBand(t, 50, 6)
+	if NextLevelAt(6) != nil {
+		t.Fatal("six levels from five thresholds has no next")
+	}
+
+	GlowThresholds = nil
+	assertGlowBand(t, 100, 1)
+	if NextLevelAt(1) != nil {
+		t.Fatal("empty list is a single level")
+	}
+}
+
+func assertGlowBand(t *testing.T, days, level int) {
+	t.Helper()
+	if got := GlowLevel(days); got != level {
+		t.Fatalf("days %d level %d want %d", days, got, level)
+	}
+	got := NextLevelAt(level)
+	idx := level - 1
+	if idx < 0 || idx >= len(GlowThresholds) {
+		if got != nil {
+			t.Fatalf("days %d level %d next %d, want none", days, level, *got)
 		}
+		return
+	}
+	if got == nil || *got != GlowThresholds[idx] {
+		t.Fatalf("days %d level %d next %#v want %d", days, level, got, GlowThresholds[idx])
 	}
 }
 
 func TestEffectiveGlowNeverDecreases(t *testing.T) {
-	if got := EffectiveGlow(4, 0); got != 4 {
-		t.Fatalf("stored floor %d", got)
-	}
-	if got := EffectiveGlow(1, 21); got != 5 {
-		t.Fatalf("computed wins %d", got)
-	}
-	if got := EffectiveGlow(0, 2); got != 1 {
+	if got := EffectiveGlow(0, 0); got != 1 {
 		t.Fatalf("zero stored %d", got)
 	}
-	if got := EffectiveGlow(5, 7); got != 5 {
+	top := len(GlowThresholds) + 1
+	if got := EffectiveGlow(top, 0); got != top {
 		t.Fatalf("max level stays %d", got)
+	}
+	if top == 1 {
+		return
+	}
+	if got := EffectiveGlow(top-1, 0); got != top-1 {
+		t.Fatalf("stored floor %d", got)
+	}
+	topDays := GlowThresholds[len(GlowThresholds)-1]
+	if got := EffectiveGlow(1, topDays); got != top {
+		t.Fatalf("computed wins %d", got)
 	}
 }
 
@@ -147,5 +201,3 @@ func TestAccessoryWearableUnlocks(t *testing.T) {
 		t.Fatalf("shop shows %#v", shown.Accessories)
 	}
 }
-
-func intPtr(n int) *int { return &n }

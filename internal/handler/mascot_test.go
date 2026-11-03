@@ -153,7 +153,7 @@ func TestMascotGetCreatesDefaultAndPutValidates(t *testing.T) {
 	if data["glow_level"] != float64(1) || data["checkin_days"] != float64(0) || data["level_up"] != false {
 		t.Fatalf("glow %#v", data)
 	}
-	if data["next_level_at"] != float64(3) {
+	if data["next_level_at"] != glowNextJSON(1) {
 		t.Fatalf("next %#v", data["next_level_at"])
 	}
 	if _, ok := data["messy_level"]; !ok {
@@ -305,7 +305,7 @@ func TestMascotSeedsFreeGrantsAndSkipsExpired(t *testing.T) {
 	})
 	if err := db.Model(&domain.UserMascot{}).Where("user_id = ?", userID).Updates(map[string]any{
 		"loadout":    raw,
-		"glow_level": 5,
+		"glow_level": len(mascotuc.GlowThresholds) + 1,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
