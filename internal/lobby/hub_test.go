@@ -317,7 +317,7 @@ func TestStatsLineHasNoPII(t *testing.T) {
 			t.Fatalf("stats leaked %q in %s", forbidden, line)
 		}
 	}
-	for _, key := range []string{"lobbies", "connections", "present", "msgs_in_per_sec", "msgs_out_per_sec", "mem_alloc_bytes"} {
+	for _, key := range []string{"lobbies", "connections", "present", "rooms", "room_present", "msgs_in_per_sec", "msgs_out_per_sec", "mem_alloc_bytes"} {
 		if !strings.Contains(line, key) {
 			t.Fatalf("stats missing %s in %s", key, line)
 		}
@@ -401,9 +401,12 @@ func itoa(n int) string {
 
 type helloMsg struct {
 	Op        string   `json:"op"`
+	Channel   string   `json:"channel"`
 	SessionID string   `json:"session_id"`
 	Lobby     int      `json:"lobby"`
+	Code      string   `json:"code"`
 	Cap       int      `json:"cap"`
+	Count     int      `json:"count"`
 	Counts    []Count  `json:"counts"`
 	People    []Person `json:"people"`
 	Rooms     Rooms    `json:"rooms"`
@@ -426,7 +429,11 @@ type errMsg struct {
 
 type tickMsg struct {
 	Op      string   `json:"op"`
+	Channel string   `json:"channel"`
 	Lobby   int      `json:"lobby"`
+	Code    string   `json:"code"`
+	Count   int      `json:"count"`
+	Cap     int      `json:"cap"`
 	Upserts []Person `json:"upserts"`
 	Left    []string `json:"left"`
 	Events  []Event  `json:"events"`

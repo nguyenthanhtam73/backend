@@ -57,6 +57,8 @@ type Stats struct {
 	Lobbies       int
 	Connections   int
 	Present       int
+	Rooms         int
+	RoomPresent   int
 	MsgsInPerSec  float64
 	MsgsOutPerSec float64
 	MemAllocBytes uint64
@@ -77,6 +79,8 @@ type Hub struct {
 	byID       map[string]*session
 	byUser     map[uuid.UUID]*session
 	halls      []*hall
+	rooms      map[string]*hall
+	gate       RoomGate
 	lastCounts []Count
 
 	in       atomic.Uint64
@@ -102,13 +106,14 @@ type connState struct {
 }
 
 type session struct {
-	id     string
-	userID uuid.UUID
-	conn   *connState
-	lobby  int
-	person Person
-	hide   map[string]struct{}
-	drop   Stopper
+	id       string
+	userID   uuid.UUID
+	conn     *connState
+	lobby    int
+	roomCode string
+	person   Person
+	hide     map[string]struct{}
+	drop     Stopper
 }
 
 type hall struct {
@@ -172,7 +177,19 @@ func NewHub(cfg Config) *Hub {
 		byPeer:     map[Peer]*connState{},
 		byID:       map[string]*session{},
 		byUser:     map[uuid.UUID]*session{},
+		rooms:      map[string]*hall{},
 	}
+}
+
+// SetRoomGate enables channel "room". Without a gate those frames stay
+// not_available. The gate is called without the hub lock.
+func (h *Hub) SetRoomGate(g RoomGate) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.gate = g
+	h.mu.Unlock()
 }
 
 // Start runs the 4 Hz broadcast loop and the once-a-minute stats log until Stop.
@@ -292,18 +309,28 @@ func (h *Hub) Handle(peer Peer, userID uuid.UUID, raw []byte) Outcome {
 		}
 		return h.err(ChannelLobby, CodeBadMessage)
 	}
+	wire := ChannelLobby
 	if msg.Channel == ChannelRoom {
+		wire = ChannelRoom
+	}
+	if msg.Channel == ChannelRoom && h.gate == nil {
 		return h.roomUnavailable()
 	}
-	if msg.Channel != "" && msg.Channel != ChannelLobby {
+	if msg.Channel != "" && msg.Channel != ChannelLobby && msg.Channel != ChannelRoom {
 		return h.err(ChannelLobby, CodeBadMessage)
 	}
 	if msg.V > ProtocolVersion {
-		return h.err(ChannelLobby, CodeUnsupportedVersion)
+		return h.err(wire, CodeUnsupportedVersion)
 	}
 	if msg.Op != OpLeave && !c.limit.allow(h.clock.Now(), h.perSec) {
 		h.limited.Add(1)
-		return h.err(ChannelLobby, CodeRateLimited)
+		return h.err(wire, CodeRateLimited)
+	}
+	if c.session != nil && msg.Op != OpJoin && msg.ChannelOrLobby() != c.session.wireChannel() {
+		return h.err(msg.ChannelOrLobby(), CodeNotJoined)
+	}
+	if msg.Channel == ChannelRoom {
+		return h.dispatchRoomLocked(c, peer, userID, msg)
 	}
 	switch msg.Op {
 	case OpJoin:
@@ -372,6 +399,8 @@ func (h *Hub) WriteStats(log *slog.Logger, now time.Time) {
 		"lobbies", st.Lobbies,
 		"connections", st.Connections,
 		"present", st.Present,
+		"rooms", st.Rooms,
+		"room_present", st.RoomPresent,
 		"msgs_in_per_sec", st.MsgsInPerSec,
 		"msgs_out_per_sec", st.MsgsOutPerSec,
 		"mem_alloc_bytes", st.MemAllocBytes,
@@ -390,10 +419,13 @@ func (h *Hub) snapshot(now time.Time) Stats {
 	}
 	in := h.in.Load()
 	out := h.out.Load()
+	roomN, roomPresent := h.roomCountsLocked()
 	st := Stats{
 		Lobbies:       len(h.halls),
 		Connections:   len(h.byPeer),
 		Present:       h.presentLocked(),
+		Rooms:         roomN,
+		RoomPresent:   roomPresent,
 		MsgsInPerSec:  float64(in-h.statsIn) / dt,
 		MsgsOutPerSec: float64(out-h.statsOut) / dt,
 	}
@@ -516,6 +548,10 @@ func (h *Hub) joinLocked(c *connState, msg clientMsg) Outcome {
 	req := requestedLobby(msg.Lobby)
 	if req != 0 && !h.lobbyIndexOK(req) {
 		return h.err(ChannelLobby, CodeInvalidLobby)
+	}
+	// A lobby join leaves an invite room first, then takes a new session id.
+	if c.session != nil && c.session.roomCode != "" {
+		h.removeLocked(c.session, true, false)
 	}
 
 	var out Outcome
@@ -646,14 +682,15 @@ func (h *Hub) moveLocked(c *connState, msg clientMsg) Outcome {
 	if c.session == nil {
 		return h.err(ChannelLobby, CodeNotJoined)
 	}
+	ch := c.session.wireChannel()
 	if msg.X == nil || msg.Y == nil || !validPos(*msg.X, *msg.Y) {
-		return h.err(ChannelLobby, CodeBadMessage)
+		return h.err(ch, CodeBadMessage)
 	}
 	if msg.Facing != "" && msg.Facing != "left" && msg.Facing != "right" {
-		return h.err(ChannelLobby, CodeBadMessage)
+		return h.err(ch, CodeBadMessage)
 	}
 	if msg.Action != "" && !validAction(msg.Action) {
-		return h.err(ChannelLobby, CodeBadMessage)
+		return h.err(ch, CodeBadMessage)
 	}
 	s := c.session
 	s.person.X = roundUnit(*msg.X)
@@ -666,8 +703,8 @@ func (h *Hub) moveLocked(c *connState, msg clientMsg) Outcome {
 	} else {
 		s.person.Action = "walk"
 	}
-	if hall := h.hallAt(s.lobby); hall != nil {
-		hall.upserts[s.id] = struct{}{}
+	if place := h.placeOf(s); place != nil {
+		place.upserts[s.id] = struct{}{}
 	}
 	return Outcome{}
 }
@@ -677,17 +714,18 @@ func (h *Hub) emoteLocked(c *connState, msg clientMsg) Outcome {
 		return h.err(ChannelLobby, CodeNotJoined)
 	}
 	s := c.session
+	ch := s.wireChannel()
 	target := msg.Target
 	if msg.Op == OpCompliment && target == "" {
-		return h.err(ChannelLobby, CodeBadMessage)
+		return h.err(ch, CodeBadMessage)
 	}
 	if target != "" {
 		if !validSessionID(target) {
-			return h.err(ChannelLobby, CodeUnknownTarget)
+			return h.err(ch, CodeUnknownTarget)
 		}
 		other := h.byID[target]
-		if other == nil || other.lobby != s.lobby || (other.id == s.id && msg.Op == OpCompliment) {
-			return h.err(ChannelLobby, CodeUnknownTarget)
+		if other == nil || !samePlace(other, s) || (other.id == s.id && msg.Op == OpCompliment) {
+			return h.err(ch, CodeUnknownTarget)
 		}
 	}
 	switch msg.Op {
@@ -698,13 +736,13 @@ func (h *Hub) emoteLocked(c *connState, msg clientMsg) Outcome {
 	default:
 		s.person.Action = "compliment"
 	}
-	if hall := h.hallAt(s.lobby); hall != nil {
-		hall.upserts[s.id] = struct{}{}
+	if place := h.placeOf(s); place != nil {
+		place.upserts[s.id] = struct{}{}
 		ev := Event{Op: msg.Op, From: s.id}
 		if target != "" {
 			ev.Target = target
 		}
-		h.pushEvent(hall, ev)
+		h.pushEvent(place, ev)
 	}
 	return Outcome{}
 }
@@ -765,11 +803,11 @@ func (h *Hub) hideLocked(c *connState, msg clientMsg) Outcome {
 		return h.err(ChannelLobby, CodeNotJoined)
 	}
 	if msg.Hide == nil {
-		return h.err(ChannelLobby, CodeBadMessage)
+		return h.err(c.session.wireChannel(), CodeBadMessage)
 	}
 	hide, err := parseHide(*msg.Hide)
 	if err != nil {
-		return h.err(ChannelLobby, CodeBadMessage)
+		return h.err(c.session.wireChannel(), CodeBadMessage)
 	}
 	c.session.hide = hide
 	return Outcome{}
@@ -779,8 +817,9 @@ func (h *Hub) leaveLocked(c *connState) Outcome {
 	if c.session == nil {
 		return h.err(ChannelLobby, CodeNotJoined)
 	}
+	ch := c.session.wireChannel()
 	h.removeLocked(c.session, true, false)
-	return Outcome{Self: [][]byte{h.track(byeBody())}}
+	return Outcome{Self: [][]byte{h.track(byeBody(ch))}}
 }
 
 func (h *Hub) kickLocked(old *session) (Peer, []byte) {
@@ -788,11 +827,15 @@ func (h *Hub) kickLocked(old *session) (Peer, []byte) {
 	if old.conn != nil {
 		peer = old.conn.peer
 	}
+	ch := ChannelLobby
+	if old != nil {
+		ch = old.wireChannel()
+	}
 	h.removeLocked(old, true, true)
 	if peer == nil {
 		return nil, nil
 	}
-	return peer, h.track(replacedBody())
+	return peer, h.track(replacedBody(ch))
 }
 
 func (h *Hub) removeLocked(s *session, queueLeave, dropPeer bool) {
@@ -800,12 +843,15 @@ func (h *Hub) removeLocked(s *session, queueLeave, dropPeer bool) {
 		s.drop.Stop()
 		s.drop = nil
 	}
-	if hall := h.hallAt(s.lobby); hall != nil {
-		delete(hall.members, s.id)
-		delete(hall.upserts, s.id)
+	if place := h.placeOf(s); place != nil {
+		delete(place.members, s.id)
+		delete(place.upserts, s.id)
 		if queueLeave {
-			hall.left = appendCapped(hall.left, s.id)
-			h.pushEvent(hall, Event{Op: OpLeave, ID: s.id})
+			place.left = appendCapped(place.left, s.id)
+			h.pushEvent(place, Event{Op: OpLeave, ID: s.id})
+		}
+		if s.roomCode != "" && len(place.members) == 0 {
+			delete(h.rooms, s.roomCode)
 		}
 	}
 	delete(h.byID, s.id)
@@ -906,7 +952,7 @@ func (h *Hub) helloLocked(s *session) []byte {
 		Counts    []Count  `json:"counts"`
 		People    []Person `json:"people"`
 		Rooms     Rooms    `json:"rooms"`
-	}{ProtocolVersion, ChannelLobby, OpHello, s.id, s.lobby, h.cap, h.countsLocked(), people, roomInfo()}))
+	}{ProtocolVersion, ChannelLobby, OpHello, s.id, s.lobby, h.cap, h.countsLocked(), people, h.roomsFieldLocked()}))
 }
 
 func (h *Hub) err(channel, code string) Outcome {
@@ -928,20 +974,26 @@ func (h *Hub) roomUnavailable() Outcome {
 	return h.err(ChannelRoom, CodeNotAvailable)
 }
 
-func byeBody() []byte {
+func byeBody(channel string) []byte {
+	if channel == "" {
+		channel = ChannelLobby
+	}
 	return mustJSON(struct {
 		V       int    `json:"v"`
 		Channel string `json:"channel"`
 		Op      string `json:"op"`
-	}{ProtocolVersion, ChannelLobby, OpBye})
+	}{ProtocolVersion, channel, OpBye})
 }
 
-func replacedBody() []byte {
+func replacedBody(channel string) []byte {
+	if channel == "" {
+		channel = ChannelLobby
+	}
 	return mustJSON(struct {
 		V       int    `json:"v"`
 		Channel string `json:"channel"`
 		Op      string `json:"op"`
-	}{ProtocolVersion, ChannelLobby, OpReplaced})
+	}{ProtocolVersion, channel, OpReplaced})
 }
 
 func (h *Hub) track(b []byte) []byte {
@@ -997,7 +1049,7 @@ func (h *Hub) collect() []delivery {
 	counts := h.countsLocked()
 	countsChanged := !sameCounts(h.lastCounts, counts)
 	if !any && !countsChanged {
-		return nil
+		return h.collectRoomsLocked()
 	}
 	h.lastCounts = append([]Count(nil), counts...)
 
@@ -1039,7 +1091,7 @@ func (h *Hub) collect() []delivery {
 		}{ProtocolVersion, ChannelLobby, OpTick, c.session.lobby, counts, d.upserts, d.left, ev}))
 		jobs = append(jobs, delivery{peer: c.peer, body: body})
 	}
-	return jobs
+	return append(jobs, h.collectRoomsLocked()...)
 }
 
 func filterEvents(ev []Event, self string, hide map[string]struct{}) []Event {
