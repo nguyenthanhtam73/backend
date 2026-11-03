@@ -220,6 +220,105 @@ func TestMascotRoomRESTAndSocket(t *testing.T) {
 	}
 }
 
+func TestMascotRoomCreateLimits(t *testing.T) {
+	base, sign := startRoomHTTP(t, "limit-owner@example.com", "limit-other@example.com")
+	ownerTok := sign["limit-owner@example.com"]
+	otherTok := sign["limit-other@example.com"]
+
+	var firstCode string
+	for i := 0; i < repository.MaxOpenMascotRooms; i++ {
+		status, body := roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+		if status != http.StatusCreated {
+			t.Fatalf("create %d: %d %s", i, status, body)
+		}
+		if firstCode == "" {
+			firstCode, _ = roomData(t, body)["code"].(string)
+		}
+	}
+	status, body := roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+	if status != http.StatusConflict || roomCodeOf(t, body) != "too_many_rooms" {
+		t.Fatalf("fourth room %d %s", status, body)
+	}
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", otherTok, "")
+	if status != http.StatusCreated {
+		t.Fatalf("other account %d %s", status, body)
+	}
+
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms/"+firstCode+"/leave", ownerTok, "")
+	if status != http.StatusOK {
+		t.Fatalf("leave %d %s", status, body)
+	}
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+	if status != http.StatusCreated {
+		t.Fatalf("create after close %d %s", status, body)
+	}
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+	if status != http.StatusTooManyRequests || roomCodeOf(t, body) != "rate_limited" {
+		t.Fatalf("sixth create %d %s", status, body)
+	}
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", otherTok, "")
+	if status != http.StatusCreated {
+		t.Fatalf("other account rate bucket %d %s", status, body)
+	}
+}
+
+func startRoomHTTP(t *testing.T, emails ...string) (base string, tokens map[string]string) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file:room_limit_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}); err != nil {
+		t.Fatal(err)
+	}
+	users := repository.NewUserRepository(db)
+	byID := map[uuid.UUID]*domain.User{}
+	var admins []string
+	for _, email := range emails {
+		u := &domain.User{Email: email, Username: "room-" + uuid.NewString(), IsActive: true}
+		if err := users.Create(context.Background(), u); err != nil {
+			t.Fatal(err)
+		}
+		byID[u.ID] = u
+		admins = append(admins, email)
+	}
+	tok, err := token.NewService(config.JWTConfig{
+		Secret:     "test-secret-for-room-limit-32b!",
+		AccessTTL:  time.Hour,
+		RefreshTTL: 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{AdminEmails: admins}
+	hub := lobby.NewHub(lobby.Config{})
+	hub.Start()
+	t.Cleanup(hub.Stop)
+	repo := repository.NewMascotRoomRepository(db)
+	hub.SetRoomGate(newMascotRoomGate(repo))
+	lookup := func(_ context.Context, id uuid.UUID) (*domain.User, error) { return byID[id], nil }
+	app := fiber.New(fiber.Config{DisableStartupMessage: true})
+	jwt := middleware.RequireAccessJWT(tok, lookup)
+	NewMascotRoomHandler(repo, cfg, hub).Register(app.Group("/api/v1"), jwt)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = app.Listener(ln) }()
+	t.Cleanup(func() { _ = app.Shutdown() })
+	tokens = map[string]string{}
+	for _, u := range byID {
+		raw, err := tok.SignAccess(u.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tokens[u.Email] = raw
+	}
+	return "http://" + ln.Addr().String() + "/api/v1", tokens
+}
+
 func roomJSONCall(t *testing.T, method, rawURL, access, body string) (int, string) {
 	t.Helper()
 	var reader io.Reader

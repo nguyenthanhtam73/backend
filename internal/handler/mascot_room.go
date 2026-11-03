@@ -32,12 +32,15 @@ func NewMascotRoomHandler(repo *repository.MascotRoomRepository, cfg *config.Con
 	return &MascotRoomHandler{repo: repo, cfg: cfg, live: live}
 }
 
+// mascotRoomCreatesPerMinute is the per-account cap on POST /mascot/rooms.
+const mascotRoomCreatesPerMinute = 5
+
 // Register attaches create, get, join, and leave under /api/v1.
 func (h *MascotRoomHandler) Register(r fiber.Router, jwt fiber.Handler) {
 	if jwt == nil {
 		return
 	}
-	r.Post("/mascot/rooms", jwt, h.Create)
+	r.Post("/mascot/rooms", jwt, middleware.AILimiter(mascotRoomCreatesPerMinute, time.Minute), h.Create)
 	r.Get("/mascot/rooms/:code", jwt, h.Get)
 	r.Post("/mascot/rooms/:code/join", jwt, h.Join)
 	r.Post("/mascot/rooms/:code/leave", jwt, h.Leave)
@@ -145,6 +148,8 @@ func writeRoomErr(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusConflict, "room_full", "room is full")
 	case errors.Is(err, repository.ErrMascotRoomBadCode):
 		return response.Error(c, fiber.StatusBadRequest, "bad_code", "invite code is not valid")
+	case errors.Is(err, repository.ErrMascotRoomTooMany):
+		return response.Error(c, fiber.StatusConflict, "too_many_rooms", "too many open rooms")
 	default:
 		return response.Error(c, fiber.StatusServiceUnavailable, "database_unavailable", "database is not available")
 	}

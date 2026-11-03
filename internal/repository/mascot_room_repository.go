@@ -20,7 +20,12 @@ var (
 	ErrMascotRoomFull      = errors.New("mascot room full")
 	ErrMascotRoomNotMember = errors.New("mascot room not a member")
 	ErrMascotRoomBadCode   = errors.New("mascot room bad code")
+	ErrMascotRoomTooMany   = errors.New("too many open rooms")
 )
+
+// MaxOpenMascotRooms is how many rooms one account may own at the same time.
+// A room counts until its last member leaves and the row is deleted.
+const MaxOpenMascotRooms = 3
 
 // MascotRoomView is a room the caller is allowed to see.
 // It has no account ids and no emails.
@@ -55,6 +60,16 @@ func (r *MascotRoomRepository) Create(ctx context.Context, owner uuid.UUID) (Mas
 	}
 	var view MascotRoomView
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockRoomOwner(tx, owner); err != nil {
+			return err
+		}
+		var owned int64
+		if err := tx.Model(&domain.MascotRoom{}).Where("owner_user_id = ?", owner).Count(&owned).Error; err != nil {
+			return err
+		}
+		if owned >= MaxOpenMascotRooms {
+			return ErrMascotRoomTooMany
+		}
 		for i := 0; i < 8; i++ {
 			code, err := lobby.NewRoomCode()
 			if err != nil {
@@ -217,6 +232,16 @@ func (r *MascotRoomRepository) dbOrErr() (*gorm.DB, error) {
 		return nil, fmt.Errorf("database not configured")
 	}
 	return r.db, nil
+}
+
+// lockRoomOwner serializes creates for one account on Postgres so two
+// requests cannot both pass the open-room cap. The id is not scanned.
+// SQLite tests run one at a time and skip the lock.
+func lockRoomOwner(tx *gorm.DB, owner uuid.UUID) error {
+	if tx.Dialector == nil || tx.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return tx.Exec("SELECT id FROM users WHERE id = ? FOR UPDATE", owner).Error
 }
 
 func lockMascotRoom(tx *gorm.DB, code string) (domain.MascotRoom, error) {

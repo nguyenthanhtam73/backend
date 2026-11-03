@@ -147,6 +147,34 @@ func TestMascotRoomCapJoinLeaveAndDelete(t *testing.T) {
 	}
 }
 
+func TestMascotRoomOwnerOpenCap(t *testing.T) {
+	db := openRoomDB(t)
+	repo := NewMascotRoomRepository(db)
+	ctx := context.Background()
+	owner := insertRoomUser(t, db, "cap-owner@example.com")
+	other := insertRoomUser(t, db, "cap-other@example.com")
+	codes := make([]string, 0, MaxOpenMascotRooms)
+	for i := 0; i < MaxOpenMascotRooms; i++ {
+		view, err := repo.Create(ctx, owner.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		codes = append(codes, view.Code)
+	}
+	if _, err := repo.Create(ctx, owner.ID); !errors.Is(err, ErrMascotRoomTooMany) {
+		t.Fatalf("fourth room %v", err)
+	}
+	if _, err := repo.Create(ctx, other.ID); err != nil {
+		t.Fatalf("other owner blocked: %v", err)
+	}
+	if err := repo.Leave(ctx, owner.ID, codes[0]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Create(ctx, owner.ID); err != nil {
+		t.Fatalf("create after a room closed: %v", err)
+	}
+}
+
 func openRoomDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:mascot_room_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{

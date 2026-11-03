@@ -55,6 +55,7 @@ var exact = map[string]string{
 	"query token not allowed":                 "Phiên đăng nhập không gửi trên đường dẫn.",
 	"cookie requires origin":                  "Phiên đăng nhập từ ứng dụng cần mã Bearer.",
 	"room is full":                            "Phòng này đã đủ người.",
+	"too many open rooms":                     "Bạn đang mở đủ 3 phòng rồi.",
 	"room not found":                          "Không tìm thấy phòng này.",
 	"invite code is not valid":                "Mã phòng chưa đúng.",
 	"mascot unavailable":                      "Góc bình yên đang tạm ngưng. Bạn thử lại sau nhé.",
