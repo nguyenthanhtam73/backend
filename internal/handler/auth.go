@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -81,6 +82,7 @@ func (h *AuthHandler) enrichOnboardingStatus(ctx context.Context, pub *dto.UserP
 func (h *AuthHandler) RegisterRoutes(public fiber.Router, jwt fiber.Handler) {
 	if jwt != nil {
 		public.Get("/me", jwt, h.Me)
+		public.Post("/auth/session-cookie", jwt, h.SessionCookie)
 		public.Post("/auth/logout", jwt, h.Logout)
 		public.Post("/auth/logout-all", jwt, h.LogoutAll)
 	}
@@ -117,6 +119,7 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		return mapAuthError(c, err)
 	}
 	h.enrichOnboardingStatus(c.UserContext(), &res.User)
+	setAccessCookie(c, res.Tokens.AccessToken, time.Now().UTC().Add(time.Duration(res.Tokens.ExpiresIn)*time.Second))
 	return response.JSONWithMessage(c, fiber.StatusCreated, fiber.Map{
 		"tokens": res.Tokens,
 		"user":   res.User,
@@ -138,6 +141,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		return mapAuthError(c, err)
 	}
 	h.enrichOnboardingStatus(c.UserContext(), &res.User)
+	setAccessCookie(c, res.Tokens.AccessToken, time.Now().UTC().Add(time.Duration(res.Tokens.ExpiresIn)*time.Second))
 	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
 		"tokens": res.Tokens,
 		"user":   res.User,
@@ -158,10 +162,28 @@ func (h *AuthHandler) Refresh(c *fiber.Ctx) error {
 		return mapAuthError(c, err)
 	}
 	h.enrichOnboardingStatus(c.UserContext(), &res.User)
+	setAccessCookie(c, res.Tokens.AccessToken, time.Now().UTC().Add(time.Duration(res.Tokens.ExpiresIn)*time.Second))
 	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
 		"tokens": res.Tokens,
 		"user":   res.User,
 	}, "refreshed")
+}
+
+// SessionCookie handles POST /auth/session-cookie (JWT required).
+// The SPA holds the access JWT in memory and cannot set an HttpOnly cookie
+// itself. This copies that Bearer token into dadiary_access_token. The JSON
+// body does not echo the token.
+func (h *AuthHandler) SessionCookie(c *fiber.Ctx) error {
+	raw := bearerToken(c)
+	if raw == "" {
+		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing or invalid Authorization header")
+	}
+	exp, ok := accessExpiry(raw)
+	if !ok || !exp.After(time.Now()) {
+		return response.Error(c, fiber.StatusUnauthorized, "invalid_token", "access token invalid or expired")
+	}
+	setAccessCookie(c, raw, exp)
+	return response.JSON(c, fiber.StatusOK, fiber.Map{"cookie": true})
 }
 
 // Logout handles POST /auth/logout (JWT required).
@@ -180,6 +202,7 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 	if err := h.auth.Logout(c.UserContext(), uid, body.RefreshToken); err != nil {
 		return mapAuthError(c, err)
 	}
+	clearAccessCookie(c)
 	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
 		"logged_out": true,
 	}, "logged_out")
@@ -198,6 +221,7 @@ func (h *AuthHandler) LogoutAll(c *fiber.Ctx) error {
 	if err := h.auth.LogoutAll(c.UserContext(), uid); err != nil {
 		return mapAuthError(c, err)
 	}
+	clearAccessCookie(c)
 	return response.JSONWithMessage(c, fiber.StatusOK, fiber.Map{
 		"logged_out": true,
 	}, "logged_out")

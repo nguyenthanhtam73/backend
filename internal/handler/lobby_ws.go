@@ -20,9 +20,10 @@ import (
 // LobbyHandler is GET /api/v1/mascot/lobby/ws.
 //
 // Web (Origin https://dadiary.vn or https://www.dadiary.vn) sends the access
-// JWT in the dadiary_access_token cookie. Android sends no Origin and uses
-// Authorization: Bearer. A query access_token is accepted only when Origin
-// is absent. Any other Origin is rejected before the token is read.
+// JWT in the dadiary_access_token cookie. Android sends no Origin and must
+// use Authorization: Bearer. A cookie on a request with no Origin is rejected.
+// A query access_token is accepted only when Origin is absent and no Bearer
+// token was sent. Any other Origin is rejected before the token is read.
 // While Bé Da is closed, the caller must be on the admin allow-list —
 // the same rule as features.mascot on GET /me.
 type LobbyHandler struct {
@@ -61,6 +62,11 @@ func (h *LobbyHandler) Authorize(c *fiber.Ctx) error {
 		return response.Error(c, fiber.StatusForbidden, "forbidden", "query token not allowed")
 	}
 	raw, bad := accessToken(c, origin == "")
+	// No-Origin callers are Android and must send Authorization: Bearer.
+	// A cookie alone is not a credential on that request.
+	if origin == "" && !bad && raw == "" && hasBrowserAccessCookie(c) {
+		return response.Error(c, fiber.StatusForbidden, "forbidden", "cookie requires origin")
+	}
 	if bad || raw == "" {
 		return response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing or invalid Authorization header")
 	}
@@ -94,7 +100,9 @@ func (h *LobbyHandler) Authorize(c *fiber.Ctx) error {
 
 // accessToken returns the access JWT and whether the Authorization header was
 // present but unusable. A bad header does not fall through to a cookie.
-// allowQuery is true only when the request has no Origin header.
+// allowQuery is true only when the request has no Origin header. In that
+// case the cookie is ignored: no-Origin upgrades must use Bearer (or, when
+// no Bearer header is present, the query token).
 func accessToken(c *fiber.Ctx, allowQuery bool) (string, bool) {
 	header := strings.TrimSpace(c.Get("Authorization"))
 	if header != "" {
@@ -107,9 +115,11 @@ func accessToken(c *fiber.Ctx, allowQuery bool) (string, bool) {
 		}
 		return tok, false
 	}
-	for _, name := range []string{lobby.AccessCookie, "access_token"} {
-		if v := strings.TrimSpace(c.Cookies(name)); v != "" {
-			return v, false
+	if !allowQuery {
+		for _, name := range []string{lobby.AccessCookie, "access_token"} {
+			if v := strings.TrimSpace(c.Cookies(name)); v != "" {
+				return v, false
+			}
 		}
 	}
 	if allowQuery {
@@ -118,6 +128,17 @@ func accessToken(c *fiber.Ctx, allowQuery bool) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// hasBrowserAccessCookie reports a non-empty lobby access cookie.
+// The value is not returned and must not be logged.
+func hasBrowserAccessCookie(c *fiber.Ctx) bool {
+	for _, name := range []string{lobby.AccessCookie, "access_token"} {
+		if strings.TrimSpace(c.Cookies(name)) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // lobbyWebOrigins are the production browser pages that may open the lobby.
