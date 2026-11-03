@@ -242,6 +242,9 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 				return nil
 			})
 			NewLobbyHandler(lobbyHub, tok, cfg, userLookup).Register(api)
+			roomRepo := repository.NewMascotRoomRepository(db)
+			lobbyHub.SetRoomGate(newMascotRoomGate(roomRepo))
+			NewMascotRoomHandler(roomRepo, cfg, lobbyHub).Register(api, jwt)
 		}
 
 		reminderFlags := repository.NewCheckInReminderRepository(db)

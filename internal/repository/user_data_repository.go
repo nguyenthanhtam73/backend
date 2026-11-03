@@ -99,7 +99,38 @@ func deletePersonalRows(tx *gorm.DB, userID uuid.UUID, hard bool) error {
 			return err
 		}
 	}
+	if hard {
+		if err := deleteOwnedMascotRooms(tx, userID); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// deleteOwnedMascotRooms removes rooms this account owns and every membership
+// they still have. Missing tables are ignored so older test databases stay valid.
+func deleteOwnedMascotRooms(tx *gorm.DB, userID uuid.UUID) error {
+	if tx == nil || !tx.Migrator().HasTable(&domain.MascotRoomMember{}) {
+		return nil
+	}
+	var codes []string
+	if tx.Migrator().HasTable(&domain.MascotRoom{}) {
+		if err := tx.Model(&domain.MascotRoom{}).Where("owner_user_id = ?", userID).Pluck("code", &codes).Error; err != nil {
+			return err
+		}
+		if len(codes) > 0 {
+			if err := tx.Where("room_code IN ?", codes).Delete(&domain.MascotRoomMember{}).Error; err != nil {
+				return err
+			}
+		}
+	}
+	if err := tx.Where("user_id = ?", userID).Delete(&domain.MascotRoomMember{}).Error; err != nil {
+		return err
+	}
+	if len(codes) == 0 {
+		return nil
+	}
+	return tx.Where("code IN ?", codes).Delete(&domain.MascotRoom{}).Error
 }
 
 // ListPhotoKeys returns every stored photo key owned by the user (check-ins,

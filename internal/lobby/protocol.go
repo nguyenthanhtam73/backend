@@ -1,8 +1,10 @@
-// Package lobby is the in-memory Bé Da shared lobby (Sảnh chung).
+// Package lobby is the in-memory Bé Da shared lobby (Sảnh chung) and the
+// live presence of an invite room (phòng).
 //
-// Nothing here is written to the database. Wire messages are JSON text frames.
-// Session ids are random per connection and are not account ids. The hub never
-// puts an email, photo, display name, level, or point total on the wire.
+// Room membership is decided by RoomGate. This package does not write the
+// database. Wire messages are JSON text frames. Session ids are random per
+// connection and are not account ids. The hub never puts an email, photo,
+// display name, level, or point total on the wire.
 package lobby
 
 import (
@@ -62,12 +64,13 @@ const (
 	// before treating the socket as dead. The 30s grace starts after that.
 	PongWait = 45 * time.Second
 
-	// RoomCap, RoomCodeLen, and RoomInviteURL are the step-2 group room
-	// (phòng) contract. Rooms are not implemented. A channel "room" frame
-	// is answered with not_available and this block.
-	RoomCap       = 8
-	RoomCodeLen   = 6
-	RoomInviteURL = "https://dadiary.vn/be-da/phong/{code}"
+	// RoomCap is how many people one invite room holds, including someone
+	// in the 30s disconnect grace. RoomCodeLen is the invite code length.
+	// RoomCodeAlphabet has no 0, O, 1, or I.
+	RoomCap          = 8
+	RoomCodeLen      = 6
+	RoomCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	RoomInviteURL    = "https://dadiary.vn/be-da/phong/{code}"
 )
 
 // Client ops.
@@ -102,9 +105,14 @@ const (
 	CodeUnsupportedVersion = "unsupported_version"
 	CodeInvalidLobby       = "invalid_lobby"
 	CodeUnknownTarget      = "unknown_target"
+	CodeRoomFull           = "room_full"
+	CodeRoomNotFound       = "room_not_found"
+	CodeNotMember          = "not_a_member"
+	CodeUnavailable        = "unavailable"
 )
 
-// Channels. "room" is reserved for the 8-person invite room and is rejected.
+// Channels. "room" is an 8-person invite room. With no RoomGate the hub
+// still answers channel "room" with not_available.
 const (
 	ChannelLobby = "lobby"
 	ChannelRoom  = "room"
@@ -132,7 +140,8 @@ type Count struct {
 	Label string `json:"label"`
 }
 
-// Rooms is the step-2 placeholder returned on hello and on channel "room".
+// Rooms describes invite rooms on a lobby hello.
+// Status is "available" once a RoomGate is set, and "not_available" until then.
 type Rooms struct {
 	Status     string `json:"status"`
 	Size       int    `json:"size"`

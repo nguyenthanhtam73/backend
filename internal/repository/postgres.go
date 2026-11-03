@@ -64,6 +64,8 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.MascotItem{},
 		&domain.UserMascot{},
 		&domain.UserMascotItem{},
+		&domain.MascotRoom{},
+		&domain.MascotRoomMember{},
 	); err != nil {
 		return err
 	}
