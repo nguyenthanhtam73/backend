@@ -87,6 +87,18 @@ func deletePersonalRows(tx *gorm.DB, userID uuid.UUID, hard bool) error {
 			return err
 		}
 	}
+	// The mascot is the account's cosmetic, not diary data, so a diary wipe keeps it.
+	// Account deletion must remove it or the user row can fail its foreign key.
+	if hard && tx.Migrator().HasTable(&domain.UserMascotItem{}) {
+		if err := tx.Where("user_id = ?", userID).Delete(&domain.UserMascotItem{}).Error; err != nil {
+			return err
+		}
+	}
+	if hard && tx.Migrator().HasTable(&domain.UserMascot{}) {
+		if err := tx.Where("user_id = ?", userID).Delete(&domain.UserMascot{}).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

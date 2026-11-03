@@ -102,6 +102,72 @@ func jwtExpiry(t *testing.T, raw string) time.Time {
 	return claims.ExpiresAt.Time.UTC()
 }
 
+func TestMeFeaturesMascotFollowsAdminGate(t *testing.T) {
+	app := newClientAuthApp(t)
+	status, reg := doJSON(t, app, http.MethodPost, "/auth/register",
+		`{"email":"member@example.com","password":"password1"}`, "", nil)
+	if status != http.StatusCreated {
+		t.Fatalf("register %d %+v", status, reg)
+	}
+	access, _ := tokensFrom(t, reg)
+	if _, ok := reg["data"].(map[string]any)["features"]; ok {
+		t.Fatal("register must not grow a features object")
+	}
+	status, me := doJSON(t, app, http.MethodGet, "/me", "", access, nil)
+	if status != http.StatusOK {
+		t.Fatalf("me %d %+v", status, me)
+	}
+	data, _ := me["data"].(map[string]any)
+	features, _ := data["features"].(map[string]any)
+	if features["mascot"] != false {
+		t.Fatalf("non-admin features: %#v", features)
+	}
+
+	adminApp := newAdminMeApp(t)
+	status, reg = doJSON(t, adminApp, http.MethodPost, "/auth/register",
+		`{"email":"admin@example.com","password":"password1"}`, "", nil)
+	if status != http.StatusCreated {
+		t.Fatalf("admin register %d %+v", status, reg)
+	}
+	access, _ = tokensFrom(t, reg)
+	status, me = doJSON(t, adminApp, http.MethodGet, "/me", "", access, nil)
+	if status != http.StatusOK {
+		t.Fatalf("admin me %d %+v", status, me)
+	}
+	data, _ = me["data"].(map[string]any)
+	features, _ = data["features"].(map[string]any)
+	if features["mascot"] != true {
+		t.Fatalf("admin features: %#v", data)
+	}
+}
+
+func newAdminMeApp(t *testing.T) *fiber.App {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open("file:auth_admin_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&domain.User{}, &domain.RefreshSession{}); err != nil {
+		t.Fatal(err)
+	}
+	tok, err := token.NewService(config.JWTConfig{
+		Secret:        handlerAuthSecret,
+		AccessTTL:     24 * time.Hour,
+		RefreshTTL:    7 * 24 * time.Hour,
+		AppRefreshTTL: 90 * 24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uc := authuc.NewUsecase(repository.NewAuthRepository(db), tok)
+	uc.AttachSessions(repository.NewRefreshSessionRepository(db))
+	app := fiber.New()
+	NewAuthHandler(uc, &config.Config{AdminEmails: []string{"admin@example.com"}}).RegisterRoutes(app, middleware.RequireAccessJWT(tok))
+	return app
+}
+
 func TestLoginClientMarkerSetsRefreshTTL(t *testing.T) {
 	app := newClientAuthApp(t)
 	before := time.Now().UTC()

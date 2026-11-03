@@ -54,7 +54,7 @@ func requireEmailAccess(
 		if !allow(cfg, user.Email) {
 			return response.Error(c, fiber.StatusForbidden, "forbidden", forbidMsg)
 		}
-		c.Locals("auth_user_email", strings.TrimSpace(user.Email))
+		c.Locals(LocalsUserEmail, strings.TrimSpace(user.Email))
 		return c.Next()
 	}
 }

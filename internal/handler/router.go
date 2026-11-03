@@ -27,6 +27,7 @@ import (
 	dashboarduc "github.com/dadiary/backend/internal/usecase/dashboard"
 	feedbackuc "github.com/dadiary/backend/internal/usecase/feedback"
 	funneleventuc "github.com/dadiary/backend/internal/usecase/funnelevent"
+	mascotuc "github.com/dadiary/backend/internal/usecase/mascot"
 	paymentuc "github.com/dadiary/backend/internal/usecase/payment"
 	paywallviewuc "github.com/dadiary/backend/internal/usecase/paywallview"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
@@ -218,6 +219,15 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		dashSvc := dashboarduc.NewUsecase(streakSvc, usageSvc, repo, premiumSvc)
 		dashH := NewDashboardHandler(dashSvc)
 		api.Get("/me/dashboard", jwt, dashH.GetSummary)
+
+		mascotH := NewMascotHandler(mascotuc.NewService(
+			repository.NewMascotRepository(db),
+			repo,
+			routineRepo,
+			streakRepo,
+		), cfg)
+		api.Get("/me/mascot", jwt, mascotH.Get)
+		api.Put("/me/mascot/loadout", jwt, mascotH.PutLoadout)
 
 		reminderFlags := repository.NewCheckInReminderRepository(db)
 		reminderSvc := checkinreminderuc.NewService(userRepo, repo, reminderFlags, cfg != nil && cfg.HasVAPIDKeys())

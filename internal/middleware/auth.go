@@ -23,8 +23,13 @@ func firstLookup(lookups []UserLookup) UserLookup {
 	return lookups[0]
 }
 
-// Context key for authenticated user ID in Fiber Locals.
-const LocalsUserID = "auth_user_id"
+// Context keys for the authenticated account. RequireAccessJWT already loads
+// the user when a lookup is configured, and stores the email here so later
+// gates (Bé Da) can reuse that row instead of querying again.
+const (
+	LocalsUserID    = "auth_user_id"
+	LocalsUserEmail = "auth_user_email"
+)
 
 // RequireAccessJWT parses a Bearer access token and stores the user UUID in c.Locals(LocalsUserID).
 // When lookup is set, a token whose account no longer exists is rejected. Access JWTs
@@ -55,6 +60,9 @@ func RequireAccessJWT(svc *token.Service, lookup ...UserLookup) fiber.Handler {
 			if user == nil {
 				return response.Error(c, fiber.StatusUnauthorized, "invalid_token", "access token invalid or expired")
 			}
+			c.Locals(LocalsUserID, userID)
+			c.Locals(LocalsUserEmail, strings.TrimSpace(user.Email))
+			return c.Next()
 		}
 		c.Locals(LocalsUserID, userID)
 		return c.Next()
@@ -93,6 +101,9 @@ func OptionalAccessJWT(svc *token.Service, lookup ...UserLookup) fiber.Handler {
 			if user == nil {
 				return c.Next()
 			}
+			c.Locals(LocalsUserID, userID)
+			c.Locals(LocalsUserEmail, strings.TrimSpace(user.Email))
+			return c.Next()
 		}
 		c.Locals(LocalsUserID, userID)
 		return c.Next()
@@ -107,4 +118,10 @@ func UserIDFromLocals(c *fiber.Ctx) uuid.UUID {
 		return uuid.Nil
 	}
 	return id
+}
+
+// UserEmailFromLocals returns the email stored by RequireAccessJWT, or "".
+func UserEmailFromLocals(c *fiber.Ctx) string {
+	email, _ := c.Locals(LocalsUserEmail).(string)
+	return strings.TrimSpace(email)
 }

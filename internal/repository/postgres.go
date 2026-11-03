@@ -61,7 +61,13 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.PushJobLock{},
 		&domain.PushSendReceipt{},
 		&domain.AccountDeleteOrphanKey{},
+		&domain.MascotItem{},
+		&domain.UserMascot{},
+		&domain.UserMascotItem{},
 	); err != nil {
+		return err
+	}
+	if err := SeedMascotCatalog(db); err != nil {
 		return err
 	}
 	return applyCaptureReminderClaims(db)
