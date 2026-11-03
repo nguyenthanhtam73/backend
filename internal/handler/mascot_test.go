@@ -150,11 +150,11 @@ func TestMascotGetCreatesDefaultAndPutValidates(t *testing.T) {
 	if loadout["accessory"] != "" || len(acc) != 0 {
 		t.Fatalf("locked default accessories %#v", loadout)
 	}
-	if data["glow_level"] != float64(1) || data["checkin_days"] != float64(0) || data["level_up"] != false {
+	if data["glow_level"] != float64(1) || data["glow_points"] != float64(0) || data["level_up"] != false || data["near_level_up"] != false {
 		t.Fatalf("glow %#v", data)
 	}
-	if data["next_level_at"] != glowNextJSON(1) {
-		t.Fatalf("next %#v", data["next_level_at"])
+	if data["next_level_points"] != glowNextJSON(1) || data["glow_progress"] != float64(0) {
+		t.Fatalf("next %#v progress %#v", data["next_level_points"], data["glow_progress"])
 	}
 	if _, ok := data["messy_level"]; !ok {
 		t.Fatal("messy_level missing")
@@ -305,7 +305,7 @@ func TestMascotSeedsFreeGrantsAndSkipsExpired(t *testing.T) {
 	})
 	if err := db.Model(&domain.UserMascot{}).Where("user_id = ?", userID).Updates(map[string]any{
 		"loadout":    raw,
-		"glow_level": len(mascotuc.GlowThresholds) + 1,
+		"glow_level": len(mascotuc.GlowConfig.Thresholds) + 1,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}

@@ -207,26 +207,32 @@ func (s *Service) view(ctx context.Context, userID uuid.UUID, row *domain.UserMa
 		return zero, err
 	}
 	loadout = visibleLoadout(loadout, sources, glow.Level)
+	// derived.Marks are the latest check-in only. Glow fields are attached
+	// after that and do not filter skin_marks.
 	out := toResponse(loadout, derived)
 	out.GlowLevel = glow.Level
-	out.CheckInDays = glow.Days
-	out.NextLevelAt = glow.Next
+	out.GlowPoints = glow.Points
+	out.NextLevelPoints = glow.Next
+	out.GlowProgress = glow.Progress
+	out.NearLevelUp = glow.Near
 	out.LevelUp = glow.LevelUp
 	return out, nil
 }
 
 type glowView struct {
-	Level   int
-	Days    int
-	Next    *int
-	LevelUp bool
+	Level    int
+	Points   int
+	Next     *int
+	Progress float64
+	Near     bool
+	LevelUp  bool
 }
 
 // syncGlow returns the level to show and raises the stored high water when
-// check-in days have reached a higher band. It never writes a lower level.
+// points have reached a higher band. It never writes a lower level.
 func (s *Service) syncGlow(ctx context.Context, userID uuid.UUID, row *domain.UserMascot) (glowView, error) {
 	var zero glowView
-	days, err := s.checkInDays(ctx, userID)
+	points, err := s.glowPoints(ctx, userID)
 	if err != nil {
 		return zero, err
 	}
@@ -240,25 +246,28 @@ func (s *Service) syncGlow(ctx context.Context, userID uuid.UUID, row *domain.Us
 			seen = row.GlowLevelSeen
 		}
 	}
-	level := EffectiveGlow(stored, days)
+	level := EffectiveGlow(stored, points)
 	if row != nil && level > row.GlowLevel {
 		if err := s.mascots.SaveGlowLevel(ctx, userID, level); err != nil {
 			return zero, err
 		}
 		row.GlowLevel = level
 	}
+	progress, near := GlowProgress(points, level)
 	return glowView{
-		Level:   level,
-		Days:    days,
-		Next:    NextLevelAt(level),
-		LevelUp: level > seen,
+		Level:    level,
+		Points:   points,
+		Next:     NextLevelPoints(level),
+		Progress: progress,
+		Near:     near,
+		LevelUp:  level > seen,
 	}, nil
 }
 
 // glowLevelFor is the level PUT validation uses. It matches syncGlow without
 // requiring the mascot row to exist yet.
 func (s *Service) glowLevelFor(ctx context.Context, userID uuid.UUID) (int, error) {
-	days, err := s.checkInDays(ctx, userID)
+	points, err := s.glowPoints(ctx, userID)
 	if err != nil {
 		return 0, err
 	}
@@ -270,18 +279,61 @@ func (s *Service) glowLevelFor(ctx context.Context, userID uuid.UUID) (int, erro
 	if row != nil && row.GlowLevel > stored {
 		stored = row.GlowLevel
 	}
-	return EffectiveGlow(stored, days), nil
+	return EffectiveGlow(stored, points), nil
 }
 
-func (s *Service) checkInDays(ctx context.Context, userID uuid.UUID) (int, error) {
-	if s.checks == nil {
-		return 0, nil
-	}
-	dates, err := s.checks.ListDistinctCheckDates(ctx, userID)
+func (s *Service) glowPoints(ctx context.Context, userID uuid.UUID) (int, error) {
+	days, err := s.glowDays(ctx, userID)
 	if err != nil {
 		return 0, err
 	}
-	return distinctCheckInDays(dates), nil
+	return computeGlowPoints(days), nil
+}
+
+// glowDays builds one row per civil day that has a check-in or a finished routine.
+// Several check-ins on one day become a single HasCheckIn flag.
+func (s *Service) glowDays(ctx context.Context, userID uuid.UUID) ([]glowDay, error) {
+	byDay := map[string]*glowDay{}
+	touch := func(day time.Time) *glowDay {
+		civilDay := streaktime.DateOf(day)
+		key := civilDay.Format("2006-01-02")
+		row, ok := byDay[key]
+		if !ok {
+			row = &glowDay{Date: civilDay}
+			byDay[key] = row
+		}
+		return row
+	}
+	if s.checks != nil {
+		dates, err := s.checks.ListDistinctCheckDates(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		for _, day := range dates {
+			if day.IsZero() {
+				continue
+			}
+			touch(day).HasCheckIn = true
+		}
+	}
+	if s.routines != nil {
+		rows, err := s.routines.ListAllForUser(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		for i := range rows {
+			row := &rows[i]
+			if row.RoutineDate.IsZero() || !routineFullyDone(row.Morning, row.Evening) {
+				continue
+			}
+			touch(row.RoutineDate).RoutineComplete = true
+		}
+	}
+	out := make([]glowDay, 0, len(byDay))
+	for _, day := range byDay {
+		out = append(out, *day)
+	}
+	return out, nil
 }
 
 // visibleLoadout drops equipped items whose grant is missing, expired, or

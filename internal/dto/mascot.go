@@ -19,15 +19,19 @@ type MascotResponse struct {
 	StreakDays    int                  `json:"streak_days"`
 	MissedDays    int                  `json:"missed_days"`
 	MessyLevel    int                  `json:"messy_level"`
-	// GlowLevel is max(stored high water, level from check-in days). It does not fall.
-	// CheckInDays counts distinct Asia/Ho_Chi_Minh days with a photo or skip check-in.
-	// NextLevelAt is the GlowThresholds day total that starts the next level.
-	// Null at the highest level.
+	// GlowLevel is max(stored high water, level from glow points). It does not fall.
+	// GlowPoints is the total from stored check-ins and finished routines.
+	// NextLevelPoints is the point total that starts the next level. Null at the top.
+	// GlowProgress is glow_points / next_level_points, clamped to 0..1. It is 1 at the top.
+	// NearLevelUp is true when GlowProgress is at least 80% and a next level exists.
 	// LevelUp is true when GlowLevel is above the level last acknowledged.
-	GlowLevel   int  `json:"glow_level"`
-	CheckInDays int  `json:"checkin_days"`
-	NextLevelAt *int `json:"next_level_at"`
-	LevelUp     bool `json:"level_up"`
+	// SkinMarks are the latest check-in only. Glow points do not change them.
+	GlowLevel       int     `json:"glow_level"`
+	GlowPoints      int     `json:"glow_points"`
+	NextLevelPoints *int    `json:"next_level_points"`
+	GlowProgress    float64 `json:"glow_progress"`
+	NearLevelUp     bool    `json:"near_level_up"`
+	LevelUp         bool    `json:"level_up"`
 }
 
 // MascotSkinMark is one concern from a check-in. Level is light, medium, or heavy.
