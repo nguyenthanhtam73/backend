@@ -50,6 +50,7 @@ var exact = map[string]string{
 	"user context missing":                    "Bạn cần đăng nhập lại.",
 	"missing user":                            "Bạn cần đăng nhập lại.",
 	"missing or invalid Authorization header": "Bạn cần đăng nhập lại.",
+	"websocket upgrade required":              "Kết nối này cần WebSocket.",
 	"empty bearer token":                      "Bạn cần đăng nhập lại.",
 	"access token invalid or expired":         "Phiên đăng nhập hết hạn. Bạn đăng nhập lại nhé.",
 	"JWT service not configured":              "Đăng nhập đang lỗi. Bạn thử lại sau nhé.",
