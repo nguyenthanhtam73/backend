@@ -52,7 +52,7 @@ func TestMissedStageTable(t *testing.T) {
 		{40, "waiting_door_sign", "Tôi đã bị bỏ rơi ở đây", "I was abandoned here", 4},
 	}
 	for _, tc := range cases {
-		got := Derive(Input{Today: today, Routines: missedOnly(today, tc.days)})
+		got := Derive(Input{Today: today, LastCheckInDay: today.AddDate(0, 0, -tc.days)})
 		if got.Mood != tc.mood || got.MissedDays != tc.days || got.MessyLevel != tc.messy {
 			t.Fatalf("day %d: mood=%s missed=%d messy=%d", tc.days, got.Mood, got.MissedDays, got.MessyLevel)
 		}
@@ -82,13 +82,12 @@ func TestMessyLevelBands(t *testing.T) {
 
 func TestFinishedSessionResetsMissAndMessy(t *testing.T) {
 	today := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
-	rows := missedOnly(today, 21)
-	rows = append(rows, RoutineDay{
-		Date:    today,
-		Evening: []Step{{ID: "moisturizer", Completed: true}, {ID: "lip", Completed: true}},
-	})
+	rows := []RoutineDay{
+		{Date: today.AddDate(0, 0, -21), Morning: []Step{{ID: "wash", Completed: true}}},
+		{Date: today, Evening: []Step{{ID: "moisturizer", Completed: true}, {ID: "lip", Completed: true}}},
+	}
 	latest := &CheckView{Conditions: []string{"breakout", "oily"}}
-	got := Derive(Input{Today: today, Routines: rows, Latest: latest})
+	got := Derive(Input{Today: today, Routines: rows, Latest: latest, LastCareDay: today})
 	if got.Mood != moodHug || got.MissedDays != 0 || got.MessyLevel != 0 {
 		t.Fatalf("return: %+v", got)
 	}
@@ -105,26 +104,85 @@ func TestFinishedSessionResetsMissAndMessy(t *testing.T) {
 
 func TestPartialTickDoesNotReset(t *testing.T) {
 	today := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
-	got := Derive(Input{Today: today, Routines: []RoutineDay{
-		{Date: today.AddDate(0, 0, -2), Morning: []Step{{ID: "wash", Completed: false}}},
-		{Date: today, Morning: []Step{{ID: "wash", Completed: true}, {ID: "spf", Completed: false}}},
-	}})
+	care := today.AddDate(0, 0, -2)
+	got := Derive(Input{
+		Today:       today,
+		LastCareDay: care,
+		Routines: []RoutineDay{
+			{Date: care, Morning: []Step{{ID: "wash", Completed: true}}},
+			{Date: today, Morning: []Step{{ID: "wash", Completed: true}, {ID: "spf", Completed: false}}},
+		},
+	})
 	if got.Mood != "sleepy" || got.MissedDays != 2 || got.MessyLevel != 0 {
 		t.Fatalf("partial: mood=%s missed=%d messy=%d", got.Mood, got.MissedDays, got.MessyLevel)
 	}
+	if got.LastCare == nil || !got.LastCare.Equal(care) {
+		t.Fatalf("care stayed on the full day: %v", got.LastCare)
+	}
 }
 
-func TestMorningSessionCounts(t *testing.T) {
+func TestOpenEveningDoesNotCountAsFullRoutine(t *testing.T) {
 	today := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
-	got := Derive(Input{Today: today, Routines: []RoutineDay{
-		{Date: today.AddDate(0, 0, -1), Morning: []Step{{ID: "wash", Completed: false}}},
-		{Date: today, Morning: []Step{{ID: "wash", Completed: true}, {ID: "spf", Completed: true}}, Evening: []Step{{ID: "cream", Completed: false}}},
-	}})
-	if got.Mood != moodHug || got.MissedDays != 0 || got.MessyLevel != 0 {
+	got := Derive(Input{
+		Today:          today,
+		LastCheckInDay: today.AddDate(0, 0, -2),
+		Routines: []RoutineDay{
+			{Date: today, Morning: []Step{{ID: "wash", Completed: true}, {ID: "spf", Completed: true}}, Evening: []Step{{ID: "cream", Completed: false}}},
+		},
+	})
+	if got.Mood != "sleepy" || got.MissedDays != 2 || got.MessyLevel != 0 {
 		t.Fatalf("am session: %+v", got)
 	}
 	if got.RoutineToday.AMDone != 2 || got.RoutineToday.PMDone != 0 || got.LastStepDone != "spf" {
 		t.Fatalf("counts: %+v %s", got.RoutineToday, got.LastStepDone)
+	}
+}
+
+func TestCareAnchorMissedDays(t *testing.T) {
+	today := time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)
+
+	checkNewer := today.AddDate(0, 0, -1)
+	routineOlder := today.AddDate(0, 0, -5)
+	got := Derive(Input{Today: today, LastCheckInDay: checkNewer, LastCareDay: routineOlder})
+	if got.MissedDays != 1 || got.Mood != "normal" {
+		t.Fatalf("check-in newer: missed=%d mood=%s", got.MissedDays, got.Mood)
+	}
+	if got.LastCare == nil || !got.LastCare.Equal(routineOlder) {
+		t.Fatalf("check-in newer care %v", got.LastCare)
+	}
+
+	routineNewer := today.AddDate(0, 0, -1)
+	checkOlder := today.AddDate(0, 0, -5)
+	got = Derive(Input{Today: today, LastCheckInDay: checkOlder, LastCareDay: routineNewer})
+	if got.MissedDays != 1 || got.Mood != "normal" {
+		t.Fatalf("routine newer: missed=%d mood=%s", got.MissedDays, got.Mood)
+	}
+	if got.LastCare == nil || !got.LastCare.Equal(routineNewer) || got.LastCheckIn != nil {
+		t.Fatalf("routine newer care %v check %v", got.LastCare, got.LastCheckIn)
+	}
+
+	full := today.AddDate(0, 0, -3)
+	got = Derive(Input{
+		Today:       today,
+		LastCareDay: full,
+		Routines: []RoutineDay{{
+			Date:    today,
+			Morning: []Step{{ID: "wash", Completed: true}, {ID: "spf", Completed: false}},
+		}},
+	})
+	if got.MissedDays != 3 || got.Mood != "sleepy" {
+		t.Fatalf("partial: missed=%d mood=%s", got.MissedDays, got.Mood)
+	}
+	if got.LastCare == nil || !got.LastCare.Equal(full) {
+		t.Fatalf("partial moved care to %v", got.LastCare)
+	}
+
+	got = Derive(Input{Today: today, Routines: []RoutineDay{{
+		Date:    today.AddDate(0, 0, -1),
+		Morning: []Step{{ID: "wash", Completed: false}},
+	}}})
+	if got.MissedDays != 0 || got.LastCare != nil || got.Mood != moodHappy {
+		t.Fatalf("none: missed=%d mood=%s care=%v", got.MissedDays, got.Mood, got.LastCare)
 	}
 }
 
@@ -226,9 +284,9 @@ func TestNewAcneIsNotSparkle(t *testing.T) {
 func TestMissedMoodKeepsMarks(t *testing.T) {
 	today := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
 	got := Derive(Input{
-		Today:    today,
-		Routines: missedOnly(today, 6),
-		Latest:   &CheckView{Conditions: []string{"oily", "breakout", "pih"}},
+		Today:          today,
+		LastCheckInDay: today.AddDate(0, 0, -6),
+		Latest:         &CheckView{Conditions: []string{"oily", "breakout", "pih"}},
 	})
 	if got.Mood != "pouty_arms_crossed" || got.MessyLevel != 1 {
 		t.Fatalf("mood %s messy %d", got.Mood, got.MessyLevel)
@@ -287,21 +345,15 @@ func TestStreakSource(t *testing.T) {
 func TestKeptUpSessionStaysHappy(t *testing.T) {
 	today := time.Date(2026, 11, 2, 0, 0, 0, 0, time.UTC)
 	done := []Step{{ID: "wash", Completed: true}}
-	got := Derive(Input{Today: today, Routines: []RoutineDay{
-		{Date: today, Morning: done},
-		{Date: today.AddDate(0, 0, -1), Morning: done},
-	}})
+	got := Derive(Input{
+		Today:       today,
+		LastCareDay: today,
+		Routines: []RoutineDay{
+			{Date: today, Morning: done},
+			{Date: today.AddDate(0, 0, -1), Morning: done},
+		},
+	})
 	if got.Mood != moodHappy || got.MissedDays != 0 || got.MessyLevel != 0 {
 		t.Fatalf("%+v", got)
 	}
-}
-
-func missedOnly(today time.Time, days int) []RoutineDay {
-	if days <= 0 {
-		return nil
-	}
-	return []RoutineDay{{
-		Date:    today.AddDate(0, 0, -days),
-		Morning: []Step{{ID: "wash", Completed: false}},
-	}}
 }

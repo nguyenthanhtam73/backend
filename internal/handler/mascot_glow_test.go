@@ -295,8 +295,9 @@ func TestMascotGlowPointsCapBonusAndSameDay(t *testing.T) {
 	}
 
 	if err := db.Model(&domain.RoutineEntry{}).Where("user_id = ?", userID).Updates(map[string]any{
-		"morning": json.RawMessage(`[{"id":"wash","title":"Rửa mặt","completed":true}]`),
-		"evening": json.RawMessage(`[{"id":"cream","title":"Dưỡng","completed":true}]`),
+		"morning":        json.RawMessage(`[{"id":"wash","title":"Rửa mặt","completed":true}]`),
+		"evening":        json.RawMessage(`[{"id":"cream","title":"Dưỡng","completed":true}]`),
+		"all_steps_done": true,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}

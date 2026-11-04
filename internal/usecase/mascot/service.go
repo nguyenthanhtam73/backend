@@ -172,6 +172,7 @@ func (s *Service) view(ctx context.Context, userID uuid.UUID, row *domain.UserMa
 		}
 		if len(rows) > 0 {
 			in.Latest = checkView(&rows[0])
+			in.LastCheckInDay = checkCivilDay(&rows[0])
 		}
 		if len(rows) > 1 {
 			in.Previous = checkView(&rows[1])
@@ -184,6 +185,15 @@ func (s *Service) view(ctx context.Context, userID uuid.UUID, row *domain.UserMa
 			return zero, err
 		}
 		in.Routines = routineDays(rows, today)
+		// Newest full-routine day. Separate from the checklist window above:
+		// one indexed lookup, including days older than that window.
+		care, err := s.routines.LatestFullRoutineDate(ctx, userID)
+		if err != nil {
+			return zero, err
+		}
+		if care != nil {
+			in.LastCareDay = streaktime.DateOf(*care)
+		}
 	}
 	if s.streaks != nil {
 		streak, err := s.streaks.GetByUserID(ctx, userID)
@@ -428,6 +438,10 @@ func toResponse(loadout domain.MascotLoadout, derived Result) dto.MascotResponse
 		s := derived.LastCheckIn.UTC().Format(time.RFC3339)
 		out.LastCheckInAt = &s
 	}
+	if derived.LastCare != nil {
+		s := derived.LastCare.UTC().Format("2006-01-02")
+		out.LastCareAt = &s
+	}
 	if derived.LastStepDone != "" {
 		step := derived.LastStepDone
 		out.LastStepDone = &step
@@ -589,6 +603,21 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(b[i:])
+}
+
+// checkCivilDay is the skin check's Vietnam civil day, the same check_date
+// the streak uses. CreatedAt is only a fallback when that date was not stored.
+func checkCivilDay(c *domain.SkinCheck) time.Time {
+	if c == nil {
+		return time.Time{}
+	}
+	if !c.CheckDate.IsZero() {
+		return streaktime.DateOf(c.CheckDate)
+	}
+	if c.CreatedAt.IsZero() {
+		return time.Time{}
+	}
+	return streaktime.DateOf(c.CreatedAt)
 }
 
 func checkView(c *domain.SkinCheck) *CheckView {

@@ -22,12 +22,17 @@ import (
 // future analytics on whether AI suggestions actually stick.
 type RoutineEntry struct {
 	ID     uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
-	UserID uuid.UUID `gorm:"type:uuid;not null;index" json:"user_id"`
+	UserID uuid.UUID `gorm:"type:uuid;not null;index;index:idx_routine_entries_user_full_day,priority:1" json:"user_id"`
 
-	RoutineDate time.Time       `gorm:"type:date;not null;index" json:"routine_date"`
-	Morning     json.RawMessage `gorm:"type:jsonb" json:"morning,omitempty"`
-	Evening     json.RawMessage `gorm:"type:jsonb" json:"evening,omitempty"`
-	Notes       string          `gorm:"type:text" json:"notes,omitempty"`
+	RoutineDate time.Time `gorm:"type:date;not null;index;index:idx_routine_entries_user_full_day,priority:3" json:"routine_date"`
+	// AllStepsDone is true when every stored morning and evening step is ticked.
+	// BeforeSave keeps it aligned with the JSON. Bé Da reads the newest true
+	// day through idx_routine_entries_user_full_day (and, on Postgres, the
+	// partial index idx_routine_entries_full_day_live). It is not a check-in.
+	AllStepsDone bool            `gorm:"not null;default:false;index:idx_routine_entries_user_full_day,priority:2" json:"-"`
+	Morning      json.RawMessage `gorm:"type:jsonb" json:"morning,omitempty"`
+	Evening      json.RawMessage `gorm:"type:jsonb" json:"evening,omitempty"`
+	Notes        string          `gorm:"type:text" json:"notes,omitempty"`
 	// Source describes how this entry was produced: "manual" | "ai_suggested" | "carried_over".
 	Source string `gorm:"size:24;default:manual" json:"source,omitempty"`
 	// SkillMode (beginner|intermediate|advanced) is captured when an entry is
@@ -45,9 +50,15 @@ func (RoutineEntry) TableName() string {
 	return "routine_entries"
 }
 
+func (r *RoutineEntry) BeforeSave(*gorm.DB) error {
+	r.AllStepsDone = RoutineAllStepsDone(r.Morning, r.Evening)
+	return nil
+}
+
 func (r *RoutineEntry) BeforeCreate(tx *gorm.DB) error {
 	if r.ID == uuid.Nil {
 		r.ID = uuid.New()
 	}
+	r.AllStepsDone = RoutineAllStepsDone(r.Morning, r.Evening)
 	return nil
 }

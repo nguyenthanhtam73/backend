@@ -51,7 +51,8 @@ func stageFor(missed int) (stage, bool) {
 
 // MessyLevel is how untidy the room looks, from missed days.
 // 0 below day 6, 1 from 6, 2 from 12, 3 from 15, 4 from 21.
-// A finished session resets missed days, so the level resets with them.
+// A check-in today or a full routine today resets missed days, so the level
+// resets with them.
 func MessyLevel(missed int) int {
 	switch {
 	case missed >= minWaitingDoor:

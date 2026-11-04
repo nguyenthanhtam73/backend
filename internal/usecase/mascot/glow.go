@@ -175,17 +175,10 @@ func applyGlowDecay(points int, days []glowDay) int {
 
 // routineFullyDone reports whether every stored step is ticked.
 // An empty checklist is not complete. Morning and evening both count.
+// The predicate lives on the routine row so the care-day lookup and glow
+// agree.
 func routineFullyDone(morning, evening json.RawMessage) bool {
-	steps := append(decodeSteps(morning), decodeSteps(evening)...)
-	if len(steps) == 0 {
-		return false
-	}
-	for _, step := range steps {
-		if !step.Completed {
-			return false
-		}
-	}
-	return true
+	return domain.RoutineAllStepsDone(morning, evening)
 }
 
 // AccessoryWearable reports whether this grant may be equipped at level.
