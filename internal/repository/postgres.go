@@ -72,6 +72,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := SeedMascotCatalog(db); err != nil {
 		return err
 	}
+	if err := applyRoutineFullDay(db); err != nil {
+		return err
+	}
 	return applyCaptureReminderClaims(db)
 }
 

@@ -13,12 +13,22 @@ type MascotResponse struct {
 	LineEN        string               `json:"line_en"`
 	SkinMarks     []MascotSkinMark     `json:"skin_marks"`
 	SkinMarksPrev []MascotSkinMark     `json:"skin_marks_prev"`
-	LastCheckInAt *string              `json:"last_checkin_at"`
-	RoutineToday  MascotRoutineToday   `json:"routine_today"`
-	LastStepDone  *string              `json:"last_step_done"`
-	StreakDays    int                  `json:"streak_days"`
-	MissedDays    int                  `json:"missed_days"`
-	MessyLevel    int                  `json:"messy_level"`
+	// LastCheckInAt is the newest skin check's created_at (RFC3339). A full
+	// routine does not set it.
+	LastCheckInAt *string `json:"last_checkin_at"`
+	// LastCareAt is the Vietnam civil date (YYYY-MM-DD) of the newest routine
+	// whose every stored step was ticked. Null when there is no such day.
+	// It is a calendar date, not a timestamp. A partial checklist does not set it.
+	LastCareAt   *string            `json:"last_care_at"`
+	RoutineToday MascotRoutineToday `json:"routine_today"`
+	LastStepDone *string            `json:"last_step_done"`
+	StreakDays   int                `json:"streak_days"`
+	// MissedDays is the Vietnam civil days since the later of the last
+	// skin-check day and LastCareAt. It is 0 when both are absent, and 0
+	// when that day is today. It drives the sleepy stages. The check-in
+	// streak and days_since_last_check_in stay on the check-in alone.
+	MissedDays int `json:"missed_days"`
+	MessyLevel int `json:"messy_level"`
 	// GlowLevel is max(stored high water, level from glow points). It does not fall.
 	// GlowPoints is the total from stored check-ins and finished routines.
 	// NextLevelPoints is the point total that starts the next level. Null at the top.

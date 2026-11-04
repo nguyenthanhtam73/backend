@@ -60,12 +60,20 @@ type CheckView struct {
 
 // Input is everything Derive needs. StreakFromRow is set when a streak row
 // exists, including when the effective streak is 0. Nil falls back to routine days.
+//
+// LastCheckInDay is the Vietnam civil day of the newest skin check. Zero
+// means there is none. It is not Latest.At (that timestamp stays last_checkin_at).
+// LastCareDay is the Vietnam civil day of the newest routine whose every
+// stored step is ticked. Zero means there is none. A partial checklist does
+// not set it.
 type Input struct {
-	Today         time.Time
-	Routines      []RoutineDay
-	Latest        *CheckView
-	Previous      *CheckView
-	StreakFromRow *int
+	Today          time.Time
+	Routines       []RoutineDay
+	Latest         *CheckView
+	Previous       *CheckView
+	StreakFromRow  *int
+	LastCheckInDay time.Time
+	LastCareDay    time.Time
 }
 
 // Mark is one concern. Level is light, medium, or heavy.
@@ -95,23 +103,28 @@ type Result struct {
 	StreakDays   int
 	MissedDays   int
 	MessyLevel   int
+	LastCare     *time.Time
 }
 
 // Derive picks mood, lines, marks, and missed days.
-// A finished session today (all AM or all PM) resets missed days and messy level.
-// Coming back from a miss is hug_return; the line says happy comes next.
-// Otherwise a miss uses the stage table. Skin marks always come from the latest
-// check-in. Glow points are not an input and must not add or remove a mark.
+// Missed days are the Vietnam civil days since the later of LastCheckInDay
+// and LastCareDay. Both absent means 0. A full routine today or a check-in
+// today makes that gap 0. Coming back by finishing every step today, after
+// yesterday was not already covered, is hug_return. Otherwise a miss uses
+// the stage table. Skin marks always come from the latest check-in. Glow
+// points are not an input and must not add or remove a mark. StreakDays
+// still comes from the check-in streak row when one exists.
 func Derive(in Input) Result {
 	today := civil(in.Today)
 	marks := marksFrom(in.Latest)
 	prev := marksFrom(in.Previous)
 	counts, lastStep := routineToday(in.Routines, today)
 
-	missed, sessionToday := missedDays(in.Routines, today)
-	before := 0
-	if sessionToday {
-		before = missedBefore(in.Routines, today)
+	missed := daysSinceCare(today, in.LastCheckInDay, in.LastCareDay)
+	careToday := sameCivil(in.LastCareDay, today)
+	gap := 0
+	if careToday {
+		gap = gapBeforeToday(today, in)
 		missed = 0
 	}
 
@@ -123,12 +136,16 @@ func Derive(in Input) Result {
 		MissedDays:   missed,
 		MessyLevel:   MessyLevel(missed),
 	}
+	if !in.LastCareDay.IsZero() {
+		d := civil(in.LastCareDay)
+		res.LastCare = &d
+	}
 	if in.Latest != nil && !in.Latest.At.IsZero() {
 		at := in.Latest.At.UTC()
 		res.LastCheckIn = &at
 	}
 	switch {
-	case sessionToday && before >= 1:
+	case careToday && gap >= 1:
 		res.Mood = moodHug
 		res.LineVI, res.LineEN = "Ôm cái đã, rồi Bé Da vui.", "A hug first, then Bé Da is happy."
 	case missed >= 1:
@@ -559,40 +576,112 @@ func lastDone(day RoutineDay) string {
 	return last
 }
 
-func missedDays(rows []RoutineDay, today time.Time) (int, bool) {
-	today = civil(today)
-	by := indexRoutines(rows)
-	if sessionDone(by[dateKey(today)]) {
-		return 0, true
-	}
-	earliest, ok := earliestDate(rows)
+// daysSinceCare is the civil-day gap from the later of the two anchors to
+// today. A missing anchor is ignored. No anchor means the user has not
+// checked in and has not finished a routine, so the gap is 0.
+func daysSinceCare(today, checkDay, careDay time.Time) int {
+	anchor, ok := laterCivil(checkDay, careDay)
 	if !ok {
-		return 0, false
+		return 0
 	}
-	n := 0
-	for d := today.AddDate(0, 0, -1); !d.Before(earliest); d = d.AddDate(0, 0, -1) {
-		if sessionDone(by[dateKey(d)]) {
-			break
-		}
-		n++
-		if n > 4000 {
-			break
-		}
-	}
-	return n, false
+	return civilDaysBetween(anchor, today)
 }
 
-func missedBefore(rows []RoutineDay, today time.Time) int {
-	key := dateKey(today)
-	kept := make([]RoutineDay, 0, len(rows))
-	for _, row := range rows {
-		if dateKey(row.Date) == key {
-			continue
-		}
-		kept = append(kept, row)
+func laterCivil(a, b time.Time) (time.Time, bool) {
+	a = civilOrZero(a)
+	b = civilOrZero(b)
+	switch {
+	case a.IsZero() && b.IsZero():
+		return time.Time{}, false
+	case a.IsZero():
+		return b, true
+	case b.IsZero():
+		return a, true
+	case b.After(a):
+		return b, true
+	default:
+		return a, true
 	}
-	n, _ := missedDays(kept, today)
-	return n
+}
+
+func civilOrZero(t time.Time) time.Time {
+	if t.IsZero() {
+		return time.Time{}
+	}
+	return civil(t)
+}
+
+func civilDaysBetween(from, to time.Time) int {
+	from = civil(from)
+	to = civil(to)
+	if !to.After(from) {
+		return 0
+	}
+	return int(to.Sub(from) / (24 * time.Hour))
+}
+
+func sameCivil(a, b time.Time) bool {
+	if a.IsZero() || b.IsZero() {
+		return false
+	}
+	return dateKey(a) == dateKey(b)
+}
+
+// gapBeforeToday is how many days immediately before today were not covered
+// by a check-in or a full routine. Zero when yesterday itself was covered,
+// or when there is no earlier anchor. One or more means finishing every
+// step today is a return.
+func gapBeforeToday(today time.Time, in Input) int {
+	prior, ok := priorAnchor(today, in)
+	if !ok {
+		return 0
+	}
+	between := civilDaysBetween(prior, today)
+	if between <= 1 {
+		return 0
+	}
+	return between - 1
+}
+
+func priorAnchor(today time.Time, in Input) (time.Time, bool) {
+	today = civil(today)
+	var best time.Time
+	found := false
+	consider := func(d time.Time) {
+		d = civilOrZero(d)
+		if d.IsZero() || !d.Before(today) {
+			return
+		}
+		if !found || d.After(best) {
+			best = d
+			found = true
+		}
+	}
+	consider(in.LastCheckInDay)
+	consider(in.LastCareDay)
+	for _, row := range in.Routines {
+		if routineDayFullyDone(row) {
+			consider(row.Date)
+		}
+	}
+	return best, found
+}
+
+func routineDayFullyDone(day RoutineDay) bool {
+	n := 0
+	for _, step := range day.Morning {
+		n++
+		if !step.Completed {
+			return false
+		}
+	}
+	for _, step := range day.Evening {
+		n++
+		if !step.Completed {
+			return false
+		}
+	}
+	return n > 0
 }
 
 func routineStreak(rows []RoutineDay, today time.Time) int {
@@ -637,19 +726,6 @@ func indexRoutines(rows []RoutineDay) map[string]RoutineDay {
 		out[dateKey(row.Date)] = row
 	}
 	return out
-}
-
-func earliestDate(rows []RoutineDay) (time.Time, bool) {
-	var earliest time.Time
-	found := false
-	for _, row := range rows {
-		d := civil(row.Date)
-		if !found || d.Before(earliest) {
-			earliest = d
-			found = true
-		}
-	}
-	return earliest, found
 }
 
 func civil(t time.Time) time.Time {

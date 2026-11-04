@@ -209,10 +209,11 @@ func TestMascotGetCreatesDefaultAndPutValidates(t *testing.T) {
 
 func TestMascotGetSleepyAfterTwoMissedDays(t *testing.T) {
 	app, db, userID := newMascotApp(t)
-	raw, _ := json.Marshal([]map[string]any{{"id": "wash", "title": "Rửa mặt", "completed": false}})
+	raw, _ := json.Marshal([]map[string]any{{"id": "wash", "title": "Rửa mặt", "completed": true}})
+	careDay := streaktime.Today().AddDate(0, 0, -2)
 	row := &domain.RoutineEntry{
 		UserID:      userID,
-		RoutineDate: streaktime.Today().AddDate(0, 0, -2),
+		RoutineDate: careDay,
 		Morning:     raw,
 	}
 	if err := db.Create(row).Error; err != nil {
@@ -232,10 +233,179 @@ func TestMascotGetSleepyAfterTwoMissedDays(t *testing.T) {
 	if data["missed_days"] != float64(2) || data["messy_level"] != float64(0) {
 		t.Fatalf("counters %#v", data)
 	}
+	if data["last_care_at"] != careDay.Format("2006-01-02") {
+		t.Fatalf("last_care_at %#v", data["last_care_at"])
+	}
+	if data["last_checkin_at"] != nil {
+		t.Fatalf("full routine created a check-in timestamp %#v", data["last_checkin_at"])
+	}
 	routine, _ := data["routine_today"].(map[string]any)
 	if routine["am_total"] != float64(1) || routine["am_done"] != float64(0) {
 		t.Fatalf("today %#v", routine)
 	}
+}
+
+func TestMascotMissedDaysFollowLatestCare(t *testing.T) {
+	fullMorning := `[{"id":"wash","title":"Rửa mặt","completed":true}]`
+	fullEvening := `[{"id":"cream","title":"Dưỡng","completed":true}]`
+	partialMorning := `[{"id":"wash","title":"Rửa mặt","completed":true},{"id":"spf","title":"Chống nắng","completed":false}]`
+
+	t.Run("check-in newer", func(t *testing.T) {
+		app, db, userID := newMascotApp(t)
+		today := streaktime.Today()
+		checkDay := today.AddDate(0, 0, -1)
+		// 17:30 UTC is 00:30 the next day in Asia/Ho_Chi_Minh. The miss uses
+		// check_date, the same civil day as the streak, not that timestamp.
+		created := time.Date(checkDay.Year(), checkDay.Month(), checkDay.Day(), 17, 30, 0, 0, time.UTC)
+		insertMascotCheck(t, db, userID, checkDay, `["checks/face.jpg"]`, created)
+		careDay := today.AddDate(0, 0, -5)
+		insertMascotRoutine(t, db, userID, careDay, fullMorning, fullEvening)
+
+		var checksBefore int64
+		if err := db.Model(&domain.SkinCheck{}).Where("user_id = ?", userID).Count(&checksBefore).Error; err != nil {
+			t.Fatal(err)
+		}
+		status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+		if status != http.StatusOK {
+			t.Fatalf("%d %#v", status, env)
+		}
+		data := mascotData(t, env)
+		if data["missed_days"] != float64(1) || data["mood"] != "normal" {
+			t.Fatalf("check-in newer %#v", data)
+		}
+		if data["last_care_at"] != careDay.Format("2006-01-02") {
+			t.Fatalf("last_care_at %#v", data["last_care_at"])
+		}
+		var checksAfter int64
+		if err := db.Model(&domain.SkinCheck{}).Where("user_id = ?", userID).Count(&checksAfter).Error; err != nil {
+			t.Fatal(err)
+		}
+		if checksAfter != checksBefore {
+			t.Fatalf("checks %d to %d", checksBefore, checksAfter)
+		}
+		if _, ok := data["last_checkin_at"].(string); !ok {
+			t.Fatalf("last_checkin_at %#v", data["last_checkin_at"])
+		}
+		per := float64(mascotuc.GlowConfig.CheckInPoints + mascotuc.GlowConfig.RoutineBonus)
+		if data["glow_points"] != per {
+			t.Fatalf("glow %#v", data["glow_points"])
+		}
+	})
+
+	t.Run("routine newer", func(t *testing.T) {
+		app, db, userID := newMascotApp(t)
+		today := streaktime.Today()
+		checkDay := today.AddDate(0, 0, -5)
+		created := checkDay.Add(9 * time.Hour)
+		insertMascotCheck(t, db, userID, checkDay, `[]`, created)
+		careDay := today.AddDate(0, 0, -1)
+		insertMascotRoutine(t, db, userID, careDay, fullMorning, fullEvening)
+		streakDay := streaktime.DateOf(checkDay)
+		if err := db.Omit("User").Create(&domain.Streak{
+			UserID:           userID,
+			CurrentStreak:    5,
+			LongestStreak:    5,
+			LastCheckInDate:  &streakDay,
+			FreezesAvailable: 1,
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+
+		status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+		if status != http.StatusOK {
+			t.Fatalf("%d %#v", status, env)
+		}
+		data := mascotData(t, env)
+		if data["missed_days"] != float64(1) || data["mood"] != "normal" {
+			t.Fatalf("routine newer %#v", data)
+		}
+		if data["last_care_at"] != careDay.Format("2006-01-02") {
+			t.Fatalf("last_care_at %#v", data["last_care_at"])
+		}
+		if data["streak_days"] != float64(0) {
+			t.Fatalf("routine must not keep the check-in streak alive: %#v", data["streak_days"])
+		}
+		var streak domain.Streak
+		if err := db.Where("user_id = ?", userID).First(&streak).Error; err != nil {
+			t.Fatal(err)
+		}
+		if streak.CurrentStreak != 5 || streak.LastCheckInDate == nil || streak.LastCheckInDate.UTC().Format("2006-01-02") != streakDay.Format("2006-01-02") {
+			t.Fatalf("streak row changed: %+v", streak)
+		}
+		var checks int64
+		if err := db.Model(&domain.SkinCheck{}).Where("user_id = ?", userID).Count(&checks).Error; err != nil {
+			t.Fatal(err)
+		}
+		if checks != 1 {
+			t.Fatalf("check rows %d", checks)
+		}
+		per := float64(mascotuc.GlowConfig.CheckInPoints + mascotuc.GlowConfig.RoutineBonus)
+		if data["glow_points"] != per {
+			t.Fatalf("glow %#v", data["glow_points"])
+		}
+	})
+
+	t.Run("partial routine does not count", func(t *testing.T) {
+		app, db, userID := newMascotApp(t)
+		today := streaktime.Today()
+		careDay := today.AddDate(0, 0, -3)
+		insertMascotRoutine(t, db, userID, careDay, fullMorning, fullEvening)
+		insertMascotRoutine(t, db, userID, today.AddDate(0, 0, -1), partialMorning, `[]`)
+		insertMascotRoutine(t, db, userID, today, partialMorning, fullEvening)
+
+		status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+		if status != http.StatusOK {
+			t.Fatalf("%d %#v", status, env)
+		}
+		data := mascotData(t, env)
+		if data["missed_days"] != float64(3) || data["mood"] != "sleepy" {
+			t.Fatalf("partial %#v", data)
+		}
+		if data["last_care_at"] != careDay.Format("2006-01-02") {
+			t.Fatalf("last_care_at %#v", data["last_care_at"])
+		}
+		if data["last_checkin_at"] != nil {
+			t.Fatalf("last_checkin_at %#v", data["last_checkin_at"])
+		}
+		if data["glow_points"] != float64(mascotuc.GlowConfig.RoutineBonus) {
+			t.Fatalf("partial must not add glow %#v", data["glow_points"])
+		}
+		var checks int64
+		if err := db.Model(&domain.SkinCheck{}).Where("user_id = ?", userID).Count(&checks).Error; err != nil {
+			t.Fatal(err)
+		}
+		if checks != 0 {
+			t.Fatalf("partial created %d checks", checks)
+		}
+	})
+
+	t.Run("none", func(t *testing.T) {
+		app, db, userID := newMascotApp(t)
+		status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+		if status != http.StatusOK {
+			t.Fatalf("%d %#v", status, env)
+		}
+		data := mascotData(t, env)
+		if _, ok := data["last_care_at"]; !ok {
+			t.Fatal("last_care_at missing")
+		}
+		if data["missed_days"] != float64(0) || data["mood"] != "happy" || data["last_care_at"] != nil || data["last_checkin_at"] != nil {
+			t.Fatalf("none %#v", data)
+		}
+		if data["glow_points"] != float64(0) || data["streak_days"] != float64(0) {
+			t.Fatalf("none counters %#v", data)
+		}
+		var checks, routines int64
+		if err := db.Model(&domain.SkinCheck{}).Where("user_id = ?", userID).Count(&checks).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Model(&domain.RoutineEntry{}).Where("user_id = ?", userID).Count(&routines).Error; err != nil {
+			t.Fatal(err)
+		}
+		if checks != 0 || routines != 0 {
+			t.Fatalf("checks %d routines %d", checks, routines)
+		}
+	})
 }
 
 func TestMascotHiddenFromNonAdmin(t *testing.T) {
