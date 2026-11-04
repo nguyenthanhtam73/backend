@@ -2,6 +2,7 @@ package lobby
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"strings"
@@ -10,6 +11,65 @@ import (
 
 	"github.com/google/uuid"
 )
+
+func TestRoomCareStreakOnHelloAndTick(t *testing.T) {
+	h, clock := testHub(t)
+	code := "AB23CD"
+	gate := &memberGate{}
+	user := uuid.New()
+	gate.allow(code, user)
+	h.SetRoomGate(gate)
+	var saved string
+	h.SetRoomCare(
+		func(_ context.Context, id uuid.UUID, gotCode, nick string) error {
+			if id != user || gotCode != code || nick != "Mây Hồng" {
+				t.Fatalf("save %s %s %q", id, gotCode, nick)
+			}
+			saved = nick
+			return nil
+		},
+		func(_ context.Context, ids []uuid.UUID) map[uuid.UUID]int {
+			if len(ids) != 1 || ids[0] != user {
+				t.Fatalf("ids %v", ids)
+			}
+			return map[uuid.UUID]int{user: 4}
+		},
+	)
+	peer := &memPeer{}
+	raw := only(t, h.Handle(peer, user, roomJoinRaw("Mây Hồng", code)))
+	if saved != "Mây Hồng" {
+		t.Fatalf("saved %q", saved)
+	}
+	if !strings.Contains(string(raw), `"care_streak":4`) || strings.Contains(string(raw), user.String()) {
+		t.Fatalf("hello %s", raw)
+	}
+	lobbyRaw := only(t, h.Handle(&memPeer{}, uuid.New(), joinRaw("Sảnh", nil)))
+	if strings.Contains(string(lobbyRaw), "care_streak") {
+		t.Fatalf("lobby leaked care_streak %s", lobbyRaw)
+	}
+	if !strings.Contains(string(mustJSON(roomPerson{})), `"care_streak":0`) {
+		t.Fatal("zero streak omitted")
+	}
+	if strings.Contains(string(mustJSON(Person{})), "care_streak") {
+		t.Fatal("lobby person gained care_streak")
+	}
+
+	clock.Advance(time.Second)
+	if len(h.Handle(peer, user, roomRaw(map[string]any{"op": "move-to", "x": 0.2, "y": 0.3})).Self) != 0 {
+		t.Fatal("move replied")
+	}
+	peer.drain()
+	h.Flush()
+	if !strings.Contains(string(peer.last()), `"care_streak":4`) {
+		t.Fatalf("tick %s", peer.last())
+	}
+	h.NoteCareStreaks(code, map[uuid.UUID]int{user: 7})
+	peer.drain()
+	h.Flush()
+	if !strings.Contains(string(peer.last()), `"care_streak":7`) {
+		t.Fatalf("refresh %s", peer.last())
+	}
+}
 
 func TestRoomCodeAlphabet(t *testing.T) {
 	for _, bad := range []rune{'0', 'O', '1', 'I'} {

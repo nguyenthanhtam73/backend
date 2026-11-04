@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/lobby"
@@ -164,7 +165,8 @@ func (r *MascotRoomRepository) Join(ctx context.Context, userID uuid.UUID, rawCo
 	return view, nil
 }
 
-// Leave removes userID. The room row is deleted when it has no members left.
+// Leave removes userID only. The room creator cannot remove anyone else.
+// There is no kick or ban. The room row is deleted when it has no members left.
 func (r *MascotRoomRepository) Leave(ctx context.Context, userID uuid.UUID, rawCode string) error {
 	code, ok := lobby.NormalizeRoomCode(rawCode)
 	if !ok {
@@ -190,6 +192,62 @@ func (r *MascotRoomRepository) Leave(ctx context.Context, userID uuid.UUID, rawC
 		}
 		return nil
 	})
+}
+
+// RoomMember is one roster row. UserID stays inside the server.
+type RoomMember struct {
+	UserID   uuid.UUID
+	Nickname string
+	JoinedAt time.Time
+}
+
+// ListMembers returns the roster in join order. The code must already be canonical.
+func (r *MascotRoomRepository) ListMembers(ctx context.Context, code string) ([]RoomMember, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	code, ok := lobby.NormalizeRoomCode(code)
+	if !ok {
+		return nil, ErrMascotRoomBadCode
+	}
+	var rows []domain.MascotRoomMember
+	err = db.WithContext(ctx).
+		Where("room_code = ?", code).
+		Order("joined_at ASC, user_id ASC").
+		Find(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RoomMember, len(rows))
+	for i, row := range rows {
+		out[i] = RoomMember{UserID: row.UserID, Nickname: row.Nickname, JoinedAt: row.JoinedAt}
+	}
+	return out, nil
+}
+
+// SaveNickname stores the live room persona for this member.
+// A name the lobby would reject is ignored. Missing membership is not an error.
+func (r *MascotRoomRepository) SaveNickname(ctx context.Context, userID uuid.UUID, rawCode, nickname string) error {
+	code, ok := lobby.NormalizeRoomCode(rawCode)
+	if !ok {
+		return ErrMascotRoomBadCode
+	}
+	if userID == uuid.Nil {
+		return nil
+	}
+	nick, ok := lobby.CleanNickname(nickname)
+	if !ok || utf8.RuneCountInString(nick) > lobby.MaxNicknameRunes {
+		return nil
+	}
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	return db.WithContext(ctx).
+		Model(&domain.MascotRoomMember{}).
+		Where("room_code = ? AND user_id = ?", code, userID).
+		Update("nickname", nick).Error
 }
 
 // CanEnter reports whether userID is a member of an existing room.

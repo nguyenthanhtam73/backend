@@ -37,6 +37,7 @@ import (
 	pushclickuc "github.com/dadiary/backend/internal/usecase/pushclick"
 	reminderprefsuc "github.com/dadiary/backend/internal/usecase/reminderprefs"
 	resendhookuc "github.com/dadiary/backend/internal/usecase/resendhook"
+	"github.com/dadiary/backend/internal/usecase/roomcare"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	streakuc "github.com/dadiary/backend/internal/usecase/streak"
@@ -243,8 +244,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			})
 			NewLobbyHandler(lobbyHub, tok, cfg, userLookup).Register(api)
 			roomRepo := repository.NewMascotRoomRepository(db)
+			care := roomcare.NewCache(routineRepo)
 			lobbyHub.SetRoomGate(newMascotRoomGate(roomRepo))
-			NewMascotRoomHandler(roomRepo, cfg, lobbyHub).Register(api, jwt)
+			lobbyHub.SetRoomCare(roomRepo.SaveNickname, care.Refresh)
+			NewMascotRoomHandler(roomRepo, cfg, lobbyHub, care).Register(api, jwt)
 		}
 
 		reminderFlags := repository.NewCheckInReminderRepository(db)

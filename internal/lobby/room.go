@@ -1,8 +1,10 @@
 package lobby
 
 import (
+	"context"
 	"errors"
 	"sort"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -202,6 +204,7 @@ func (h *Hub) joinRoomLocked(c *connState, msg clientMsg, code string, gateErr e
 		if room := h.rooms[code]; room != nil {
 			room.upserts[s.id] = struct{}{}
 		}
+		h.attachCareLocked(code, s)
 		return Outcome{Self: [][]byte{h.helloRoomLocked(s)}}
 	}
 
@@ -237,8 +240,101 @@ func (h *Hub) joinRoomLocked(c *connState, msg clientMsg, code string, gateErr e
 	}
 	c.session = s
 	h.addToRoomLocked(s, code)
+	h.attachCareLocked(code, s)
 	out.Self = [][]byte{h.helloRoomLocked(s)}
 	return out
+}
+
+// roomPerson is a live room seat. care_streak is always present, including 0.
+// Lobby seats stay on Person and do not carry this field.
+type roomPerson struct {
+	Person
+	CareStreak int `json:"care_streak"`
+}
+
+func (s *session) roomPerson() roomPerson {
+	if s == nil {
+		return roomPerson{}
+	}
+	return roomPerson{Person: s.person, CareStreak: s.careStreak}
+}
+
+// attachCareLocked saves the persona and fills care streaks for the room.
+// The callbacks run without the hub lock. No callbacks means the streak stays 0.
+func (h *Hub) attachCareLocked(code string, self *session) {
+	if h == nil || self == nil || (h.saveNick == nil && h.careFn == nil) {
+		return
+	}
+	var ids []uuid.UUID
+	if room := h.rooms[code]; room != nil {
+		ids = make([]uuid.UUID, 0, len(room.members))
+		for _, m := range room.members {
+			ids = append(ids, m.userID)
+		}
+	}
+	got := h.loadCareUnlocked(code, self.userID, self.person.Nickname, ids)
+	if len(got) == 0 {
+		return
+	}
+	room := h.rooms[code]
+	if room == nil {
+		if n, ok := got[self.userID]; ok {
+			self.careStreak = n
+		}
+		return
+	}
+	for _, m := range room.members {
+		n, ok := got[m.userID]
+		if !ok || m.careStreak == n {
+			continue
+		}
+		m.careStreak = n
+		if m.id != self.id {
+			room.upserts[m.id] = struct{}{}
+		}
+	}
+}
+
+func (h *Hub) loadCareUnlocked(code string, userID uuid.UUID, nick string, ids []uuid.UUID) map[uuid.UUID]int {
+	save := h.saveNick
+	fn := h.careFn
+	h.mu.Unlock()
+	defer h.mu.Lock()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if save != nil {
+		_ = save(ctx, userID, code, nick)
+	}
+	if fn == nil {
+		return nil
+	}
+	return fn(ctx, ids)
+}
+
+// NoteCareStreaks copies a refresh into live seats of code.
+// A changed value is included in the next presence tick. Same values are not.
+func (h *Hub) NoteCareStreaks(code string, streaks map[uuid.UUID]int) {
+	if h == nil || len(streaks) == 0 {
+		return
+	}
+	code, ok := NormalizeRoomCode(code)
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room := h.rooms[code]
+	if room == nil {
+		return
+	}
+	for _, m := range room.members {
+		n, ok := streaks[m.userID]
+		if !ok || m.careStreak == n {
+			continue
+		}
+		m.careStreak = n
+		room.upserts[m.id] = struct{}{}
+	}
 }
 
 func (h *Hub) addToRoomLocked(s *session, code string) {
@@ -262,23 +358,23 @@ func (h *Hub) addToRoomLocked(s *session, code string) {
 }
 
 func (h *Hub) helloRoomLocked(s *session) []byte {
-	people := []Person{}
+	people := []roomPerson{}
 	if room := h.rooms[s.roomCode]; room != nil {
-		people = make([]Person, 0, len(room.members))
+		people = make([]roomPerson, 0, len(room.members))
 		for _, m := range room.members {
-			people = append(people, m.person)
+			people = append(people, m.roomPerson())
 		}
 		sort.Slice(people, func(i, j int) bool { return people[i].ID < people[j].ID })
 	}
 	return h.track(mustJSON(struct {
-		V         int      `json:"v"`
-		Channel   string   `json:"channel"`
-		Op        string   `json:"op"`
-		SessionID string   `json:"session_id"`
-		Code      string   `json:"code"`
-		Cap       int      `json:"cap"`
-		Count     int      `json:"count"`
-		People    []Person `json:"people"`
+		V         int          `json:"v"`
+		Channel   string       `json:"channel"`
+		Op        string       `json:"op"`
+		SessionID string       `json:"session_id"`
+		Code      string       `json:"code"`
+		Cap       int          `json:"cap"`
+		Count     int          `json:"count"`
+		People    []roomPerson `json:"people"`
 	}{ProtocolVersion, ChannelRoom, OpHello, s.id, s.roomCode, RoomCap, len(people), people}))
 }
 
@@ -296,10 +392,10 @@ func (h *Hub) collectRoomsLocked() []delivery {
 		if len(room.upserts) == 0 && len(room.left) == 0 && len(room.events) == 0 {
 			continue
 		}
-		upserts := make([]Person, 0, len(room.upserts))
+		upserts := make([]roomPerson, 0, len(room.upserts))
 		for id := range room.upserts {
 			if m := room.members[id]; m != nil {
-				upserts = append(upserts, m.person)
+				upserts = append(upserts, m.roomPerson())
 			}
 		}
 		sort.Slice(upserts, func(a, b int) bool { return upserts[a].ID < upserts[b].ID })
@@ -327,15 +423,15 @@ func (h *Hub) collectRoomsLocked() []delivery {
 				continue
 			}
 			body := h.track(mustJSON(struct {
-				V       int      `json:"v"`
-				Channel string   `json:"channel"`
-				Op      string   `json:"op"`
-				Code    string   `json:"code"`
-				Count   int      `json:"count"`
-				Cap     int      `json:"cap"`
-				Upserts []Person `json:"upserts"`
-				Left    []string `json:"left"`
-				Events  []Event  `json:"events"`
+				V       int          `json:"v"`
+				Channel string       `json:"channel"`
+				Op      string       `json:"op"`
+				Code    string       `json:"code"`
+				Count   int          `json:"count"`
+				Cap     int          `json:"cap"`
+				Upserts []roomPerson `json:"upserts"`
+				Left    []string     `json:"left"`
+				Events  []Event      `json:"events"`
 			}{ProtocolVersion, ChannelRoom, OpTick, code, count, RoomCap, upserts, left, ev}))
 			jobs = append(jobs, delivery{peer: m.conn.peer, body: body})
 		}

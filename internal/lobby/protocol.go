@@ -4,7 +4,8 @@
 // Room membership is decided by RoomGate. This package does not write the
 // database. Wire messages are JSON text frames. Session ids are random per
 // connection and are not account ids. The hub never puts an email, photo,
-// display name, level, or point total on the wire.
+// display name, level, or point total on the wire. Room hello and presence
+// add care_streak, the consecutive full-routine day count.
 package lobby
 
 import (

@@ -3,33 +3,40 @@ package handler
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/lobby"
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/usecase/roomcare"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
 
-// liveRooms drops a socket when someone leaves a room over REST.
+// liveRooms drops a socket when someone leaves a room over REST and
+// copies a refreshed care streak onto live seats.
 type liveRooms interface {
 	LeaveLive(userID uuid.UUID, code string)
+	NoteCareStreaks(code string, streaks map[uuid.UUID]int)
 }
 
 // MascotRoomHandler is the REST API for an 8-person invite room.
+// Members leave themselves. The creator cannot kick, ban, or remove anyone.
 type MascotRoomHandler struct {
 	repo *repository.MascotRoomRepository
 	cfg  *config.Config
 	live liveRooms
+	care *roomcare.Cache
 }
 
 // NewMascotRoomHandler constructs the room routes.
-func NewMascotRoomHandler(repo *repository.MascotRoomRepository, cfg *config.Config, live liveRooms) *MascotRoomHandler {
-	return &MascotRoomHandler{repo: repo, cfg: cfg, live: live}
+func NewMascotRoomHandler(repo *repository.MascotRoomRepository, cfg *config.Config, live liveRooms, care *roomcare.Cache) *MascotRoomHandler {
+	return &MascotRoomHandler{repo: repo, cfg: cfg, live: live, care: care}
 }
 
 // mascotRoomCreatesPerMinute is the per-account cap on POST /mascot/rooms.
@@ -41,6 +48,7 @@ func (h *MascotRoomHandler) Register(r fiber.Router, jwt fiber.Handler) {
 		return
 	}
 	r.Post("/mascot/rooms", jwt, middleware.AILimiter(mascotRoomCreatesPerMinute, time.Minute), h.Create)
+	r.Get("/mascot/rooms/:code/board", jwt, h.Board)
 	r.Get("/mascot/rooms/:code", jwt, h.Get)
 	r.Post("/mascot/rooms/:code/join", jwt, h.Join)
 	r.Post("/mascot/rooms/:code/leave", jwt, h.Leave)
@@ -58,7 +66,7 @@ func (h *MascotRoomHandler) Create(c *fiber.Ctx) error {
 	if err != nil {
 		return writeRoomErr(c, err)
 	}
-	return response.JSON(c, fiber.StatusCreated, roomJSON(view))
+	return h.writeRoom(c, fiber.StatusCreated, view)
 }
 
 func (h *MascotRoomHandler) Get(c *fiber.Ctx) error {
@@ -73,7 +81,7 @@ func (h *MascotRoomHandler) Get(c *fiber.Ctx) error {
 	if err != nil {
 		return writeRoomErr(c, err)
 	}
-	return response.JSON(c, fiber.StatusOK, roomJSON(view))
+	return h.writeRoom(c, fiber.StatusOK, view)
 }
 
 func (h *MascotRoomHandler) Join(c *fiber.Ctx) error {
@@ -88,7 +96,41 @@ func (h *MascotRoomHandler) Join(c *fiber.Ctx) error {
 	if err != nil {
 		return writeRoomErr(c, err)
 	}
-	return response.JSON(c, fiber.StatusOK, roomJSON(view))
+	return h.writeRoom(c, fiber.StatusOK, view)
+}
+
+// Board is GET /api/v1/mascot/rooms/:code/board.
+// Members only. Sorted by care_streak descending, then nickname ascending.
+// Each row is nickname and care_streak.
+func (h *MascotRoomHandler) Board(c *fiber.Ctx) error {
+	if h == nil || h.repo == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "mascot unavailable")
+	}
+	uid, ok := h.allow(c)
+	if !ok {
+		return nil
+	}
+	view, err := h.repo.Get(c.UserContext(), uid, c.Params("code"))
+	if err != nil {
+		return writeRoomErr(c, err)
+	}
+	if !view.Joined {
+		return response.Error(c, fiber.StatusForbidden, "not_a_member", "not a room member")
+	}
+	members, streaks, err := h.memberCare(c.UserContext(), view)
+	if err != nil {
+		return writeRoomErr(c, err)
+	}
+	sort.SliceStable(members, func(i, j int) bool {
+		if members[i].CareStreak != members[j].CareStreak {
+			return members[i].CareStreak > members[j].CareStreak
+		}
+		return members[i].Nickname < members[j].Nickname
+	})
+	if h.live != nil {
+		h.live.NoteCareStreaks(view.Code, streaks)
+	}
+	return response.JSON(c, fiber.StatusOK, dto.RoomBoardResponse{Members: members})
 }
 
 func (h *MascotRoomHandler) Leave(c *fiber.Ctx) error {
@@ -123,6 +165,44 @@ func (h *MascotRoomHandler) allow(c *fiber.Ctx) (uuid.UUID, bool) {
 	}
 	_ = response.Error(c, fiber.StatusNotFound, "not_found", "not found")
 	return uuid.Nil, false
+}
+
+func (h *MascotRoomHandler) writeRoom(c *fiber.Ctx, status int, view repository.MascotRoomView) error {
+	members, streaks, err := h.memberCare(c.UserContext(), view)
+	if err != nil {
+		return writeRoomErr(c, err)
+	}
+	if h.live != nil && view.Joined {
+		h.live.NoteCareStreaks(view.Code, streaks)
+	}
+	body := roomJSON(view)
+	body["members"] = members
+	return response.JSON(c, status, body)
+}
+
+// memberCare is the join-ordered roster. Non-members get an empty list and
+// no nicknames. Streaks come from the per-user per-day cache.
+func (h *MascotRoomHandler) memberCare(ctx context.Context, view repository.MascotRoomView) ([]dto.RoomMemberCare, map[uuid.UUID]int, error) {
+	if !view.Joined || h == nil || h.repo == nil {
+		return []dto.RoomMemberCare{}, nil, nil
+	}
+	rows, err := h.repo.ListMembers(ctx, view.Code)
+	if err != nil {
+		return nil, nil, err
+	}
+	ids := make([]uuid.UUID, len(rows))
+	for i, row := range rows {
+		ids[i] = row.UserID
+	}
+	streaks := map[uuid.UUID]int{}
+	if h.care != nil {
+		streaks = h.care.Refresh(ctx, ids)
+	}
+	out := make([]dto.RoomMemberCare, len(rows))
+	for i, row := range rows {
+		out[i] = dto.RoomMemberCare{Nickname: row.Nickname, CareStreak: streaks[row.UserID]}
+	}
+	return out, streaks, nil
 }
 
 func roomJSON(view repository.MascotRoomView) fiber.Map {
