@@ -20,10 +20,14 @@ type MascotRoom struct {
 func (MascotRoom) TableName() string { return "mascot_rooms" }
 
 // MascotRoomMember is one account in a room. At most MaxMembers rows per room.
+// Nickname is the Bé Da persona from the live join. It is not the account name.
+// There is no kick, ban, or remove-other-member. A row disappears only when
+// that account leaves, or when the account itself is deleted.
 type MascotRoomMember struct {
 	RoomCode string    `gorm:"primaryKey;size:6" json:"-"`
 	UserID   uuid.UUID `gorm:"type:uuid;primaryKey;index" json:"-"`
 	JoinedAt time.Time `gorm:"not null" json:"-"`
+	Nickname string    `gorm:"size:96;not null;default:''" json:"-"`
 }
 
 func (MascotRoomMember) TableName() string { return "mascot_room_members" }

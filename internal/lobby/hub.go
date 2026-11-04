@@ -2,6 +2,7 @@ package lobby
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"math"
@@ -81,6 +82,8 @@ type Hub struct {
 	halls      []*hall
 	rooms      map[string]*hall
 	gate       RoomGate
+	saveNick   func(context.Context, uuid.UUID, string, string) error
+	careFn     func(context.Context, []uuid.UUID) map[uuid.UUID]int
 	lastCounts []Count
 
 	in       atomic.Uint64
@@ -106,14 +109,15 @@ type connState struct {
 }
 
 type session struct {
-	id       string
-	userID   uuid.UUID
-	conn     *connState
-	lobby    int
-	roomCode string
-	person   Person
-	hide     map[string]struct{}
-	drop     Stopper
+	id         string
+	userID     uuid.UUID
+	conn       *connState
+	lobby      int
+	roomCode   string
+	person     Person
+	careStreak int
+	hide       map[string]struct{}
+	drop       Stopper
 }
 
 type hall struct {
@@ -189,6 +193,22 @@ func (h *Hub) SetRoomGate(g RoomGate) {
 	}
 	h.mu.Lock()
 	h.gate = g
+	h.mu.Unlock()
+}
+
+// SetRoomCare stores the room persona and supplies care streaks.
+// Both run without the hub lock, once per room join. Presence frames read
+// the int kept on the session. Nil leaves care_streak at 0.
+func (h *Hub) SetRoomCare(
+	save func(context.Context, uuid.UUID, string, string) error,
+	streaks func(context.Context, []uuid.UUID) map[uuid.UUID]int,
+) {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	h.saveNick = save
+	h.careFn = streaks
 	h.mu.Unlock()
 }
 
