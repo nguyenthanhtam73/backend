@@ -42,12 +42,14 @@ func NewMascotRoomHandler(repo *repository.MascotRoomRepository, cfg *config.Con
 // mascotRoomCreatesPerMinute is the per-account cap on POST /mascot/rooms.
 const mascotRoomCreatesPerMinute = 5
 
-// Register attaches create, get, join, and leave under /api/v1.
+// Register attaches create, mine, get, join, and leave under /api/v1.
+// /mine is registered before /:code so the list is not read as a room code.
 func (h *MascotRoomHandler) Register(r fiber.Router, jwt fiber.Handler) {
 	if jwt == nil {
 		return
 	}
 	r.Post("/mascot/rooms", jwt, middleware.AILimiter(mascotRoomCreatesPerMinute, time.Minute), h.Create)
+	r.Get("/mascot/rooms/mine", jwt, h.Mine)
 	r.Get("/mascot/rooms/:code/board", jwt, h.Board)
 	r.Get("/mascot/rooms/:code", jwt, h.Get)
 	r.Post("/mascot/rooms/:code/join", jwt, h.Join)
@@ -67,6 +69,29 @@ func (h *MascotRoomHandler) Create(c *fiber.Ctx) error {
 		return writeRoomErr(c, err)
 	}
 	return h.writeRoom(c, fiber.StatusCreated, view)
+}
+
+// Mine is GET /api/v1/mascot/rooms/mine.
+// Logged-out callers get 401 from the JWT middleware. The list is the open
+// rooms this account owns or still belongs to. Each row has the room code,
+// member count, and capacity. Closed rooms are omitted.
+func (h *MascotRoomHandler) Mine(c *fiber.Ctx) error {
+	if h == nil || h.repo == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "mascot unavailable")
+	}
+	uid, ok := h.allow(c)
+	if !ok {
+		return nil
+	}
+	rooms, err := h.repo.ListOpenForUser(c.UserContext(), uid)
+	if err != nil {
+		return writeRoomErr(c, err)
+	}
+	body := make([]fiber.Map, 0, len(rooms))
+	for _, view := range rooms {
+		body = append(body, roomJSON(view))
+	}
+	return response.JSON(c, fiber.StatusOK, fiber.Map{"rooms": body})
 }
 
 func (h *MascotRoomHandler) Get(c *fiber.Ctx) error {

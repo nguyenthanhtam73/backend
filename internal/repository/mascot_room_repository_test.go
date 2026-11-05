@@ -147,6 +147,73 @@ func TestMascotRoomCapJoinLeaveAndDelete(t *testing.T) {
 	}
 }
 
+func TestListOpenForUserOmitsClosedAndKeepsOwnedOrJoined(t *testing.T) {
+	db := openRoomDB(t)
+	repo := NewMascotRoomRepository(db)
+	ctx := context.Background()
+	owner := insertRoomUser(t, db, "mine-owner@example.com")
+	guest := insertRoomUser(t, db, "mine-guest@example.com")
+	stranger := insertRoomUser(t, db, "mine-stranger@example.com")
+
+	owned, err := repo.Create(ctx, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Join(ctx, guest.ID, owned.Code); err != nil {
+		t.Fatal(err)
+	}
+	solo, err := repo.Create(ctx, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := repo.Create(ctx, stranger.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Leave(ctx, owner.ID, solo.Code); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.Leave(ctx, owner.ID, owned.Code); err != nil {
+		t.Fatal(err)
+	}
+
+	ownerRooms, err := repo.ListOpenForUser(ctx, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ownerRooms) != 1 || ownerRooms[0].Code != owned.Code || !ownerRooms[0].Owner || ownerRooms[0].Joined || ownerRooms[0].MemberCount != 1 || ownerRooms[0].Cap != lobby.RoomCap {
+		t.Fatalf("owner still owns the open room %+v", ownerRooms)
+	}
+	guestRooms, err := repo.ListOpenForUser(ctx, guest.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(guestRooms) != 1 || guestRooms[0].Code != owned.Code || guestRooms[0].Owner || !guestRooms[0].Joined || guestRooms[0].MemberCount != 1 {
+		t.Fatalf("guest %+v", guestRooms)
+	}
+	strangerRooms, err := repo.ListOpenForUser(ctx, stranger.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strangerRooms) != 1 || strangerRooms[0].Code != other.Code {
+		t.Fatalf("stranger %+v", strangerRooms)
+	}
+
+	if err := repo.Leave(ctx, guest.ID, owned.Code); err != nil {
+		t.Fatal(err)
+	}
+	afterClose, err := repo.ListOpenForUser(ctx, owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(afterClose) != 0 {
+		t.Fatalf("closed room stayed listed %+v", afterClose)
+	}
+	if _, err := repo.Get(ctx, guest.ID, owned.Code); !errors.Is(err, ErrMascotRoomNotFound) {
+		t.Fatalf("closed room still loads: %v", err)
+	}
+}
+
 func TestMascotRoomOwnerOpenCap(t *testing.T) {
 	db := openRoomDB(t)
 	repo := NewMascotRoomRepository(db)
