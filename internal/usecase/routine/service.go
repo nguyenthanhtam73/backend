@@ -51,6 +51,9 @@ type Service struct {
 	// suggestJobs persists async AI jobs. Nil falls back to process memory
 	// (unit tests). Production always attaches the Postgres repo.
 	suggestJobs *repository.GormRoutineSuggestJobRepository
+	// now, when set, replaces the wall clock for the routine care day.
+	// Production leaves it nil. Tests freeze an evening tick before 04:00.
+	now func() time.Time
 }
 
 // NewService wires dependencies. skinCheck, feedback, and cache are optional —
@@ -86,16 +89,17 @@ func (s *Service) AttachSuggestJobs(repo *repository.GormRoutineSuggestJobReposi
 	s.suggestJobs = repo
 }
 
-// GetCurrent returns today's routine if it exists. Otherwise it falls back to
-// the latest entry on file and reports `saved=false` + `source=carried_over`
-// so the frontend can prompt the user to confirm/save for today. When nothing
-// has ever been saved, returns the empty projection.
+// GetCurrent returns the care-day routine if it exists. From 00:00 until 04:00
+// Vietnam time that day is yesterday, so a late evening tick is still on the
+// row the chest and streak use. Otherwise it falls back to the latest entry
+// and reports `saved=false` + `source=carried_over`. When nothing has ever
+// been saved, returns the empty projection.
 func (s *Service) GetCurrent(ctx context.Context, userID uuid.UUID) (dto.RoutineResponse, error) {
 	var zero dto.RoutineResponse
 	if s == nil || s.routines == nil {
 		return zero, fmt.Errorf("%w", ErrUnavailable)
 	}
-	today := routineToday()
+	today := s.careToday()
 	skin := s.routineSkinType(ctx, userID)
 
 	row, err := s.routines.GetByUserAndDate(ctx, userID, today)
@@ -126,9 +130,12 @@ func (s *Service) GetCurrent(ctx context.Context, userID uuid.UUID) (dto.Routine
 	return withStepAffiliates(out, skin), nil
 }
 
-// Upsert validates the request and writes today's routine (VN calendar via
-// streaktime). The client may omit routine_date — ticks and saves always land
-// on the civil "today" aligned with check-in streak.
+// Upsert validates the request and writes the routine care day.
+// From 00:00 until 04:00 Asia/Ho_Chi_Minh the open evening session still
+// belongs to the previous civil day, so a tick in that window is stored
+// there (chest, ticks, and streak). At 04:00 the day rolls forward.
+// The client may send routine_date; the server ignores it and picks the
+// care day itself. Check-in dates stay on the civil midnight.
 func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRoutineRequest) (dto.RoutineResponse, error) {
 	var zero dto.RoutineResponse
 	if s == nil || s.routines == nil {
@@ -138,13 +145,14 @@ func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRouti
 		return zero, fmt.Errorf("%w: user id required", ErrInvalidInput)
 	}
 
-	// Always write today's row. A client sending a past routine_date used to
+	// Always write the care day. A client sending another routine_date used to
 	// overwrite that day's snapshot when the history sheet "edit" loaded it
-	// into the live editor.
+	// into the live editor. Before 04:00 the care day is yesterday, which is
+	// the evening session still in progress, not an arbitrary past date.
 	if _, err := parseRoutineDate(req.RoutineDate); err != nil {
 		return zero, err
 	}
-	day := routineToday()
+	day := s.careToday()
 	tickOnly := usageuc.IsTickOnlySave(req.SaveKind)
 	preferenceOnly := usageuc.IsPreferenceOnlySave(req.SaveKind)
 
@@ -249,7 +257,8 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, rangeDays int) 
 	if rangeDays > 365 {
 		rangeDays = 365
 	}
-	since := routineToday().AddDate(0, 0, -rangeDays+1)
+	today := s.careToday()
+	since := today.AddDate(0, 0, -rangeDays+1)
 	rows, err := s.routines.ListForUserSince(ctx, userID, since, rangeDays)
 	if err != nil {
 		return zero, err
@@ -261,10 +270,10 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, rangeDays int) 
 		entries = append(entries, withStepAffiliates(dto.RoutineFromDomain(&rows[i], true), skin))
 	}
 
-	streak := computeStreak(rows)
+	streak := computeStreak(rows, today)
 	avg := computeCompletionAvg(entries)
 
-	to := streaktime.TodayString()
+	to := today.Format("2006-01-02")
 	out := dto.RoutineHistoryResponse{
 		RangeDays:     rangeDays,
 		From:          since.Format("2006-01-02"),
@@ -546,7 +555,7 @@ func (s *Service) seedFromStarter(ctx context.Context, userID uuid.UUID) (dto.Ro
 	}
 	return dto.RoutineResponse{
 		UserID:      userID.String(),
-		RoutineDate: streaktime.TodayString(),
+		RoutineDate: s.careToday().Format("2006-01-02"),
 		Morning:     morning,
 		Evening:     evening,
 		Source:      "onboarding_starter",
@@ -694,20 +703,45 @@ func parseRoutineDate(raw string) (time.Time, error) {
 	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC), nil
 }
 
-// routineToday is the civil "today" for routine rows — same VN calendar as
-// SkinCheck check_date and streak (Asia/Ho_Chi_Minh via streaktime).
+// routineDayRollHour is when the routine care day rolls, Vietnam wall clock.
+// Morning opens at 04:00. Until then the evening session still belongs to
+// the previous civil day.
+const routineDayRollHour = 4
+
+// routineCareDay is the calendar day a routine tick is stored on.
+// From 00:00 until 04:00 Asia/Ho_Chi_Minh it is the previous civil day.
+// At 04:00 it becomes that morning's civil day. Check-ins keep midnight.
+func routineCareDay(now time.Time) time.Time {
+	local := now.In(streaktime.Location)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+	if local.Hour() < routineDayRollHour {
+		return day.AddDate(0, 0, -1)
+	}
+	return day
+}
+
+// routineToday is the care day for the wall clock. Tests that freeze time
+// use Service.careToday instead.
 func routineToday() time.Time {
-	return streaktime.Today()
+	return routineCareDay(time.Now())
+}
+
+func (s *Service) careToday() time.Time {
+	now := time.Now()
+	if s != nil && s.now != nil {
+		now = s.now()
+	}
+	return routineCareDay(now)
 }
 
 // computeStreak counts the number of consecutive most-recent days (starting
 // from today) where the entry had at least one step ticked complete.
-// rows are expected ordered newest-first.
-func computeStreak(rows []domain.RoutineEntry) int {
+// rows are expected ordered newest-first. today is the routine care day.
+func computeStreak(rows []domain.RoutineEntry, today time.Time) int {
 	if len(rows) == 0 {
 		return 0
 	}
-	expected := routineToday()
+	expected := streaktime.DateOf(today)
 	streak := 0
 	for _, r := range rows {
 		d := r.RoutineDate.UTC()
