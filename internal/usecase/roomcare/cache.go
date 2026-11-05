@@ -10,8 +10,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// DaySource lists full-routine civil days for a set of accounts.
-// since is inclusive. The result omits partial days.
+// DaySource lists care-streak civil days for a set of accounts.
+// since is inclusive. A day counts when one session is fully done.
+// Days with no finished session are omitted.
 type DaySource interface {
 	FullRoutineDays(ctx context.Context, userIDs []uuid.UUID, since time.Time) (map[uuid.UUID][]time.Time, error)
 }

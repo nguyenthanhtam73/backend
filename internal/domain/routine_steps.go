@@ -8,11 +8,33 @@ import (
 // RoutineAllStepsDone reports whether every stored morning and evening step
 // is ticked. An empty checklist is not done. A legacy list of strings is not
 // done, because those rows have no completed flag. Blank steps (no id and no
-// title) are ignored. This is the glow routine bonus and the Bé Da full-routine
-// care day: both read this function so a day cannot count for one and not the
-// other.
+// title) are ignored. This is the glow routine bonus: finishing both sessions
+// adds that point once for the day. Bé Da missed days use the same predicate.
+// The room care streak uses RoutineSessionDone, so one finished session can
+// count there while this stays false.
 func RoutineAllStepsDone(morning, evening json.RawMessage) bool {
 	steps := append(routineStoredSteps(morning), routineStoredSteps(evening)...)
+	if len(steps) == 0 {
+		return false
+	}
+	for _, done := range steps {
+		if !done {
+			return false
+		}
+	}
+	return true
+}
+
+// RoutineSessionDone reports whether at least one session is fully done.
+// A session is fully done when it stores at least one real step and every
+// one of those steps is ticked. The other session may be empty or still open.
+// An empty checklist is not done. This is the room care-streak day.
+func RoutineSessionDone(morning, evening json.RawMessage) bool {
+	return routineSessionComplete(morning) || routineSessionComplete(evening)
+}
+
+func routineSessionComplete(raw json.RawMessage) bool {
+	steps := routineStoredSteps(raw)
 	if len(steps) == 0 {
 		return false
 	}

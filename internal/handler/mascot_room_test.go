@@ -436,7 +436,9 @@ func TestMascotRoomCareBoard(t *testing.T) {
 	}
 	board := roomMemberRows(t, roomData(t, body))
 	wantNick := []string{"An", "Be", "Chi"}
-	wantStreak := []float64{2, 2, 0}
+	// Chi's morning is still open and the evening session is finished, so
+	// today counts. The previous finished day is three days back, so the run is 1.
+	wantStreak := []float64{2, 2, 1}
 	if len(board) != len(wantNick) {
 		t.Fatalf("board %+v", board)
 	}
@@ -450,7 +452,7 @@ func TestMascotRoomCareBoard(t *testing.T) {
 		t.Fatalf("room %d %s", status, body)
 	}
 	roster := roomMemberRows(t, roomData(t, body))
-	if len(roster) != 3 || roster[0].nick != "Be" || roster[0].streak != 2 || roster[2].nick != "Chi" || roster[2].streak != 0 {
+	if len(roster) != 3 || roster[0].nick != "Be" || roster[0].streak != 2 || roster[2].nick != "Chi" || roster[2].streak != 1 {
 		t.Fatalf("join order %+v", roster)
 	}
 }

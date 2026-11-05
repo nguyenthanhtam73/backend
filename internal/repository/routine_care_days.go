@@ -11,8 +11,9 @@ import (
 )
 
 // FullRoutineDays returns, for each user, the Vietnam civil days in
-// [since, today] whose every stored routine step is ticked. Days that are
-// missing or only partly ticked are omitted. One query for the whole id list,
+// [since, today] on which at least one session is fully done. A session needs
+// one real step and every one of those steps ticked. A day whose morning and
+// evening are both still open is omitted. One query for the whole id list,
 // using the routine_entries (user_id, routine_date) index.
 func (r *GormRoutineEntryRepository) FullRoutineDays(ctx context.Context, userIDs []uuid.UUID, since time.Time) (map[uuid.UUID][]time.Time, error) {
 	out := map[uuid.UUID][]time.Time{}
@@ -42,7 +43,7 @@ func (r *GormRoutineEntryRepository) FullRoutineDays(ctx context.Context, userID
 	}
 	seen := map[uuid.UUID]map[string]struct{}{}
 	for _, row := range rows {
-		if !routineAllStepsDone(row.Morning, row.Evening) {
+		if !domain.RoutineSessionDone(row.Morning, row.Evening) {
 			continue
 		}
 		day := streaktime.DateOf(row.RoutineDate)

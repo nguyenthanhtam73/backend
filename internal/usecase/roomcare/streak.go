@@ -12,8 +12,8 @@ const maxCareStreak = 400
 
 // CareStreak counts consecutive Asia/Ho_Chi_Minh days ending at today when
 // today is in done, otherwise ending at yesterday. done holds civil days on
-// which every routine step was ticked. A gap, or a miss today and yesterday,
-// stops the run at 0.
+// which at least one routine session was fully done. A gap, or a miss today
+// and yesterday, stops the run at 0.
 func CareStreak(today time.Time, done []time.Time) int {
 	today = streaktime.DateOf(today)
 	have := make(map[string]struct{}, len(done))
