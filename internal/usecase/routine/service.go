@@ -96,13 +96,14 @@ func (s *Service) GetCurrent(ctx context.Context, userID uuid.UUID) (dto.Routine
 		return zero, fmt.Errorf("%w", ErrUnavailable)
 	}
 	today := routineToday()
+	skin := s.routineSkinType(ctx, userID)
 
 	row, err := s.routines.GetByUserAndDate(ctx, userID, today)
 	if err != nil {
 		return zero, err
 	}
 	if row != nil {
-		return withStepAffiliates(dto.RoutineFromDomain(row, true)), nil
+		return withStepAffiliates(dto.RoutineFromDomain(row, true), skin), nil
 	}
 
 	latest, err := s.routines.GetLatestForUser(ctx, userID)
@@ -114,15 +115,15 @@ func (s *Service) GetCurrent(ctx context.Context, userID uuid.UUID) (dto.Routine
 		// the user lands on something useful instead of a blank slate. This is
 		// best-effort — if we can't decode it, we return the empty projection.
 		if seeded, ok := s.seedFromStarter(ctx, userID); ok {
-			return withStepAffiliates(seeded), nil
+			return withStepAffiliates(seeded, skin), nil
 		}
-		return withStepAffiliates(dto.EmptyRoutineResponse(userID)), nil
+		return withStepAffiliates(dto.EmptyRoutineResponse(userID), skin), nil
 	}
 	out := dto.RoutineFromDomain(latest, false)
 	out.RoutineDate = today.UTC().Format("2006-01-02")
 	out.CarriedFromDate = latest.RoutineDate.UTC().Format("2006-01-02")
 	out.UserID = userID.String()
-	return withStepAffiliates(out), nil
+	return withStepAffiliates(out, skin), nil
 }
 
 // Upsert validates the request and writes today's routine (VN calendar via
@@ -232,7 +233,7 @@ func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRouti
 	// next AI call sees the freshly-ticked steps and the digest tier
 	// (low → moderate → strong) recalculates immediately.
 	s.cache.Bust(userID)
-	return withStepAffiliates(dto.RoutineFromDomain(saved, true)), nil
+	return withStepAffiliates(dto.RoutineFromDomain(saved, true), s.routineSkinType(ctx, userID)), nil
 }
 
 // History returns up to `rangeDays` (1..365) past entries, newest first, plus
@@ -254,9 +255,10 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, rangeDays int) 
 		return zero, err
 	}
 
+	skin := s.routineSkinType(ctx, userID)
 	entries := make([]dto.RoutineResponse, 0, len(rows))
 	for i := range rows {
-		entries = append(entries, withStepAffiliates(dto.RoutineFromDomain(&rows[i], true)))
+		entries = append(entries, withStepAffiliates(dto.RoutineFromDomain(&rows[i], true), skin))
 	}
 
 	streak := computeStreak(rows)
@@ -468,8 +470,12 @@ func (s *Service) generateSuggestion(ctx context.Context, userID uuid.UUID, req 
 	if err != nil {
 		return zero, err
 	}
-	res.Morning = ai.AttachRoutineStepAffiliates(res.Morning)
-	res.Evening = ai.AttachRoutineStepAffiliates(res.Evening)
+	skin := ""
+	if profile != nil {
+		skin = profile.SkinType
+	}
+	res.Morning = ai.AttachRoutineStepAffiliatesForSkin(res.Morning, skin)
+	res.Evening = ai.AttachRoutineStepAffiliatesForSkin(res.Evening, skin)
 
 	skillMode := req.SkillMode
 	if skillMode == "" && profile != nil {
@@ -594,11 +600,26 @@ func overlayStepCompletions(existing, incoming []dto.RoutineStep) []dto.RoutineS
 }
 
 // withStepAffiliates copies catalog commerce onto each step for the API
-// response. Stored JSON stays free of those fields (see marshalRoutineSteps).
-func withStepAffiliates(res dto.RoutineResponse) dto.RoutineResponse {
-	res.Morning = ai.AttachRoutineStepAffiliates(res.Morning)
-	res.Evening = ai.AttachRoutineStepAffiliates(res.Evening)
+// response. A unique catalog match wins. A generic step uses the first product
+// guidance pick for skinType and that step. Stored JSON stays free of those
+// fields (see marshalRoutineSteps).
+func withStepAffiliates(res dto.RoutineResponse, skinType string) dto.RoutineResponse {
+	res.Morning = ai.AttachRoutineStepAffiliatesForSkin(res.Morning, skinType)
+	res.Evening = ai.AttachRoutineStepAffiliatesForSkin(res.Evening, skinType)
 	return res
+}
+
+// routineSkinType is the profile skin type product guidance already scores.
+// A missing profile is an empty type, which guidance treats as unknown skin.
+func (s *Service) routineSkinType(ctx context.Context, userID uuid.UUID) string {
+	if s == nil || s.profiles == nil || userID == uuid.Nil {
+		return ""
+	}
+	profile, err := s.profiles.GetByUserID(ctx, userID)
+	if err != nil || profile == nil {
+		return ""
+	}
+	return strings.TrimSpace(profile.SkinType)
 }
 
 // storedRoutineStep is the JSON written to routine_entries. Affiliate fields

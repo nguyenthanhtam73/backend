@@ -21,8 +21,10 @@ import (
 // fast and we'd rather let the AI/user pick than reject valid input.
 //
 // AffiliateLink, AffiliateProductID, and ProductName are filled on GET/POST
-// /routines from the affiliate catalog at read time. They are not stored.
-// No catalog match (or a non-https catalog URL) is JSON null — never a guessed link.
+// /routines at read time. A unique catalog match wins. Otherwise the first
+// product that product guidance picks for the user's skin type and this step
+// is used. They are not stored. No match, or a non-https catalog URL, is JSON
+// null — never a guessed link.
 type RoutineStep struct {
 	ID                 string  `json:"id"`
 	Title              string  `json:"title"`
