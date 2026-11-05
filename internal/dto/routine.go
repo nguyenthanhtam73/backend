@@ -61,7 +61,7 @@ type RoutineResponse struct {
 
 // PutRoutineRequest is sent by POST /routines (create or update today).
 type PutRoutineRequest struct {
-	RoutineDate string        `json:"routine_date,omitempty"` // optional ISO date; server always writes today (VN calendar)
+	RoutineDate string        `json:"routine_date,omitempty"` // optional; server writes the care day (previous Vietnam day from 00:00 until 04:00)
 	Morning     []RoutineStep `json:"morning"`
 	Evening     []RoutineStep `json:"evening"`
 	Notes       string        `json:"notes,omitempty"`
