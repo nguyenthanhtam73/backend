@@ -33,3 +33,30 @@ func TestRoutineAllStepsDone(t *testing.T) {
 		t.Fatal("blank legacy lines are not a routine")
 	}
 }
+
+func TestRoutineSessionDone(t *testing.T) {
+	morning := json.RawMessage(`[{"id":"a","title":"A","completed":true}]`)
+	eveningOpen := json.RawMessage(`[{"id":"b","title":"B","completed":false}]`)
+	eveningDone := json.RawMessage(`[{"id":"b","title":"B","completed":true}]`)
+	if !RoutineSessionDone(morning, eveningOpen) {
+		t.Fatal("a finished morning counts while evening is still open")
+	}
+	if !RoutineSessionDone(eveningOpen, eveningDone) {
+		t.Fatal("a finished evening counts while morning is still open")
+	}
+	if !RoutineSessionDone(morning, nil) {
+		t.Fatal("morning only")
+	}
+	if RoutineSessionDone(eveningOpen, nil) || RoutineSessionDone(nil, nil) || RoutineSessionDone(json.RawMessage(`[]`), json.RawMessage(`[]`)) {
+		t.Fatal("no finished session")
+	}
+	if RoutineSessionDone(json.RawMessage(`["Rửa mặt"]`), nil) {
+		t.Fatal("legacy strings are not a finished session")
+	}
+	if !RoutineAllStepsDone(morning, eveningDone) {
+		t.Fatal("both sessions are the full routine")
+	}
+	if RoutineAllStepsDone(morning, eveningOpen) {
+		t.Fatal("one open session is not the both-sessions bonus")
+	}
+}

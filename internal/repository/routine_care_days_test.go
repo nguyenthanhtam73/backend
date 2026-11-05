@@ -11,7 +11,7 @@ import (
 	"github.com/google/uuid"
 )
 
-func TestFullRoutineDaysSkipsPartial(t *testing.T) {
+func TestFullRoutineDaysCountsOneFinishedSession(t *testing.T) {
 	db := testRoutineDB(t)
 	repo := NewRoutineEntryRepository(db)
 	ctx := context.Background()
@@ -40,17 +40,20 @@ func TestFullRoutineDaysSkipsPartial(t *testing.T) {
 	put(a, today.AddDate(0, 0, -1), full, `[]`)
 	put(a, today.AddDate(0, 0, -2), open, full)
 	put(b, today, open, `[]`)
-	put(b, today.AddDate(0, 0, -1), full, full)
+	put(b, today.AddDate(0, 0, -1), full, open)
+	put(b, today.AddDate(0, 0, -2), full, full)
 	put(c, today, legacy, `[]`)
 
 	got, err := repo.FullRoutineDays(ctx, []uuid.UUID{a, b, c, a}, today.AddDate(0, 0, -10))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if days := dateKeys(got[a]); days != today.Format("2006-01-02")+","+today.AddDate(0, 0, -1).Format("2006-01-02") {
+	wantA := today.Format("2006-01-02") + "," + today.AddDate(0, 0, -1).Format("2006-01-02") + "," + today.AddDate(0, 0, -2).Format("2006-01-02")
+	if days := dateKeys(got[a]); days != wantA {
 		t.Fatalf("A %s", days)
 	}
-	if days := dateKeys(got[b]); days != today.AddDate(0, 0, -1).Format("2006-01-02") {
+	wantB := today.AddDate(0, 0, -1).Format("2006-01-02") + "," + today.AddDate(0, 0, -2).Format("2006-01-02")
+	if days := dateKeys(got[b]); days != wantB {
 		t.Fatalf("B partial today counted: %s", days)
 	}
 	if len(got[c]) != 0 {

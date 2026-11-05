@@ -177,6 +177,29 @@ func TestComputeGlowPointsCapBonusAndSameDay(t *testing.T) {
 	}
 }
 
+func TestBothSessionsEarnTheRoutineBonus(t *testing.T) {
+	morning := json.RawMessage(`[{"id":"a","title":"A","completed":true}]`)
+	eveningOpen := json.RawMessage(`[{"id":"b","title":"B","completed":false}]`)
+	eveningDone := json.RawMessage(`[{"id":"b","title":"B","completed":true}]`)
+	day := time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC)
+
+	if !domain.RoutineSessionDone(morning, eveningOpen) {
+		t.Fatal("one finished session counts for the care streak")
+	}
+	if routineFullyDone(morning, eveningOpen) {
+		t.Fatal("an open session must not take the bonus")
+	}
+	if got := computeGlowPoints([]glowDay{{Date: day, RoutineComplete: routineFullyDone(morning, eveningOpen)}}); got != 0 {
+		t.Fatalf("one session scored %d", got)
+	}
+	if !routineFullyDone(morning, eveningDone) {
+		t.Fatal("both finished sessions are the bonus")
+	}
+	if got := computeGlowPoints([]glowDay{{Date: day, RoutineComplete: true}}); got != GlowConfig.RoutineBonus {
+		t.Fatalf("both sessions scored %d want %d", got, GlowConfig.RoutineBonus)
+	}
+}
+
 func TestRoutineFullyDone(t *testing.T) {
 	done := json.RawMessage(`[{"id":"a","title":"A","completed":true}]`)
 	partial := json.RawMessage(`[{"id":"a","title":"A","completed":true},{"id":"b","title":"B","completed":false}]`)

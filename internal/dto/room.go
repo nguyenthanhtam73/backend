@@ -2,9 +2,11 @@ package dto
 
 // RoomMemberCare is one person on a Bé Da room list or the diligence board.
 // Nickname is the room persona. CareStreak is consecutive Asia/Ho_Chi_Minh
-// days on which every stored routine step was ticked. Today counts when that
-// day is complete; otherwise the run is counted through yesterday. The value
-// is 0 when neither today nor yesterday is complete.
+// days on which at least one session (morning or evening) was fully done.
+// Today counts when that day is complete; otherwise the run is counted
+// through yesterday. The value is 0 when neither today nor yesterday is
+// complete. Finishing both sessions is the glow point bonus, not a second
+// streak day.
 // No account id, email, glow level, or check-in streak is included.
 type RoomMemberCare struct {
 	Nickname   string `json:"nickname"`
