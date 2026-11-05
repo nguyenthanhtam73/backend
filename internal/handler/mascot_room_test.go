@@ -26,6 +26,133 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+func TestMascotRoomsMine(t *testing.T) {
+	base, tokens := startRoomHTTP(t, "mine-owner@example.com", "mine-guest@example.com", "mine-other@example.com")
+	ownerTok := tokens["mine-owner@example.com"]
+	guestTok := tokens["mine-guest@example.com"]
+	otherTok := tokens["mine-other@example.com"]
+
+	status, body := roomJSONCall(t, http.MethodGet, base+"/mascot/rooms/mine", "", "")
+	if status != http.StatusUnauthorized || roomCodeOf(t, body) != "unauthorized" {
+		t.Fatalf("logged out %d %s", status, body)
+	}
+
+	status, body = roomJSONCall(t, http.MethodGet, base+"/mascot/rooms/mine", ownerTok, "")
+	if status != http.StatusOK {
+		t.Fatalf("empty %d %s", status, body)
+	}
+	if rooms := roomMine(t, body); len(rooms) != 0 {
+		t.Fatalf("empty list %#v", rooms)
+	}
+
+	var codes []string
+	for i := 0; i < 3; i++ {
+		status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+		if status != http.StatusCreated {
+			t.Fatalf("create %d %d %s", i, status, body)
+		}
+		code, _ := roomData(t, body)["code"].(string)
+		codes = append(codes, code)
+	}
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms/"+codes[0]+"/join", guestTok, "")
+	if status != http.StatusOK {
+		t.Fatalf("join %d %s", status, body)
+	}
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", otherTok, "")
+	if status != http.StatusCreated {
+		t.Fatalf("other create %d %s", status, body)
+	}
+	otherCode, _ := roomData(t, body)["code"].(string)
+
+	status, body = roomJSONCall(t, http.MethodGet, base+"/mascot/rooms/mine", ownerTok, "")
+	if status != http.StatusOK {
+		t.Fatalf("mine %d %s", status, body)
+	}
+	if strings.Contains(body, otherCode) {
+		t.Fatalf("other room leaked %s", body)
+	}
+	mine := roomMine(t, body)
+	if len(mine) != 3 {
+		t.Fatalf("owner rooms %#v", mine)
+	}
+	seen := map[string]bool{}
+	for _, room := range mine {
+		seen[room.code] = true
+		if room.cap != float64(lobby.RoomCap) || room.code == "" {
+			t.Fatalf("room %#v", room)
+		}
+		wantCount := 1.0
+		if room.code == codes[0] {
+			wantCount = 2
+		}
+		if room.count != wantCount || !room.owner || !room.joined {
+			t.Fatalf("owner row %#v", room)
+		}
+	}
+	for _, code := range codes {
+		if !seen[code] {
+			t.Fatalf("missing %s in %#v", code, mine)
+		}
+	}
+
+	status, body = roomJSONCall(t, http.MethodGet, base+"/mascot/rooms/mine", guestTok, "")
+	if status != http.StatusOK {
+		t.Fatalf("guest mine %d %s", status, body)
+	}
+	guestRooms := roomMine(t, body)
+	if len(guestRooms) != 1 || guestRooms[0].code != codes[0] || guestRooms[0].owner || !guestRooms[0].joined || guestRooms[0].count != 2 || guestRooms[0].cap != float64(lobby.RoomCap) {
+		t.Fatalf("guest %#v", guestRooms)
+	}
+
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms/"+codes[2]+"/leave", ownerTok, "")
+	if status != http.StatusOK {
+		t.Fatalf("leave %d %s", status, body)
+	}
+	status, body = roomJSONCall(t, http.MethodGet, base+"/mascot/rooms/mine", ownerTok, "")
+	if status != http.StatusOK {
+		t.Fatalf("after close %d %s", status, body)
+	}
+	after := roomMine(t, body)
+	if len(after) != 2 {
+		t.Fatalf("closed room stayed %#v", after)
+	}
+	for _, room := range after {
+		if room.code == codes[2] {
+			t.Fatalf("closed %s still listed", codes[2])
+		}
+	}
+}
+
+type roomMineRow struct {
+	code   string
+	cap    float64
+	count  float64
+	joined bool
+	owner  bool
+}
+
+func roomMine(t *testing.T, body string) []roomMineRow {
+	t.Helper()
+	raw, ok := roomData(t, body)["rooms"].([]any)
+	if !ok {
+		t.Fatalf("rooms %#v in %s", roomData(t, body)["rooms"], body)
+	}
+	out := make([]roomMineRow, len(raw))
+	for i, item := range raw {
+		row, ok := item.(map[string]any)
+		if !ok {
+			t.Fatalf("row %#v", item)
+		}
+		code, _ := row["code"].(string)
+		cap, _ := row["cap"].(float64)
+		count, _ := row["member_count"].(float64)
+		joined, _ := row["joined"].(bool)
+		owner, _ := row["owner"].(bool)
+		out[i] = roomMineRow{code: code, cap: cap, count: count, joined: joined, owner: owner}
+	}
+	return out
+}
+
 func TestMascotRoomRESTAndSocket(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:room_http_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),

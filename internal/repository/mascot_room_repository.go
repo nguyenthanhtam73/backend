@@ -118,6 +118,76 @@ func (r *MascotRoomRepository) Get(ctx context.Context, userID uuid.UUID, rawCod
 	return r.load(ctx, userID, rawCode, false)
 }
 
+// ListOpenForUser returns the open rooms userID owns or still belongs to.
+// A room stays open while it has members. The last member to leave deletes
+// the row, so a closed room is not in this list. Newest created room first.
+// The caller may own a room after leaving it, as long as someone else stayed.
+func (r *MascotRoomRepository) ListOpenForUser(ctx context.Context, userID uuid.UUID) ([]MascotRoomView, error) {
+	if userID == uuid.Nil {
+		return nil, fmt.Errorf("user required")
+	}
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var memberships []domain.MascotRoomMember
+	if err := db.WithContext(ctx).Where("user_id = ?", userID).Find(&memberships).Error; err != nil {
+		return nil, err
+	}
+	joined := make(map[string]struct{}, len(memberships))
+	codes := make([]string, 0, len(memberships))
+	for _, member := range memberships {
+		if _, seen := joined[member.RoomCode]; seen {
+			continue
+		}
+		joined[member.RoomCode] = struct{}{}
+		codes = append(codes, member.RoomCode)
+	}
+	q := db.WithContext(ctx).Order("created_at DESC, code ASC")
+	if len(codes) == 0 {
+		q = q.Where("owner_user_id = ?", userID)
+	} else {
+		q = q.Where("owner_user_id = ? OR code IN ?", userID, codes)
+	}
+	var rooms []domain.MascotRoom
+	if err := q.Find(&rooms).Error; err != nil {
+		return nil, err
+	}
+	if len(rooms) == 0 {
+		return []MascotRoomView{}, nil
+	}
+	roomCodes := make([]string, len(rooms))
+	for i, room := range rooms {
+		roomCodes[i] = room.Code
+	}
+	var counts []struct {
+		RoomCode string
+		N        int
+	}
+	if err := db.WithContext(ctx).
+		Model(&domain.MascotRoomMember{}).
+		Select("room_code, COUNT(*) as n").
+		Where("room_code IN ?", roomCodes).
+		Group("room_code").
+		Scan(&counts).Error; err != nil {
+		return nil, err
+	}
+	nBy := make(map[string]int, len(counts))
+	for _, count := range counts {
+		nBy[count.RoomCode] = count.N
+	}
+	out := make([]MascotRoomView, 0, len(rooms))
+	for _, room := range rooms {
+		n := nBy[room.Code]
+		if n == 0 {
+			continue
+		}
+		_, member := joined[room.Code]
+		out = append(out, roomView(room, userID, n, member))
+	}
+	return out, nil
+}
+
 // Join adds userID when the room has a free seat. Joining twice is a no-op.
 func (r *MascotRoomRepository) Join(ctx context.Context, userID uuid.UUID, rawCode string) (MascotRoomView, error) {
 	var zero MascotRoomView
