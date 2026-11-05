@@ -9,6 +9,7 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/service/ai"
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -78,6 +79,7 @@ func TestUpsertAndGetCurrent_AffiliateFromCatalogOnly(t *testing.T) {
 		Evening: []dto.RoutineStep{
 			{ID: "pm-1", Title: "Biore", Category: "spf"},
 			{ID: "pm-2", Title: "Kem dưỡng ẩm", Category: "moisturizer"},
+			{ID: "pm-3", Title: "Mặt nạ", Category: "mask"},
 		},
 	})
 	if err != nil {
@@ -85,9 +87,10 @@ func TestUpsertAndGetCurrent_AffiliateFromCatalogOnly(t *testing.T) {
 	}
 
 	assertAffiliate(t, saved.Morning[0], "cerave-foaming-cleanser", "Sữa rửa mặt tạo bọt", "https://s.shopee.vn/70HPIj8Km4")
-	assertNoAffiliate(t, saved.Morning[1])
+	assertGuidanceAffiliate(t, saved.Morning[1], "", "spf", "Kem chống nắng")
 	assertAffiliate(t, saved.Evening[0], "biore-uv-aqua-rich", "Tinh chất chống nắng Biore UV Aqua Rich SPF50+", "https://s.shopee.vn/1BJcMMK4au")
-	assertNoAffiliate(t, saved.Evening[1])
+	assertGuidanceAffiliate(t, saved.Evening[1], "", "moisturizer", "Kem dưỡng ẩm")
+	assertNoAffiliate(t, saved.Evening[2])
 
 	var row domain.RoutineEntry
 	if err := db.Where("user_id = ?", uid).First(&row).Error; err != nil {
@@ -108,8 +111,9 @@ func TestUpsertAndGetCurrent_AffiliateFromCatalogOnly(t *testing.T) {
 		t.Fatal("expected today's row")
 	}
 	assertAffiliate(t, got.Morning[0], "cerave-foaming-cleanser", "Sữa rửa mặt tạo bọt", "https://s.shopee.vn/70HPIj8Km4")
-	assertNoAffiliate(t, got.Morning[1])
+	assertGuidanceAffiliate(t, got.Morning[1], "", "spf", "Kem chống nắng")
 	assertAffiliate(t, got.Evening[0], "biore-uv-aqua-rich", "Tinh chất chống nắng Biore UV Aqua Rich SPF50+", "https://s.shopee.vn/1BJcMMK4au")
+	assertNoAffiliate(t, got.Evening[2])
 
 	body, err := json.Marshal(got)
 	if err != nil {
@@ -130,6 +134,8 @@ func TestUpsertAndGetCurrent_AffiliateFromCatalogOnly(t *testing.T) {
 		t.Fatalf("history entries %d", len(hist.Entries))
 	}
 	assertAffiliate(t, hist.Entries[0].Morning[0], "cerave-foaming-cleanser", "Sữa rửa mặt tạo bọt", "https://s.shopee.vn/70HPIj8Km4")
+	assertGuidanceAffiliate(t, hist.Entries[0].Morning[1], "", "spf", "Kem chống nắng")
+	assertNoAffiliate(t, hist.Entries[0].Evening[2])
 }
 
 func TestGetCurrent_CarriedRoutineStillMapsCatalog(t *testing.T) {
@@ -167,7 +173,83 @@ func TestGetCurrent_CarriedRoutineStillMapsCatalog(t *testing.T) {
 		t.Fatalf("carried_from_date %q yesterday %s", got.CarriedFromDate, yesterday.Format("2006-01-02"))
 	}
 	assertAffiliate(t, got.Morning[0], "lrp-cicaplast-b5", "Kem phục hồi Cicaplast Baume B5+", "https://s.shopee.vn/7VDg438uB9")
-	assertNoAffiliate(t, got.Evening[0])
+	assertGuidanceAffiliate(t, got.Evening[0], "", "cleanser", "Rửa mặt dịu")
+}
+
+func TestGetCurrent_GenericStepUsesGuidanceForSkinType(t *testing.T) {
+	db := openRoutineAffiliateDB(t)
+	if err := db.AutoMigrate(&domain.SkinProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	repo := repository.NewRoutineEntryRepository(db)
+	profiles := repository.NewSkinProfileRepository(db)
+	svc := NewService(nil, repo, profiles, nil, nil, nil, nil, nil)
+	ctx := context.Background()
+
+	oily := seedRoutineUser(t, db, "oily")
+	dry := seedRoutineUser(t, db, "dry")
+	for _, uid := range []uuid.UUID{oily, dry} {
+		if _, err := svc.Upsert(ctx, uid, dto.PutRoutineRequest{
+			Morning: []dto.RoutineStep{{ID: "1", Title: "Rửa mặt dịu", Category: "cleanser"}},
+			Evening: []dto.RoutineStep{{ID: "2", Title: "Uống nước", Category: "other"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	oilyRes, err := svc.GetCurrent(ctx, oily)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dryRes, err := svc.GetCurrent(ctx, dry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertGuidanceAffiliate(t, oilyRes.Morning[0], "oily", "cleanser", "Rửa mặt dịu")
+	assertGuidanceAffiliate(t, dryRes.Morning[0], "dry", "cleanser", "Rửa mặt dịu")
+	if oilyRes.Morning[0].AffiliateProductID == nil || dryRes.Morning[0].AffiliateProductID == nil ||
+		*oilyRes.Morning[0].AffiliateProductID == *dryRes.Morning[0].AffiliateProductID {
+		t.Fatalf("skin types should pick different cleansers: oily %#v dry %#v",
+			oilyRes.Morning[0].AffiliateProductID, dryRes.Morning[0].AffiliateProductID)
+	}
+	assertNoAffiliate(t, oilyRes.Evening[0])
+	assertNoAffiliate(t, dryRes.Evening[0])
+
+	var stored domain.RoutineEntry
+	if err := db.Where("user_id = ?", oily).First(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(stored.Morning), "affiliate") || strings.Contains(string(stored.Morning), "https://") {
+		t.Fatalf("guidance link was persisted: %s", stored.Morning)
+	}
+}
+
+func seedRoutineUser(t *testing.T, db *gorm.DB, skin string) uuid.UUID {
+	t.Helper()
+	uid := uuid.New()
+	if err := db.Create(&domain.User{
+		ID:       uid,
+		Email:    uid.String() + "@example.com",
+		Username: skin + uid.String()[:8],
+		Provider: domain.AuthProviderLocal,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if skin != "" {
+		if err := db.Create(&domain.SkinProfile{UserID: uid, SkinType: skin}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	return uid
+}
+
+func assertGuidanceAffiliate(t *testing.T, step dto.RoutineStep, skin, category, title string) {
+	t.Helper()
+	id, name, link, ok := ai.GuidanceAffiliateForRoutineStep(skin, category, title)
+	if !ok {
+		t.Fatalf("guidance returned no product for skin %q category %q", skin, category)
+	}
+	assertAffiliate(t, step, id, name, link)
 }
 
 func assertAffiliate(t *testing.T, step dto.RoutineStep, id, name, link string) {
