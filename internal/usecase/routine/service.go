@@ -102,7 +102,7 @@ func (s *Service) GetCurrent(ctx context.Context, userID uuid.UUID) (dto.Routine
 		return zero, err
 	}
 	if row != nil {
-		return dto.RoutineFromDomain(row, true), nil
+		return withStepAffiliates(dto.RoutineFromDomain(row, true)), nil
 	}
 
 	latest, err := s.routines.GetLatestForUser(ctx, userID)
@@ -114,15 +114,15 @@ func (s *Service) GetCurrent(ctx context.Context, userID uuid.UUID) (dto.Routine
 		// the user lands on something useful instead of a blank slate. This is
 		// best-effort — if we can't decode it, we return the empty projection.
 		if seeded, ok := s.seedFromStarter(ctx, userID); ok {
-			return seeded, nil
+			return withStepAffiliates(seeded), nil
 		}
-		return dto.EmptyRoutineResponse(userID), nil
+		return withStepAffiliates(dto.EmptyRoutineResponse(userID)), nil
 	}
 	out := dto.RoutineFromDomain(latest, false)
 	out.RoutineDate = today.UTC().Format("2006-01-02")
 	out.CarriedFromDate = latest.RoutineDate.UTC().Format("2006-01-02")
 	out.UserID = userID.String()
-	return out, nil
+	return withStepAffiliates(out), nil
 }
 
 // Upsert validates the request and writes today's routine (VN calendar via
@@ -198,11 +198,13 @@ func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRouti
 		}
 	}
 
-	morningJSON, err := json.Marshal(morning)
+	// Persist step identity only. Affiliate fields are computed for the response
+	// from the catalog and must not be written onto the row.
+	morningJSON, err := marshalRoutineSteps(morning)
 	if err != nil {
 		return zero, err
 	}
-	eveningJSON, err := json.Marshal(evening)
+	eveningJSON, err := marshalRoutineSteps(evening)
 	if err != nil {
 		return zero, err
 	}
@@ -230,7 +232,7 @@ func (s *Service) Upsert(ctx context.Context, userID uuid.UUID, req dto.PutRouti
 	// next AI call sees the freshly-ticked steps and the digest tier
 	// (low → moderate → strong) recalculates immediately.
 	s.cache.Bust(userID)
-	return dto.RoutineFromDomain(saved, true), nil
+	return withStepAffiliates(dto.RoutineFromDomain(saved, true)), nil
 }
 
 // History returns up to `rangeDays` (1..365) past entries, newest first, plus
@@ -254,7 +256,7 @@ func (s *Service) History(ctx context.Context, userID uuid.UUID, rangeDays int) 
 
 	entries := make([]dto.RoutineResponse, 0, len(rows))
 	for i := range rows {
-		entries = append(entries, dto.RoutineFromDomain(&rows[i], true))
+		entries = append(entries, withStepAffiliates(dto.RoutineFromDomain(&rows[i], true)))
 	}
 
 	streak := computeStreak(rows)
@@ -466,6 +468,8 @@ func (s *Service) generateSuggestion(ctx context.Context, userID uuid.UUID, req 
 	if err != nil {
 		return zero, err
 	}
+	res.Morning = ai.AttachRoutineStepAffiliates(res.Morning)
+	res.Evening = ai.AttachRoutineStepAffiliates(res.Evening)
 
 	skillMode := req.SkillMode
 	if skillMode == "" && profile != nil {
@@ -587,6 +591,38 @@ func overlayStepCompletions(existing, incoming []dto.RoutineStep) []dto.RoutineS
 		out = append(out, s)
 	}
 	return out
+}
+
+// withStepAffiliates copies catalog commerce onto each step for the API
+// response. Stored JSON stays free of those fields (see marshalRoutineSteps).
+func withStepAffiliates(res dto.RoutineResponse) dto.RoutineResponse {
+	res.Morning = ai.AttachRoutineStepAffiliates(res.Morning)
+	res.Evening = ai.AttachRoutineStepAffiliates(res.Evening)
+	return res
+}
+
+// storedRoutineStep is the JSON written to routine_entries. Affiliate fields
+// are intentionally absent so a client cannot persist a link.
+type storedRoutineStep struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Category  string `json:"category,omitempty"`
+	Notes     string `json:"notes,omitempty"`
+	Completed bool   `json:"completed,omitempty"`
+}
+
+func marshalRoutineSteps(steps []dto.RoutineStep) ([]byte, error) {
+	stored := make([]storedRoutineStep, 0, len(steps))
+	for _, s := range steps {
+		stored = append(stored, storedRoutineStep{
+			ID:        s.ID,
+			Title:     s.Title,
+			Category:  s.Category,
+			Notes:     s.Notes,
+			Completed: s.Completed,
+		})
+	}
+	return json.Marshal(stored)
 }
 
 func sanitizeSteps(steps []dto.RoutineStep) []dto.RoutineStep {

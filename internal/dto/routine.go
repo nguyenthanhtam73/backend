@@ -19,12 +19,19 @@ import (
 // (e.g. "cleanser", "toner", "serum", "moisturizer", "spf", "treatment", "other")
 // — the backend does not enum-validate it because skincare vocabulary evolves
 // fast and we'd rather let the AI/user pick than reject valid input.
+//
+// AffiliateLink, AffiliateProductID, and ProductName are filled on GET/POST
+// /routines from the affiliate catalog at read time. They are not stored.
+// No catalog match (or a non-https catalog URL) is JSON null — never a guessed link.
 type RoutineStep struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Category  string `json:"category,omitempty"`
-	Notes     string `json:"notes,omitempty"`
-	Completed bool   `json:"completed,omitempty"`
+	ID                 string  `json:"id"`
+	Title              string  `json:"title"`
+	Category           string  `json:"category,omitempty"`
+	Notes              string  `json:"notes,omitempty"`
+	Completed          bool    `json:"completed,omitempty"`
+	AffiliateLink      *string `json:"affiliate_link"`
+	AffiliateProductID *string `json:"affiliate_product_id"`
+	ProductName        *string `json:"product_name"`
 }
 
 // RoutineResponse is what GET /routines returns and what POST /routines
@@ -87,11 +94,11 @@ type SuggestRoutineResponse struct {
 	WeekNotes          string                `json:"week_notes,omitempty"`
 	SafetyNotes        string                `json:"safety_notes,omitempty"`
 	ClosingReminder    string                `json:"closing_reminder,omitempty"`
-	ProductSuggestions []ProductSuggestion     `json:"product_suggestions,omitempty"`
-	ProductGuidance    []ProductGuidanceItem   `json:"product_guidance,omitempty"`
-	CarePhase          string                  `json:"care_phase,omitempty"`
-	SkillMode          string                  `json:"skill_mode,omitempty"`
-	Locale             string                  `json:"locale,omitempty"`
+	ProductSuggestions []ProductSuggestion   `json:"product_suggestions,omitempty"`
+	ProductGuidance    []ProductGuidanceItem `json:"product_guidance,omitempty"`
+	CarePhase          string                `json:"care_phase,omitempty"`
+	SkillMode          string                `json:"skill_mode,omitempty"`
+	Locale             string                `json:"locale,omitempty"`
 	// Source is always "ai_suggested" — present so the UI can label the card.
 	Source string `json:"source"`
 	// FeedbackTargetID — fresh per-call UUID the frontend uses when posting
