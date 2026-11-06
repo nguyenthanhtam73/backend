@@ -27,6 +27,35 @@ func MascotVisible(isAdmin bool) bool {
 	return MascotOpenToEveryone || isAdmin
 }
 
+// MascotVisibleFor is MascotVisible plus the Android trial client.
+// androidTrial is true only when the request sent X-DaDiary-Client: android-app.
+// That header does not make the account an admin.
+func MascotVisibleFor(isAdmin, androidTrial bool) bool {
+	return MascotVisible(isAdmin) || androidTrial
+}
+
+// Closet pieces that stay on the admin allow-list. The test shirt is one of
+// them. Opening Bé Da for the Android trial does not grant these.
+const (
+	MascotAdminTestShirt = "outfit_ao_thu"
+	// MascotDefaultTrialOutfit replaces an admin-only piece on a non-admin.
+	MascotDefaultTrialOutfit = "outfit_pajamas"
+)
+
+// AdminOnlyClosetItem reports a piece that only an admin may wear or be shown.
+func AdminOnlyClosetItem(id string) bool {
+	return id == MascotAdminTestShirt
+}
+
+// PublicOutfit hides admin-only pieces from everyone else.
+// An allowed trial account still sees the default pajamas instead of the shirt.
+func PublicOutfit(id string, admin bool) string {
+	if admin || !AdminOnlyClosetItem(id) {
+		return id
+	}
+	return MascotDefaultTrialOutfit
+}
+
 // How a user came to own an item. Ownership is per user, never per room:
 // closing a room must not delete these rows. source_room_id is a note only.
 const (

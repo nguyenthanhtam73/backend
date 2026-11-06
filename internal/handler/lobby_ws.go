@@ -88,13 +88,14 @@ func (h *LobbyHandler) Authorize(c *fiber.Ctx) error {
 		return response.Error(c, fiber.StatusUnauthorized, "invalid_token", "access token invalid or expired")
 	}
 	admin := h.cfg != nil && h.cfg.IsAdminEmail(user.Email)
-	if !domain.MascotVisible(admin) {
+	if !domain.MascotVisibleFor(admin, androidTrialClient(c)) {
 		return response.Error(c, fiber.StatusNotFound, "not_found", "not found")
 	}
 	if !websocket.IsWebSocketUpgrade(c) {
 		return response.Error(c, fiber.StatusUpgradeRequired, "upgrade_required", "websocket upgrade required")
 	}
 	c.Locals(middleware.LocalsUserID, userID)
+	c.Locals(mascotClosetAdminKey, admin)
 	return c.Next()
 }
 
@@ -203,6 +204,9 @@ func (h *LobbyHandler) Serve(conn *websocket.Conn) {
 	}
 	peer := newWSPeer(conn)
 	h.hub.Attach(peer, userID)
+	if admin, _ := conn.Locals(mascotClosetAdminKey).(bool); admin {
+		h.hub.NoteClosetAdmin(peer, true)
+	}
 	defer func() {
 		h.hub.Disconnect(peer)
 		peer.Close()

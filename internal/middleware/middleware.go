@@ -33,7 +33,7 @@ func RegisterDefault(app *fiber.App) {
 	app.Use(cors.New(cors.Config{
 		AllowOrigins:     "*",
 		AllowMethods:     "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-Preview-Token",
+		AllowHeaders:     "Origin, Content-Type, Accept, Authorization, X-Preview-Token, X-DaDiary-Client",
 		AllowCredentials: false,
 	}))
 }
@@ -57,7 +57,7 @@ func webCredentialCORS() fiber.Handler {
 func writeWebCredentialCORS(c *fiber.Ctx, origin string) {
 	c.Set(fiber.HeaderAccessControlAllowOrigin, origin)
 	c.Set(fiber.HeaderAccessControlAllowCredentials, "true")
-	c.Set(fiber.HeaderAccessControlAllowHeaders, "Origin, Content-Type, Accept, Authorization, X-Preview-Token")
+	c.Set(fiber.HeaderAccessControlAllowHeaders, "Origin, Content-Type, Accept, Authorization, X-Preview-Token, X-DaDiary-Client")
 	c.Set(fiber.HeaderAccessControlAllowMethods, "GET,POST,PUT,PATCH,DELETE,OPTIONS")
 	c.Set(fiber.HeaderVary, "Origin")
 }

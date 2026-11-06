@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/config"
-	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/lobby"
 	"github.com/dadiary/backend/internal/middleware"
@@ -182,10 +181,11 @@ func (h *MascotRoomHandler) allow(c *fiber.Ctx) (uuid.UUID, bool) {
 		_ = response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
 		return uuid.Nil, false
 	}
-	if domain.MascotOpenToEveryone {
-		return uid, true
+	var cfg *config.Config
+	if h != nil {
+		cfg = h.cfg
 	}
-	if h != nil && h.cfg != nil && h.cfg.IsAdminEmail(middleware.UserEmailFromLocals(c)) {
+	if mascotOpen(c, cfg) {
 		return uid, true
 	}
 	_ = response.Error(c, fiber.StatusNotFound, "not_found", "not found")
