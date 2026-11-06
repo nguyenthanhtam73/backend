@@ -23,20 +23,22 @@ func NewMascotHandler(svc *mascotuc.Service, cfg *config.Config) *MascotHandler 
 }
 
 // allow reports whether the caller may use Bé Da.
-// While domain.MascotOpenToEveryone is false, non-admins get 404 and the
-// mascot service is not called. The email was already loaded by RequireAccessJWT,
-// so this check does not query again. It uses config.IsAdminEmail, the same
-// allow-list as RequireAdmin.
+// While domain.MascotOpenToEveryone is false, a signed-in caller is allowed
+// when they are on the admin allow-list or the request is the Android trial
+// client (X-DaDiary-Client: android-app, including the embedded WebView).
+// Everyone else gets 404 and the mascot service is not called. The email was
+// already loaded by RequireAccessJWT, so this check does not query again.
 func (h *MascotHandler) allow(c *fiber.Ctx) (uuid.UUID, bool) {
 	uid := middleware.UserIDFromLocals(c)
 	if uid == uuid.Nil {
 		_ = response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
 		return uuid.Nil, false
 	}
-	if domain.MascotOpenToEveryone {
-		return uid, true
+	var cfg *config.Config
+	if h != nil {
+		cfg = h.cfg
 	}
-	if h != nil && h.cfg != nil && h.cfg.IsAdminEmail(middleware.UserEmailFromLocals(c)) {
+	if mascotOpen(c, cfg) {
 		return uid, true
 	}
 	_ = response.Error(c, fiber.StatusNotFound, "not_found", "not found")

@@ -106,7 +106,8 @@ type UserPublic struct {
 
 // UserFeatures is the client-facing flag set on GET /me.
 // Mascot is Góc bình yên / Bé Da. While the feature is admin-only this is
-// true only for the admin allow-list.
+// true for the admin allow-list and for a request that sends
+// X-DaDiary-Client: android-app. That header does not set is_admin.
 type UserFeatures struct {
 	Mascot bool `json:"mascot"`
 }

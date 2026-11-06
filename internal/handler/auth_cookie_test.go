@@ -160,7 +160,8 @@ func TestWebOriginCanStoreAuthCookie(t *testing.T) {
 	if preRes.Header.Get("Access-Control-Allow-Origin") != "https://www.dadiary.vn" || preRes.Header.Get("Access-Control-Allow-Credentials") != "true" {
 		t.Fatalf("www preflight ACAO %q credentials %q", preRes.Header.Get("Access-Control-Allow-Origin"), preRes.Header.Get("Access-Control-Allow-Credentials"))
 	}
-	if !strings.Contains(strings.ToLower(preRes.Header.Get("Access-Control-Allow-Headers")), "authorization") {
+	allowHeaders := strings.ToLower(preRes.Header.Get("Access-Control-Allow-Headers"))
+	if !strings.Contains(allowHeaders, "authorization") || !strings.Contains(allowHeaders, "x-dadiary-client") {
 		t.Fatalf("allow-headers %q", preRes.Header.Get("Access-Control-Allow-Headers"))
 	}
 
@@ -177,6 +178,20 @@ func TestWebOriginCanStoreAuthCookie(t *testing.T) {
 	}
 	if strings.EqualFold(otherRes.Header.Get("Access-Control-Allow-Credentials"), "true") {
 		t.Fatal("foreign origin received credentialed CORS")
+	}
+
+	wild := httptest.NewRequest(http.MethodOptions, "/api/v1/auth/login", nil)
+	wild.Header.Set("Origin", "https://example.com")
+	wild.Header.Set("Access-Control-Request-Method", "GET")
+	wild.Header.Set("Access-Control-Request-Headers", "x-dadiary-client,authorization")
+	wildRes, err := app.Test(wild, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wildRes.Body.Close()
+	wildHeaders := strings.ToLower(wildRes.Header.Get("Access-Control-Allow-Headers"))
+	if !strings.Contains(wildHeaders, "x-dadiary-client") {
+		t.Fatalf("wildcard allow-headers %q", wildRes.Header.Get("Access-Control-Allow-Headers"))
 	}
 }
 

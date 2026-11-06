@@ -191,7 +191,7 @@ func (h *Hub) joinRoomLocked(c *connState, msg clientMsg, code string, gateErr e
 	if c.session != nil && c.session.roomCode == code {
 		s := c.session
 		s.person.Nickname = nick
-		s.person.Outfit = msg.Outfit
+		s.person.Outfit = publicOutfit(c, msg.Outfit)
 		s.person.Hair = msg.Hair
 		s.person.Accessory = msg.Accessory
 		s.person.X = x
@@ -232,7 +232,7 @@ func (h *Hub) joinRoomLocked(c *connState, msg clientMsg, code string, gateErr e
 	}
 	s := &session{
 		id: id, userID: c.userID, conn: c, roomCode: code,
-		person: Person{ID: id, Nickname: nick, Outfit: msg.Outfit, Hair: msg.Hair, Accessory: msg.Accessory, X: x, Y: y, Facing: facing, Action: action},
+		person: Person{ID: id, Nickname: nick, Outfit: publicOutfit(c, msg.Outfit), Hair: msg.Hair, Accessory: msg.Accessory, X: x, Y: y, Facing: facing, Action: action},
 		hide:   map[string]struct{}{},
 	}
 	if hide != nil {

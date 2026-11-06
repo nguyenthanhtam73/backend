@@ -246,7 +246,9 @@ func (h *AuthHandler) Me(c *fiber.Ctx) error {
 		pub.CanSkinReview = h.cfg.CanSkinReviewEmail(pub.Email)
 	}
 	// Email is already on the user row GetMe loaded. No extra query.
-	pub.Features = &dto.UserFeatures{Mascot: domain.MascotVisible(pub.IsAdmin)}
+	// The trial header opens Bé Da. It does not set is_admin, so admin-only
+	// closet pieces such as the test shirt stay hidden.
+	pub.Features = &dto.UserFeatures{Mascot: domain.MascotVisibleFor(pub.IsAdmin, androidTrialClient(c))}
 
 	// Overlay configured grace/trial days from SubscriptionService when wired.
 	if h.subs != nil {

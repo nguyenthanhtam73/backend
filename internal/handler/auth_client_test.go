@@ -141,6 +141,41 @@ func TestMeFeaturesMascotFollowsAdminGate(t *testing.T) {
 	}
 }
 
+func TestMeFeaturesMascotOpensForAndroidTrialWithoutAdmin(t *testing.T) {
+	app := newClientAuthApp(t)
+	status, reg := doJSON(t, app, http.MethodPost, "/auth/register",
+		`{"email":"trial@example.com","password":"password1"}`, "", nil)
+	if status != http.StatusCreated {
+		t.Fatalf("register %d %+v", status, reg)
+	}
+	access, _ := tokensFrom(t, reg)
+
+	status, me := doJSON(t, app, http.MethodGet, "/me", "", access, nil)
+	if status != http.StatusOK {
+		t.Fatalf("web me %d %+v", status, me)
+	}
+	data, _ := me["data"].(map[string]any)
+	features, _ := data["features"].(map[string]any)
+	if features["mascot"] != false || data["is_admin"] == true {
+		t.Fatalf("web stay closed %#v", data)
+	}
+
+	status, me = doJSON(t, app, http.MethodGet, "/me", "", access, map[string]string{
+		"X-DaDiary-Client": "android-app",
+	})
+	if status != http.StatusOK {
+		t.Fatalf("trial me %d %+v", status, me)
+	}
+	data, _ = me["data"].(map[string]any)
+	features, _ = data["features"].(map[string]any)
+	if features["mascot"] != true {
+		t.Fatalf("trial features %#v", data)
+	}
+	if data["is_admin"] == true {
+		t.Fatal("trial header granted admin")
+	}
+}
+
 func newAdminMeApp(t *testing.T) *fiber.App {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:auth_admin_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{

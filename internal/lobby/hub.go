@@ -15,6 +15,7 @@ import (
 
 	"log/slog"
 
+	"github.com/dadiary/backend/internal/domain"
 	"github.com/google/uuid"
 )
 
@@ -102,10 +103,11 @@ type Hub struct {
 }
 
 type connState struct {
-	peer    Peer
-	userID  uuid.UUID
-	session *session
-	limit   limiter
+	peer        Peer
+	userID      uuid.UUID
+	session     *session
+	limit       limiter
+	closetAdmin bool
 }
 
 type session struct {
@@ -275,6 +277,20 @@ func (h *Hub) Attach(peer Peer, userID uuid.UUID) {
 		return
 	}
 	h.byPeer[peer] = &connState{peer: peer, userID: userID}
+}
+
+// NoteClosetAdmin marks this socket as an admin closet.
+// A trial account stays false, so the test shirt is not broadcast.
+// Call it after Attach and before the first client frame.
+func (h *Hub) NoteClosetAdmin(peer Peer, admin bool) {
+	if h == nil || peer == nil || !admin {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if c := h.byPeer[peer]; c != nil {
+		c.closetAdmin = true
+	}
 }
 
 // Disconnect starts the 30s grace when a joined socket drops.
@@ -585,7 +601,7 @@ func (h *Hub) joinLocked(c *connState, msg clientMsg) Outcome {
 		}
 		s := &session{
 			id: id, userID: c.userID, conn: c,
-			person: Person{ID: id, Nickname: nick, Outfit: msg.Outfit, Hair: msg.Hair, Accessory: msg.Accessory, X: x, Y: y, Facing: facing, Action: action},
+			person: Person{ID: id, Nickname: nick, Outfit: publicOutfit(c, msg.Outfit), Hair: msg.Hair, Accessory: msg.Accessory, X: x, Y: y, Facing: facing, Action: action},
 			hide:   map[string]struct{}{},
 		}
 		if hide != nil {
@@ -614,7 +630,7 @@ func (h *Hub) joinLocked(c *connState, msg clientMsg) Outcome {
 
 	s := c.session
 	s.person.Nickname = nick
-	s.person.Outfit = msg.Outfit
+	s.person.Outfit = publicOutfit(c, msg.Outfit)
 	s.person.Hair = msg.Hair
 	s.person.Accessory = msg.Accessory
 	s.person.X = x
@@ -1220,6 +1236,11 @@ func validItem(id string, required bool) bool {
 		return !required
 	}
 	return itemIDRe.MatchString(id)
+}
+
+func publicOutfit(c *connState, outfit string) string {
+	admin := c != nil && c.closetAdmin
+	return domain.PublicOutfit(outfit, admin)
 }
 
 var sessionIDRe = regexp.MustCompile(`^[abcdefghjkmnpqrstuvwxyz23456789]{12}$`)
