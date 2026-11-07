@@ -3,12 +3,11 @@
 -- New rooms last 8 days (domain.MascotRoomDuration). The API writes that
 -- end on insert. This file does not delete rooms or memberships.
 --
--- Existing rows had no end column. Their current end is created_at + 21 days.
--- Every existing room is then set to the earlier of that end and
--- (this statement's NOW() + 8 days). A room whose current end is sooner,
--- including one that is already past, keeps that end and is not reopened.
--- Running the update again does not push a cap further out: a stored end
--- that is already within 8 days of NOW() is left alone.
+-- Existing rows had no end column. A missing end is
+-- LEAST(created_at + 21 days, NOW() + 8 days). That is at most 8 days from
+-- this statement, and it is not later than created_at + 21 days, so a room
+-- already past that 21-day end stays ended. A real stored end is not
+-- rewritten here. Nothing is deleted.
 --
 -- mascot_room_active_seats is one row per account (primary key user_id).
 -- Two concurrent create/join transactions cannot both commit a seat.
@@ -24,17 +23,8 @@ ALTER TABLE mascot_rooms
     ADD COLUMN IF NOT EXISTS ends_at TIMESTAMPTZ;
 
 UPDATE mascot_rooms
-SET ends_at = LEAST(
-    CASE
-        WHEN ends_at IS NULL OR ends_at < TIMESTAMPTZ '1971-01-01'
-            THEN created_at + INTERVAL '21 days'
-        ELSE ends_at
-    END,
-    NOW() + INTERVAL '8 days'
-)
-WHERE ends_at IS NULL
-    OR ends_at < TIMESTAMPTZ '1971-01-01'
-    OR ends_at > NOW() + INTERVAL '8 days';
+SET ends_at = LEAST(created_at + INTERVAL '21 days', NOW() + INTERVAL '8 days')
+WHERE ends_at IS NULL OR ends_at < TIMESTAMPTZ '1971-01-01';
 
 ALTER TABLE mascot_rooms
     ALTER COLUMN ends_at SET NOT NULL;

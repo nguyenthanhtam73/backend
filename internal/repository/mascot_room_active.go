@@ -90,10 +90,10 @@ func roomIsActive(room domain.MascotRoom, now time.Time) bool {
 	return !end.IsZero() && end.After(now)
 }
 
-// prepareMascotRoomEnds adds ends_at before AutoMigrate marks it NOT NULL,
-// and caps existing rooms at min(current end, now + 8 days). A missing end
-// counts as created_at + 21 days. SQLite tests create the column with the
-// table, so they skip this and use backfillLegacyRoomEnds.
+// prepareMascotRoomEnds adds ends_at before AutoMigrate marks it NOT NULL.
+// A missing end is LEAST(created_at + 21 days, now + 8 days). SQLite tests
+// create the column with the table, so they skip this and use
+// backfillLegacyRoomEnds.
 func prepareMascotRoomEnds(db *gorm.DB) error {
 	if db == nil || db.Dialector == nil || db.Dialector.Name() != "postgres" {
 		return nil
@@ -108,17 +108,8 @@ func prepareMascotRoomEnds(db *gorm.DB) error {
 	}
 	return db.Exec(`
 		UPDATE mascot_rooms
-		SET ends_at = LEAST(
-			CASE
-				WHEN ends_at IS NULL OR ends_at < TIMESTAMPTZ '1971-01-01'
-					THEN created_at + INTERVAL '21 days'
-				ELSE ends_at
-			END,
-			NOW() + INTERVAL '8 days'
-		)
-		WHERE ends_at IS NULL
-			OR ends_at < TIMESTAMPTZ '1971-01-01'
-			OR ends_at > NOW() + INTERVAL '8 days'
+		SET ends_at = LEAST(created_at + INTERVAL '21 days', NOW() + INTERVAL '8 days')
+		WHERE ends_at IS NULL OR ends_at < TIMESTAMPTZ '1971-01-01'
 	`).Error
 }
 

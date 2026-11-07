@@ -28,13 +28,24 @@ func TestMascotRoomTermMigrationKeepsRows(t *testing.T) {
 	}
 	up := string(upBytes)
 	down := string(downBytes)
+	const cappedLegacyEnd = "LEAST(created_at + INTERVAL '21 days', NOW() + INTERVAL '8 days')"
 	for _, piece := range []string{
-		"ends_at", "LEAST", "INTERVAL '21 days'", "INTERVAL '8 days'",
-		"mascot_room_active_seats", "HAVING COUNT(*) = 1", "1971-01-01",
+		"ends_at", cappedLegacyEnd, "mascot_room_active_seats",
+		"HAVING COUNT(*) = 1", "1971-01-01",
 	} {
 		if !strings.Contains(up, piece) {
 			t.Fatalf("up migration missing %s", piece)
 		}
+	}
+	if strings.Contains(up, "SET ends_at = created_at + INTERVAL '21 days'") {
+		t.Fatal("migration still assigns a bare 21-day end")
+	}
+	prep, err := os.ReadFile("mascot_room_active.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(prep), cappedLegacyEnd) {
+		t.Fatal("prepareMascotRoomEnds missing the capped 21-day end")
 	}
 	if strings.Contains(strings.ToUpper(up), "DELETE FROM") {
 		t.Fatal("up migration deletes rows")
