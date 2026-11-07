@@ -28,6 +28,9 @@ func NewPostgres(cfg *config.Config) (*gorm.DB, error) {
 
 // AutoMigrate runs schema migrations for core domain models (dev/small deploys).
 func AutoMigrate(db *gorm.DB) error {
+	if err := prepareMascotRoomEnds(db); err != nil {
+		return err
+	}
 	if err := db.AutoMigrate(
 		&domain.User{},
 		&domain.RefreshSession{},
@@ -66,6 +69,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.UserMascotItem{},
 		&domain.MascotRoom{},
 		&domain.MascotRoomMember{},
+		&domain.MascotRoomActiveSeat{},
 	); err != nil {
 		return err
 	}
@@ -76,6 +80,9 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	if err := applyCaptureReminderClaims(db); err != nil {
+		return err
+	}
+	if err := applyMascotRoomTerm(db); err != nil {
 		return err
 	}
 	return PrepareOutageApologySchema(db)

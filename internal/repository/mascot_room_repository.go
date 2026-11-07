@@ -21,18 +21,16 @@ var (
 	ErrMascotRoomFull      = errors.New("mascot room full")
 	ErrMascotRoomNotMember = errors.New("mascot room not a member")
 	ErrMascotRoomBadCode   = errors.New("mascot room bad code")
-	ErrMascotRoomTooMany   = errors.New("too many open rooms")
+	ErrMascotRoomEnded     = errors.New("this room has ended")
 )
 
-// MaxOpenMascotRooms is how many rooms one account may own at the same time.
-// A room counts until its last member leaves and the row is deleted.
-const MaxOpenMascotRooms = 3
-
 // MascotRoomView is a room the caller is allowed to see.
-// It has no account ids and no emails.
+// It has no account ids and no emails. EndsAt is when the room stops being
+// active. Rooms have no display name; Code is the id.
 type MascotRoomView struct {
 	Code        string
 	CreatedAt   time.Time
+	EndsAt      time.Time
 	Cap         int
 	MemberCount int
 	Joined      bool
@@ -50,6 +48,9 @@ func NewMascotRoomRepository(db *gorm.DB) *MascotRoomRepository {
 }
 
 // Create opens a room and adds the owner as the first member.
+// The room ends 8 days later. An account that is already in an active room
+// gets AlreadyInRoomError and no new row. The user row lock plus the seat
+// primary key keep two concurrent creates from both succeeding.
 func (r *MascotRoomRepository) Create(ctx context.Context, owner uuid.UUID) (MascotRoomView, error) {
 	var zero MascotRoomView
 	db, err := r.dbOrErr()
@@ -61,26 +62,25 @@ func (r *MascotRoomRepository) Create(ctx context.Context, owner uuid.UUID) (Mas
 	}
 	var view MascotRoomView
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if err := lockRoomOwner(tx, owner); err != nil {
+		if err := lockRoomUser(tx, owner); err != nil {
 			return err
 		}
-		var owned int64
-		if err := tx.Model(&domain.MascotRoom{}).Where("owner_user_id = ?", owner).Count(&owned).Error; err != nil {
+		now := time.Now().UTC()
+		if err := rejectIfInActiveRoom(tx, owner, now); err != nil {
 			return err
 		}
-		if owned >= MaxOpenMascotRooms {
-			return ErrMascotRoomTooMany
-		}
+		created := now.Truncate(time.Second)
+		ends := created.Add(domain.MascotRoomDuration)
 		for i := 0; i < 8; i++ {
 			code, err := lobby.NewRoomCode()
 			if err != nil {
 				return err
 			}
-			now := time.Now().UTC()
 			room := domain.MascotRoom{
 				Code:        code,
 				OwnerUserID: owner,
-				CreatedAt:   now,
+				CreatedAt:   created,
+				EndsAt:      ends,
 				MaxMembers:  lobby.RoomCap,
 			}
 			if err := tx.SavePoint("mascot_room_code").Error; err != nil {
@@ -99,8 +99,11 @@ func (r *MascotRoomRepository) Create(ctx context.Context, owner uuid.UUID) (Mas
 			if err := tx.Create(&member).Error; err != nil {
 				return err
 			}
+			if err := claimActiveSeat(tx, owner, code, ends, now); err != nil {
+				return err
+			}
 			view = MascotRoomView{
-				Code: code, CreatedAt: now, Cap: lobby.RoomCap,
+				Code: code, CreatedAt: created, EndsAt: ends, Cap: lobby.RoomCap,
 				MemberCount: 1, Joined: true, Owner: true,
 			}
 			return nil
@@ -118,10 +121,11 @@ func (r *MascotRoomRepository) Get(ctx context.Context, userID uuid.UUID, rawCod
 	return r.load(ctx, userID, rawCode, false)
 }
 
-// ListOpenForUser returns the open rooms userID owns or still belongs to.
-// A room stays open while it has members. The last member to leave deletes
-// the row, so a closed room is not in this list. Newest created room first.
-// The caller may own a room after leaving it, as long as someone else stayed.
+// ListOpenForUser returns the active rooms userID owns or still belongs to.
+// A room is active until EndsAt. Ending does not delete the row; this list
+// omits it anyway. The last member to leave still deletes an empty room.
+// Newest created room first. The caller may own a room after leaving it,
+// as long as someone else stayed and the end is still ahead.
 func (r *MascotRoomRepository) ListOpenForUser(ctx context.Context, userID uuid.UUID) ([]MascotRoomView, error) {
 	if userID == uuid.Nil {
 		return nil, fmt.Errorf("user required")
@@ -176,10 +180,11 @@ func (r *MascotRoomRepository) ListOpenForUser(ctx context.Context, userID uuid.
 	for _, count := range counts {
 		nBy[count.RoomCode] = count.N
 	}
+	now := time.Now().UTC()
 	out := make([]MascotRoomView, 0, len(rooms))
 	for _, room := range rooms {
 		n := nBy[room.Code]
-		if n == 0 {
+		if n == 0 || !roomIsActive(room, now) {
 			continue
 		}
 		_, member := joined[room.Code]
@@ -188,12 +193,20 @@ func (r *MascotRoomRepository) ListOpenForUser(ctx context.Context, userID uuid.
 	return out, nil
 }
 
-// Join adds userID when the room has a free seat. Joining twice is a no-op.
+// Join adds userID when the room has a free seat and is still active.
+// Joining a room the account is already in is a no-op, including when older
+// data still has that account in other active rooms. Joining a different
+// active room returns AlreadyInRoomError. An ended room returns
+// ErrMascotRoomEnded and keeps its rows. The user-row lock and the seat
+// primary key make two concurrent joins of the same account commit once.
 func (r *MascotRoomRepository) Join(ctx context.Context, userID uuid.UUID, rawCode string) (MascotRoomView, error) {
 	var zero MascotRoomView
 	code, ok := lobby.NormalizeRoomCode(rawCode)
 	if !ok {
 		return zero, ErrMascotRoomBadCode
+	}
+	if userID == uuid.Nil {
+		return zero, fmt.Errorf("user required")
 	}
 	db, err := r.dbOrErr()
 	if err != nil {
@@ -201,30 +214,50 @@ func (r *MascotRoomRepository) Join(ctx context.Context, userID uuid.UUID, rawCo
 	}
 	var view MascotRoomView
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockRoomUser(tx, userID); err != nil {
+			return err
+		}
+		now := time.Now().UTC()
 		room, err := lockMascotRoom(tx, code)
 		if err != nil {
 			return err
+		}
+		if !roomIsActive(room, now) {
+			return ErrMascotRoomEnded
 		}
 		n, member, err := memberState(tx, code, userID)
 		if err != nil {
 			return err
 		}
-		cap := roomCap(room)
-		if !member {
-			if n >= cap {
-				return ErrMascotRoomFull
+		if member {
+			view = roomView(room, userID, n, true)
+			return nil
+		}
+		if err := rejectIfInActiveRoom(tx, userID, now); err != nil {
+			return err
+		}
+		if n >= roomCap(room) {
+			return ErrMascotRoomFull
+		}
+		if err := tx.SavePoint("room_member").Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&domain.MascotRoomMember{
+			RoomCode: code,
+			UserID:   userID,
+			JoinedAt: now,
+		}).Error; err != nil {
+			if !IsUniqueConflict(err) {
+				return err
 			}
-			if err := tx.Create(&domain.MascotRoomMember{
-				RoomCode: code,
-				UserID:   userID,
-				JoinedAt: time.Now().UTC(),
-			}).Error; err != nil {
-				if !IsUniqueConflict(err) {
-					return err
-				}
-			} else {
-				n++
+			if rb := tx.RollbackTo("room_member"); rb.Error != nil {
+				return rb.Error
 			}
+		} else {
+			n++
+		}
+		if err := claimActiveSeat(tx, userID, code, effectiveEndsAt(room), now); err != nil {
+			return err
 		}
 		view = roomView(room, userID, n, true)
 		return nil
@@ -247,10 +280,16 @@ func (r *MascotRoomRepository) Leave(ctx context.Context, userID uuid.UUID, rawC
 		return err
 	}
 	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockRoomUser(tx, userID); err != nil {
+			return err
+		}
 		if _, err := lockMascotRoom(tx, code); err != nil {
 			return err
 		}
 		if err := tx.Where("room_code = ? AND user_id = ?", code, userID).Delete(&domain.MascotRoomMember{}).Error; err != nil {
+			return err
+		}
+		if err := releaseSeat(tx, userID, code); err != nil {
 			return err
 		}
 		var n int64
@@ -258,6 +297,9 @@ func (r *MascotRoomRepository) Leave(ctx context.Context, userID uuid.UUID, rawC
 			return err
 		}
 		if n == 0 {
+			if err := tx.Where("room_code = ?", code).Delete(&domain.MascotRoomActiveSeat{}).Error; err != nil {
+				return err
+			}
 			return tx.Where("code = ?", code).Delete(&domain.MascotRoom{}).Error
 		}
 		return nil
@@ -323,8 +365,14 @@ func (r *MascotRoomRepository) SaveNickname(ctx context.Context, userID uuid.UUI
 // CanEnter reports whether userID is a member of an existing room.
 // The live seat cap is enforced by the hub, not here.
 func (r *MascotRoomRepository) CanEnter(ctx context.Context, userID uuid.UUID, rawCode string) error {
-	_, err := r.load(ctx, userID, rawCode, true)
-	return err
+	view, err := r.load(ctx, userID, rawCode, true)
+	if err != nil {
+		return err
+	}
+	if !view.EndsAt.After(time.Now().UTC()) {
+		return ErrMascotRoomEnded
+	}
+	return nil
 }
 
 func (r *MascotRoomRepository) load(ctx context.Context, userID uuid.UUID, rawCode string, membersOnly bool) (MascotRoomView, error) {
@@ -362,14 +410,14 @@ func (r *MascotRoomRepository) dbOrErr() (*gorm.DB, error) {
 	return r.db, nil
 }
 
-// lockRoomOwner serializes creates for one account on Postgres so two
-// requests cannot both pass the open-room cap. The id is not scanned.
-// SQLite tests run one at a time and skip the lock.
-func lockRoomOwner(tx *gorm.DB, owner uuid.UUID) error {
+// lockRoomUser serializes create, join, and leave for one account on
+// Postgres. The seat primary key is the backstop when this lock is skipped
+// (SQLite tests). The id is not scanned.
+func lockRoomUser(tx *gorm.DB, userID uuid.UUID) error {
 	if tx.Dialector == nil || tx.Dialector.Name() != "postgres" {
 		return nil
 	}
-	return tx.Exec("SELECT id FROM users WHERE id = ? FOR UPDATE", owner).Error
+	return tx.Exec("SELECT id FROM users WHERE id = ? FOR UPDATE", userID).Error
 }
 
 func lockMascotRoom(tx *gorm.DB, code string) (domain.MascotRoom, error) {
@@ -414,6 +462,7 @@ func roomView(room domain.MascotRoom, userID uuid.UUID, count int, member bool) 
 	return MascotRoomView{
 		Code:        room.Code,
 		CreatedAt:   room.CreatedAt,
+		EndsAt:      effectiveEndsAt(room),
 		Cap:         roomCap(room),
 		MemberCount: count,
 		Joined:      member,
