@@ -124,6 +124,16 @@ func deleteOwnedMascotRooms(tx *gorm.DB, userID uuid.UUID) error {
 			}
 		}
 	}
+	if tx.Migrator().HasTable(&domain.MascotRoomActiveSeat{}) {
+		if len(codes) > 0 {
+			if err := tx.Where("room_code IN ?", codes).Delete(&domain.MascotRoomActiveSeat{}).Error; err != nil {
+				return err
+			}
+		}
+		if err := tx.Where("user_id = ?", userID).Delete(&domain.MascotRoomActiveSeat{}).Error; err != nil {
+			return err
+		}
+	}
 	if err := tx.Where("user_id = ?", userID).Delete(&domain.MascotRoomMember{}).Error; err != nil {
 		return err
 	}

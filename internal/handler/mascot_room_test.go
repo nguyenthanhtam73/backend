@@ -45,18 +45,33 @@ func TestMascotRoomsMine(t *testing.T) {
 		t.Fatalf("empty list %#v", rooms)
 	}
 
-	var codes []string
-	for i := 0; i < 3; i++ {
-		status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
-		if status != http.StatusCreated {
-			t.Fatalf("create %d %d %s", i, status, body)
-		}
-		code, _ := roomData(t, body)["code"].(string)
-		codes = append(codes, code)
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+	if status != http.StatusCreated {
+		t.Fatalf("create %d %s", status, body)
 	}
-	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms/"+codes[0]+"/join", guestTok, "")
+	created := roomData(t, body)
+	code, _ := created["code"].(string)
+	assertRoomLasts(t, created, 8*24*time.Hour)
+
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+	if status != http.StatusConflict || roomCodeOf(t, body) != "already_in_room" {
+		t.Fatalf("second room %d %s", status, body)
+	}
+	taken := roomErr(t, body)
+	if taken.room != code || taken.count != 1 || taken.ends != created["ends_at"] {
+		t.Fatalf("already in room %+v body %s", taken, body)
+	}
+	if !strings.Contains(taken.message, "phòng") {
+		t.Fatalf("message %q", taken.message)
+	}
+
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms/"+code+"/join", guestTok, "")
 	if status != http.StatusOK {
 		t.Fatalf("join %d %s", status, body)
+	}
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", guestTok, "")
+	if status != http.StatusConflict || roomCodeOf(t, body) != "already_in_room" {
+		t.Fatalf("guest create %d %s", status, body)
 	}
 	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", otherTok, "")
 	if status != http.StatusCreated {
@@ -72,27 +87,11 @@ func TestMascotRoomsMine(t *testing.T) {
 		t.Fatalf("other room leaked %s", body)
 	}
 	mine := roomMine(t, body)
-	if len(mine) != 3 {
+	if len(mine) != 1 || mine[0].code != code || mine[0].cap != float64(lobby.RoomCap) || mine[0].count != 2 || !mine[0].owner || !mine[0].joined {
 		t.Fatalf("owner rooms %#v", mine)
 	}
-	seen := map[string]bool{}
-	for _, room := range mine {
-		seen[room.code] = true
-		if room.cap != float64(lobby.RoomCap) || room.code == "" {
-			t.Fatalf("room %#v", room)
-		}
-		wantCount := 1.0
-		if room.code == codes[0] {
-			wantCount = 2
-		}
-		if room.count != wantCount || !room.owner || !room.joined {
-			t.Fatalf("owner row %#v", room)
-		}
-	}
-	for _, code := range codes {
-		if !seen[code] {
-			t.Fatalf("missing %s in %#v", code, mine)
-		}
+	if !strings.Contains(body, `"ends_at"`) {
+		t.Fatalf("mine missing end %s", body)
 	}
 
 	status, body = roomJSONCall(t, http.MethodGet, base+"/mascot/rooms/mine", guestTok, "")
@@ -100,26 +99,39 @@ func TestMascotRoomsMine(t *testing.T) {
 		t.Fatalf("guest mine %d %s", status, body)
 	}
 	guestRooms := roomMine(t, body)
-	if len(guestRooms) != 1 || guestRooms[0].code != codes[0] || guestRooms[0].owner || !guestRooms[0].joined || guestRooms[0].count != 2 || guestRooms[0].cap != float64(lobby.RoomCap) {
+	if len(guestRooms) != 1 || guestRooms[0].code != code || guestRooms[0].owner || !guestRooms[0].joined || guestRooms[0].count != 2 || guestRooms[0].cap != float64(lobby.RoomCap) {
 		t.Fatalf("guest %#v", guestRooms)
 	}
 
-	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms/"+codes[2]+"/leave", ownerTok, "")
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms/"+code+"/leave", ownerTok, "")
 	if status != http.StatusOK {
 		t.Fatalf("leave %d %s", status, body)
 	}
 	status, body = roomJSONCall(t, http.MethodGet, base+"/mascot/rooms/mine", ownerTok, "")
 	if status != http.StatusOK {
-		t.Fatalf("after close %d %s", status, body)
+		t.Fatalf("after leave %d %s", status, body)
 	}
 	after := roomMine(t, body)
-	if len(after) != 2 {
-		t.Fatalf("closed room stayed %#v", after)
+	if len(after) != 1 || after[0].code != code || after[0].joined || !after[0].owner || after[0].count != 1 {
+		t.Fatalf("owned room after leaving %#v", after)
 	}
-	for _, room := range after {
-		if room.code == codes[2] {
-			t.Fatalf("closed %s still listed", codes[2])
-		}
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+	if status != http.StatusCreated {
+		t.Fatalf("create after leaving %d %s", status, body)
+	}
+	second, _ := roomData(t, body)["code"].(string)
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms/"+second+"/join", guestTok, "")
+	if status != http.StatusConflict || roomCodeOf(t, body) != "already_in_room" {
+		t.Fatalf("guest second join %d %s", status, body)
+	}
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms/"+second+"/leave", ownerTok, "")
+	if status != http.StatusOK {
+		t.Fatalf("leave second %d %s", status, body)
+	}
+	status, body = roomJSONCall(t, http.MethodGet, base+"/mascot/rooms/mine", ownerTok, "")
+	leftSecond := roomMine(t, body)
+	if len(leftSecond) != 1 || leftSecond[0].code != code {
+		t.Fatalf("closed second stayed %#v", leftSecond)
 	}
 }
 
@@ -160,7 +172,7 @@ func TestMascotRoomRESTAndSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomActiveSeat{}); err != nil {
 		t.Fatal(err)
 	}
 	users := repository.NewUserRepository(db)
@@ -349,30 +361,66 @@ func TestMascotRoomRESTAndSocket(t *testing.T) {
 	}
 }
 
+func TestRoomEndedErrorShape(t *testing.T) {
+	app := fiber.New()
+	app.Get("/ended", func(c *fiber.Ctx) error {
+		return writeRoomErr(c, repository.ErrMascotRoomEnded)
+	})
+	end := time.Date(2026, 11, 15, 18, 50, 0, 0, time.UTC)
+	app.Get("/taken", func(c *fiber.Ctx) error {
+		return writeAlreadyInRoom(c, &repository.AlreadyInRoomError{Code: "AB23CD", EndsAt: end, Count: 2})
+	})
+	ended := roomAppCall(t, app, "/ended")
+	if ended.status != http.StatusConflict || ended.code != "room_ended" || !strings.Contains(ended.message, "kết thúc") {
+		t.Fatalf("ended %+v", ended)
+	}
+	taken := roomAppCall(t, app, "/taken")
+	if taken.status != http.StatusConflict || taken.code != "already_in_room" || taken.room != "AB23CD" || taken.count != 2 || taken.ends != end.Format(time.RFC3339) {
+		t.Fatalf("taken %+v", taken)
+	}
+	if !strings.Contains(taken.message, "phòng") {
+		t.Fatalf("message %q", taken.message)
+	}
+}
+
+func roomAppCall(t *testing.T, app *fiber.App, path string) roomErrBody {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	raw, _ := io.ReadAll(res.Body)
+	got := roomErr(t, string(raw))
+	got.status = res.StatusCode
+	return got
+}
+
 func TestMascotRoomCreateLimits(t *testing.T) {
 	base, sign := startRoomHTTP(t, "limit-owner@example.com", "limit-other@example.com")
 	ownerTok := sign["limit-owner@example.com"]
 	otherTok := sign["limit-other@example.com"]
 
-	var firstCode string
-	for i := 0; i < repository.MaxOpenMascotRooms; i++ {
-		status, body := roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
-		if status != http.StatusCreated {
-			t.Fatalf("create %d: %d %s", i, status, body)
-		}
-		if firstCode == "" {
-			firstCode, _ = roomData(t, body)["code"].(string)
-		}
-	}
-	status, body := roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
-	if status != http.StatusConflict || roomCodeOf(t, body) != "too_many_rooms" {
-		t.Fatalf("fourth room %d %s", status, body)
-	}
-	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", otherTok, "")
+	status, body := roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", otherTok, "")
 	if status != http.StatusCreated {
 		t.Fatalf("other account %d %s", status, body)
 	}
 
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+	if status != http.StatusCreated {
+		t.Fatalf("create %d %s", status, body)
+	}
+	firstCode, _ := roomData(t, body)["code"].(string)
+	for i := 0; i < 2; i++ {
+		status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+		if status != http.StatusConflict || roomCodeOf(t, body) != "already_in_room" {
+			t.Fatalf("extra create %d: %d %s", i, status, body)
+		}
+	}
 	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms/"+firstCode+"/leave", ownerTok, "")
 	if status != http.StatusOK {
 		t.Fatalf("leave %d %s", status, body)
@@ -382,11 +430,15 @@ func TestMascotRoomCreateLimits(t *testing.T) {
 		t.Fatalf("create after close %d %s", status, body)
 	}
 	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
+	if status != http.StatusConflict || roomCodeOf(t, body) != "already_in_room" {
+		t.Fatalf("fifth create %d %s", status, body)
+	}
+	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", ownerTok, "")
 	if status != http.StatusTooManyRequests || roomCodeOf(t, body) != "rate_limited" {
 		t.Fatalf("sixth create %d %s", status, body)
 	}
 	status, body = roomJSONCall(t, http.MethodPost, base+"/mascot/rooms", otherTok, "")
-	if status != http.StatusCreated {
+	if status != http.StatusConflict || roomCodeOf(t, body) != "already_in_room" {
 		t.Fatalf("other account rate bucket %d %s", status, body)
 	}
 }
@@ -443,7 +495,7 @@ func TestMascotRoomCareBoard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.RoutineEntry{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomActiveSeat{}, &domain.RoutineEntry{}); err != nil {
 		t.Fatal(err)
 	}
 	users := repository.NewUserRepository(db)
@@ -617,7 +669,7 @@ func startRoomHTTP(t *testing.T, emails ...string) (base string, tokens map[stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomActiveSeat{}); err != nil {
 		t.Fatal(err)
 	}
 	users := repository.NewUserRepository(db)
@@ -704,15 +756,53 @@ func roomData(t *testing.T, body string) map[string]any {
 
 func roomCodeOf(t *testing.T, body string) string {
 	t.Helper()
+	return roomErr(t, body).code
+}
+
+type roomErrBody struct {
+	status  int
+	code    string
+	message string
+	room    string
+	ends    string
+	count   float64
+}
+
+func roomErr(t *testing.T, body string) roomErrBody {
+	t.Helper()
 	var env struct {
 		Error struct {
-			Code string `json:"code"`
+			Code    string  `json:"code"`
+			Message string  `json:"message"`
+			Count   float64 `json:"active_room_count"`
+			Room    struct {
+				Code string `json:"code"`
+				Ends string `json:"ends_at"`
+			} `json:"room"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(body), &env); err != nil {
 		t.Fatalf("json %s: %v", body, err)
 	}
-	return env.Error.Code
+	return roomErrBody{
+		code: env.Error.Code, message: env.Error.Message,
+		room: env.Error.Room.Code, ends: env.Error.Room.Ends, count: env.Error.Count,
+	}
+}
+
+func assertRoomLasts(t *testing.T, data map[string]any, want time.Duration) {
+	t.Helper()
+	created, err := time.Parse(time.RFC3339, data["created_at"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ends, err := time.Parse(time.RFC3339, data["ends_at"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ends.Sub(created) != want {
+		t.Fatalf("room length %s, want %s (%s -> %s)", ends.Sub(created), want, created, ends)
+	}
 }
 
 func roomFrame(code, op string) []byte {

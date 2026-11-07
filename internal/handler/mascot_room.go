@@ -13,6 +13,7 @@ import (
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/usecase/roomcare"
 	"github.com/dadiary/backend/pkg/response"
+	"github.com/dadiary/backend/pkg/usermsg"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 )
@@ -71,9 +72,10 @@ func (h *MascotRoomHandler) Create(c *fiber.Ctx) error {
 }
 
 // Mine is GET /api/v1/mascot/rooms/mine.
-// Logged-out callers get 401 from the JWT middleware. The list is the open
+// Logged-out callers get 401 from the JWT middleware. The list is the active
 // rooms this account owns or still belongs to. Each row has the room code,
-// member count, and capacity. Closed rooms are omitted.
+// member count, capacity, and ends_at. Ended rooms are omitted. The rows stay
+// in the database.
 func (h *MascotRoomHandler) Mine(c *fiber.Ctx) error {
 	if h == nil || h.repo == nil {
 		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "mascot unavailable")
@@ -242,22 +244,56 @@ func roomJSON(view repository.MascotRoomView) fiber.Map {
 	if !view.CreatedAt.IsZero() {
 		body["created_at"] = view.CreatedAt.UTC().Format(time.RFC3339)
 	}
+	if !view.EndsAt.IsZero() {
+		body["ends_at"] = view.EndsAt.UTC().Format(time.RFC3339)
+	}
 	return body
 }
 
 func writeRoomErr(c *fiber.Ctx, err error) error {
+	var taken *repository.AlreadyInRoomError
+	if errors.As(err, &taken) {
+		return writeAlreadyInRoom(c, taken)
+	}
 	switch {
 	case errors.Is(err, repository.ErrMascotRoomNotFound):
 		return response.Error(c, fiber.StatusNotFound, "room_not_found", "room not found")
 	case errors.Is(err, repository.ErrMascotRoomFull):
 		return response.Error(c, fiber.StatusConflict, "room_full", "room is full")
+	case errors.Is(err, repository.ErrMascotRoomEnded):
+		return response.Error(c, fiber.StatusConflict, "room_ended", "this room has ended")
 	case errors.Is(err, repository.ErrMascotRoomBadCode):
 		return response.Error(c, fiber.StatusBadRequest, "bad_code", "invite code is not valid")
-	case errors.Is(err, repository.ErrMascotRoomTooMany):
-		return response.Error(c, fiber.StatusConflict, "too_many_rooms", "too many open rooms")
 	default:
 		return response.Error(c, fiber.StatusServiceUnavailable, "database_unavailable", "database is not available")
 	}
+}
+
+// writeAlreadyInRoom is 409 already_in_room.
+// room.code is the invite code (rooms have no separate name). ends_at is
+// RFC3339 UTC. When the account is already in several active rooms, room is
+// the one that ends last and active_room_count is greater than 1. Those
+// memberships are not removed.
+func writeAlreadyInRoom(c *fiber.Ctx, taken *repository.AlreadyInRoomError) error {
+	count := 1
+	if taken != nil && taken.Count > 0 {
+		count = taken.Count
+	}
+	body := fiber.Map{
+		"code":              "already_in_room",
+		"message":           usermsg.Plain("already in a room"),
+		"active_room_count": count,
+	}
+	if taken != nil && taken.Code != "" {
+		body["room"] = fiber.Map{
+			"code":    taken.Code,
+			"ends_at": taken.EndsAt.UTC().Format(time.RFC3339),
+		}
+	}
+	return c.Status(fiber.StatusConflict).JSON(fiber.Map{
+		"success": false,
+		"error":   body,
+	})
 }
 
 // mascotRoomGate adapts the room table to the lobby socket.
@@ -282,6 +318,8 @@ func (g mascotRoomGate) Enter(userID uuid.UUID, code string) error {
 		return nil
 	case errors.Is(err, repository.ErrMascotRoomNotFound):
 		return lobby.ErrRoomNotFound
+	case errors.Is(err, repository.ErrMascotRoomEnded):
+		return lobby.ErrRoomEnded
 	case errors.Is(err, repository.ErrMascotRoomNotMember):
 		return lobby.ErrNotRoomMember
 	case errors.Is(err, repository.ErrMascotRoomBadCode):

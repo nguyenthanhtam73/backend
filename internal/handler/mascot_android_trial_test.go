@@ -201,7 +201,7 @@ func startTrialRoomHTTP(t *testing.T) (base, memberTok, adminTok string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomActiveSeat{}); err != nil {
 		t.Fatal(err)
 	}
 	users := repository.NewUserRepository(db)

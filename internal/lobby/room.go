@@ -15,10 +15,11 @@ type RoomGate interface {
 	Enter(userID uuid.UUID, code string) error
 }
 
-// ErrRoomNotFound and ErrNotRoomMember are the membership answers a RoomGate
-// returns. Any other error is treated as a temporary failure.
+// ErrRoomNotFound, ErrRoomEnded, and ErrNotRoomMember are the membership
+// answers a RoomGate returns. Any other error is treated as a temporary failure.
 var (
 	ErrRoomNotFound  = errors.New("room not found")
+	ErrRoomEnded     = errors.New("room ended")
 	ErrNotRoomMember = errors.New("not a room member")
 )
 
@@ -154,6 +155,8 @@ func (h *Hub) joinRoomLocked(c *connState, msg clientMsg, code string, gateErr e
 		switch {
 		case errors.Is(gateErr, ErrRoomNotFound):
 			return h.err(ChannelRoom, CodeRoomNotFound)
+		case errors.Is(gateErr, ErrRoomEnded):
+			return h.err(ChannelRoom, CodeRoomEnded)
 		case errors.Is(gateErr, ErrNotRoomMember):
 			return h.err(ChannelRoom, CodeNotMember)
 		default:

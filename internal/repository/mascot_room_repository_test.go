@@ -162,6 +162,12 @@ func TestListOpenForUserOmitsClosedAndKeepsOwnedOrJoined(t *testing.T) {
 	if _, err := repo.Join(ctx, guest.ID, owned.Code); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := repo.Create(ctx, owner.ID); !errors.As(err, new(*AlreadyInRoomError)) {
+		t.Fatalf("second room while still inside: %v", err)
+	}
+	if err := repo.Leave(ctx, owner.ID, owned.Code); err != nil {
+		t.Fatal(err)
+	}
 	solo, err := repo.Create(ctx, owner.ID)
 	if err != nil {
 		t.Fatal(err)
@@ -171,9 +177,6 @@ func TestListOpenForUserOmitsClosedAndKeepsOwnedOrJoined(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := repo.Leave(ctx, owner.ID, solo.Code); err != nil {
-		t.Fatal(err)
-	}
-	if err := repo.Leave(ctx, owner.ID, owned.Code); err != nil {
 		t.Fatal(err)
 	}
 
@@ -214,31 +217,33 @@ func TestListOpenForUserOmitsClosedAndKeepsOwnedOrJoined(t *testing.T) {
 	}
 }
 
-func TestMascotRoomOwnerOpenCap(t *testing.T) {
+func TestMascotRoomOneActiveMembership(t *testing.T) {
 	db := openRoomDB(t)
 	repo := NewMascotRoomRepository(db)
 	ctx := context.Background()
 	owner := insertRoomUser(t, db, "cap-owner@example.com")
 	other := insertRoomUser(t, db, "cap-other@example.com")
-	codes := make([]string, 0, MaxOpenMascotRooms)
-	for i := 0; i < MaxOpenMascotRooms; i++ {
-		view, err := repo.Create(ctx, owner.ID)
-		if err != nil {
-			t.Fatal(err)
-		}
-		codes = append(codes, view.Code)
+	first, err := repo.Create(ctx, owner.ID)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := repo.Create(ctx, owner.ID); !errors.Is(err, ErrMascotRoomTooMany) {
-		t.Fatalf("fourth room %v", err)
+	if first.EndsAt.Sub(first.CreatedAt) != domain.MascotRoomDuration {
+		t.Fatalf("new room length %s", first.EndsAt.Sub(first.CreatedAt))
+	}
+	if _, err := repo.Create(ctx, owner.ID); !errors.As(err, new(*AlreadyInRoomError)) {
+		t.Fatalf("second room %v", err)
 	}
 	if _, err := repo.Create(ctx, other.ID); err != nil {
 		t.Fatalf("other owner blocked: %v", err)
 	}
-	if err := repo.Leave(ctx, owner.ID, codes[0]); err != nil {
+	if _, err := repo.Join(ctx, other.ID, first.Code); !errors.As(err, new(*AlreadyInRoomError)) {
+		t.Fatalf("join while owning another room: %v", err)
+	}
+	if err := repo.Leave(ctx, owner.ID, first.Code); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.Create(ctx, owner.ID); err != nil {
-		t.Fatalf("create after a room closed: %v", err)
+		t.Fatalf("create after the room closed: %v", err)
 	}
 }
 
@@ -250,7 +255,7 @@ func openRoomDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomActiveSeat{}); err != nil {
 		t.Fatal(err)
 	}
 	return db

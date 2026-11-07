@@ -66,8 +66,9 @@ const (
 	PongWait = 45 * time.Second
 
 	// RoomCap is how many people one invite room holds, including someone
-	// in the 30s disconnect grace. RoomCodeLen is the invite code length.
-	// RoomCodeAlphabet has no 0, O, 1, or I.
+	// in the 30s disconnect grace. It is not how many days the room lasts.
+	// That length is domain.MascotRoomDuration. RoomCodeLen is the invite
+	// code length. RoomCodeAlphabet has no 0, O, 1, or I.
 	RoomCap          = 8
 	RoomCodeLen      = 6
 	RoomCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -108,6 +109,7 @@ const (
 	CodeUnknownTarget      = "unknown_target"
 	CodeRoomFull           = "room_full"
 	CodeRoomNotFound       = "room_not_found"
+	CodeRoomEnded          = "room_ended"
 	CodeNotMember          = "not_a_member"
 	CodeUnavailable        = "unavailable"
 )
