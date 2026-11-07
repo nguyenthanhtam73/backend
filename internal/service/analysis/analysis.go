@@ -156,11 +156,14 @@ func ExpireStaleAnalysis(ctx context.Context, checks *repository.GormSkinCheckRe
 	if time.Since(ref) < staleAnalysisAge {
 		return false
 	}
-	a.Status = domain.AnalysisStatusFailed
-	a.ErrorMessage = staleFailedMessage
-	if err := checks.SaveAnalysis(ctx, a); err != nil {
+	// Conditional update only. SaveAnalysis would rewrite the claim token and
+	// outage_affected if a replay re-claimed the row after this poll.
+	saved, err := checks.FailStaleAnalysisIfUnchanged(ctx, a, staleFailedMessage)
+	if err != nil || !saved {
 		return false
 	}
+	a.Status = domain.AnalysisStatusFailed
+	a.ErrorMessage = staleFailedMessage
 	return true
 }
 

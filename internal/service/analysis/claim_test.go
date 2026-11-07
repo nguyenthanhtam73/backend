@@ -139,6 +139,88 @@ func TestFinishAnalysisIfClaim_IgnoresStaleToken(t *testing.T) {
 	}
 }
 
+func TestExpireStaleAnalysis_KeepsTokenAndOutageFlag(t *testing.T) {
+	db := openClaimDB(t)
+	repo := repository.NewSkinCheckRepository(db)
+	check := seedClaimCheck(t, db, true)
+	expiredAt := time.Now().UTC().Add(-10 * time.Minute)
+	if err := db.Exec(`
+UPDATE skin_analyses
+SET status = ?, model_version = ?, outage_affected = ?, updated_at = ?, error_message = ''
+WHERE skin_check_id = ?`,
+		domain.AnalysisStatusProcessing, "run:old", true, expiredAt, check.ID,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	polled, err := repo.GetByID(context.Background(), check.ID)
+	if err != nil || polled == nil || polled.Analysis == nil {
+		t.Fatal(err)
+	}
+	if !ExpireStaleAnalysis(context.Background(), repo, polled.Analysis) {
+		t.Fatal("unchanged stale row should be marked failed")
+	}
+	got, err := repo.GetByID(context.Background(), check.ID)
+	if err != nil || got == nil || got.Analysis == nil {
+		t.Fatal(err)
+	}
+	if got.Analysis.Status != domain.AnalysisStatusFailed {
+		t.Fatalf("status = %s", got.Analysis.Status)
+	}
+	if got.Analysis.ModelVersion != "run:old" {
+		t.Fatalf("token changed to %q", got.Analysis.ModelVersion)
+	}
+	if !got.Analysis.OutageAffected {
+		t.Fatal("expire cleared outage_affected")
+	}
+}
+
+func TestExpireStaleAnalysis_LosesToReplayClaim(t *testing.T) {
+	db := openClaimDB(t)
+	repo := repository.NewSkinCheckRepository(db)
+	check := seedClaimCheck(t, db, true)
+	expiredAt := time.Now().UTC().Add(-10 * time.Minute)
+	if err := db.Exec(`
+UPDATE skin_analyses
+SET status = ?, model_version = ?, outage_affected = ?, updated_at = ?, error_message = ''
+WHERE skin_check_id = ?`,
+		domain.AnalysisStatusProcessing, "run:old", true, expiredAt, check.ID,
+	).Error; err != nil {
+		t.Fatal(err)
+	}
+	polled, err := repo.GetByID(context.Background(), check.ID)
+	if err != nil || polled == nil || polled.Analysis == nil {
+		t.Fatal(err)
+	}
+	seen := *polled.Analysis
+
+	replayToken, won, err := repo.ClaimAnalysisRun(context.Background(), check.ID, time.Now().UTC())
+	if err != nil || !won {
+		t.Fatalf("replay claim won=%v err=%v", won, err)
+	}
+	if replayToken == "" || replayToken == "run:old" {
+		t.Fatalf("replay token = %q", replayToken)
+	}
+	if ExpireStaleAnalysis(context.Background(), repo, &seen) {
+		t.Fatal("poller failure write should affect 0 rows")
+	}
+	got, err := repo.GetByID(context.Background(), check.ID)
+	if err != nil || got == nil || got.Analysis == nil {
+		t.Fatal(err)
+	}
+	if got.Analysis.ModelVersion != replayToken {
+		t.Fatalf("token = %q, want replay token %q", got.Analysis.ModelVersion, replayToken)
+	}
+	if !got.Analysis.OutageAffected {
+		t.Fatal("poller cleared outage_affected")
+	}
+	if got.Analysis.Status != domain.AnalysisStatusProcessing {
+		t.Fatalf("status = %s, want processing", got.Analysis.Status)
+	}
+	if got.Analysis.ErrorMessage != "" {
+		t.Fatalf("error_message = %q", got.Analysis.ErrorMessage)
+	}
+}
+
 func openClaimDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:claim_"+uuid.NewString()+"?mode=memory&cache=shared&_pragma=busy_timeout(5000)"), &gorm.Config{

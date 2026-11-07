@@ -902,6 +902,44 @@ WHERE skin_check_id = ? AND model_version = ? AND deleted_at IS NULL`,
 	return res.RowsAffected == 1, nil
 }
 
+// FailStaleAnalysisIfUnchanged marks one polled row failed only if it is still
+// the version the poller saw: same claim token (model_version), same status,
+// and the same updated_at. It writes status, error_message, and updated_at.
+// It does not write model_version or outage_affected, so a replay that already
+// re-claimed the row is left alone. RowsAffected 0 means the poller lost.
+func (r *GormSkinCheckRepository) FailStaleAnalysisIfUnchanged(ctx context.Context, seen *domain.SkinAnalysis, message string) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if seen == nil || seen.ID == uuid.Nil {
+		return false, fmt.Errorf("analysis id required")
+	}
+	seenAt := seen.UpdatedAt
+	if seenAt.IsZero() {
+		seenAt = seen.CreatedAt
+	}
+	res := db.WithContext(ctx).Exec(`
+UPDATE skin_analyses
+SET status = ?, error_message = ?, updated_at = ?
+WHERE id = ? AND deleted_at IS NULL
+  AND status = ?
+  AND model_version = ?
+  AND updated_at = ?`,
+		domain.AnalysisStatusFailed,
+		message,
+		time.Now().UTC(),
+		seen.ID,
+		seen.Status,
+		seen.ModelVersion,
+		seenAt,
+	)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
 // FailAnalysisIfClaim records a failure only while this claim token still owns the row.
 func (r *GormSkinCheckRepository) FailAnalysisIfClaim(ctx context.Context, skinCheckID uuid.UUID, token, message string) (bool, error) {
 	db, err := r.dbOrErr()
