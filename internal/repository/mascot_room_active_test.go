@@ -29,15 +29,12 @@ func TestMascotRoomTermMigrationKeepsRows(t *testing.T) {
 	up := string(upBytes)
 	down := string(downBytes)
 	for _, piece := range []string{
-		"ends_at", "INTERVAL '21 days'", "mascot_room_active_seats",
-		"HAVING COUNT(*) = 1", "1971-01-01",
+		"ends_at", "LEAST", "INTERVAL '21 days'", "INTERVAL '8 days'",
+		"mascot_room_active_seats", "HAVING COUNT(*) = 1", "1971-01-01",
 	} {
 		if !strings.Contains(up, piece) {
 			t.Fatalf("up migration missing %s", piece)
 		}
-	}
-	if strings.Contains(up, "INTERVAL '8 days'") {
-		t.Fatal("migration rewrites existing rooms to 8 days")
 	}
 	if strings.Contains(strings.ToUpper(up), "DELETE FROM") {
 		t.Fatal("up migration deletes rows")
@@ -50,43 +47,89 @@ func TestMascotRoomTermMigrationKeepsRows(t *testing.T) {
 	}
 }
 
-func TestBackfillKeepsLongerRoomEnds(t *testing.T) {
+func TestBackfillCapsExistingRoomEnds(t *testing.T) {
 	db := openRoomDB(t)
 	owner := insertRoomUser(t, db, "ends-owner@example.com")
-	created := time.Now().UTC().Add(-10 * 24 * time.Hour).Truncate(time.Second)
+	endedUser := insertRoomUser(t, db, "ends-ended@example.com")
+	now := time.Now().UTC().Truncate(time.Second)
+	cap := now.Add(domain.MascotRoomDuration)
+	created := now.Add(-10 * 24 * time.Hour)
 	unset := insertFixedRoom(t, db, "AAAAAA", owner.ID, created, time.Unix(0, 0).UTC())
 	longer := insertFixedRoom(t, db, "BBBBBB", owner.ID, created, created.Add(40*24*time.Hour))
-	eight := insertFixedRoom(t, db, "CCCCCC", owner.ID, created, created.Add(domain.MascotRoomDuration))
+	alreadyEight := insertFixedRoom(t, db, "CCCCCC", owner.ID, created, created.Add(domain.MascotRoomDuration))
 	legacy := insertFixedRoom(t, db, "DDDDDD", owner.ID, created, created.Add(domain.LegacyMascotRoomDuration))
+	// created_at + 21 days is 3 days from now, sooner than the 8-day cap.
+	soonCreated := now.Add(-18 * 24 * time.Hour)
+	soonEnd := soonCreated.Add(domain.LegacyMascotRoomDuration)
+	soon := insertFixedRoom(t, db, "EEEEEE", owner.ID, soonCreated, soonEnd)
+	// created_at + 21 days is already past. The cap must not reopen it.
+	overCreated := now.Add(-30 * 24 * time.Hour)
+	overEnd := overCreated.Add(domain.LegacyMascotRoomDuration)
+	over := insertFixedRoom(t, db, "FFFFFF", endedUser.ID, overCreated, overEnd)
+	overUnset := insertFixedRoom(t, db, "GGGGGG", endedUser.ID, overCreated, time.Unix(0, 0).UTC())
+	fresh := insertFixedRoom(t, db, "HHHHHH", owner.ID, now, cap)
 
-	n, err := backfillLegacyRoomEnds(db)
+	n, err := backfillLegacyRoomEnds(db, now)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 1 {
+	if n != 4 {
 		t.Fatalf("backfill changed %d rows", n)
 	}
 	got := roomEnds(t, db)
-	if !got[unset].Equal(created.Add(domain.LegacyMascotRoomDuration)) {
-		t.Fatalf("unset end %s", got[unset])
+	if !got[unset].Equal(cap) {
+		t.Fatalf("unset end %s, want cap %s", got[unset], cap)
 	}
-	if !got[longer].Equal(created.Add(40 * 24 * time.Hour)) {
-		t.Fatalf("longer end shortened to %s", got[longer])
+	if !got[longer].Equal(cap) || !got[legacy].Equal(cap) {
+		t.Fatalf("long ends longer=%s legacy=%s cap=%s", got[longer], got[legacy], cap)
 	}
-	if !got[eight].Equal(created.Add(domain.MascotRoomDuration)) {
-		t.Fatalf("8-day end changed to %s", got[eight])
+	if !got[alreadyEight].Equal(created.Add(domain.MascotRoomDuration)) {
+		t.Fatalf("ended 8-day room reopened to %s", got[alreadyEight])
 	}
-	if !got[legacy].Equal(created.Add(domain.LegacyMascotRoomDuration)) {
-		t.Fatalf("21-day end changed to %s", got[legacy])
+	if !got[soon].Equal(soonEnd) {
+		t.Fatalf("sooner end extended to %s", got[soon])
+	}
+	if !got[over].Equal(overEnd) || !overEnd.Before(now) {
+		t.Fatalf("past end moved to %s", got[over])
+	}
+	if !got[overUnset].Equal(overEnd) || !got[overUnset].Before(now) {
+		t.Fatalf("unset past room reopened to %s", got[overUnset])
+	}
+	if !got[fresh].Equal(cap) {
+		t.Fatalf("new 8-day room moved to %s", got[fresh])
+	}
+	again, err := backfillLegacyRoomEnds(db, now.Add(24*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again != 0 {
+		t.Fatalf("second backfill moved %d rows", again)
+	}
+	if gotAgain := roomEnds(t, db); !gotAgain[unset].Equal(cap) || !gotAgain[over].Equal(overEnd) {
+		t.Fatalf("second pass %+v", gotAgain)
 	}
 
-	// 10 days into a 21-day room is still active, so a second room is refused.
+	// The capped room is still active, so a second room is refused.
 	if err := db.Create(&domain.MascotRoomMember{RoomCode: unset, UserID: owner.ID, JoinedAt: created}).Error; err != nil {
 		t.Fatal(err)
 	}
 	repo := NewMascotRoomRepository(db)
 	if _, err := repo.Create(context.Background(), owner.ID); !errors.As(err, new(*AlreadyInRoomError)) {
-		t.Fatalf("10-day-old room was treated as over: %v", err)
+		t.Fatalf("capped room was treated as over: %v", err)
+	}
+	// A room already past created_at+21 stays ended, so this account can open one.
+	if err := db.Create(&domain.MascotRoomMember{RoomCode: over, UserID: endedUser.ID, JoinedAt: overCreated}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.Create(context.Background(), endedUser.ID); err != nil {
+		t.Fatalf("ended room still blocked create: %v", err)
+	}
+	var kept domain.MascotRoom
+	if err := db.Where("code = ?", over).First(&kept).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !kept.EndsAt.UTC().Truncate(time.Second).Equal(overEnd) {
+		t.Fatalf("ended room end changed to %s", kept.EndsAt)
 	}
 }
 

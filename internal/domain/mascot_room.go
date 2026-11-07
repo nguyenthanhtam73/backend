@@ -8,9 +8,10 @@ import (
 
 // How long a Góc bình yên room stays active.
 // MascotRoomDuration is the length written for a room created from now on.
-// LegacyMascotRoomDuration is the previous length. Rooms that already exist
-// keep an end of created_at plus that longer value. Backfill does not
-// shorten a room and does not delete one.
+// LegacyMascotRoomDuration is the previous length. A room with no stored end
+// is treated as created_at plus that value. Backfill then sets every existing
+// room to the earlier of that end and (when the backfill runs + MascotRoomDuration).
+// A room that has already ended is not given a later end, and nothing is deleted.
 const (
 	MascotRoomDuration       = 8 * 24 * time.Hour
 	LegacyMascotRoomDuration = 21 * 24 * time.Hour

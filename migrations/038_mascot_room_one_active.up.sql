@@ -1,12 +1,14 @@
 -- One active Góc bình yên room per account, and an end time on every room.
 -- Numbered 038 so it does not collide with the outage migrations 035–037.
 -- New rooms last 8 days (domain.MascotRoomDuration). The API writes that
--- end on insert. This file does not shorten a room that already has an end,
--- and it does not delete rooms or memberships.
+-- end on insert. This file does not delete rooms or memberships.
 --
--- Existing rows had no end column. Their length was 21 days from created_at.
--- Fill only a missing end with that longer value, including rooms whose
--- 21 days are already past. A later boot must not overwrite a real end.
+-- Existing rows had no end column. Their current end is created_at + 21 days.
+-- Every existing room is then set to the earlier of that end and
+-- (this statement's NOW() + 8 days). A room whose current end is sooner,
+-- including one that is already past, keeps that end and is not reopened.
+-- Running the update again does not push a cap further out: a stored end
+-- that is already within 8 days of NOW() is left alone.
 --
 -- mascot_room_active_seats is one row per account (primary key user_id).
 -- Two concurrent create/join transactions cannot both commit a seat.
@@ -22,8 +24,17 @@ ALTER TABLE mascot_rooms
     ADD COLUMN IF NOT EXISTS ends_at TIMESTAMPTZ;
 
 UPDATE mascot_rooms
-SET ends_at = created_at + INTERVAL '21 days'
-WHERE ends_at IS NULL OR ends_at < TIMESTAMPTZ '1971-01-01';
+SET ends_at = LEAST(
+    CASE
+        WHEN ends_at IS NULL OR ends_at < TIMESTAMPTZ '1971-01-01'
+            THEN created_at + INTERVAL '21 days'
+        ELSE ends_at
+    END,
+    NOW() + INTERVAL '8 days'
+)
+WHERE ends_at IS NULL
+    OR ends_at < TIMESTAMPTZ '1971-01-01'
+    OR ends_at > NOW() + INTERVAL '8 days';
 
 ALTER TABLE mascot_rooms
     ALTER COLUMN ends_at SET NOT NULL;

@@ -50,11 +50,12 @@ func CountUsersInMultipleActiveRooms(db *gorm.DB, now time.Time) (int, error) {
 	return n, nil
 }
 
-// effectiveEndsAt is the end the product uses.
-// A missing end means the previous 21-day length, not 8 days, so a room
-// that has already been open longer than 8 days is not cut short.
+// effectiveEndsAt is the end stored on the room.
+// A missing end means the previous 21-day length. It is not capped here:
+// capping is written once by backfill, so a later read cannot slide the end
+// forward by another 8 days.
 func effectiveEndsAt(room domain.MascotRoom) time.Time {
-	if room.EndsAt.IsZero() || room.EndsAt.Before(mascotRoomEndsUnsetBefore) {
+	if !roomEndStored(room) {
 		if room.CreatedAt.IsZero() {
 			return time.Time{}
 		}
@@ -63,15 +64,36 @@ func effectiveEndsAt(room domain.MascotRoom) time.Time {
 	return room.EndsAt.UTC()
 }
 
+func roomEndStored(room domain.MascotRoom) bool {
+	return !room.EndsAt.IsZero() && !room.EndsAt.Before(mascotRoomEndsUnsetBefore)
+}
+
+// cappedRoomEnd is min(current end, now + 8 days).
+// The current end is the stored end, or created_at + 21 days when none is
+// stored. A current end that is already sooner is kept, including one that
+// is already in the past.
+func cappedRoomEnd(room domain.MascotRoom, now time.Time) time.Time {
+	end := effectiveEndsAt(room)
+	if end.IsZero() {
+		return time.Time{}
+	}
+	end = end.UTC().Truncate(time.Second)
+	cap := now.UTC().Truncate(time.Second).Add(domain.MascotRoomDuration)
+	if end.After(cap) {
+		return cap
+	}
+	return end
+}
+
 func roomIsActive(room domain.MascotRoom, now time.Time) bool {
 	end := effectiveEndsAt(room)
 	return !end.IsZero() && end.After(now)
 }
 
-// prepareMascotRoomEnds adds ends_at before AutoMigrate marks it NOT NULL.
-// Existing rows get created_at + 21 days. Rows that already have an end,
-// including one longer than 21 days, are not rewritten. SQLite tests create
-// the column with the table, so they skip this.
+// prepareMascotRoomEnds adds ends_at before AutoMigrate marks it NOT NULL,
+// and caps existing rooms at min(current end, now + 8 days). A missing end
+// counts as created_at + 21 days. SQLite tests create the column with the
+// table, so they skip this and use backfillLegacyRoomEnds.
 func prepareMascotRoomEnds(db *gorm.DB) error {
 	if db == nil || db.Dialector == nil || db.Dialector.Name() != "postgres" {
 		return nil
@@ -79,16 +101,24 @@ func prepareMascotRoomEnds(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&domain.MascotRoom{}) {
 		return nil
 	}
-	if db.Migrator().HasColumn(&domain.MascotRoom{}, "ends_at") {
-		return nil
-	}
-	if err := db.Exec(`ALTER TABLE mascot_rooms ADD COLUMN ends_at TIMESTAMPTZ`).Error; err != nil {
-		return err
+	if !db.Migrator().HasColumn(&domain.MascotRoom{}, "ends_at") {
+		if err := db.Exec(`ALTER TABLE mascot_rooms ADD COLUMN ends_at TIMESTAMPTZ`).Error; err != nil {
+			return err
+		}
 	}
 	return db.Exec(`
 		UPDATE mascot_rooms
-		SET ends_at = created_at + INTERVAL '21 days'
-		WHERE ends_at IS NULL OR ends_at < TIMESTAMPTZ '1971-01-01'
+		SET ends_at = LEAST(
+			CASE
+				WHEN ends_at IS NULL OR ends_at < TIMESTAMPTZ '1971-01-01'
+					THEN created_at + INTERVAL '21 days'
+				ELSE ends_at
+			END,
+			NOW() + INTERVAL '8 days'
+		)
+		WHERE ends_at IS NULL
+			OR ends_at < TIMESTAMPTZ '1971-01-01'
+			OR ends_at > NOW() + INTERVAL '8 days'
 	`).Error
 }
 
@@ -103,7 +133,7 @@ func applyMascotRoomTerm(db *gorm.DB) error {
 		return nil
 	}
 	now := time.Now().UTC()
-	if _, err := backfillLegacyRoomEnds(db); err != nil {
+	if _, err := backfillLegacyRoomEnds(db, now); err != nil {
 		return err
 	}
 	if err := backfillSingleActiveSeats(db, now); err != nil {
@@ -117,18 +147,24 @@ func applyMascotRoomTerm(db *gorm.DB) error {
 	return nil
 }
 
-// backfillLegacyRoomEnds sets a missing end to created_at + 21 days.
-// It returns how many rows changed. A row that already has an end is kept,
-// whether that end is the old 21 days, the new 8 days, or something longer.
-func backfillLegacyRoomEnds(db *gorm.DB) (int, error) {
+// backfillLegacyRoomEnds writes min(current end, now + 8 days) onto every
+// room that is still past that cap, and fills a missing end the same way.
+// The current end is the stored end, or created_at + 21 days when none is
+// stored. An end that is already sooner is left alone, so a room that has
+// ended stays ended. It returns how many rows changed. Safe to run again:
+// a cap written last time is not later than now + 8 days.
+func backfillLegacyRoomEnds(db *gorm.DB, now time.Time) (int, error) {
 	var rooms []domain.MascotRoom
-	if err := db.Where("ends_at IS NULL OR ends_at < ?", mascotRoomEndsUnsetBefore).Find(&rooms).Error; err != nil {
+	if err := db.Find(&rooms).Error; err != nil {
 		return 0, err
 	}
 	n := 0
 	for _, room := range rooms {
-		end := effectiveEndsAt(room)
+		end := cappedRoomEnd(room, now)
 		if end.IsZero() {
+			continue
+		}
+		if roomEndStored(room) && room.EndsAt.UTC().Truncate(time.Second).Equal(end) {
 			continue
 		}
 		if err := db.Model(&domain.MascotRoom{}).Where("code = ?", room.Code).Update("ends_at", end).Error; err != nil {
