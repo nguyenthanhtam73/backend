@@ -15,6 +15,7 @@ import (
 	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // SkinCheckWriter creates skin checks and related AI analysis rows.
@@ -689,6 +690,40 @@ func (r *GormSkinCheckRepository) SetClientKind(ctx context.Context, id uuid.UUI
 		Update("client_kind", kind).Error
 }
 
+// ListCreatedBetween returns skin checks with created_at in [start, end], oldest first.
+// Analysis and User are preloaded. Soft-deleted checks are omitted. A soft-deleted
+// user is not preloaded, so User.ID stays empty and callers can drop the row.
+func (r *GormSkinCheckRepository) ListCreatedBetween(ctx context.Context, start, end time.Time) ([]domain.SkinCheck, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var rows []domain.SkinCheck
+	err = db.WithContext(ctx).
+		Preload("Analysis").
+		Preload("User").
+		Where("created_at >= ? AND created_at <= ?", start.UTC(), end.UTC()).
+		Order("created_at ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
+// ListCreatedSince returns skin checks created at or after since, oldest first,
+// with Analysis preloaded. Soft-deleted rows are omitted.
+func (r *GormSkinCheckRepository) ListCreatedSince(ctx context.Context, since time.Time) ([]domain.SkinCheck, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var rows []domain.SkinCheck
+	err = db.WithContext(ctx).
+		Preload("Analysis").
+		Where("created_at >= ?", since.UTC()).
+		Order("created_at ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
 // SaveAnalysis updates an existing analysis row.
 func (r *GormSkinCheckRepository) SaveAnalysis(ctx context.Context, a *domain.SkinAnalysis) error {
 	db, err := r.dbOrErr()
@@ -702,6 +737,10 @@ func (r *GormSkinCheckRepository) SaveAnalysis(ctx context.Context, a *domain.Sk
 // only one reanalyze job can start. Failed rows may retry the same UTC day;
 // completed rows are limited to one claim per UTC day via last_reanalyzed_at.
 // Returns true when this caller won the claim.
+//
+// The model call itself is locked again by ClaimAnalysisRun, which adopts the
+// processing + model_version=pending handoff this update leaves behind. A
+// replay CLI racing this claim loses that second UPDATE and does not call the provider.
 func (r *GormSkinCheckRepository) ClaimReanalyze(ctx context.Context, skinCheckID uuid.UUID, now time.Time) (bool, error) {
 	db, err := r.dbOrErr()
 	if err != nil {
@@ -730,4 +769,229 @@ func (r *GormSkinCheckRepository) ClaimReanalyze(ctx context.Context, skinCheckI
 		return false, res.Error
 	}
 	return res.RowsAffected == 1, nil
+}
+
+// AnalysisClaimStaleAge is how long a processing row may sit before another
+// worker may take it. Matches the analysis job budget so a live run is not stolen.
+const AnalysisClaimStaleAge = 4*time.Minute + 30*time.Second
+
+// EnsurePendingAnalysis inserts a pending skin_analyses row when the check has
+// none. The unique skin_check_id index makes the insert atomic: a concurrent
+// caller that loses the race finds the existing row and does not error.
+func (r *GormSkinCheckRepository) EnsurePendingAnalysis(ctx context.Context, skinCheckID uuid.UUID) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if skinCheckID == uuid.Nil {
+		return fmt.Errorf("skin check id required")
+	}
+	row := &domain.SkinAnalysis{
+		SkinCheckID:  skinCheckID,
+		Status:       domain.AnalysisStatusPending,
+		ModelVersion: "pending",
+	}
+	return db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "skin_check_id"}},
+			DoNothing: true,
+		}).
+		Create(row).Error
+}
+
+// ClaimAnalysisRun atomically moves one analysis into processing for the model
+// pipeline and returns the claim token stored in model_version. Only one
+// caller — replay CLI, API reanalyze, or the create job — gets RowsAffected = 1.
+// Result writes must match that token. A processing row can be reclaimed only
+// after AnalysisClaimStaleAge, which is longer than the Process budget.
+//
+// A non-completed check created in the apology window is marked outage_affected
+// in the same statement. Later completion does not clear that flag.
+func (r *GormSkinCheckRepository) ClaimAnalysisRun(ctx context.Context, skinCheckID uuid.UUID, now time.Time) (token string, won bool, err error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return "", false, err
+	}
+	if skinCheckID == uuid.Nil {
+		return "", false, fmt.Errorf("skin check id required")
+	}
+	now = now.UTC()
+	staleBefore := now.Add(-AnalysisClaimStaleAge)
+	token = "run:" + uuid.NewString()
+	res := db.WithContext(ctx).Exec(`
+UPDATE skin_analyses
+SET status = ?, error_message = '', model_version = ?, updated_at = ?,
+    outage_affected = CASE
+        WHEN outage_affected THEN outage_affected
+        WHEN EXISTS (
+            SELECT 1 FROM skin_checks
+            WHERE skin_checks.id = skin_analyses.skin_check_id
+              AND skin_checks.deleted_at IS NULL
+              AND skin_checks.created_at >= ?
+              AND skin_checks.created_at <= ?
+        ) THEN ?
+        ELSE outage_affected
+    END
+WHERE skin_check_id = ? AND deleted_at IS NULL AND (
+    status IN (?, ?)
+    OR (status = ? AND model_version = ?)
+    OR (status = ? AND updated_at < ?)
+)`,
+		domain.AnalysisStatusProcessing,
+		token,
+		now,
+		domain.OutageApologyStart,
+		domain.OutageApologyEnd,
+		true,
+		skinCheckID,
+		domain.AnalysisStatusFailed,
+		domain.AnalysisStatusPending,
+		domain.AnalysisStatusProcessing,
+		"pending",
+		domain.AnalysisStatusProcessing,
+		staleBefore,
+	)
+	if res.Error != nil {
+		return "", false, res.Error
+	}
+	if res.RowsAffected != 1 {
+		return "", false, nil
+	}
+	return token, true, nil
+}
+
+// FinishAnalysisIfClaim writes a completed analysis only while model_version is
+// still this claim token. RowsAffected 0 means a newer worker owns the row.
+// outage_affected is left untouched.
+func (r *GormSkinCheckRepository) FinishAnalysisIfClaim(ctx context.Context, a *domain.SkinAnalysis, token string) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if a == nil || a.SkinCheckID == uuid.Nil || strings.TrimSpace(token) == "" {
+		return false, fmt.Errorf("analysis claim token required")
+	}
+	now := time.Now().UTC()
+	res := db.WithContext(ctx).Exec(`
+UPDATE skin_analyses
+SET status = ?, model_version = ?, prompt_version = ?,
+    skin_scores = ?, strengths = ?, improvements = ?, routine_hints = ?,
+    product_suggestions = ?, avoid_or_patch = ?, safety_flags = ?,
+    summary_notes = ?, error_message = ?, analyzed_at = ?, updated_at = ?
+WHERE skin_check_id = ? AND model_version = ? AND deleted_at IS NULL`,
+		a.Status,
+		a.ModelVersion,
+		a.PromptVersion,
+		jsonOrNull(a.SkinScores),
+		jsonOrNull(a.Strengths),
+		jsonOrNull(a.Improvements),
+		jsonOrNull(a.RoutineHints),
+		jsonOrNull(a.ProductSuggestions),
+		jsonOrNull(a.AvoidOrPatch),
+		jsonOrNull(a.SafetyFlags),
+		a.SummaryNotes,
+		a.ErrorMessage,
+		a.AnalyzedAt,
+		now,
+		a.SkinCheckID,
+		token,
+	)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// FailStaleAnalysisIfUnchanged marks one polled row failed only if it is still
+// the version the poller saw: same claim token (model_version), same status,
+// and the same updated_at. It writes status, error_message, and updated_at.
+// It does not write model_version or outage_affected, so a replay that already
+// re-claimed the row is left alone. RowsAffected 0 means the poller lost.
+func (r *GormSkinCheckRepository) FailStaleAnalysisIfUnchanged(ctx context.Context, seen *domain.SkinAnalysis, message string) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if seen == nil || seen.ID == uuid.Nil {
+		return false, fmt.Errorf("analysis id required")
+	}
+	seenAt := seen.UpdatedAt
+	if seenAt.IsZero() {
+		seenAt = seen.CreatedAt
+	}
+	res := db.WithContext(ctx).Exec(`
+UPDATE skin_analyses
+SET status = ?, error_message = ?, updated_at = ?
+WHERE id = ? AND deleted_at IS NULL
+  AND status = ?
+  AND model_version = ?
+  AND updated_at = ?`,
+		domain.AnalysisStatusFailed,
+		message,
+		time.Now().UTC(),
+		seen.ID,
+		seen.Status,
+		seen.ModelVersion,
+		seenAt,
+	)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// FailAnalysisIfClaim records a failure only while this claim token still owns the row.
+func (r *GormSkinCheckRepository) FailAnalysisIfClaim(ctx context.Context, skinCheckID uuid.UUID, token, message string) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if skinCheckID == uuid.Nil || strings.TrimSpace(token) == "" {
+		return false, fmt.Errorf("analysis claim token required")
+	}
+	res := db.WithContext(ctx).Exec(`
+UPDATE skin_analyses
+SET status = ?, error_message = ?, updated_at = ?
+WHERE skin_check_id = ? AND model_version = ? AND deleted_at IS NULL`,
+		domain.AnalysisStatusFailed,
+		message,
+		time.Now().UTC(),
+		skinCheckID,
+		token,
+	)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+func jsonOrNull(raw []byte) []byte {
+	if len(raw) == 0 {
+		return []byte("null")
+	}
+	return raw
+}
+
+// LatestCompletedCheckID returns one completed skin check for the admin test link.
+func (r *GormSkinCheckRepository) LatestCompletedCheckID(ctx context.Context) (uuid.UUID, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return uuid.Nil, err
+	}
+	var row domain.SkinCheck
+	err = db.WithContext(ctx).
+		Model(&domain.SkinCheck{}).
+		Select("skin_checks.id").
+		Joins("JOIN skin_analyses ON skin_analyses.skin_check_id = skin_checks.id AND skin_analyses.deleted_at IS NULL").
+		Where("skin_analyses.status = ?", domain.AnalysisStatusCompleted).
+		Order("skin_checks.created_at DESC").
+		Limit(1).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return uuid.Nil, nil
+		}
+		return uuid.Nil, err
+	}
+	return row.ID, nil
 }

@@ -1,6 +1,7 @@
 package profile
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -9,9 +10,30 @@ import (
 	"github.com/dadiary/backend/internal/service/ai"
 )
 
+// StarterReplayBudget caps one starter generation. It is shorter than
+// repository.StarterClaimStaleAge (5m) so a stale worker cannot still be
+// writing when the lease is reclaimed.
+const StarterReplayBudget = 4 * time.Minute
+
 // starterRoutineBGTimeout caps the background LLM job that personalizes the
 // starter routine after CompleteOnboarding returns the quick scaffold.
-const starterRoutineBGTimeout = 4 * time.Minute
+const starterRoutineBGTimeout = StarterReplayBudget
+
+// StarterInFlightGrace is how long a starter_routine_pending flag is treated
+// as a live background job. Older pending rows are replay candidates.
+const StarterInFlightGrace = 5 * time.Minute
+
+// QuickScaffoldEncouragementVI and QuickScaffoldEncouragementEN are the fixed
+// first lines of the local scaffold. A persisted onboarding snapshot that still
+// carries one of them never received the AI starter routine.
+const (
+	QuickScaffoldEncouragementVI = "Bạn vừa hoàn thành phần làm quen với da — bước đầu rất đáng khen."
+	QuickScaffoldEncouragementEN = "You finished getting-to-know-your-skin — nice work taking that first step."
+)
+
+// StarterRoutineSourceAI marks onboarding_snapshot.starter_routine_source after
+// a successful model routine replaces the scaffold.
+const StarterRoutineSourceAI = "ai"
 
 func starterRoutineResponseFromAI(s ai.StarterRoutine) dto.StarterRoutineResponse {
 	return dto.StarterRoutineResponse{
@@ -157,12 +179,12 @@ func quickStarterFromOnboarding(req dto.OnboardingCompleteRequest, locale string
 
 	var encouragement, weekNotes, safetyNotes, closing string
 	if isEn {
-		encouragement = "You finished getting-to-know-your-skin — nice work taking that first step."
+		encouragement = QuickScaffoldEncouragementEN
 		weekNotes = strings.Join(bullets, "\n")
 		safetyNotes = "General skincare guidance only — not a substitute for medical advice."
 		closing = "Track gently day by day — see a dermatologist when something worries you."
 	} else {
-		encouragement = "Bạn vừa hoàn thành phần làm quen với da — bước đầu rất đáng khen."
+		encouragement = QuickScaffoldEncouragementVI
 		weekNotes = strings.Join(bullets, "\n")
 		safetyNotes = "Chỉ là gợi ý chăm sóc da chung — không thay thế tư vấn y tế."
 		closing = "Theo dõi nhẹ nhàng từng ngày — hỏi bác sĩ da liễu khi bạn lo lắng."
@@ -257,6 +279,115 @@ func ternary(cond bool, a, b string) string {
 		return a
 	}
 	return b
+}
+
+// SnapshotNeedsAIStarter reports whether a persisted onboarding snapshot never
+// received a model starter routine. User-edited AM/PM steps and rows already
+// marked starter_routine_source=ai are left alone. Guest previews are not
+// stored on skin_profiles and are ignored.
+func SnapshotNeedsAIStarter(snapshot []byte) bool {
+	snap := decodeSnapshotMap(snapshot)
+	if snap == nil {
+		return false
+	}
+	if via, _ := snap["completed_via"].(string); strings.TrimSpace(via) != "onboarding_v1" {
+		return false
+	}
+	if snapshotBool(snap, "starter_user_edited") {
+		return false
+	}
+	if src, _ := snap["starter_routine_source"].(string); src == StarterRoutineSourceAI {
+		return false
+	}
+	if snapshotBool(snap, "starter_routine_pending") {
+		return true
+	}
+	sr, ok := snap["starter_routine"]
+	if !ok || sr == nil {
+		return true
+	}
+	routine, ok := sr.(map[string]any)
+	if !ok {
+		return true
+	}
+	encouragement := strings.TrimSpace(stringField(routine, "encouragement"))
+	if encouragement == QuickScaffoldEncouragementVI || encouragement == QuickScaffoldEncouragementEN {
+		return true
+	}
+	if encouragement == "" && len(stringList(routine["morning"])) == 0 && len(stringList(routine["evening"])) == 0 {
+		return true
+	}
+	return false
+}
+
+// StarterReplayCandidate is SnapshotNeedsAIStarter minus a starter refresh that
+// is still inside StarterInFlightGrace (pending flag, profile updated recently).
+func StarterReplayCandidate(snapshot []byte, updatedAt, now time.Time) bool {
+	if !SnapshotNeedsAIStarter(snapshot) {
+		return false
+	}
+	snap := decodeSnapshotMap(snapshot)
+	if snapshotBool(snap, "starter_routine_pending") && !updatedAt.IsZero() && now.Sub(updatedAt) < StarterInFlightGrace {
+		return false
+	}
+	return true
+}
+
+// starterPromptPayload is the onboarding JSON sent to the model. It drops the
+// local scaffold and replay bookkeeping so the prompt matches the original
+// CompleteOnboarding call.
+func starterPromptPayload(snapshot []byte) ([]byte, error) {
+	snap := decodeSnapshotMap(snapshot)
+	if snap == nil {
+		return []byte("{}"), nil
+	}
+	delete(snap, "starter_routine")
+	delete(snap, "starter_routine_pending")
+	delete(snap, "starter_routine_source")
+	delete(snap, "starter_user_edited")
+	return json.Marshal(snap)
+}
+
+func decodeSnapshotMap(snapshot []byte) map[string]any {
+	if len(snapshot) == 0 {
+		return nil
+	}
+	var snap map[string]any
+	if err := json.Unmarshal(snapshot, &snap); err != nil || snap == nil {
+		return nil
+	}
+	return snap
+}
+
+func snapshotBool(snap map[string]any, key string) bool {
+	if snap == nil {
+		return false
+	}
+	b, ok := snap[key].(bool)
+	return ok && b
+}
+
+func stringField(m map[string]any, key string) string {
+	s, _ := m[key].(string)
+	return s
+}
+
+func stringList(raw any) []string {
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			s, ok := item.(string)
+			if ok && strings.TrimSpace(s) != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func mapQuickGoalLabel(goal, locale string) string {

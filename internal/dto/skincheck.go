@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/pkg/usermsg"
 )
 
 // CreateSkinCheckResponse is returned after POST /api/v1/skin-checks succeeds.
@@ -13,6 +14,18 @@ type CreateSkinCheckResponse struct {
 	Check     SkinCheckSummary    `json:"check"`
 	Analysis  SkinAnalysisSummary `json:"analysis"`
 	ImageURLs []string            `json:"image_urls"`
+	// AnalysisPending is true when the photo (or skip-mode check) was saved but
+	// the coach result is not available yet and will be filled in later. The
+	// client should show a short maintenance note instead of an empty coach.
+	//
+	// It is set when the in-process AI health tracker is down, when
+	// analysis.coach.error_message is domain.DeferredAnalysisMessage, or when
+	// a failed row from the credit-balance window (created at or after
+	// domain.AIAnalysisOutageSince) has an empty or generic error. A normal
+	// in-flight job (status pending or processing while the tracker is healthy)
+	// leaves it unset — clients keep polling GET /skin-checks/:id.
+	// Distinct from analysis.status "pending".
+	AnalysisPending bool `json:"analysis_pending,omitempty"`
 	// Streak is set on create when the check-in updated the user's streak
 	// (omitted on GET poll responses). Used so the client can toast auto-freeze.
 	Streak *SkinCheckStreakMeta `json:"streak,omitempty"`
@@ -205,6 +218,37 @@ func mapSkinAnalysisSummary(a *domain.SkinAnalysis) SkinAnalysisSummary {
 		// pending / processing — coach omitted (short window if client polls later)
 	}
 	return out
+}
+
+// MarkAnalysisPending sets AnalysisPending from the stored row and whether the
+// AI pipeline is currently down. pipelineDown comes from ai.AnalysisDown.
+func MarkAnalysisPending(res *CreateSkinCheckResponse, check *domain.SkinCheck, a *domain.SkinAnalysis, pipelineDown bool) {
+	if res == nil {
+		return
+	}
+	res.AnalysisPending = AnalysisPending(check, a, pipelineDown)
+}
+
+// AnalysisPending reports whether the client should treat this check as
+// "result will come later" rather than a blank coach. See CreateSkinCheckResponse.AnalysisPending.
+func AnalysisPending(check *domain.SkinCheck, a *domain.SkinAnalysis, pipelineDown bool) bool {
+	if a != nil && a.Status == domain.AnalysisStatusCompleted {
+		return false
+	}
+	if a != nil && strings.TrimSpace(a.ErrorMessage) == domain.DeferredAnalysisMessage {
+		return true
+	}
+	if pipelineDown {
+		return true
+	}
+	if a == nil || check == nil || a.Status != domain.AnalysisStatusFailed {
+		return false
+	}
+	if check.CreatedAt.Before(domain.AIAnalysisOutageSince) {
+		return false
+	}
+	msg := strings.TrimSpace(a.ErrorMessage)
+	return msg == "" || msg == usermsg.Generic
 }
 
 func buildCoachDetailFromDomain(a *domain.SkinAnalysis) *SkinCoachDetail {

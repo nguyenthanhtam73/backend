@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/google/uuid"
@@ -75,6 +77,21 @@ func (r *GormSkinProfileRepository) getByUserIDIncludingDeleted(ctx context.Cont
 	return &p, nil
 }
 
+// ListTouchedSince returns profiles created or updated at or after since,
+// oldest created_at first. Soft-deleted rows are omitted.
+func (r *GormSkinProfileRepository) ListTouchedSince(ctx context.Context, since time.Time) ([]domain.SkinProfile, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var rows []domain.SkinProfile
+	err = db.WithContext(ctx).
+		Where("created_at >= ? OR updated_at >= ?", since.UTC(), since.UTC()).
+		Order("created_at ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
 // UpsertForUser creates or updates the single SkinProfile for this user.
 func (r *GormSkinProfileRepository) UpsertForUser(ctx context.Context, p *domain.SkinProfile) error {
 	db, err := r.dbOrErr()
@@ -88,13 +105,94 @@ func (r *GormSkinProfileRepository) UpsertForUser(ctx context.Context, p *domain
 	if err != nil {
 		return err
 	}
+	// Lease columns are written only by ClaimStarterGeneration and
+	// ReleaseStarterGeneration. A normal profile save must not clear them.
+	omitLease := db.WithContext(ctx).Omit("StarterClaimToken", "StarterClaimAt")
 	if existing == nil {
-		return db.WithContext(ctx).Create(p).Error
+		return omitLease.Create(p).Error
 	}
 	p.ID = existing.ID
 	if existing.DeletedAt.Valid {
 		p.DeletedAt = gorm.DeletedAt{}
-		return db.WithContext(ctx).Unscoped().Save(p).Error
+		return omitLease.Unscoped().Save(p).Error
 	}
-	return db.WithContext(ctx).Save(p).Error
+	return omitLease.Save(p).Error
+}
+
+// StarterClaimStaleAge is how long a starter-generation lease is honored.
+// A crashed process stops blocking a retry after this.
+const StarterClaimStaleAge = 5 * time.Minute
+
+// ClaimStarterGeneration leases starter generation for one user. The UPDATE
+// matches only an empty or stale lease, so a second process (API or CLI) gets
+// false and must not call the model. token is stored so only the owner can release.
+func (r *GormSkinProfileRepository) ClaimStarterGeneration(ctx context.Context, userID uuid.UUID, now time.Time) (token string, won bool, err error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return "", false, err
+	}
+	if userID == uuid.Nil {
+		return "", false, fmt.Errorf("invalid profile")
+	}
+	now = now.UTC()
+	token = uuid.NewString()
+	staleBefore := now.Add(-StarterClaimStaleAge)
+	res := db.WithContext(ctx).Exec(`
+UPDATE skin_profiles
+SET starter_claim_token = ?, starter_claim_at = ?, updated_at = ?
+WHERE user_id = ? AND deleted_at IS NULL AND (
+    starter_claim_token = '' OR starter_claim_token IS NULL
+    OR starter_claim_at IS NULL OR starter_claim_at < ?
+)`,
+		token, now, now, userID, staleBefore,
+	)
+	if res.Error != nil {
+		return "", false, res.Error
+	}
+	if res.RowsAffected != 1 {
+		return "", false, nil
+	}
+	return token, true, nil
+}
+
+// SaveSnapshotIfClaim writes the onboarding snapshot only while this lease token
+// still owns the row. A stale worker whose lease was reclaimed gets false and
+// must not replace the new routine. The lease columns themselves are not cleared here.
+func (r *GormSkinProfileRepository) SaveSnapshotIfClaim(ctx context.Context, userID uuid.UUID, token string, snapshot []byte) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	token = strings.TrimSpace(token)
+	if userID == uuid.Nil || token == "" {
+		return false, fmt.Errorf("starter claim token required")
+	}
+	res := db.WithContext(ctx).Exec(`
+UPDATE skin_profiles
+SET onboarding_snapshot = ?, updated_at = ?
+WHERE user_id = ? AND starter_claim_token = ? AND deleted_at IS NULL`,
+		snapshot, time.Now().UTC(), userID, token,
+	)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// ReleaseStarterGeneration drops a lease this caller owns. A different token is left alone.
+func (r *GormSkinProfileRepository) ReleaseStarterGeneration(ctx context.Context, userID uuid.UUID, token string) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	token = strings.TrimSpace(token)
+	if userID == uuid.Nil || token == "" {
+		return nil
+	}
+	return db.WithContext(ctx).Exec(`
+UPDATE skin_profiles
+SET starter_claim_token = '', starter_claim_at = NULL
+WHERE user_id = ? AND starter_claim_token = ?`,
+		userID, token,
+	).Error
 }

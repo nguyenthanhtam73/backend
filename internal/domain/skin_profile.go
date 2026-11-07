@@ -36,6 +36,13 @@ type SkinProfile struct {
 
 	Version int `gorm:"default:1" json:"version"`
 
+	// StarterClaimToken is an atomic lease for starter-routine generation.
+	// Empty means nobody is generating. Two processes (API goroutine and the
+	// replay CLI) update this column with a conditional UPDATE so only one
+	// calls the model.
+	StarterClaimToken string     `gorm:"column:starter_claim_token;size:64;not null;default:''" json:"-"`
+	StarterClaimAt    *time.Time `gorm:"column:starter_claim_at" json:"-"`
+
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`

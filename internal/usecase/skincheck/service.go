@@ -16,6 +16,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/mediaurl"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/service/analysis"
 	"github.com/dadiary/backend/internal/service/moderation"
 	"github.com/dadiary/backend/internal/storage"
 	"github.com/dadiary/backend/internal/streaktime"
@@ -307,6 +308,7 @@ func (s *Service) Create(ctx context.Context, userID uuid.UUID, in CreateInput) 
 	}
 
 	res := dto.NewCreateSkinCheckResponse(reloaded, reloaded.Analysis, publicURLs)
+	analysis.AnnotatePending(&res, reloaded)
 	res.Streak = streakMeta
 	return res, nil
 }

@@ -8,6 +8,7 @@ package analysis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -26,14 +27,26 @@ import (
 )
 
 const (
-	// analysisJobTimeout caps total wall time for one skin-check AI job (vision + coach).
-	analysisJobTimeout = 4 * time.Minute
+	// ProcessBudget caps one skin-check AI job. It is shorter than
+	// repository.AnalysisClaimStaleAge so the lease cannot expire while this
+	// process is still allowed to write.
+	ProcessBudget = 4 * time.Minute
+	// analysisJobTimeout is the background enqueue cap. It matches ProcessBudget.
+	analysisJobTimeout = ProcessBudget
 	// analysisHTTPTimeout caps each outbound LLM HTTP call so one slow provider cannot block for many minutes.
 	analysisHTTPTimeout = 2 * time.Minute
 	// staleAnalysisAge marks pending/processing rows as failed when polled after the job should have finished.
 	staleAnalysisAge   = analysisJobTimeout + 30*time.Second
 	staleFailedMessage = "Phân tích hơi lâu nên dừng lại. Bạn gửi lại giúp mình nhé."
 )
+
+// ErrAnalysisBusy means another process already owns this analysis run.
+// Callers must not start a second model call.
+var ErrAnalysisBusy = errors.New("analysis already claimed")
+
+// blockAfterClaim is a test hook that runs only after this process won the
+// claim, so a second Process can observe the lost race. Nil in production.
+var blockAfterClaim func()
 
 // pipelineStats is a process-local rolling aggregate of skin-check wall times.
 // It exists so the logs alone reveal the latency trend (avg + sample count)
@@ -121,7 +134,7 @@ func (s *Service) EnqueueAnalysisWithDevice(skinCheckID uuid.UUID, deviceType st
 	go func(id uuid.UUID, device string) {
 		ctx, cancel := context.WithTimeout(context.Background(), analysisJobTimeout)
 		defer cancel()
-		if err := s.Process(ctx, id, device); err != nil {
+		if err := s.Process(ctx, id, device); err != nil && !errors.Is(err, ErrAnalysisBusy) {
 			slog.Warn("skin-check: background analysis failed", "check_id", id, "err", err)
 		}
 	}(skinCheckID, deviceType)
@@ -143,11 +156,14 @@ func ExpireStaleAnalysis(ctx context.Context, checks *repository.GormSkinCheckRe
 	if time.Since(ref) < staleAnalysisAge {
 		return false
 	}
-	a.Status = domain.AnalysisStatusFailed
-	a.ErrorMessage = staleFailedMessage
-	if err := checks.SaveAnalysis(ctx, a); err != nil {
+	// Conditional update only. SaveAnalysis would rewrite the claim token and
+	// outage_affected if a replay re-claimed the row after this poll.
+	saved, err := checks.FailStaleAnalysisIfUnchanged(ctx, a, staleFailedMessage)
+	if err != nil || !saved {
 		return false
 	}
+	a.Status = domain.AnalysisStatusFailed
+	a.ErrorMessage = staleFailedMessage
 	return true
 }
 
@@ -163,9 +179,30 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	if err != nil {
 		return err
 	}
-	if o == nil || o.Analysis == nil {
+	if o == nil {
 		return fmt.Errorf("skin check or analysis not found")
 	}
+	if o.Analysis == nil {
+		if err := s.checks.EnsurePendingAnalysis(ctx, skinCheckID); err != nil {
+			return err
+		}
+	}
+	// One conditional UPDATE. CLI replay, reanalyze, and the create job all
+	// come through here; the loser gets ErrAnalysisBusy and does not call the model.
+	token, won, err := s.checks.ClaimAnalysisRun(ctx, skinCheckID, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if !won {
+		return ErrAnalysisBusy
+	}
+	if blockAfterClaim != nil {
+		blockAfterClaim()
+	}
+	// Stop before AnalysisClaimStaleAge so a newer worker can reclaim only
+	// after this process has stopped writing. The parent context can be shorter.
+	ctx, cancel := context.WithTimeout(ctx, ProcessBudget)
+	defer cancel()
 
 	urls, urlErr := dto.DecodeStringSlice(o.ImageURLs)
 	skipPhoto := urlErr != nil || len(urls) == 0
@@ -199,16 +236,9 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	// goes straight to the text coach (Anthropic / OpenAI text).
 	if !skipPhoto && strings.TrimSpace(s.cfg.OpenAI.APIKey) == "" {
 		emitAIResult("failed", "", false)
-		return s.failWithMessage(ctx, skinCheckID, "OpenAI API key missing (required for photo analysis vision pass)")
-	}
-
-	a := o.Analysis
-	a.Status = domain.AnalysisStatusProcessing
-	// Placeholder until pipeline returns the real version string (includes Claude + vision models).
-	a.ModelVersion = "pending"
-	if err := s.checks.SaveAnalysis(ctx, a); err != nil {
-		emitAIResult("failed", "", false)
-		return err
+		miss := fmt.Errorf("OpenAI API key missing (required for photo analysis vision pass)")
+		ai.NoteAnalysisFailure(miss)
+		return s.failWithMessage(ctx, skinCheckID, token, miss.Error())
 	}
 
 	var prof *domain.SkinProfile
@@ -301,14 +331,15 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 		"sample_count", sampleCount,
 	)
 	if err != nil {
+		ai.NoteAnalysisFailure(err)
 		emitAIResult("failed", "", analysisUsedFallback("", visionStatus))
-		return s.failWithMessage(ctx, skinCheckID, err.Error())
+		return s.failWithMessage(ctx, skinCheckID, token, err.Error())
 	}
 
 	a2, err := s.checks.GetByID(ctx, skinCheckID)
 	if err != nil || a2 == nil || a2.Analysis == nil {
 		emitAIResult("failed", "", analysisUsedFallback("", visionStatus))
-		return s.failWithMessage(ctx, skinCheckID, "could not reload analysis after coach run")
+		return s.failWithMessage(ctx, skinCheckID, token, "could not reload analysis after coach run")
 	}
 	up := a2.Analysis
 
@@ -385,18 +416,23 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	up.AnalyzedAt = &modern
 	up.ErrorMessage = ""
 
-	// Use a fresh context for the final persist — the job ctx may be nearly
-	// exhausted after vision + coach + validation retries.
+	// The job ctx may be nearly exhausted. The write itself is a short conditional
+	// UPDATE keyed by the claim token, so a worker whose lease was taken cannot
+	// overwrite the newer result.
 	saveCtx, saveCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer saveCancel()
-	if err := s.checks.SaveAnalysis(saveCtx, up); err != nil {
+	saved, err := s.checks.FinishAnalysisIfClaim(saveCtx, up, token)
+	if err != nil {
 		slog.Warn("skin-check: save completed analysis failed",
 			"check_id", skinCheckID,
 			"model_version_len", len(up.ModelVersion),
 			"err", err,
 		)
 		emitAIResult("failed", confidenceFromLabels(labels), analysisUsedFallback(ver, visionStatus))
-		return s.failWithMessage(ctx, skinCheckID, "could not save completed analysis")
+		return s.failWithMessage(ctx, skinCheckID, token, "could not save completed analysis")
+	}
+	if !saved {
+		return ErrAnalysisBusy
 	}
 	// Fresh analysis row → next AI call (Routine Suggest, Daily Feedback,
 	// or /me/memory) should see it. Busting now keeps the cache honest
@@ -404,25 +440,39 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	if s.cache != nil {
 		s.cache.Bust(o.UserID)
 	}
+	ai.NoteAnalysisSuccess()
 	emitAIResult("completed", confidenceFromLabels(labels), analysisUsedFallback(ver, visionStatus))
 	return nil
 }
 
-func (s *Service) failWithMessage(_ context.Context, skinCheckID uuid.UUID, msg string) error {
+func (s *Service) failWithMessage(_ context.Context, skinCheckID uuid.UUID, token, msg string) error {
 	saveCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	o, err := s.checks.GetByID(saveCtx, skinCheckID)
+	saved, err := s.checks.FailAnalysisIfClaim(saveCtx, skinCheckID, token, storedAnalysisError(msg))
 	if err != nil {
-		return err
-	}
-	if o == nil || o.Analysis == nil {
-		return fmt.Errorf("%s", msg)
-	}
-	a := o.Analysis
-	a.Status = domain.AnalysisStatusFailed
-	a.ErrorMessage = usermsg.Plain(msg)
-	if err := s.checks.SaveAnalysis(saveCtx, a); err != nil {
 		return fmt.Errorf("%s (save failed: %v)", msg, err)
 	}
+	if !saved {
+		return ErrAnalysisBusy
+	}
 	return fmt.Errorf("%s", msg)
+}
+
+// storedAnalysisError is the user-facing skin_analyses.error_message.
+// Credit/quota failures, and any provider failure while the pipeline is down,
+// use the deferred maintenance line so clients can show analysis_pending
+// instead of a blank coach. Other errors stay on the usual plain-language map.
+func storedAnalysisError(msg string) string {
+	if ai.IsCreditOrQuotaText(msg) || (ai.AnalysisDown() && ai.IsProviderFailure(fmt.Errorf("%s", msg))) {
+		return domain.DeferredAnalysisMessage
+	}
+	return usermsg.Plain(msg)
+}
+
+// AnnotatePending sets analysis_pending on a check-in response.
+func AnnotatePending(res *dto.CreateSkinCheckResponse, check *domain.SkinCheck) {
+	if res == nil || check == nil {
+		return
+	}
+	dto.MarkAnalysisPending(res, check, check.Analysis, ai.AnalysisDown())
 }

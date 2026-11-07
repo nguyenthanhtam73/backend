@@ -18,6 +18,26 @@ const (
 	AnalysisStatusFailed     AnalysisStatus = "failed"
 )
 
+// AIAnalysisOutageSince is the start of the November 2026 credit-balance
+// window (a little before the first provider 400/429). Photo check-ins and
+// onboarding profiles from this instant are the replay population.
+var AIAnalysisOutageSince = time.Date(2026, 11, 6, 13, 0, 0, 0, time.UTC)
+
+// OutageApologyStart and OutageApologyEnd bound the apology cohort.
+// A check created in this inclusive window is marked outage_affected when its
+// analysis is claimed from a non-completed state, and that flag stays set
+// after a later successful replay.
+var (
+	OutageApologyStart = time.Date(2026, 11, 6, 13, 30, 0, 0, time.UTC)
+	OutageApologyEnd   = time.Date(2026, 11, 7, 18, 15, 0, 0, time.UTC)
+)
+
+// DeferredAnalysisMessage is the user-facing skin_analyses.error_message stored
+// when the photo was saved but the coach could not finish because the provider
+// was out of credit or the analysis pipeline is down. It is Vietnamese because
+// error_message is shown to the user. Clients also receive analysis_pending.
+const DeferredAnalysisMessage = "Mình đang phân tích lại. Kết quả sẽ có sau — bạn chưa cần gửi lại."
+
 // SkinAnalysis stores AI coaching output for one SkinCheck.
 type SkinAnalysis struct {
 	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`
@@ -40,6 +60,9 @@ type SkinAnalysis struct {
 	SummaryNotes       string          `gorm:"type:text" json:"summary_notes,omitempty"`
 	SafetyFlags        json.RawMessage `gorm:"type:jsonb" json:"safety_flags,omitempty"`
 	ErrorMessage       string          `gorm:"type:text" json:"error_message,omitempty"`
+	// OutageAffected stays true after a replay completes the row, so the
+	// apology cohort is not lost when status becomes completed.
+	OutageAffected bool `gorm:"column:outage_affected;not null;default:false" json:"-"`
 
 	AnalyzedAt *time.Time `json:"analyzed_at,omitempty"`
 	// LastReanalyzedAt is set when the owner claims a reanalyze job. Used to

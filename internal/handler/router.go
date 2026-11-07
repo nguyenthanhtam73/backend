@@ -22,6 +22,7 @@ import (
 	adminuseruc "github.com/dadiary/backend/internal/usecase/adminuser"
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
+	airecovery "github.com/dadiary/backend/internal/usecase/airecovery"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	betasignupuc "github.com/dadiary/backend/internal/usecase/betasignup"
 	checkinreminderuc "github.com/dadiary/backend/internal/usecase/checkinreminder"
@@ -29,6 +30,7 @@ import (
 	feedbackuc "github.com/dadiary/backend/internal/usecase/feedback"
 	funneleventuc "github.com/dadiary/backend/internal/usecase/funnelevent"
 	mascotuc "github.com/dadiary/backend/internal/usecase/mascot"
+	outageapology "github.com/dadiary/backend/internal/usecase/outageapology"
 	paymentuc "github.com/dadiary/backend/internal/usecase/payment"
 	paywallviewuc "github.com/dadiary/backend/internal/usecase/paywallview"
 	premiumuc "github.com/dadiary/backend/internal/usecase/premium"
@@ -541,6 +543,30 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Post("/payment/sepay/checkout", jwt, payH.CreateCheckout)
 		api.Post("/payment/sepay/webhook", payH.Webhook)
 		api.Post("/admin/payments/expire-pending", jwt, admin, NewAdminPaymentsHandler(paySvc).ExpirePending)
+		// Replay photo check-ins and onboarding starters saved during the
+		// credit-balance outage. Same DADIARY_ADMIN_EMAILS gate as other /admin routes.
+		// Dry-run unless the JSON body sets apply=true.
+		api.Post("/admin/ai/replay-outage", jwt, admin, NewAdminAIRecoveryHandler(
+			airecovery.NewService(repo, profRepo, analyzer, profSvc),
+		).Replay)
+		apologyOrigin := "https://dadiary.vn"
+		var apologyAdmins []string
+		apologyKey, apologyFrom := "", ""
+		if cfg != nil {
+			apologyOrigin = cfg.PublicWebOrigin()
+			apologyAdmins = cfg.AdminEmails
+			apologyKey = cfg.Email.ResendAPIKey
+			apologyFrom = cfg.Email.From
+		}
+		api.Post("/admin/ai/outage-apology", jwt, admin, NewAdminOutageApologyHandler(
+			outageapology.NewService(
+				repo,
+				repository.NewEmailSendReceiptRepository(db),
+				email.NewResendClient(apologyKey, apologyFrom),
+				apologyOrigin,
+				apologyAdmins,
+			),
+		).Send)
 
 		// Playwright smoke helpers — only when DADIARY_E2E_SECRET is set.
 		NewE2EHandler(cfg, db, userRepo).
