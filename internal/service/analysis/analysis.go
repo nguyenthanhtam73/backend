@@ -199,7 +199,9 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	// goes straight to the text coach (Anthropic / OpenAI text).
 	if !skipPhoto && strings.TrimSpace(s.cfg.OpenAI.APIKey) == "" {
 		emitAIResult("failed", "", false)
-		return s.failWithMessage(ctx, skinCheckID, "OpenAI API key missing (required for photo analysis vision pass)")
+		miss := fmt.Errorf("OpenAI API key missing (required for photo analysis vision pass)")
+		ai.NoteAnalysisFailure(miss)
+		return s.failWithMessage(ctx, skinCheckID, miss.Error())
 	}
 
 	a := o.Analysis
@@ -301,6 +303,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 		"sample_count", sampleCount,
 	)
 	if err != nil {
+		ai.NoteAnalysisFailure(err)
 		emitAIResult("failed", "", analysisUsedFallback("", visionStatus))
 		return s.failWithMessage(ctx, skinCheckID, err.Error())
 	}
@@ -404,6 +407,7 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	if s.cache != nil {
 		s.cache.Bust(o.UserID)
 	}
+	ai.NoteAnalysisSuccess()
 	emitAIResult("completed", confidenceFromLabels(labels), analysisUsedFallback(ver, visionStatus))
 	return nil
 }
@@ -420,9 +424,28 @@ func (s *Service) failWithMessage(_ context.Context, skinCheckID uuid.UUID, msg 
 	}
 	a := o.Analysis
 	a.Status = domain.AnalysisStatusFailed
-	a.ErrorMessage = usermsg.Plain(msg)
+	a.ErrorMessage = storedAnalysisError(msg)
 	if err := s.checks.SaveAnalysis(saveCtx, a); err != nil {
 		return fmt.Errorf("%s (save failed: %v)", msg, err)
 	}
 	return fmt.Errorf("%s", msg)
+}
+
+// storedAnalysisError is the user-facing skin_analyses.error_message.
+// Credit/quota failures, and any provider failure while the pipeline is down,
+// use the deferred maintenance line so clients can show analysis_pending
+// instead of a blank coach. Other errors stay on the usual plain-language map.
+func storedAnalysisError(msg string) string {
+	if ai.IsCreditOrQuotaText(msg) || (ai.AnalysisDown() && ai.IsProviderFailure(fmt.Errorf("%s", msg))) {
+		return domain.DeferredAnalysisMessage
+	}
+	return usermsg.Plain(msg)
+}
+
+// AnnotatePending sets analysis_pending on a check-in response.
+func AnnotatePending(res *dto.CreateSkinCheckResponse, check *domain.SkinCheck) {
+	if res == nil || check == nil {
+		return
+	}
+	dto.MarkAnalysisPending(res, check, check.Analysis, ai.AnalysisDown())
 }

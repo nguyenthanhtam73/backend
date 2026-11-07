@@ -41,10 +41,10 @@ func (e *StatusError) Error() string {
 func (e *StatusError) RetryableError() bool {
 	switch {
 	case e.Status == 429:
-		low := strings.ToLower(e.Body)
-		// OpenAI signals a permanently-out-of-credit account with
-		// "insufficient_quota"; retrying that just burns time.
-		if strings.Contains(low, "insufficient_quota") || strings.Contains(low, "billing_hard_limit") {
+		// Out-of-credit accounts answer 429 (OpenAI insufficient_quota /
+		// credit_balance_exhausted) or, for Anthropic, HTTP 400. Retrying
+		// either just burns time. 400 is already non-retryable below.
+		if CreditExhaustedBody(e.Body) {
 			return false
 		}
 		return true
@@ -55,6 +55,17 @@ func (e *StatusError) RetryableError() bool {
 	default:
 		return false
 	}
+}
+
+// CreditExhaustedBody reports provider payloads that mean the account is out
+// of credit or over a hard billing quota. Retrying those will not succeed.
+func CreditExhaustedBody(body string) bool {
+	low := strings.ToLower(body)
+	return strings.Contains(low, "insufficient_quota") ||
+		strings.Contains(low, "billing_hard_limit") ||
+		strings.Contains(low, "credit_balance_exhausted") ||
+		strings.Contains(low, "credit balance is too low") ||
+		strings.Contains(low, "exceeded your current quota")
 }
 
 // retryable is implemented by errors that can classify themselves.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/google/uuid"
@@ -73,6 +74,21 @@ func (r *GormSkinProfileRepository) getByUserIDIncludingDeleted(ctx context.Cont
 		return nil, tx.Error
 	}
 	return &p, nil
+}
+
+// ListTouchedSince returns profiles created or updated at or after since,
+// oldest created_at first. Soft-deleted rows are omitted.
+func (r *GormSkinProfileRepository) ListTouchedSince(ctx context.Context, since time.Time) ([]domain.SkinProfile, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var rows []domain.SkinProfile
+	err = db.WithContext(ctx).
+		Where("created_at >= ? OR updated_at >= ?", since.UTC(), since.UTC()).
+		Order("created_at ASC").
+		Find(&rows).Error
+	return rows, err
 }
 
 // UpsertForUser creates or updates the single SkinProfile for this user.

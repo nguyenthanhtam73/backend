@@ -18,6 +18,17 @@ const (
 	AnalysisStatusFailed     AnalysisStatus = "failed"
 )
 
+// AIAnalysisOutageSince is the start of the November 2026 credit-balance
+// window (a little before the first provider 400/429). Photo check-ins and
+// onboarding profiles from this instant are the replay population.
+var AIAnalysisOutageSince = time.Date(2026, 11, 6, 13, 0, 0, 0, time.UTC)
+
+// DeferredAnalysisMessage is the user-facing skin_analyses.error_message stored
+// when the photo was saved but the coach could not finish because the provider
+// was out of credit or the analysis pipeline is down. It is Vietnamese because
+// error_message is shown to the user. Clients also receive analysis_pending.
+const DeferredAnalysisMessage = "Mình đang phân tích lại. Kết quả sẽ có sau — bạn chưa cần gửi lại."
+
 // SkinAnalysis stores AI coaching output for one SkinCheck.
 type SkinAnalysis struct {
 	ID          uuid.UUID `gorm:"type:uuid;primaryKey" json:"id"`

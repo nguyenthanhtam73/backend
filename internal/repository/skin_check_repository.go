@@ -689,6 +689,22 @@ func (r *GormSkinCheckRepository) SetClientKind(ctx context.Context, id uuid.UUI
 		Update("client_kind", kind).Error
 }
 
+// ListCreatedSince returns skin checks created at or after since, oldest first,
+// with Analysis preloaded. Soft-deleted rows are omitted.
+func (r *GormSkinCheckRepository) ListCreatedSince(ctx context.Context, since time.Time) ([]domain.SkinCheck, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var rows []domain.SkinCheck
+	err = db.WithContext(ctx).
+		Preload("Analysis").
+		Where("created_at >= ?", since.UTC()).
+		Order("created_at ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
 // SaveAnalysis updates an existing analysis row.
 func (r *GormSkinCheckRepository) SaveAnalysis(ctx context.Context, a *domain.SkinAnalysis) error {
 	db, err := r.dbOrErr()

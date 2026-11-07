@@ -20,9 +20,12 @@ import (
 )
 
 var (
-	ErrInvalidInput          = errors.New("invalid profile payload")
-	ErrUnavailable           = errors.New("profile service unavailable")
-	ErrOnboardingNotFound    = errors.New("onboarding profile not found")
+	ErrInvalidInput       = errors.New("invalid profile payload")
+	ErrUnavailable        = errors.New("profile service unavailable")
+	ErrOnboardingNotFound = errors.New("onboarding profile not found")
+	// ErrStarterPresent means the profile already has an AI starter routine
+	// or the user locked their own steps. Replay treats it as a skip.
+	ErrStarterPresent = errors.New("starter routine already present")
 )
 
 // Service coordinates SkinProfile persistence and onboarding + starter routine.
@@ -42,6 +45,8 @@ type Service struct {
 	cache       *ai.MemoryCache
 	previewJobs PreviewJobStore // guest preview jobs (DB); required for preview-complete
 	premium     *premiumuc.Service
+	// starterGen overrides ai.GenerateStarterRoutine in tests.
+	starterGen func(ctx context.Context, onboardingJSON []byte, locale, userMemory string) (ai.StarterRoutine, error)
 }
 
 // NewService wires dependencies. Pass nil for any of the optional history
@@ -413,8 +418,9 @@ func (s *Service) enqueueStarterRoutineRefresh(userID uuid.UUID, snapJSON []byte
 		ctx, cancel := context.WithTimeout(context.Background(), starterRoutineBGTimeout)
 		defer cancel()
 		memoryForAI := s.memoryForStarterPrompt(ctx, uid)
-		starter, err := ai.GenerateStarterRoutine(ctx, s.cfg, snap, locale, memoryForAI)
+		starter, err := s.generateStarter(ctx, snap, locale, memoryForAI)
 		if err != nil {
+			ai.NoteAnalysisFailure(err)
 			slog.Warn("onboarding: background starter routine failed",
 				"user_id", uid,
 				"err", err,
@@ -427,11 +433,14 @@ func (s *Service) enqueueStarterRoutineRefresh(userID uuid.UUID, snapJSON []byte
 			}
 			return
 		}
+		ai.NoteAnalysisSuccess()
 		if err := s.patchProfileStarterRoutine(ctx, uid, starter); err != nil {
-			slog.Warn("onboarding: patch starter routine failed",
-				"user_id", uid,
-				"err", err,
-			)
+			if !errors.Is(err, ErrStarterPresent) {
+				slog.Warn("onboarding: patch starter routine failed",
+					"user_id", uid,
+					"err", err,
+				)
+			}
 			return
 		}
 		s.cache.Bust(uid)
@@ -469,6 +478,54 @@ func (s *Service) clearStarterRoutinePending(ctx context.Context, userID uuid.UU
 	return s.prof.UpsertForUser(ctx, p)
 }
 
+// ReplayMissingStarter generates the AI starter for one user whose snapshot
+// is still the local scaffold. It is safe to call twice: the second call sees
+// starter_routine_source=ai and returns ErrStarterPresent. Logs omit user ids,
+// emails, and photo URLs.
+func (s *Service) ReplayMissingStarter(ctx context.Context, userID uuid.UUID) error {
+	if s == nil || s.prof == nil {
+		return fmt.Errorf("%w", ErrUnavailable)
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("%w: user id required", ErrInvalidInput)
+	}
+	p, err := s.prof.GetByUserID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if p == nil {
+		return fmt.Errorf("%w: profile not found", ErrUnavailable)
+	}
+	if !SnapshotNeedsAIStarter(p.OnboardingSnapshot) {
+		return ErrStarterPresent
+	}
+	payload, err := starterPromptPayload(p.OnboardingSnapshot)
+	if err != nil {
+		return err
+	}
+	locale := ai.LocaleFromOnboardingSnapshot(p.OnboardingSnapshot)
+	starter, err := s.generateStarter(ctx, payload, locale, s.memoryForStarterPrompt(ctx, userID))
+	if err != nil {
+		ai.NoteAnalysisFailure(err)
+		slog.Warn("onboarding: starter replay failed", "credit_or_quota", ai.IsCreditOrQuotaError(err))
+		return err
+	}
+	ai.NoteAnalysisSuccess()
+	if err := s.patchProfileStarterRoutine(ctx, userID, starter); err != nil {
+		return err
+	}
+	s.cache.Bust(userID)
+	slog.Info("onboarding: starter replay ready")
+	return nil
+}
+
+func (s *Service) generateStarter(ctx context.Context, onboardingJSON []byte, locale, userMemory string) (ai.StarterRoutine, error) {
+	if s != nil && s.starterGen != nil {
+		return s.starterGen(ctx, onboardingJSON, locale, userMemory)
+	}
+	return ai.GenerateStarterRoutine(ctx, s.cfg, onboardingJSON, locale, userMemory)
+}
+
 func (s *Service) patchProfileStarterRoutine(ctx context.Context, userID uuid.UUID, starter ai.StarterRoutine) error {
 	if s == nil || s.prof == nil {
 		return fmt.Errorf("%w", ErrUnavailable)
@@ -488,7 +545,14 @@ func (s *Service) patchProfileStarterRoutine(ctx context.Context, userID uuid.UU
 	} else {
 		snap = map[string]any{}
 	}
+	if snapshotBool(snap, "starter_user_edited") {
+		return ErrStarterPresent
+	}
+	if src, _ := snap["starter_routine_source"].(string); src == StarterRoutineSourceAI {
+		return ErrStarterPresent
+	}
 	snap["starter_routine"] = starter
+	snap["starter_routine_source"] = StarterRoutineSourceAI
 	delete(snap, "starter_routine_pending")
 	fullSnap, err := json.Marshal(snap)
 	if err != nil {
@@ -623,12 +687,14 @@ func (s *Service) PreviewOnboardingComplete(ctx context.Context, req dto.Onboard
 	go func(payload []byte, locale string, id uuid.UUID, fallback dto.StarterRoutineResponse) {
 		bg, cancel := context.WithTimeout(context.Background(), starterRoutineBGTimeout)
 		defer cancel()
-		starter, err := ai.GenerateStarterRoutine(bg, s.cfg, payload, locale, "")
+		starter, err := s.generateStarter(bg, payload, locale, "")
 		if err != nil {
+			ai.NoteAnalysisFailure(err)
 			slog.Warn("onboarding: guest preview starter routine failed", "preview_job_id", id, "err", err)
 			s.failPreviewJob(bg, id, fallback)
 			return
 		}
+		ai.NoteAnalysisSuccess()
 		s.finishPreviewJob(bg, id, starterRoutineResponseFromAI(starter))
 		slog.Info("onboarding: guest preview starter routine ready", "preview_job_id", id)
 	}(snapJSON, loc, jobID, quickDTO)

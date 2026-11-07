@@ -22,6 +22,7 @@ import (
 	adminuseruc "github.com/dadiary/backend/internal/usecase/adminuser"
 	affiliateuc "github.com/dadiary/backend/internal/usecase/affiliate"
 	aifeedbackuc "github.com/dadiary/backend/internal/usecase/aifeedback"
+	airecovery "github.com/dadiary/backend/internal/usecase/airecovery"
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	betasignupuc "github.com/dadiary/backend/internal/usecase/betasignup"
 	checkinreminderuc "github.com/dadiary/backend/internal/usecase/checkinreminder"
@@ -541,6 +542,12 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		api.Post("/payment/sepay/checkout", jwt, payH.CreateCheckout)
 		api.Post("/payment/sepay/webhook", payH.Webhook)
 		api.Post("/admin/payments/expire-pending", jwt, admin, NewAdminPaymentsHandler(paySvc).ExpirePending)
+		// Replay photo check-ins and onboarding starters saved during the
+		// credit-balance outage. Same DADIARY_ADMIN_EMAILS gate as other /admin routes.
+		// Dry-run unless the JSON body sets apply=true.
+		api.Post("/admin/ai/replay-outage", jwt, admin, NewAdminAIRecoveryHandler(
+			airecovery.NewService(repo, profRepo, analyzer, profSvc),
+		).Replay)
 
 		// Playwright smoke helpers — only when DADIARY_E2E_SECRET is set.
 		NewE2EHandler(cfg, db, userRepo).

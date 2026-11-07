@@ -174,5 +174,7 @@ func (s *Service) skinCheckResponse(check *domain.SkinCheck) dto.CreateSkinCheck
 		}
 		publicURLs = append(publicURLs, mediaurl.SignClientURL("/"+path.Join("uploads", clean)))
 	}
-	return dto.NewCreateSkinCheckResponse(check, check.Analysis, publicURLs)
+	res := dto.NewCreateSkinCheckResponse(check, check.Analysis, publicURLs)
+	analysis.AnnotatePending(&res, check)
+	return res
 }

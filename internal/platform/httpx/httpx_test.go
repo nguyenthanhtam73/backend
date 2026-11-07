@@ -15,6 +15,9 @@ func TestStatusError_RetryableError(t *testing.T) {
 	}{
 		{429, "rate limit reached", true},
 		{429, `{"error":{"type":"insufficient_quota"}}`, false}, // out of credit — permanent
+		{429, `{"error":{"code":"credit_balance_exhausted"}}`, false},
+		{429, `{"error":{"message":"exceeded your current quota"}}`, false},
+		{400, `{"error":{"message":"Your credit balance is too low to access the Anthropic API."}}`, false},
 		{408, "request timeout", true},
 		{500, "internal error", true},
 		{503, "overloaded", true},

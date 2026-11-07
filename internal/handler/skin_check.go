@@ -389,7 +389,9 @@ func mapSkinCheckResponse(check *domain.SkinCheck, publicURLs []string) dto.Crea
 	if check == nil {
 		return dto.CreateSkinCheckResponse{}
 	}
-	return dto.NewCreateSkinCheckResponse(check, check.Analysis, publicURLs)
+	res := dto.NewCreateSkinCheckResponse(check, check.Analysis, publicURLs)
+	analysis.AnnotatePending(&res, check)
+	return res
 }
 
 func mapSkinCheckError(c *fiber.Ctx, err error) error {
