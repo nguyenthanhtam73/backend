@@ -75,7 +75,26 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := applyRoutineFullDay(db); err != nil {
 		return err
 	}
-	return applyCaptureReminderClaims(db)
+	if err := applyCaptureReminderClaims(db); err != nil {
+		return err
+	}
+	return PrepareOutageApologySchema(db)
+}
+
+// PrepareOutageApologySchema adds the starter-generation lease columns and
+// widens email_send_receipts.kind so the marker ai_outage_apology_20261106 fits.
+// Adding a column and widening a varchar does not rewrite existing rows.
+func PrepareOutageApologySchema(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("nil db")
+	}
+	if err := db.AutoMigrate(&domain.SkinProfile{}, &domain.EmailSendReceipt{}); err != nil {
+		return err
+	}
+	if db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	return db.Exec(`ALTER TABLE email_send_receipts ALTER COLUMN kind TYPE VARCHAR(64)`).Error
 }
 
 // applyCaptureReminderClaims creates capture_reminder_claims (migration 029).

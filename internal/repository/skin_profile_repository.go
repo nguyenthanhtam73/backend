@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
@@ -113,4 +114,58 @@ func (r *GormSkinProfileRepository) UpsertForUser(ctx context.Context, p *domain
 		return db.WithContext(ctx).Unscoped().Save(p).Error
 	}
 	return db.WithContext(ctx).Save(p).Error
+}
+
+// StarterClaimStaleAge is how long a starter-generation lease is honored.
+// A crashed process stops blocking a retry after this.
+const StarterClaimStaleAge = 5 * time.Minute
+
+// ClaimStarterGeneration leases starter generation for one user. The UPDATE
+// matches only an empty or stale lease, so a second process (API or CLI) gets
+// false and must not call the model. token is stored so only the owner can release.
+func (r *GormSkinProfileRepository) ClaimStarterGeneration(ctx context.Context, userID uuid.UUID, now time.Time) (token string, won bool, err error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return "", false, err
+	}
+	if userID == uuid.Nil {
+		return "", false, fmt.Errorf("invalid profile")
+	}
+	now = now.UTC()
+	token = uuid.NewString()
+	staleBefore := now.Add(-StarterClaimStaleAge)
+	res := db.WithContext(ctx).Exec(`
+UPDATE skin_profiles
+SET starter_claim_token = ?, starter_claim_at = ?, updated_at = ?
+WHERE user_id = ? AND deleted_at IS NULL AND (
+    starter_claim_token = '' OR starter_claim_token IS NULL
+    OR starter_claim_at IS NULL OR starter_claim_at < ?
+)`,
+		token, now, now, userID, staleBefore,
+	)
+	if res.Error != nil {
+		return "", false, res.Error
+	}
+	if res.RowsAffected != 1 {
+		return "", false, nil
+	}
+	return token, true, nil
+}
+
+// ReleaseStarterGeneration drops a lease this caller owns. A different token is left alone.
+func (r *GormSkinProfileRepository) ReleaseStarterGeneration(ctx context.Context, userID uuid.UUID, token string) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	token = strings.TrimSpace(token)
+	if userID == uuid.Nil || token == "" {
+		return nil
+	}
+	return db.WithContext(ctx).Exec(`
+UPDATE skin_profiles
+SET starter_claim_token = '', starter_claim_at = NULL
+WHERE user_id = ? AND starter_claim_token = ?`,
+		userID, token,
+	).Error
 }

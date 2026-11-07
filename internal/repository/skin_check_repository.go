@@ -15,6 +15,7 @@ import (
 	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // SkinCheckWriter creates skin checks and related AI analysis rows.
@@ -689,6 +690,24 @@ func (r *GormSkinCheckRepository) SetClientKind(ctx context.Context, id uuid.UUI
 		Update("client_kind", kind).Error
 }
 
+// ListCreatedBetween returns skin checks with created_at in [start, end], oldest first.
+// Analysis and User are preloaded. Soft-deleted checks are omitted. A soft-deleted
+// user is not preloaded, so User.ID stays empty and callers can drop the row.
+func (r *GormSkinCheckRepository) ListCreatedBetween(ctx context.Context, start, end time.Time) ([]domain.SkinCheck, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	var rows []domain.SkinCheck
+	err = db.WithContext(ctx).
+		Preload("Analysis").
+		Preload("User").
+		Where("created_at >= ? AND created_at <= ?", start.UTC(), end.UTC()).
+		Order("created_at ASC").
+		Find(&rows).Error
+	return rows, err
+}
+
 // ListCreatedSince returns skin checks created at or after since, oldest first,
 // with Analysis preloaded. Soft-deleted rows are omitted.
 func (r *GormSkinCheckRepository) ListCreatedSince(ctx context.Context, since time.Time) ([]domain.SkinCheck, error) {
@@ -718,6 +737,10 @@ func (r *GormSkinCheckRepository) SaveAnalysis(ctx context.Context, a *domain.Sk
 // only one reanalyze job can start. Failed rows may retry the same UTC day;
 // completed rows are limited to one claim per UTC day via last_reanalyzed_at.
 // Returns true when this caller won the claim.
+//
+// The model call itself is locked again by ClaimAnalysisRun, which adopts the
+// processing + model_version=pending handoff this update leaves behind. A
+// replay CLI racing this claim loses that second UPDATE and does not call the provider.
 func (r *GormSkinCheckRepository) ClaimReanalyze(ctx context.Context, skinCheckID uuid.UUID, now time.Time) (bool, error) {
 	db, err := r.dbOrErr()
 	if err != nil {
@@ -742,6 +765,76 @@ func (r *GormSkinCheckRepository) ClaimReanalyze(ctx context.Context, skinCheckI
 			"model_version":      "pending",
 			"last_reanalyzed_at": now,
 		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// AnalysisClaimStaleAge is how long a processing row may sit before another
+// worker may take it. Matches the analysis job budget so a live run is not stolen.
+const AnalysisClaimStaleAge = 4*time.Minute + 30*time.Second
+
+// EnsurePendingAnalysis inserts a pending skin_analyses row when the check has
+// none. The unique skin_check_id index makes the insert atomic: a concurrent
+// caller that loses the race finds the existing row and does not error.
+func (r *GormSkinCheckRepository) EnsurePendingAnalysis(ctx context.Context, skinCheckID uuid.UUID) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if skinCheckID == uuid.Nil {
+		return fmt.Errorf("skin check id required")
+	}
+	row := &domain.SkinAnalysis{
+		SkinCheckID:  skinCheckID,
+		Status:       domain.AnalysisStatusPending,
+		ModelVersion: "pending",
+	}
+	return db.WithContext(ctx).
+		Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "skin_check_id"}},
+			DoNothing: true,
+		}).
+		Create(row).Error
+}
+
+// ClaimAnalysisRun atomically moves one analysis into processing for the model
+// pipeline. Only one caller — replay CLI, API reanalyze, or the create job —
+// gets RowsAffected = 1. A second process sees 0 rows and must not call the model.
+//
+// Eligible rows: failed, pending, a reanalyze handoff (processing + model_version
+// pending), or a processing row older than AnalysisClaimStaleAge.
+func (r *GormSkinCheckRepository) ClaimAnalysisRun(ctx context.Context, skinCheckID uuid.UUID, now time.Time) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	if skinCheckID == uuid.Nil {
+		return false, fmt.Errorf("skin check id required")
+	}
+	now = now.UTC()
+	staleBefore := now.Add(-AnalysisClaimStaleAge)
+	token := "run:" + uuid.NewString()
+	res := db.WithContext(ctx).Exec(`
+UPDATE skin_analyses
+SET status = ?, error_message = '', model_version = ?, updated_at = ?
+WHERE skin_check_id = ? AND deleted_at IS NULL AND (
+    status IN (?, ?)
+    OR (status = ? AND model_version = ?)
+    OR (status = ? AND updated_at < ?)
+)`,
+		domain.AnalysisStatusProcessing,
+		token,
+		now,
+		skinCheckID,
+		domain.AnalysisStatusFailed,
+		domain.AnalysisStatusPending,
+		domain.AnalysisStatusProcessing,
+		"pending",
+		domain.AnalysisStatusProcessing,
+		staleBefore,
+	)
 	if res.Error != nil {
 		return false, res.Error
 	}

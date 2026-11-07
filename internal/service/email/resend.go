@@ -32,6 +32,8 @@ type Message struct {
 	Headers     map[string]string
 	Tags        []string
 	Unsubscribe string // List-Unsubscribe URL
+	// Quiet keeps the recipient address out of logs.
+	Quiet bool
 }
 
 // Sender delivers a single transactional email.
@@ -132,7 +134,11 @@ func (c *ResendClient) Send(ctx context.Context, msg Message) (string, error) {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		slog.Error("email: resend transport failed", "to", maskEmail(to), "err", err)
+		if msg.Quiet {
+			slog.Error("email: resend transport failed", "err", err)
+		} else {
+			slog.Error("email: resend transport failed", "to", maskEmail(to), "err", err)
+		}
 		return "", &Failure{cause: err}
 	}
 	defer resp.Body.Close()
@@ -144,19 +150,27 @@ func (c *ResendClient) Send(ctx context.Context, msg Message) (string, error) {
 		}
 		_ = json.Unmarshal(respBody, &parsed)
 		id := strings.TrimSpace(parsed.ID)
-		slog.Info("email: sent",
-			"to", maskEmail(to),
-			"subject", msg.Subject,
-			"status", resp.StatusCode,
-			"resend_email_id", id,
-		)
+		if msg.Quiet {
+			slog.Info("email: sent", "status", resp.StatusCode, "resend_email_id", id)
+		} else {
+			slog.Info("email: sent",
+				"to", maskEmail(to),
+				"subject", msg.Subject,
+				"status", resp.StatusCode,
+				"resend_email_id", id,
+			)
+		}
 		return id, nil
 	}
-	slog.Error("email: resend rejected",
-		"to", maskEmail(to),
-		"status", resp.StatusCode,
-		"body", string(respBody),
-	)
+	if msg.Quiet {
+		slog.Error("email: resend rejected", "status", resp.StatusCode)
+	} else {
+		slog.Error("email: resend rejected",
+			"to", maskEmail(to),
+			"status", resp.StatusCode,
+			"body", string(respBody),
+		)
+	}
 	return "", &Failure{Status: resp.StatusCode, Body: string(respBody)}
 }
 

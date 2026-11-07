@@ -8,6 +8,7 @@ package analysis
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -34,6 +35,14 @@ const (
 	staleAnalysisAge   = analysisJobTimeout + 30*time.Second
 	staleFailedMessage = "Phân tích hơi lâu nên dừng lại. Bạn gửi lại giúp mình nhé."
 )
+
+// ErrAnalysisBusy means another process already owns this analysis run.
+// Callers must not start a second model call.
+var ErrAnalysisBusy = errors.New("analysis already claimed")
+
+// blockAfterClaim is a test hook that runs only after this process won the
+// claim, so a second Process can observe the lost race. Nil in production.
+var blockAfterClaim func()
 
 // pipelineStats is a process-local rolling aggregate of skin-check wall times.
 // It exists so the logs alone reveal the latency trend (avg + sample count)
@@ -121,7 +130,7 @@ func (s *Service) EnqueueAnalysisWithDevice(skinCheckID uuid.UUID, deviceType st
 	go func(id uuid.UUID, device string) {
 		ctx, cancel := context.WithTimeout(context.Background(), analysisJobTimeout)
 		defer cancel()
-		if err := s.Process(ctx, id, device); err != nil {
+		if err := s.Process(ctx, id, device); err != nil && !errors.Is(err, ErrAnalysisBusy) {
 			slog.Warn("skin-check: background analysis failed", "check_id", id, "err", err)
 		}
 	}(skinCheckID, deviceType)
@@ -163,8 +172,25 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	if err != nil {
 		return err
 	}
-	if o == nil || o.Analysis == nil {
+	if o == nil {
 		return fmt.Errorf("skin check or analysis not found")
+	}
+	if o.Analysis == nil {
+		if err := s.checks.EnsurePendingAnalysis(ctx, skinCheckID); err != nil {
+			return err
+		}
+	}
+	// One conditional UPDATE. CLI replay, reanalyze, and the create job all
+	// come through here; the loser gets ErrAnalysisBusy and does not call the model.
+	won, err := s.checks.ClaimAnalysisRun(ctx, skinCheckID, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if !won {
+		return ErrAnalysisBusy
+	}
+	if blockAfterClaim != nil {
+		blockAfterClaim()
 	}
 
 	urls, urlErr := dto.DecodeStringSlice(o.ImageURLs)
@@ -202,15 +228,6 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 		miss := fmt.Errorf("OpenAI API key missing (required for photo analysis vision pass)")
 		ai.NoteAnalysisFailure(miss)
 		return s.failWithMessage(ctx, skinCheckID, miss.Error())
-	}
-
-	a := o.Analysis
-	a.Status = domain.AnalysisStatusProcessing
-	// Placeholder until pipeline returns the real version string (includes Claude + vision models).
-	a.ModelVersion = "pending"
-	if err := s.checks.SaveAnalysis(ctx, a); err != nil {
-		emitAIResult("failed", "", false)
-		return err
 	}
 
 	var prof *domain.SkinProfile

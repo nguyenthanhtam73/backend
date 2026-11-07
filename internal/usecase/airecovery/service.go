@@ -11,6 +11,7 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/ai"
+	"github.com/dadiary/backend/internal/service/analysis"
 	profileuc "github.com/dadiary/backend/internal/usecase/profile"
 	"github.com/google/uuid"
 )
@@ -261,9 +262,15 @@ func (s *Service) defaultReplayCheck(ctx context.Context, id uuid.UUID) (Outcome
 	if !CheckNeedsReplay(snap, row.CreatedAt, time.Now().UTC()) {
 		return OutcomeSkipped, nil
 	}
+	// Missing analysis rows are created inside Process, then ClaimAnalysisRun
+	// (the same UPDATE reanalyze's handoff uses) so a second process cannot
+	// start the model.
 	err = s.processor.Process(ctx, id, "")
 	if err == nil {
 		return OutcomeDone, nil
+	}
+	if errors.Is(err, analysis.ErrAnalysisBusy) {
+		return OutcomeSkipped, nil
 	}
 	if ai.IsProviderFailure(err) {
 		slog.Warn("ai-replay: check provider error", "credit_or_quota", ai.IsCreditOrQuotaError(err))
@@ -302,7 +309,7 @@ func (s *Service) defaultReplayStarter(ctx context.Context, userID uuid.UUID) (O
 	if err == nil {
 		return OutcomeDone, nil
 	}
-	if errors.Is(err, profileuc.ErrStarterPresent) {
+	if errors.Is(err, profileuc.ErrStarterPresent) || errors.Is(err, profileuc.ErrStarterBusy) {
 		return OutcomeSkipped, nil
 	}
 	if ai.IsProviderFailure(err) {

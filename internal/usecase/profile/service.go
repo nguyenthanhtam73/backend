@@ -26,6 +26,8 @@ var (
 	// ErrStarterPresent means the profile already has an AI starter routine
 	// or the user locked their own steps. Replay treats it as a skip.
 	ErrStarterPresent = errors.New("starter routine already present")
+	// ErrStarterBusy means another process holds the starter-generation lease.
+	ErrStarterBusy = errors.New("starter generation already claimed")
 )
 
 // Service coordinates SkinProfile persistence and onboarding + starter routine.
@@ -417,6 +419,16 @@ func (s *Service) enqueueStarterRoutineRefresh(userID uuid.UUID, snapJSON []byte
 	go func(uid uuid.UUID, snap []byte, locale string) {
 		ctx, cancel := context.WithTimeout(context.Background(), starterRoutineBGTimeout)
 		defer cancel()
+		token, won, claimErr := s.prof.ClaimStarterGeneration(ctx, uid, time.Now().UTC())
+		if claimErr != nil || !won {
+			return
+		}
+		release := true
+		defer func() {
+			if release {
+				_ = s.prof.ReleaseStarterGeneration(context.Background(), uid, token)
+			}
+		}()
 		memoryForAI := s.memoryForStarterPrompt(ctx, uid)
 		starter, err := s.generateStarter(ctx, snap, locale, memoryForAI)
 		if err != nil {
@@ -443,6 +455,8 @@ func (s *Service) enqueueStarterRoutineRefresh(userID uuid.UUID, snapJSON []byte
 			}
 			return
 		}
+		release = false
+		_ = s.prof.ReleaseStarterGeneration(ctx, uid, token)
 		s.cache.Bust(uid)
 		slog.Info("onboarding: background starter routine ready", "user_id", uid)
 	}(userID, payload, loc)
@@ -499,6 +513,26 @@ func (s *Service) ReplayMissingStarter(ctx context.Context, userID uuid.UUID) er
 	if !SnapshotNeedsAIStarter(p.OnboardingSnapshot) {
 		return ErrStarterPresent
 	}
+	token, won, err := s.prof.ClaimStarterGeneration(ctx, userID, time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	if !won {
+		return ErrStarterBusy
+	}
+	release := true
+	defer func() {
+		if release {
+			_ = s.prof.ReleaseStarterGeneration(context.Background(), userID, token)
+		}
+	}()
+	p, err = s.prof.GetByUserID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if p == nil || !SnapshotNeedsAIStarter(p.OnboardingSnapshot) {
+		return ErrStarterPresent
+	}
 	payload, err := starterPromptPayload(p.OnboardingSnapshot)
 	if err != nil {
 		return err
@@ -514,6 +548,8 @@ func (s *Service) ReplayMissingStarter(ctx context.Context, userID uuid.UUID) er
 	if err := s.patchProfileStarterRoutine(ctx, userID, starter); err != nil {
 		return err
 	}
+	release = false
+	_ = s.prof.ReleaseStarterGeneration(ctx, userID, token)
 	s.cache.Bust(userID)
 	slog.Info("onboarding: starter replay ready")
 	return nil

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -160,6 +161,59 @@ func TestReplayMissingStarter_Idempotent(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("second replay called the generator, calls=%d", calls)
+	}
+}
+
+func TestClaimStarterGeneration_OnlyOneWinner(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:starter_claim_"+uuid.NewString()+"?mode=memory&cache=shared&_pragma=busy_timeout(5000)"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	if err := db.AutoMigrate(&domain.SkinProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	repo := repository.NewSkinProfileRepository(db)
+	userID := uuid.New()
+	if err := repo.UpsertForUser(context.Background(), &domain.SkinProfile{
+		UserID:             userID,
+		SkinType:           "combination",
+		OnboardingSnapshot: snap(t, map[string]any{"completed_via": "onboarding_v1"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 8
+	var wg sync.WaitGroup
+	wins := make(chan bool, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, ok, err := repo.ClaimStarterGeneration(context.Background(), userID, time.Now().UTC())
+			if err != nil {
+				t.Errorf("claim: %v", err)
+				return
+			}
+			wins <- ok
+		}()
+	}
+	wg.Wait()
+	close(wins)
+	got := 0
+	for ok := range wins {
+		if ok {
+			got++
+		}
+	}
+	if got != 1 {
+		t.Fatalf("winners = %d, want 1", got)
 	}
 }
 
