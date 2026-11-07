@@ -8,6 +8,7 @@ import (
 
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/service/email"
+	"github.com/google/uuid"
 )
 
 const (
@@ -166,7 +167,14 @@ func (s *Service) sendTest(ctx context.Context) (Result, error) {
 	if to == "" {
 		return zero, fmt.Errorf("outage apology: no admin address configured")
 	}
-	msg := Build(s.origin, "outage-apology-test")
+	checkID, err := s.checks.LatestCompletedCheckID(ctx)
+	if err != nil {
+		return zero, err
+	}
+	if checkID == uuid.Nil {
+		return zero, fmt.Errorf("outage apology: no completed skin check to link")
+	}
+	msg := Build(s.origin, checkID.String())
 	if _, err := s.mail.Send(ctx, email.Message{
 		To:      to,
 		Subject: msg.Subject,

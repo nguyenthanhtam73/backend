@@ -217,6 +217,50 @@ func TestClaimStarterGeneration_OnlyOneWinner(t *testing.T) {
 	}
 }
 
+func TestUpsertForUser_DoesNotClearStarterLease(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:starter_upsert_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&domain.SkinProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	repo := repository.NewSkinProfileRepository(db)
+	userID := uuid.New()
+	if err := repo.UpsertForUser(context.Background(), &domain.SkinProfile{
+		UserID:             userID,
+		SkinType:           "combination",
+		OnboardingSnapshot: snap(t, map[string]any{"completed_via": "onboarding_v1"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	token, won, err := repo.ClaimStarterGeneration(context.Background(), userID, time.Now().UTC())
+	if err != nil || !won {
+		t.Fatalf("claim won=%v err=%v", won, err)
+	}
+	// A normal save, including onboarding complete, builds a profile struct
+	// with an empty lease and must not wipe the in-flight claim.
+	if err := repo.UpsertForUser(context.Background(), &domain.SkinProfile{
+		UserID:             userID,
+		SkinType:           "dry",
+		OnboardingSnapshot: snap(t, map[string]any{"completed_via": "onboarding_v1", "goal": "glow"}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := repo.GetByUserID(context.Background(), userID)
+	if err != nil || stored == nil {
+		t.Fatal(err)
+	}
+	if stored.StarterClaimToken != token {
+		t.Fatalf("lease token = %q, want %q", stored.StarterClaimToken, token)
+	}
+	if stored.SkinType != "dry" {
+		t.Fatalf("skin type = %q", stored.SkinType)
+	}
+}
+
 func snap(t *testing.T, v map[string]any) []byte {
 	t.Helper()
 	b, err := json.Marshal(v)

@@ -1,5 +1,6 @@
 // send-outage-apology emails users whose skin check in the 6–7 Nov 2026
-// credit outage never received a completed analysis.
+// credit outage (2026-11-06T13:30Z through 2026-11-07T18:15Z) failed or
+// never completed. A later replay keeps them via outage_affected.
 //
 // Default is a dry-run that prints only the recipient count. --test sends ONE
 // email, the "result is ready" variant, to the first address in

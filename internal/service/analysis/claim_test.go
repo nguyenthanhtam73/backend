@@ -27,7 +27,7 @@ func TestClaimAnalysisRun_OnlyOneWinner(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ok, err := repo.ClaimAnalysisRun(context.Background(), check.ID, time.Now().UTC())
+			_, ok, err := repo.ClaimAnalysisRun(context.Background(), check.ID, time.Now().UTC())
 			if err != nil {
 				t.Errorf("claim: %v", err)
 				return
@@ -90,6 +90,55 @@ func TestProcess_MissingAnalysisIsCreatedAndSecondCallerLosesClaim(t *testing.T)
 	_ = first
 }
 
+func TestFinishAnalysisIfClaim_IgnoresStaleToken(t *testing.T) {
+	db := openClaimDB(t)
+	repo := repository.NewSkinCheckRepository(db)
+	check := seedClaimCheck(t, db, true)
+	token, won, err := repo.ClaimAnalysisRun(context.Background(), check.ID, time.Now().UTC())
+	if err != nil || !won || token == "" {
+		t.Fatalf("claim won=%v token=%q err=%v", won, token, err)
+	}
+	reloaded, err := repo.GetByID(context.Background(), check.ID)
+	if err != nil || reloaded == nil || reloaded.Analysis == nil {
+		t.Fatal(err)
+	}
+	if !reloaded.Analysis.OutageAffected {
+		t.Fatal("claim in the apology window should set outage_affected")
+	}
+	stale := *reloaded.Analysis
+	stale.Status = domain.AnalysisStatusFailed
+	stale.ErrorMessage = "stale worker"
+	stale.SummaryNotes = "should not land"
+	ok, err := repo.FinishAnalysisIfClaim(context.Background(), &stale, "run:someone-else")
+	if err != nil || ok {
+		t.Fatalf("stale finish ok=%v err=%v", ok, err)
+	}
+	fresh := *reloaded.Analysis
+	fresh.Status = domain.AnalysisStatusCompleted
+	fresh.ModelVersion = "pipeline=test"
+	fresh.SummaryNotes = "new worker"
+	now := time.Now().UTC()
+	fresh.AnalyzedAt = &now
+	ok, err = repo.FinishAnalysisIfClaim(context.Background(), &fresh, token)
+	if err != nil || !ok {
+		t.Fatalf("owner finish ok=%v err=%v", ok, err)
+	}
+	ok, err = repo.FailAnalysisIfClaim(context.Background(), check.ID, token, "too late")
+	if err != nil || ok {
+		t.Fatalf("old token should not mark failed after completion, ok=%v err=%v", ok, err)
+	}
+	got, err := repo.GetByID(context.Background(), check.ID)
+	if err != nil || got == nil || got.Analysis == nil {
+		t.Fatal(err)
+	}
+	if got.Analysis.Status != domain.AnalysisStatusCompleted || got.Analysis.SummaryNotes != "new worker" {
+		t.Fatalf("row overwritten: status=%s notes=%q", got.Analysis.Status, got.Analysis.SummaryNotes)
+	}
+	if !got.Analysis.OutageAffected {
+		t.Fatal("completion cleared outage_affected")
+	}
+}
+
 func openClaimDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open("file:claim_"+uuid.NewString()+"?mode=memory&cache=shared&_pragma=busy_timeout(5000)"), &gorm.Config{
@@ -111,13 +160,18 @@ func openClaimDB(t *testing.T) *gorm.DB {
 
 func seedClaimCheck(t *testing.T, db *gorm.DB, withAnalysis bool) *domain.SkinCheck {
 	t.Helper()
+	created := domain.OutageApologyStart.Add(time.Hour)
 	check := &domain.SkinCheck{
 		UserID:     uuid.New(),
 		ImageURLs:  []byte(`["checks/a.jpg"]`),
 		Visibility: domain.CheckVisibilityPrivate,
-		CheckDate:  time.Now().UTC(),
+		CheckDate:  created,
+		CreatedAt:  created,
 	}
 	if err := db.Create(check).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`UPDATE skin_checks SET created_at = ? WHERE id = ?`, created, check.ID).Error; err != nil {
 		t.Fatal(err)
 	}
 	if !withAnalysis {

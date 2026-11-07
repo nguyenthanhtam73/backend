@@ -86,6 +86,11 @@ func TestRun_TestSendsOneHasResultMailToFirstAdmin(t *testing.T) {
 	db := openApologyDB(t)
 	checks := repository.NewSkinCheckRepository(db)
 	seedApologyUser(t, db, checks, "person@dadiary.vn", WindowStart.Add(time.Minute), domain.AnalysisStatusFailed)
+	seedApologyUser(t, db, checks, "done@dadiary.vn", WindowStart.Add(2*time.Minute), domain.AnalysisStatusCompleted)
+	completedID, err := checks.LatestCompletedCheckID(context.Background())
+	if err != nil || completedID == uuid.Nil {
+		t.Fatalf("completed check: %v %s", err, completedID)
+	}
 	mail := &fakeMailer{}
 	svc := NewService(checks, repository.NewEmailSendReceiptRepository(db), mail, "https://dadiary.vn", []string{"", "first-admin@dadiary.vn", "second-admin@dadiary.vn"})
 	res, err := svc.Run(context.Background(), ModeTest, 0, 5)
@@ -102,7 +107,8 @@ func TestRun_TestSendsOneHasResultMailToFirstAdmin(t *testing.T) {
 	if sent[0].Subject != Subject || sent[0].Text == "" {
 		t.Fatal("test mail missing subject")
 	}
-	if !strings.Contains(sent[0].Text, HasResultSentence) || !strings.Contains(sent[0].Text, "/skin-checks/outage-apology-test") {
+	wantLink := "/skin-checks/" + completedID.String()
+	if !strings.Contains(sent[0].Text, HasResultSentence) || !strings.Contains(sent[0].Text, wantLink) {
 		t.Fatalf("test mail is not the has-result variant:\n%s", sent[0].Text)
 	}
 	var n int64

@@ -88,7 +88,7 @@ func PrepareOutageApologySchema(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("nil db")
 	}
-	if err := db.AutoMigrate(&domain.SkinProfile{}, &domain.EmailSendReceipt{}); err != nil {
+	if err := db.AutoMigrate(&domain.SkinProfile{}, &domain.SkinAnalysis{}, &domain.EmailSendReceipt{}); err != nil {
 		return err
 	}
 	if db.Dialector.Name() != "postgres" {

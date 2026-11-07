@@ -446,7 +446,7 @@ func (s *Service) enqueueStarterRoutineRefresh(userID uuid.UUID, snapJSON []byte
 			return
 		}
 		ai.NoteAnalysisSuccess()
-		if err := s.patchProfileStarterRoutine(ctx, uid, starter); err != nil {
+		if err := s.patchProfileStarterRoutine(ctx, uid, token, starter); err != nil {
 			if !errors.Is(err, ErrStarterPresent) {
 				slog.Warn("onboarding: patch starter routine failed",
 					"user_id", uid,
@@ -503,6 +503,8 @@ func (s *Service) ReplayMissingStarter(ctx context.Context, userID uuid.UUID) er
 	if userID == uuid.Nil {
 		return fmt.Errorf("%w: user id required", ErrInvalidInput)
 	}
+	ctx, cancel := context.WithTimeout(ctx, StarterReplayBudget)
+	defer cancel()
 	p, err := s.prof.GetByUserID(ctx, userID)
 	if err != nil {
 		return err
@@ -545,7 +547,7 @@ func (s *Service) ReplayMissingStarter(ctx context.Context, userID uuid.UUID) er
 		return err
 	}
 	ai.NoteAnalysisSuccess()
-	if err := s.patchProfileStarterRoutine(ctx, userID, starter); err != nil {
+	if err := s.patchProfileStarterRoutine(ctx, userID, token, starter); err != nil {
 		return err
 	}
 	release = false
@@ -562,7 +564,7 @@ func (s *Service) generateStarter(ctx context.Context, onboardingJSON []byte, lo
 	return ai.GenerateStarterRoutine(ctx, s.cfg, onboardingJSON, locale, userMemory)
 }
 
-func (s *Service) patchProfileStarterRoutine(ctx context.Context, userID uuid.UUID, starter ai.StarterRoutine) error {
+func (s *Service) patchProfileStarterRoutine(ctx context.Context, userID uuid.UUID, token string, starter ai.StarterRoutine) error {
 	if s == nil || s.prof == nil {
 		return fmt.Errorf("%w", ErrUnavailable)
 	}
@@ -594,8 +596,14 @@ func (s *Service) patchProfileStarterRoutine(ctx context.Context, userID uuid.UU
 	if err != nil {
 		return err
 	}
-	p.OnboardingSnapshot = fullSnap
-	return s.prof.UpsertForUser(ctx, p)
+	saved, err := s.prof.SaveSnapshotIfClaim(ctx, userID, token, fullSnap)
+	if err != nil {
+		return err
+	}
+	if !saved {
+		return ErrStarterBusy
+	}
+	return nil
 }
 
 // DeleteOnboarding removes the user's skin profile and carried-over starter routines.

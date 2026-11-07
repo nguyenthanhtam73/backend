@@ -105,15 +105,18 @@ func (r *GormSkinProfileRepository) UpsertForUser(ctx context.Context, p *domain
 	if err != nil {
 		return err
 	}
+	// Lease columns are written only by ClaimStarterGeneration and
+	// ReleaseStarterGeneration. A normal profile save must not clear them.
+	omitLease := db.WithContext(ctx).Omit("StarterClaimToken", "StarterClaimAt")
 	if existing == nil {
-		return db.WithContext(ctx).Create(p).Error
+		return omitLease.Create(p).Error
 	}
 	p.ID = existing.ID
 	if existing.DeletedAt.Valid {
 		p.DeletedAt = gorm.DeletedAt{}
-		return db.WithContext(ctx).Unscoped().Save(p).Error
+		return omitLease.Unscoped().Save(p).Error
 	}
-	return db.WithContext(ctx).Save(p).Error
+	return omitLease.Save(p).Error
 }
 
 // StarterClaimStaleAge is how long a starter-generation lease is honored.
@@ -150,6 +153,30 @@ WHERE user_id = ? AND deleted_at IS NULL AND (
 		return "", false, nil
 	}
 	return token, true, nil
+}
+
+// SaveSnapshotIfClaim writes the onboarding snapshot only while this lease token
+// still owns the row. A stale worker whose lease was reclaimed gets false and
+// must not replace the new routine. The lease columns themselves are not cleared here.
+func (r *GormSkinProfileRepository) SaveSnapshotIfClaim(ctx context.Context, userID uuid.UUID, token string, snapshot []byte) (bool, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return false, err
+	}
+	token = strings.TrimSpace(token)
+	if userID == uuid.Nil || token == "" {
+		return false, fmt.Errorf("starter claim token required")
+	}
+	res := db.WithContext(ctx).Exec(`
+UPDATE skin_profiles
+SET onboarding_snapshot = ?, updated_at = ?
+WHERE user_id = ? AND starter_claim_token = ? AND deleted_at IS NULL`,
+		snapshot, time.Now().UTC(), userID, token,
+	)
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
 }
 
 // ReleaseStarterGeneration drops a lease this caller owns. A different token is left alone.

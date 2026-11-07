@@ -385,7 +385,10 @@ func (s *Service) runQueue(
 		wg.Add(1)
 		go func(id uuid.UUID) {
 			defer wg.Done()
-			outcome, _ := replay(ctx, id)
+			// Shorter than the analysis lease (4m30s) and the starter lease (5m).
+			itemCtx, cancel := context.WithTimeout(ctx, analysis.ProcessBudget)
+			defer cancel()
+			outcome, _ := replay(itemCtx, id)
 			gate.observe(outcome)
 			mu.Lock()
 			switch outcome {

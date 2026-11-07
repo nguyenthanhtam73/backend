@@ -4,7 +4,8 @@ import (
 	"fmt"
 	"html"
 	"strings"
-	"time"
+
+	"github.com/dadiary/backend/internal/domain"
 )
 
 const (
@@ -27,10 +28,12 @@ const (
 	ReceiptKind = "ai_outage_apology_20261106"
 )
 
-// Window is the outage cohort: checks created from 2026-11-06 13:00Z through 2026-11-07 18:05Z, inclusive.
+// Window is the apology cohort: checks created from 2026-11-06 13:30Z through
+// 2026-11-07 18:15Z, inclusive. Membership is the outage marker or a still
+// incomplete analysis, not "currently completed".
 var (
-	WindowStart = time.Date(2026, 11, 6, 13, 0, 0, 0, time.UTC)
-	WindowEnd   = time.Date(2026, 11, 7, 18, 5, 0, 0, time.UTC)
+	WindowStart = domain.OutageApologyStart
+	WindowEnd   = domain.OutageApologyEnd
 )
 
 // Message is one rendered apology.

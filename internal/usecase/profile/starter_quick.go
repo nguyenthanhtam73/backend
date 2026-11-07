@@ -10,9 +10,14 @@ import (
 	"github.com/dadiary/backend/internal/service/ai"
 )
 
+// StarterReplayBudget caps one starter generation. It is shorter than
+// repository.StarterClaimStaleAge (5m) so a stale worker cannot still be
+// writing when the lease is reclaimed.
+const StarterReplayBudget = 4 * time.Minute
+
 // starterRoutineBGTimeout caps the background LLM job that personalizes the
 // starter routine after CompleteOnboarding returns the quick scaffold.
-const starterRoutineBGTimeout = 4 * time.Minute
+const starterRoutineBGTimeout = StarterReplayBudget
 
 // StarterInFlightGrace is how long a starter_routine_pending flag is treated
 // as a live background job. Older pending rows are replay candidates.

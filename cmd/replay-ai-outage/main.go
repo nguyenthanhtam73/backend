@@ -65,6 +65,9 @@ func main() {
 	if err != nil {
 		fail("database: %v", err)
 	}
+	if err := repository.PrepareOutageApologySchema(db); err != nil {
+		fail("schema: %v", err)
+	}
 
 	checks := repository.NewSkinCheckRepository(db)
 	profiles := repository.NewSkinProfileRepository(db)
