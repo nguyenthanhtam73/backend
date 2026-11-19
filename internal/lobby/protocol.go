@@ -10,6 +10,7 @@ package lobby
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -124,15 +125,17 @@ const (
 // Person is the only public shape for someone in a hall.
 // id is a random session id, not a user id.
 type Person struct {
-	ID        string  `json:"id"`
-	Nickname  string  `json:"nickname"`
-	Outfit    string  `json:"outfit"`
-	Hair      string  `json:"hair"`
-	Accessory string  `json:"accessory"`
-	X         float64 `json:"x"`
-	Y         float64 `json:"y"`
-	Facing    string  `json:"facing"`
-	Action    string  `json:"action"`
+	ID        string `json:"id"`
+	Nickname  string `json:"nickname"`
+	Outfit    string `json:"outfit"`
+	Hair      string `json:"hair"`
+	Accessory string `json:"accessory"`
+	// Gender is "male" when the player picked Nam. Empty means the drawn female art.
+	Gender string  `json:"gender,omitempty"`
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Facing string  `json:"facing"`
+	Action string  `json:"action"`
 }
 
 // Count is one Sảnh occupancy line, e.g. label "Sảnh 1 · 12/28".
@@ -159,6 +162,15 @@ type Event struct {
 	ID     string `json:"id,omitempty"`
 	From   string `json:"from,omitempty"`
 	Target string `json:"target,omitempty"`
+}
+
+// PublicGender keeps only the male placeholder. Anything else stays empty
+// so older clients and the female art do not grow a new JSON field.
+func PublicGender(raw string) string {
+	if strings.EqualFold(strings.TrimSpace(raw), "male") {
+		return "male"
+	}
+	return ""
 }
 
 func roomInfo() Rooms {

@@ -203,6 +203,34 @@ func (r *MascotRepository) SaveLoadout(ctx context.Context, userID uuid.UUID, ra
 	return nil
 }
 
+// SaveIntro stores the chosen gender and the first time the intro was finished.
+// A later call can change gender. It does not move intro_seen_at.
+func (r *MascotRepository) SaveIntro(ctx context.Context, userID uuid.UUID, gender string, seenAt time.Time) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	if seenAt.IsZero() {
+		seenAt = time.Now().UTC()
+	}
+	res := db.WithContext(ctx).Model(&domain.UserMascot{}).
+		Where("user_id = ?", userID).
+		Updates(map[string]any{
+			"gender":        gender,
+			"intro_seen_at": gorm.Expr("COALESCE(intro_seen_at, ?)", seenAt),
+		})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}
+
 // SaveGlowLevel raises the stored high water. A lower value is not written.
 func (r *MascotRepository) SaveGlowLevel(ctx context.Context, userID uuid.UUID, level int) error {
 	db, err := r.dbOrErr()

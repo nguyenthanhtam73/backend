@@ -42,6 +42,11 @@ type MascotResponse struct {
 	GlowProgress    float64 `json:"glow_progress"`
 	NearLevelUp     bool    `json:"near_level_up"`
 	LevelUp         bool    `json:"level_up"`
+	// Gender is "female" or "male". Female is the drawn art. Male is a
+	// placeholder until product art exists. IntroSeen is true after
+	// POST /api/v1/me/mascot/intro.
+	Gender    string `json:"gender"`
+	IntroSeen bool   `json:"intro_seen"`
 }
 
 // MascotSkinMark is one concern from a check-in. Level is light, medium, or heavy.

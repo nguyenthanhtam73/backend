@@ -224,15 +224,18 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		dashH := NewDashboardHandler(dashSvc)
 		api.Get("/me/dashboard", jwt, dashH.GetSummary)
 
-		mascotH := NewMascotHandler(mascotuc.NewService(
+		mascotSvc := mascotuc.NewService(
 			repository.NewMascotRepository(db),
 			repo,
 			routineRepo,
 			streakRepo,
-		), cfg)
+		)
+		mascotSvc.AttachProfiles(repository.NewSkinProfileRepository(db))
+		mascotH := NewMascotHandler(mascotSvc, cfg)
 		api.Get("/me/mascot", jwt, mascotH.Get)
 		api.Put("/me/mascot/loadout", jwt, mascotH.PutLoadout)
 		api.Post("/me/mascot/glow/seen", jwt, mascotH.AckGlowSeen)
+		api.Post("/me/mascot/intro", jwt, mascotH.SaveIntro)
 
 		// Bé Da shared lobby. In memory only. Same access JWT and the same
 		// features.mascot gate as GET /me. Nothing here is deployed or configured
