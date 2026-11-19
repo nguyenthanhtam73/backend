@@ -13,12 +13,18 @@ import (
 	"github.com/google/uuid"
 )
 
+// skinProfileSource reads the onboarding snapshot for the first face marks.
+type skinProfileSource interface {
+	GetByUserID(ctx context.Context, userID uuid.UUID) (*domain.SkinProfile, error)
+}
+
 // Service reads the mascot and derives mood from check-ins and the routine checklist.
 type Service struct {
 	mascots  *repository.MascotRepository
 	checks   *repository.GormSkinCheckRepository
 	routines *repository.GormRoutineEntryRepository
 	streaks  *repository.GormStreakRepository
+	profiles skinProfileSource
 }
 
 // NewService constructs the mascot service.
@@ -29,6 +35,15 @@ func NewService(
 	streaks *repository.GormStreakRepository,
 ) *Service {
 	return &Service{mascots: mascots, checks: checks, routines: routines, streaks: streaks}
+}
+
+// AttachProfiles lets the first GET fill skin marks from onboarding when
+// the account has no check-in yet. Nil leaves that path off.
+func (s *Service) AttachProfiles(profiles skinProfileSource) {
+	if s == nil {
+		return
+	}
+	s.profiles = profiles
 }
 
 // Get returns the mascot, creating the free default on first read.
@@ -60,6 +75,58 @@ func grantIDs(sources map[string]string) map[string]struct{} {
 		out[id] = struct{}{}
 	}
 	return out
+}
+
+// SaveIntro remembers the gender pick and that the intro page was finished.
+// A second call can change gender. The first intro_seen_at stays put.
+func (s *Service) SaveIntro(ctx context.Context, userID uuid.UUID, gender string) (dto.MascotResponse, error) {
+	var zero dto.MascotResponse
+	if s == nil || s.mascots == nil {
+		return zero, domain.Unavailable("service_unavailable", "mascot unavailable")
+	}
+	if userID == uuid.Nil {
+		return zero, domain.Unauthorized("unauthorized", "missing user")
+	}
+	chosen, ok := domain.NormalizeMascotGender(gender)
+	if !ok {
+		return zero, domain.BadRequest("invalid_gender", "gender must be female or male")
+	}
+	row, err := s.ensureRow(ctx, userID, nil)
+	if err != nil {
+		return zero, err
+	}
+	seen := time.Now().UTC()
+	if row != nil && row.IntroSeenAt != nil {
+		seen = row.IntroSeenAt.UTC()
+	}
+	if err := s.mascots.SaveIntro(ctx, userID, chosen, seen); err != nil {
+		return zero, err
+	}
+	if row != nil {
+		row.Gender = chosen
+		if row.IntroSeenAt == nil {
+			row.IntroSeenAt = &seen
+		}
+	}
+	return s.view(ctx, userID, row)
+}
+
+func shownGender(row *domain.UserMascot) string {
+	if row != nil && row.Gender == domain.MascotGenderMale {
+		return domain.MascotGenderMale
+	}
+	return domain.MascotGenderFemale
+}
+
+func (s *Service) onboardingMarks(ctx context.Context, userID uuid.UUID) []Mark {
+	if s == nil || s.profiles == nil || userID == uuid.Nil {
+		return nil
+	}
+	profile, err := s.profiles.GetByUserID(ctx, userID)
+	if err != nil || profile == nil {
+		return nil
+	}
+	return MarksFromOnboarding(profile.OnboardingSnapshot, profile.Concerns)
 }
 
 // AckGlowSeen sets glow_level_seen to the current level so the celebration shows once.
@@ -207,6 +274,13 @@ func (s *Service) view(ctx context.Context, userID uuid.UUID, row *domain.UserMa
 	}
 
 	derived := Derive(in)
+	// No check-in yet: the onboarding photo read is the first skin result.
+	// Mood stays the derived one. Only the gentle face marks are filled in.
+	if in.Latest == nil {
+		if marks := s.onboardingMarks(ctx, userID); len(marks) > 0 {
+			derived.Marks = marks
+		}
+	}
 	loadout := decodeLoadout(row)
 	sources, err := s.activeGrants(ctx, userID)
 	if err != nil {
@@ -220,6 +294,8 @@ func (s *Service) view(ctx context.Context, userID uuid.UUID, row *domain.UserMa
 	// derived.Marks are the latest check-in only. Glow fields are attached
 	// after that and do not filter skin_marks.
 	out := toResponse(loadout, derived)
+	out.Gender = shownGender(row)
+	out.IntroSeen = row != nil && row.IntroSeenAt != nil
 	out.GlowLevel = glow.Level
 	out.GlowPoints = glow.Points
 	out.NextLevelPoints = glow.Next

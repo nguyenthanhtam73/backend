@@ -73,6 +73,7 @@ func newMascotAppFor(t *testing.T, asAdmin bool) (*fiber.App, *gorm.DB, uuid.UUI
 	app.Get("/api/v1/me/mascot", auth, h.Get)
 	app.Put("/api/v1/me/mascot/loadout", auth, h.PutLoadout)
 	app.Post("/api/v1/me/mascot/glow/seen", auth, h.AckGlowSeen)
+	app.Post("/api/v1/me/mascot/intro", auth, h.SaveIntro)
 	app.Get("/api/v1/me/mascot-open", h.Get)
 	app.Post("/api/v1/me/mascot-open/glow/seen", h.AckGlowSeen)
 	return app, db, u.ID
@@ -514,4 +515,87 @@ func TestMascotSeedsFreeGrantsAndSkipsExpired(t *testing.T) {
 	if loadout["accessory"] != "bow_temp" {
 		t.Fatalf("reward not equipped: %#v", loadout)
 	}
+}
+
+func TestMascotIntroRemembersGenderOnce(t *testing.T) {
+	app, _, _ := newMascotApp(t)
+	status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK {
+		t.Fatalf("get %d %#v", status, env)
+	}
+	data := mascotData(t, env)
+	if data["gender"] != "female" || data["intro_seen"] != false {
+		t.Fatalf("fresh %#v", data)
+	}
+
+	status, env = mascotCall(t, app, http.MethodPost, "/api/v1/me/mascot/intro", `{"gender":"male"}`)
+	if status != http.StatusOK {
+		t.Fatalf("intro %d %#v", status, env)
+	}
+	data = mascotData(t, env)
+	if data["gender"] != "male" || data["intro_seen"] != true {
+		t.Fatalf("saved %#v", data)
+	}
+	seen := data["intro_seen"]
+
+	status, env = mascotCall(t, app, http.MethodPost, "/api/v1/me/mascot/intro", `{"gender":"nope"}`)
+	if status != http.StatusBadRequest || mascotCode(t, env) != "invalid_gender" {
+		t.Fatalf("bad gender %d %#v", status, env)
+	}
+
+	status, env = mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK {
+		t.Fatalf("reread %d %#v", status, env)
+	}
+	data = mascotData(t, env)
+	if data["gender"] != "male" || data["intro_seen"] != seen {
+		t.Fatalf("kept %#v", data)
+	}
+}
+
+func TestMascotFirstSkinMarksFromOnboarding(t *testing.T) {
+	app, db, userID := newMascotApp(t)
+	if err := db.AutoMigrate(&domain.SkinProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"skin_analysis":{"concerns":["acne"],"severity_level":"mild","primary_regions":["cheeks"]}}`)
+	profile := &domain.SkinProfile{UserID: userID, OnboardingSnapshot: raw}
+	if err := repository.NewSkinProfileRepository(db).UpsertForUser(context.Background(), profile); err != nil {
+		t.Fatal(err)
+	}
+	// The shared app's service has no profile reader. Rebuild the handler on the same db.
+	cfg := &config.Config{AdminEmails: []string{"mascot-http@test.com"}}
+	var email string
+	if err := db.Model(&domain.User{}).Where("id = ?", userID).Pluck("email", &email).Error; err != nil {
+		t.Fatal(err)
+	}
+	cfg.AdminEmails = []string{email}
+	svc := mascotuc.NewService(
+		repository.NewMascotRepository(db),
+		repository.NewSkinCheckRepository(db),
+		repository.NewRoutineEntryRepository(db),
+		repository.NewStreakRepository(db),
+	)
+	svc.AttachProfiles(repository.NewSkinProfileRepository(db))
+	h := NewMascotHandler(svc, cfg)
+	gated := fiber.New()
+	auth := func(c *fiber.Ctx) error {
+		c.Locals(middleware.LocalsUserID, userID)
+		c.Locals(middleware.LocalsUserEmail, email)
+		return c.Next()
+	}
+	gated.Get("/api/v1/me/mascot", auth, h.Get)
+	status, env := mascotCall(t, gated, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK {
+		t.Fatalf("get %d %#v", status, env)
+	}
+	marks, _ := mascotData(t, env)["skin_marks"].([]any)
+	if len(marks) != 1 {
+		t.Fatalf("marks %#v", mascotData(t, env)["skin_marks"])
+	}
+	row, _ := marks[0].(map[string]any)
+	if row["id"] != "acne" || row["level"] != "light" {
+		t.Fatalf("mark %#v", row)
+	}
+	_ = app
 }

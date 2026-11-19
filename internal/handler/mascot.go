@@ -11,7 +11,7 @@ import (
 )
 
 // MascotHandler serves GET /api/v1/me/mascot, PUT /api/v1/me/mascot/loadout,
-// and POST /api/v1/me/mascot/glow/seen.
+// POST /api/v1/me/mascot/glow/seen, and POST /api/v1/me/mascot/intro.
 type MascotHandler struct {
 	svc *mascotuc.Service
 	cfg *config.Config
@@ -72,6 +72,29 @@ func (h *MascotHandler) AckGlowSeen(c *fiber.Ctx) error {
 		return nil
 	}
 	view, err := h.svc.AckGlowSeen(c.UserContext(), uid)
+	if err != nil {
+		return writeMascotErr(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, view)
+}
+
+// SaveIntro handles POST /api/v1/me/mascot/intro.
+// Body is {"gender":"female"} or {"gender":"male"}.
+func (h *MascotHandler) SaveIntro(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "mascot unavailable")
+	}
+	uid, ok := h.allow(c)
+	if !ok {
+		return nil
+	}
+	var body struct {
+		Gender string `json:"gender"`
+	}
+	if err := c.BodyParser(&body); err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
+	}
+	view, err := h.svc.SaveIntro(c.UserContext(), uid, body.Gender)
 	if err != nil {
 		return writeMascotErr(c, err)
 	}

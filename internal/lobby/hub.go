@@ -506,6 +506,7 @@ type clientMsg struct {
 	Outfit    string    `json:"outfit"`
 	Hair      string    `json:"hair"`
 	Accessory string    `json:"accessory"`
+	Gender    string    `json:"gender"`
 	X         *float64  `json:"x"`
 	Y         *float64  `json:"y"`
 	Facing    string    `json:"facing"`
@@ -601,7 +602,7 @@ func (h *Hub) joinLocked(c *connState, msg clientMsg) Outcome {
 		}
 		s := &session{
 			id: id, userID: c.userID, conn: c,
-			person: Person{ID: id, Nickname: nick, Outfit: publicOutfit(c, msg.Outfit), Hair: msg.Hair, Accessory: msg.Accessory, X: x, Y: y, Facing: facing, Action: action},
+			person: Person{ID: id, Nickname: nick, Outfit: publicOutfit(c, msg.Outfit), Hair: msg.Hair, Accessory: msg.Accessory, Gender: PublicGender(msg.Gender), X: x, Y: y, Facing: facing, Action: action},
 			hide:   map[string]struct{}{},
 		}
 		if hide != nil {
@@ -633,6 +634,7 @@ func (h *Hub) joinLocked(c *connState, msg clientMsg) Outcome {
 	s.person.Outfit = publicOutfit(c, msg.Outfit)
 	s.person.Hair = msg.Hair
 	s.person.Accessory = msg.Accessory
+	s.person.Gender = PublicGender(msg.Gender)
 	s.person.X = x
 	s.person.Y = y
 	s.person.Facing = facing

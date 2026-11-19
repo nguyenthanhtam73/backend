@@ -2,6 +2,7 @@ package domain
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -131,15 +132,37 @@ func DefaultMascotLoadout() MascotLoadout {
 	}
 }
 
+// Gender values stored on user_mascot. The intro page picks one.
+// Missing or anything else is female, which is the drawn art.
+const (
+	MascotGenderFemale = "female"
+	MascotGenderMale   = "male"
+)
+
+// NormalizeMascotGender accepts only the two intro values.
+func NormalizeMascotGender(raw string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case MascotGenderFemale:
+		return MascotGenderFemale, true
+	case MascotGenderMale:
+		return MascotGenderMale, true
+	default:
+		return "", false
+	}
+}
+
 // UserMascot is one row per account. Mood is not stored; it is derived on read.
 // GlowLevel is the highest glow reached and is only written upward.
 // GlowLevelSeen is the level the client last acknowledged. Default 1 is the
 // starting level, so a new Bé Da does not celebrate.
+// Gender defaults to female. IntroSeenAt is set when the intro page is finished.
 type UserMascot struct {
 	UserID        uuid.UUID       `gorm:"type:uuid;primaryKey" json:"user_id"`
 	Loadout       json.RawMessage `gorm:"type:jsonb;not null" json:"loadout"`
 	GlowLevel     int             `gorm:"not null;default:1" json:"-"`
 	GlowLevelSeen int             `gorm:"not null;default:1" json:"-"`
+	Gender        string          `gorm:"size:16;not null;default:female" json:"-"`
+	IntroSeenAt   *time.Time      `json:"-"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
 
