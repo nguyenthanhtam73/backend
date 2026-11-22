@@ -116,3 +116,34 @@ func TestNotifyNudgeSkipsOfflineTarget(t *testing.T) {
 		t.Fatalf("online nudge %s", got)
 	}
 }
+
+func TestGestureBudgetEvictsStale(t *testing.T) {
+	h, clock := testHub(t)
+	code := "AB23CD"
+	gate := &memberGate{}
+	first := uuid.New()
+	second := uuid.New()
+	gate.allow(code, first, second)
+	h.SetRoomGate(gate)
+	a := &memPeer{}
+	b := &memPeer{}
+	only(t, h.Handle(a, first, roomJoinRaw("Mây", code)))
+	only(t, h.Handle(b, second, roomJoinRaw("Lan", code)))
+	clock.Advance(time.Second)
+	if len(h.Handle(a, first, roomRaw(map[string]any{"op": "cheer"})).Self) != 0 {
+		t.Fatal("cheer replied")
+	}
+	if len(h.gestures) != 1 {
+		t.Fatalf("budgets %d", len(h.gestures))
+	}
+	clock.Advance(2 * time.Minute)
+	if len(h.Handle(b, second, roomRaw(map[string]any{"op": "poke"})).Self) != 0 {
+		t.Fatal("poke replied")
+	}
+	if _, ok := h.gestures[first]; ok {
+		t.Fatal("stale gesture budget kept")
+	}
+	if _, ok := h.gestures[second]; !ok || len(h.gestures) != 1 {
+		t.Fatalf("budgets %#v", h.gestures)
+	}
+}

@@ -127,13 +127,13 @@ func TestNudgeOncePerVietnamDay(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	if _, err := repo.SaveNudge(context.Background(), owner.ID, view.Code, owner.ID, "nope", now); err != ErrNudgeSelf {
+	if _, _, _, err := repo.SaveNudge(context.Background(), owner.ID, view.Code, owner.ID, now, say("nope")); err != ErrNudgeSelf {
 		t.Fatalf("self %v", err)
 	}
-	if _, err := repo.SaveNudge(context.Background(), owner.ID, view.Code, guest.ID, "Lan đang chờ bạn chăm da hôm nay đó 💕", now); err != nil {
+	if _, _, _, err := repo.SaveNudge(context.Background(), owner.ID, view.Code, guest.ID, now, say("Lan đang chờ bạn chăm da hôm nay đó 💕")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.SaveNudge(context.Background(), owner.ID, view.Code, guest.ID, "second", now); err != ErrNudgeAlready {
+	if _, _, _, err := repo.SaveNudge(context.Background(), owner.ID, view.Code, guest.ID, now, say("second")); err != ErrNudgeAlready {
 		t.Fatalf("second %v", err)
 	}
 	if err := db.Create(&domain.RoutineEntry{
@@ -147,12 +147,12 @@ func TestNudgeOncePerVietnamDay(t *testing.T) {
 	if _, err := rooms.Join(context.Background(), be.ID, view.Code); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := repo.SaveNudge(context.Background(), be.ID, view.Code, guest.ID, "late", now); err != ErrNudgeDone {
+	if _, _, _, err := repo.SaveNudge(context.Background(), be.ID, view.Code, guest.ID, now, say("late")); err != ErrNudgeDone {
 		t.Fatalf("done today %v", err)
 	}
 	other := questUser(t, db, "An")
 	// other is not in the room
-	if _, err := repo.SaveNudge(context.Background(), owner.ID, view.Code, other.ID, "x", now); err != ErrNudgeTarget {
+	if _, _, _, err := repo.SaveNudge(context.Background(), owner.ID, view.Code, other.ID, now, say("x")); err != ErrNudgeTarget {
 		t.Fatalf("stranger %v", err)
 	}
 }
@@ -193,7 +193,7 @@ func TestCareDayUsesVietnamDate(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
-	loaded, err := repo.Load(context.Background(), owner.ID, view.Code, earlyNext)
+	loaded, err := repo.Load(context.Background(), owner.ID, view.Code, earlyNext, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,14 +293,21 @@ func TestClaimGraceAfterRoomEnds(t *testing.T) {
 		}
 	}
 	inside := end.Add(3 * 24 * time.Hour)
-	if _, err := repo.Load(context.Background(), owner.ID, view.Code, inside); !errors.Is(err, ErrMascotRoomEnded) {
-		t.Fatalf("board after end %v", err)
+	quest, err := repo.Load(context.Background(), owner.ID, view.Code, inside, true)
+	if err != nil || len(quest.Members) != 1 || len(quest.Checked[owner.ID]) != 5 {
+		t.Fatalf("quest during grace %+v %v", quest.Checked, err)
+	}
+	if _, err := repo.Load(context.Background(), owner.ID, view.Code, inside, false); !errors.Is(err, ErrMascotRoomEnded) {
+		t.Fatalf("nudge during grace %v", err)
 	}
 	got, err := repo.Claim(context.Background(), owner.ID, view.Code, 5, inside)
 	if err != nil || got.Already || got.Coins != 40 {
 		t.Fatalf("grace claim %+v %v", got, err)
 	}
 	past := inside.Add(time.Second)
+	if _, err := repo.Load(context.Background(), owner.ID, view.Code, past, true); !errors.Is(err, ErrMascotRoomEnded) {
+		t.Fatalf("quest after grace %v", err)
+	}
 	if _, err := repo.Claim(context.Background(), owner.ID, view.Code, 15, past); !errors.Is(err, ErrQuestChestsExpired) || err.Error() != "Phòng đã kết thúc, rương hết hạn" {
 		t.Fatalf("expired %v", err)
 	}
@@ -348,4 +355,8 @@ func questUser(t *testing.T, db *gorm.DB, name string) *domain.User {
 		t.Fatal(err)
 	}
 	return user
+}
+
+func say(msg string) func(string, string) string {
+	return func(string, string) string { return msg }
 }

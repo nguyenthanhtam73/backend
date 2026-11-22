@@ -65,7 +65,7 @@ func (s *Service) clock() time.Time {
 // State is the progress bar and which chests this member can open.
 func (s *Service) State(ctx context.Context, userID uuid.UUID, code string) (dto.RoomQuestResponse, error) {
 	var zero dto.RoomQuestResponse
-	loaded, err := s.repo.Load(ctx, userID, code, s.clock())
+	loaded, err := s.repo.Load(ctx, userID, code, s.clock(), true)
 	if err != nil {
 		return zero, err
 	}
@@ -76,7 +76,7 @@ func (s *Service) State(ctx context.Context, userID uuid.UUID, code string) (dto
 func (s *Service) Today(ctx context.Context, userID uuid.UUID, code string) (dto.RoomTodayResponse, error) {
 	var zero dto.RoomTodayResponse
 	now := s.clock()
-	loaded, err := s.repo.Load(ctx, userID, code, now)
+	loaded, err := s.repo.Load(ctx, userID, code, now, true)
 	if err != nil {
 		return zero, err
 	}
@@ -124,32 +124,16 @@ func (s *Service) Claim(ctx context.Context, userID uuid.UUID, code string, memb
 func (s *Service) Nudge(ctx context.Context, userID uuid.UUID, code string, target uuid.UUID) (dto.RoomNudgeResponse, error) {
 	var zero dto.RoomNudgeResponse
 	now := s.clock()
-	loaded, err := s.repo.Load(ctx, userID, code, now)
+	roomCode, vnDate, message, err := s.repo.SaveNudge(ctx, userID, code, target, now, func(display, nick string) string {
+		return NudgeMessage(display, nick, userID, target, streaktime.DateOf(now).Format("2006-01-02"))
+	})
 	if err != nil {
 		return zero, err
 	}
-	var sender repository.SharedMember
-	found := false
-	for _, member := range loaded.Members {
-		if member.UserID == userID {
-			sender = member
-			found = true
-			break
-		}
+	if vnDate == "" {
+		vnDate = streaktime.DateOf(now).Format("2006-01-02")
 	}
-	if !found {
-		return zero, repository.ErrMascotRoomNotMember
-	}
-	vnDate := streaktime.DateOf(now).Format("2006-01-02")
-	message := NudgeMessage(sender.DisplayName, sender.Nickname, userID, target, vnDate)
-	savedDate, err := s.repo.SaveNudge(ctx, userID, loaded.Code, target, message, now)
-	if err != nil {
-		return zero, err
-	}
-	if savedDate != "" {
-		vnDate = savedDate
-	}
-	pushStatus := s.deliverNudge(ctx, loaded.Code, userID, target, message)
+	pushStatus := s.deliverNudge(ctx, roomCode, userID, target, message)
 	return dto.RoomNudgeResponse{
 		UserID:  target.String(),
 		Message: message,
