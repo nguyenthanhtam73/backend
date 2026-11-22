@@ -126,6 +126,8 @@ func writeQuestErr(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusBadRequest, "bad_code", "invite code is not valid")
 	case errors.Is(err, repository.ErrMascotRoomEnded):
 		return response.Error(c, fiber.StatusConflict, "room_ended", "this room has ended")
+	case errors.Is(err, repository.ErrQuestChestsExpired):
+		return response.Error(c, fiber.StatusConflict, "chests_expired", repository.ErrQuestChestsExpired.Error())
 	case errors.Is(err, repository.ErrMascotRoomNotMember):
 		return response.Error(c, fiber.StatusForbidden, "not_a_member", "not a room member")
 	case errors.Is(err, repository.ErrQuestUnknownChest):

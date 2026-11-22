@@ -775,8 +775,8 @@ func (h *Hub) emoteLocked(c *connState, msg clientMsg) Outcome {
 		s.person.Action = "heart"
 	case OpCheer:
 		s.person.Action = "cheer"
-	case OpHug:
-		s.person.Action = "hug"
+	case OpPoke:
+		s.person.Action = "poke"
 	default:
 		s.person.Action = "compliment"
 	}
@@ -1157,7 +1157,7 @@ func filterEvents(ev []Event, self string, hide map[string]struct{}) []Event {
 
 func aimedAt(e Event, self string) bool {
 	switch e.Op {
-	case OpWave, OpHeart, OpCheer, OpHug, OpNudge:
+	case OpWave, OpHeart, OpCheer, OpPoke, OpNudge:
 		return e.Target == "" || e.Target == self
 	case OpCompliment:
 		return e.Target == self

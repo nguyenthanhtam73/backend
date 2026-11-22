@@ -77,7 +77,7 @@ const (
 
 	// GestureMinInterval is the smallest gap between room gestures for one
 	// account. GesturePerMinute is the cap inside a rolling minute.
-	// wave, heart, cheer, and hug spend this budget. A frame over the cap
+	// wave, heart, cheer, and poke spend this budget. A frame over the cap
 	// is rate_limited and is not broadcast.
 	GestureMinInterval = 2 * time.Second
 	GesturePerMinute   = 20
@@ -90,7 +90,7 @@ const (
 	OpWave       = "wave"
 	OpHeart      = "heart"
 	OpCheer      = "cheer"
-	OpHug        = "hug"
+	OpPoke       = "poke"
 	OpCompliment = "compliment"
 	OpSwitch     = "switch"
 	OpHide       = "hide"
@@ -166,7 +166,7 @@ type Rooms struct {
 }
 
 // Event is one thing that happened since the previous tick.
-// join and leave use id. wave, heart, cheer, hug, and compliment use from
+// join and leave use id. wave, heart, cheer, poke, and compliment use from
 // and target. nudge adds message, the server-chosen sentence. Presence
 // frames still omit email, photo, level, and points.
 type Event struct {

@@ -139,7 +139,7 @@ func (h *Hub) roomOpLocked(c *connState, msg clientMsg) Outcome {
 	switch msg.Op {
 	case OpMoveTo:
 		return h.moveLocked(c, msg)
-	case OpWave, OpHeart, OpCheer, OpHug:
+	case OpWave, OpHeart, OpCheer, OpPoke:
 		return h.gestureLocked(c, msg)
 	case OpCompliment:
 		return h.emoteLocked(c, msg)
@@ -166,7 +166,7 @@ func (h *Hub) gestureLocked(c *connState, msg clientMsg) Outcome {
 		return h.err(ChannelRoom, CodeNotJoined)
 	}
 	switch msg.Op {
-	case OpWave, OpHeart, OpCheer, OpHug:
+	case OpWave, OpHeart, OpCheer, OpPoke:
 	default:
 		return h.err(ChannelRoom, CodeBadMessage)
 	}
@@ -216,9 +216,9 @@ func (h *Hub) allowGestureLocked(userID uuid.UUID) bool {
 	return true
 }
 
-// NotifyNudge queues a nudge for the next room tick.
-// from and target are session ids when that account is in the live room.
-// The message is the only text. An empty room has nobody to tell.
+// NotifyNudge queues a nudge for the next room tick when the nudged member
+// has an open socket in this room. An offline member is not broadcast; push
+// already covers them. An empty target would be delivered to the whole room.
 func (h *Hub) NotifyNudge(code string, fromUser, toUser uuid.UUID, message string) {
 	if h == nil || message == "" {
 		return
@@ -237,9 +237,11 @@ func (h *Hub) NotifyNudge(code string, fromUser, toUser uuid.UUID, message strin
 	if s := h.byUser[fromUser]; s != nil && s.roomCode == code {
 		ev.From = s.id
 	}
-	if s := h.byUser[toUser]; s != nil && s.roomCode == code {
-		ev.Target = s.id
+	target := h.byUser[toUser]
+	if target == nil || target.roomCode != code || target.conn == nil || target.conn.peer == nil {
+		return
 	}
+	ev.Target = target.id
 	h.pushEvent(room, ev)
 }
 

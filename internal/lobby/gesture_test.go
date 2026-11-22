@@ -26,7 +26,7 @@ func TestRoomGestureWhitelistAndRate(t *testing.T) {
 		t.Fatal("cheer should not reply to the sender")
 	}
 	clock.Advance(500 * time.Millisecond)
-	limited := only(t, h.Handle(peer, user, roomRaw(map[string]any{"op": "hug"})))
+	limited := only(t, h.Handle(peer, user, roomRaw(map[string]any{"op": "poke"})))
 	if !strings.Contains(string(limited), `"code":"rate_limited"`) {
 		t.Fatalf("second gesture %s", limited)
 	}
@@ -35,7 +35,7 @@ func TestRoomGestureWhitelistAndRate(t *testing.T) {
 	otherPeer.drain()
 	h.Flush()
 	tick := string(otherPeer.last())
-	if !strings.Contains(tick, `"op":"cheer"`) || strings.Contains(tick, `"op":"hug"`) {
+	if !strings.Contains(tick, `"op":"cheer"`) || strings.Contains(tick, `"op":"poke"`) {
 		t.Fatalf("tick %s", tick)
 	}
 	if strings.Contains(tick, user.String()) {
@@ -43,7 +43,7 @@ func TestRoomGestureWhitelistAndRate(t *testing.T) {
 	}
 
 	clock.Advance(2 * time.Second)
-	bad := only(t, h.Handle(peer, user, []byte(`{"v":1,"channel":"room","op":"hug","text":"xin chào"}`)))
+	bad := only(t, h.Handle(peer, user, []byte(`{"v":1,"channel":"room","op":"poke","text":"xin chào"}`)))
 	if !strings.Contains(string(bad), `"code":"bad_message"`) {
 		t.Fatalf("free text %s", bad)
 	}
@@ -52,13 +52,13 @@ func TestRoomGestureWhitelistAndRate(t *testing.T) {
 		t.Fatalf("unknown gesture %s", dance)
 	}
 
-	// 19 more accepted hugs, 2s apart, then the next one in the same minute fails.
+	// 19 more accepted pokes, 2s apart, then the next one in the same minute fails.
 	accepted := 1 // the cheer above
 	for i := 0; i < 19; i++ {
 		clock.Advance(2 * time.Second)
-		out := h.Handle(peer, user, roomRaw(map[string]any{"op": "hug"}))
+		out := h.Handle(peer, user, roomRaw(map[string]any{"op": "poke"}))
 		if len(out.Self) != 0 {
-			t.Fatalf("hug %d replied %s", i, out.Self[0])
+			t.Fatalf("poke %d replied %s", i, out.Self[0])
 		}
 		accepted++
 	}
@@ -82,5 +82,37 @@ func TestRoomGestureWhitelistAndRate(t *testing.T) {
 	}
 	if strings.Contains(nudge, user.String()) || strings.Contains(nudge, other.String()) {
 		t.Fatal("nudge tick leaked an account id")
+	}
+}
+
+func TestNotifyNudgeSkipsOfflineTarget(t *testing.T) {
+	h, _ := testHub(t)
+	code := "AB23CD"
+	gate := &memberGate{}
+	sender := uuid.New()
+	offline := uuid.New()
+	gate.allow(code, sender, offline)
+	h.SetRoomGate(gate)
+	peer := &memPeer{}
+	only(t, h.Handle(peer, sender, roomJoinRaw("Mây", code)))
+	h.Flush()
+	peer.drain()
+
+	h.NotifyNudge(code, sender, offline, "Lan đang chờ bạn chăm da hôm nay đó 💕")
+	h.Flush()
+	if strings.Contains(string(peer.last()), `"op":"nudge"`) {
+		t.Fatalf("offline nudge reached the room %s", peer.last())
+	}
+
+	target := &memPeer{}
+	only(t, h.Handle(target, offline, roomJoinRaw("Lan", code)))
+	h.Flush()
+	peer.drain()
+	target.drain()
+	h.NotifyNudge(code, sender, offline, "Lan đang chờ bạn chăm da hôm nay đó 💕")
+	h.Flush()
+	got := string(target.last())
+	if !strings.Contains(got, `"op":"nudge"`) || !strings.Contains(got, `"target":`) {
+		t.Fatalf("online nudge %s", got)
 	}
 }

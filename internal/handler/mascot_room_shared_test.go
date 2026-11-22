@@ -54,6 +54,14 @@ func TestRoomSharedGateQuestBoardNudge(t *testing.T) {
 	if status != http.StatusNotFound || roomCodeOf(t, body) != "not_found" {
 		t.Fatalf("web nudge %d %s", status, body)
 	}
+	status, body = sharedCall(t, http.MethodGet, base+lobby.Route, webTok, "", nil)
+	if status != http.StatusNotFound || roomCodeOf(t, body) != "not_found" {
+		t.Fatalf("web gesture socket %d %s", status, body)
+	}
+	status, body = sharedCall(t, http.MethodGet, base+lobby.Route, webTok, "", map[string]string{"X-DaDiary-Client": "web"})
+	if status != http.StatusNotFound || roomCodeOf(t, body) != "not_found" {
+		t.Fatalf("web client header %d %s", status, body)
+	}
 
 	android := map[string]string{"X-DaDiary-Client": "android-app"}
 	status, body = sharedCall(t, http.MethodPost, base+"/mascot/rooms", memberTok, "", android)
@@ -288,6 +296,7 @@ func startSharedRoom(t *testing.T) sharedEnv {
 	h := NewMascotRoomHandler(repo, cfg, hub, nil)
 	h.AttachQuest(quest)
 	h.Register(app.Group("/api/v1"), jwt)
+	NewLobbyHandler(hub, tok, cfg, lookup).Register(app.Group("/api/v1"))
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

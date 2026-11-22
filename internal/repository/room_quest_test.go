@@ -3,6 +3,9 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -202,6 +205,104 @@ func TestCareDayUsesVietnamDate(t *testing.T) {
 	}
 	if streaktime.DateOf(loaded.Checked[owner.ID][0]).Format("2006-01-02") != "2026-11-03" {
 		t.Fatalf("checked day %s", loaded.Checked[owner.ID][0])
+	}
+}
+
+func TestClaimRequiresOwnDay(t *testing.T) {
+	db := openQuestDB(t)
+	owner := questUser(t, db, "Lan")
+	late := questUser(t, db, "Mây")
+	repo := NewRoomQuestRepository(db)
+	rooms := NewMascotRoomRepository(db)
+	view, err := rooms.Create(context.Background(), owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
+	end := start.Add(8 * 24 * time.Hour)
+	if err := db.Model(&domain.MascotRoom{}).Where("code = ?", view.Code).Updates(map[string]any{
+		"created_at": start, "ends_at": end,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&domain.MascotRoomMember{}).Where("user_id = ?", owner.ID).Update("joined_at", start).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if err := db.Create(&domain.SkinCheck{
+			UserID: owner.ID, ImageURLs: json.RawMessage(`[]`),
+			CheckDate: time.Date(2026, 11, 1+i, 0, 0, 0, 0, time.UTC),
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Create(&domain.MascotRoomMember{
+		RoomCode: view.Code,
+		UserID:   late.ID,
+		JoinedAt: time.Date(2026, 11, 6, 5, 0, 0, 0, time.UTC),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 6, 6, 0, 0, 0, time.UTC)
+	if _, err := repo.Claim(context.Background(), late.ID, view.Code, 5, now); !errors.Is(err, ErrQuestChestClosed) {
+		t.Fatalf("late joiner %v", err)
+	}
+	got, err := repo.Claim(context.Background(), owner.ID, view.Code, 5, now)
+	if err != nil || got.Already || got.Balance != 40 {
+		t.Fatalf("owner %+v %v", got, err)
+	}
+	var room domain.MascotRoom
+	if err := db.Where("code = ?", view.Code).Take(&room).Error; err != nil {
+		t.Fatal(err)
+	}
+	var ledger domain.UserCoinLedger
+	if err := db.Where("user_id = ?", owner.ID).Take(&ledger).Error; err != nil {
+		t.Fatal(err)
+	}
+	suffix := fmt.Sprintf(":%d", room.CreatedAt.UTC().UnixNano())
+	if !strings.HasSuffix(ledger.ID, suffix) || !strings.Contains(ledger.ID, view.Code) {
+		t.Fatalf("ledger id %s, want suffix %s", ledger.ID, suffix)
+	}
+}
+
+func TestClaimGraceAfterRoomEnds(t *testing.T) {
+	db := openQuestDB(t)
+	owner := questUser(t, db, "Lan")
+	repo := NewRoomQuestRepository(db)
+	rooms := NewMascotRoomRepository(db)
+	view, err := rooms.Create(context.Background(), owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 11, 1, 3, 0, 0, 0, time.UTC)
+	end := start.Add(8 * 24 * time.Hour)
+	if err := db.Model(&domain.MascotRoom{}).Where("code = ?", view.Code).Updates(map[string]any{
+		"created_at": start, "ends_at": end,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&domain.MascotRoomMember{}).Where("user_id = ?", owner.ID).Update("joined_at", start).Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 5; i++ {
+		if err := db.Create(&domain.SkinCheck{
+			UserID: owner.ID, ImageURLs: json.RawMessage(`[]`),
+			CheckDate: time.Date(2026, 11, 1+i, 0, 0, 0, 0, time.UTC),
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	inside := end.Add(3 * 24 * time.Hour)
+	if _, err := repo.Load(context.Background(), owner.ID, view.Code, inside); !errors.Is(err, ErrMascotRoomEnded) {
+		t.Fatalf("board after end %v", err)
+	}
+	got, err := repo.Claim(context.Background(), owner.ID, view.Code, 5, inside)
+	if err != nil || got.Already || got.Coins != 40 {
+		t.Fatalf("grace claim %+v %v", got, err)
+	}
+	past := inside.Add(time.Second)
+	if _, err := repo.Claim(context.Background(), owner.ID, view.Code, 15, past); !errors.Is(err, ErrQuestChestsExpired) || err.Error() != "Phòng đã kết thúc, rương hết hạn" {
+		t.Fatalf("expired %v", err)
 	}
 }
 
