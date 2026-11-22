@@ -85,6 +85,7 @@ type Hub struct {
 	gate       RoomGate
 	saveNick   func(context.Context, uuid.UUID, string, string) error
 	careFn     func(context.Context, []uuid.UUID) map[uuid.UUID]int
+	gestures   map[uuid.UUID]*gestureBudget
 	lastCounts []Count
 
 	in       atomic.Uint64
@@ -184,6 +185,7 @@ func NewHub(cfg Config) *Hub {
 		byID:       map[string]*session{},
 		byUser:     map[uuid.UUID]*session{},
 		rooms:      map[string]*hall{},
+		gestures:   map[uuid.UUID]*gestureBudget{},
 	}
 }
 
@@ -771,6 +773,10 @@ func (h *Hub) emoteLocked(c *connState, msg clientMsg) Outcome {
 		s.person.Action = "wave"
 	case OpHeart:
 		s.person.Action = "heart"
+	case OpCheer:
+		s.person.Action = "cheer"
+	case OpHug:
+		s.person.Action = "hug"
 	default:
 		s.person.Action = "compliment"
 	}
@@ -1151,7 +1157,7 @@ func filterEvents(ev []Event, self string, hide map[string]struct{}) []Event {
 
 func aimedAt(e Event, self string) bool {
 	switch e.Op {
-	case OpWave, OpHeart:
+	case OpWave, OpHeart, OpCheer, OpHug, OpNudge:
 		return e.Target == "" || e.Target == self
 	case OpCompliment:
 		return e.Target == self

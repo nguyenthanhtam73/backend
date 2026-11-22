@@ -300,6 +300,9 @@ func (r *MascotRoomRepository) Leave(ctx context.Context, userID uuid.UUID, rawC
 			if err := tx.Where("room_code = ?", code).Delete(&domain.MascotRoomActiveSeat{}).Error; err != nil {
 				return err
 			}
+			if err := deleteRoomSharedRows(tx, []string{code}); err != nil {
+				return err
+			}
 			return tx.Where("code = ?", code).Delete(&domain.MascotRoom{}).Error
 		}
 		return nil

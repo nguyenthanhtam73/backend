@@ -103,6 +103,9 @@ func deletePersonalRows(tx *gorm.DB, userID uuid.UUID, hard bool) error {
 		if err := deleteOwnedMascotRooms(tx, userID); err != nil {
 			return err
 		}
+		if err := deleteUserRoomSharedRows(tx, userID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -119,6 +122,9 @@ func deleteOwnedMascotRooms(tx *gorm.DB, userID uuid.UUID) error {
 			return err
 		}
 		if len(codes) > 0 {
+			if err := deleteRoomSharedRows(tx, codes); err != nil {
+				return err
+			}
 			if err := tx.Where("room_code IN ?", codes).Delete(&domain.MascotRoomMember{}).Error; err != nil {
 				return err
 			}

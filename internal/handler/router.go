@@ -40,6 +40,7 @@ import (
 	reminderprefsuc "github.com/dadiary/backend/internal/usecase/reminderprefs"
 	resendhookuc "github.com/dadiary/backend/internal/usecase/resendhook"
 	"github.com/dadiary/backend/internal/usecase/roomcare"
+	"github.com/dadiary/backend/internal/usecase/roomquest"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	streakuc "github.com/dadiary/backend/internal/usecase/streak"
@@ -240,6 +241,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// Bé Da shared lobby. In memory only. Same access JWT and the same
 		// features.mascot gate as GET /me. Nothing here is deployed or configured
 		// outside this process.
+		var questSvc *roomquest.Service
 		if tok != nil {
 			lobbyHub := lobby.NewHub(lobby.Config{})
 			lobbyHub.Start()
@@ -252,7 +254,10 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			care := roomcare.NewCache(routineRepo)
 			lobbyHub.SetRoomGate(newMascotRoomGate(roomRepo))
 			lobbyHub.SetRoomCare(roomRepo.SaveNickname, care.Refresh)
-			NewMascotRoomHandler(roomRepo, cfg, lobbyHub, care).Register(api, jwt)
+			questSvc = roomquest.NewService(repository.NewRoomQuestRepository(db), lobbyHub)
+			roomH := NewMascotRoomHandler(roomRepo, cfg, lobbyHub, care)
+			roomH.AttachQuest(questSvc)
+			roomH.Register(api, jwt)
 		}
 
 		reminderFlags := repository.NewCheckInReminderRepository(db)
@@ -418,6 +423,9 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// Skin-check + streak repos power reminder filters (checked-in today / at risk).
 		pushReceipts := repository.NewPushSendReceiptRepository(db)
 		pushSvc := pushuc.NewService(pushRepo, pushSender, repo, streakRepo, pushReceipts)
+		if questSvc != nil {
+			questSvc.SetPush(pushSvc)
+		}
 		checkinreminderuc.AttachFromConfig(reminderSvc, cfg, db, pushSvc)
 		pushH := NewPushSubscriptionHandler(pushSvc)
 		api.Post("/me/push/subscribe", jwt, pushH.Subscribe)

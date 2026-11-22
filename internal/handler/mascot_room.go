@@ -12,6 +12,7 @@ import (
 	"github.com/dadiary/backend/internal/middleware"
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/usecase/roomcare"
+	"github.com/dadiary/backend/internal/usecase/roomquest"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/dadiary/backend/pkg/usermsg"
 	"github.com/gofiber/fiber/v2"
@@ -28,10 +29,11 @@ type liveRooms interface {
 // MascotRoomHandler is the REST API for an 8-person invite room.
 // Members leave themselves. The creator cannot kick, ban, or remove anyone.
 type MascotRoomHandler struct {
-	repo *repository.MascotRoomRepository
-	cfg  *config.Config
-	live liveRooms
-	care *roomcare.Cache
+	repo  *repository.MascotRoomRepository
+	cfg   *config.Config
+	live  liveRooms
+	care  *roomcare.Cache
+	quest *roomquest.Service
 }
 
 // NewMascotRoomHandler constructs the room routes.
@@ -51,6 +53,10 @@ func (h *MascotRoomHandler) Register(r fiber.Router, jwt fiber.Handler) {
 	r.Post("/mascot/rooms", jwt, middleware.AILimiter(mascotRoomCreatesPerMinute, time.Minute), h.Create)
 	r.Get("/mascot/rooms/mine", jwt, h.Mine)
 	r.Get("/mascot/rooms/:code/board", jwt, h.Board)
+	r.Get("/mascot/rooms/:code/quest", jwt, h.Quest)
+	r.Post("/mascot/rooms/:code/quest/claim", jwt, h.Claim)
+	r.Get("/mascot/rooms/:code/today", jwt, h.Today)
+	r.Post("/mascot/rooms/:code/nudge", jwt, h.Nudge)
 	r.Get("/mascot/rooms/:code", jwt, h.Get)
 	r.Post("/mascot/rooms/:code/join", jwt, h.Join)
 	r.Post("/mascot/rooms/:code/leave", jwt, h.Leave)

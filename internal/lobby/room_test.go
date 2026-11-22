@@ -220,7 +220,8 @@ func TestRoomJoinOpsRateGraceAndFull(t *testing.T) {
 		t.Fatalf("events %+v", tick.Events)
 	}
 	// peers[3] hid firstHello, so a wave aimed at peers[3] from firstHello is dropped.
-	clock.Advance(time.Second)
+	// Room gestures are one per 2s, so this wave waits out that gap.
+	clock.Advance(2 * time.Second)
 	h.Handle(peers[0], users[0], roomRaw(map[string]any{"op": "wave", "target": sessionID(t, h, peers[3])}))
 	peers[3].drain()
 	h.Flush()
