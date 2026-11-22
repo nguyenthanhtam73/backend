@@ -111,6 +111,19 @@ func (s *Service) SaveIntro(ctx context.Context, userID uuid.UUID, gender string
 	return s.view(ctx, userID, row)
 }
 
+// ResetIntro clears intro_seen_at so the Nam/Nữ intro shows again.
+// Gender and every other column stay. A missing row is still success:
+// nothing is inserted, and the intro has not been seen.
+func (s *Service) ResetIntro(ctx context.Context, userID uuid.UUID) error {
+	if s == nil || s.mascots == nil {
+		return domain.Unavailable("service_unavailable", "mascot unavailable")
+	}
+	if userID == uuid.Nil {
+		return domain.Unauthorized("unauthorized", "missing user")
+	}
+	return s.mascots.ClearIntroSeen(ctx, userID)
+}
+
 func shownGender(row *domain.UserMascot) string {
 	if row != nil && row.Gender == domain.MascotGenderMale {
 		return domain.MascotGenderMale

@@ -37,3 +37,13 @@ func mascotOpenFor(c *fiber.Ctx, cfg *config.Config, email string) bool {
 func mascotOpen(c *fiber.Ctx, cfg *config.Config) bool {
 	return mascotOpenFor(c, cfg, middleware.UserEmailFromLocals(c))
 }
+
+// mascotAdmin reports the full-admin allow-list (DADIARY_ADMIN_EMAILS).
+// The Android trial header is ignored: resetting the intro stays admin-only
+// on every client, including when Bé Da is open to everyone else.
+func mascotAdmin(c *fiber.Ctx, cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	return cfg.IsAdminEmail(middleware.UserEmailFromLocals(c))
+}

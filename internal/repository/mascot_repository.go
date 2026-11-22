@@ -231,6 +231,23 @@ func (r *MascotRepository) SaveIntro(ctx context.Context, userID uuid.UUID, gend
 	return nil
 }
 
+// ClearIntroSeen sets intro_seen_at to NULL. Gender and the rest of the row stay.
+// A missing row is success: there is no intro to forget, and no row is created.
+func (r *MascotRepository) ClearIntroSeen(ctx context.Context, userID uuid.UUID) error {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return err
+	}
+	if userID == uuid.Nil {
+		return fmt.Errorf("user id required")
+	}
+	return db.WithContext(ctx).Model(&domain.UserMascot{}).
+		Where("user_id = ?", userID).
+		Updates(map[string]any{
+			"intro_seen_at": gorm.Expr("NULL"),
+		}).Error
+}
+
 // SaveGlowLevel raises the stored high water. A lower value is not written.
 func (r *MascotRepository) SaveGlowLevel(ctx context.Context, userID uuid.UUID, level int) error {
 	db, err := r.dbOrErr()

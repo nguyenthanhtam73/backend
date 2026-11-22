@@ -3,6 +3,7 @@ package handler
 import (
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
 	mascotuc "github.com/dadiary/backend/internal/usecase/mascot"
 	"github.com/dadiary/backend/pkg/response"
@@ -11,7 +12,8 @@ import (
 )
 
 // MascotHandler serves GET /api/v1/me/mascot, PUT /api/v1/me/mascot/loadout,
-// POST /api/v1/me/mascot/glow/seen, and POST /api/v1/me/mascot/intro.
+// POST /api/v1/me/mascot/glow/seen, POST /api/v1/me/mascot/intro, and
+// DELETE /api/v1/me/mascot/intro.
 type MascotHandler struct {
 	svc *mascotuc.Service
 	cfg *config.Config
@@ -39,6 +41,26 @@ func (h *MascotHandler) allow(c *fiber.Ctx) (uuid.UUID, bool) {
 		cfg = h.cfg
 	}
 	if mascotOpen(c, cfg) {
+		return uid, true
+	}
+	_ = response.Error(c, fiber.StatusNotFound, "not_found", "not found")
+	return uuid.Nil, false
+}
+
+// allowAdmin is the intro-reset gate. A signed-in admin may continue.
+// Anyone else, including the Android trial client, gets 404 so the route
+// stays hidden. The email was already loaded by RequireAccessJWT.
+func (h *MascotHandler) allowAdmin(c *fiber.Ctx) (uuid.UUID, bool) {
+	uid := middleware.UserIDFromLocals(c)
+	if uid == uuid.Nil {
+		_ = response.Error(c, fiber.StatusUnauthorized, "unauthorized", "missing user")
+		return uuid.Nil, false
+	}
+	var cfg *config.Config
+	if h != nil {
+		cfg = h.cfg
+	}
+	if mascotAdmin(c, cfg) {
 		return uid, true
 	}
 	_ = response.Error(c, fiber.StatusNotFound, "not_found", "not found")
@@ -99,6 +121,23 @@ func (h *MascotHandler) SaveIntro(c *fiber.Ctx) error {
 		return writeMascotErr(c, err)
 	}
 	return response.JSON(c, fiber.StatusOK, view)
+}
+
+// ResetIntro handles DELETE /api/v1/me/mascot/intro.
+// It clears the caller's intro_seen_at so the Nam/Nữ picker shows again.
+// Gender and the rest of the row stay. No row is created when there is none.
+func (h *MascotHandler) ResetIntro(c *fiber.Ctx) error {
+	if h == nil || h.svc == nil {
+		return response.Error(c, fiber.StatusServiceUnavailable, "service_unavailable", "mascot unavailable")
+	}
+	uid, ok := h.allowAdmin(c)
+	if !ok {
+		return nil
+	}
+	if err := h.svc.ResetIntro(c.UserContext(), uid); err != nil {
+		return writeMascotErr(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, dto.MascotIntroReset{IntroSeen: false})
 }
 
 // PutLoadout handles PUT /api/v1/me/mascot/loadout.
