@@ -80,16 +80,23 @@ func (r *RoomQuestRepository) dbOrErr() (*gorm.DB, error) {
 	return r.db, nil
 }
 
-// Load reads an active room the caller still belongs to.
-func (r *RoomQuestRepository) Load(ctx context.Context, userID uuid.UUID, rawCode string, now time.Time) (SharedRoom, error) {
+// Load reads a room the caller still belongs to.
+// grace is true for the quest bar and the today board: they stay readable
+// for three days after ends_at, then return ErrMascotRoomEnded.
+// grace is false for actions that stop when the room ends.
+func (r *RoomQuestRepository) Load(ctx context.Context, userID uuid.UUID, rawCode string, now time.Time, grace bool) (SharedRoom, error) {
 	var zero SharedRoom
 	db, err := r.dbOrErr()
 	if err != nil {
 		return zero, err
 	}
+	access := accessLive
+	if grace {
+		access = accessRead
+	}
 	var out SharedRoom
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		loaded, err := loadSharedRoom(tx, userID, rawCode, now, false)
+		loaded, err := loadSharedRoom(tx, userID, rawCode, now, access)
 		if err != nil {
 			return err
 		}
@@ -116,7 +123,7 @@ func (r *RoomQuestRepository) Claim(ctx context.Context, userID uuid.UUID, rawCo
 	}
 	var out QuestClaimResult
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		loaded, err := loadSharedRoom(tx, userID, rawCode, now, true)
+		loaded, err := loadSharedRoom(tx, userID, rawCode, now, accessClaim)
 		if err != nil {
 			return err
 		}
@@ -179,31 +186,37 @@ func (r *RoomQuestRepository) Claim(ctx context.Context, userID uuid.UUID, rawCo
 	return out, nil
 }
 
-// SaveNudge stores one nudge. The message is already chosen by the caller.
-// A second nudge for the same sender, target, and Vietnam date returns
-// ErrNudgeAlready and does not write again.
-func (r *RoomQuestRepository) SaveNudge(ctx context.Context, userID uuid.UUID, rawCode string, target uuid.UUID, message string, now time.Time) (string, error) {
+// SaveNudge stores one nudge after a single room read.
+// text builds the server sentence from the sender's name. A second nudge for
+// the same sender, target, and Vietnam date returns ErrNudgeAlready and does
+// not write again. The room must still be active.
+func (r *RoomQuestRepository) SaveNudge(ctx context.Context, userID uuid.UUID, rawCode string, target uuid.UUID, now time.Time, text func(displayName, nickname string) string) (code, vnDate, message string, err error) {
 	db, err := r.dbOrErr()
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
 	if userID == uuid.Nil || target == uuid.Nil {
-		return "", fmt.Errorf("user id required")
+		return "", "", "", fmt.Errorf("user id required")
 	}
 	if userID == target {
-		return "", ErrNudgeSelf
+		return "", "", "", ErrNudgeSelf
 	}
-	var vnDate string
+	if text == nil {
+		return "", "", "", fmt.Errorf("nudge text required")
+	}
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		loaded, err := loadSharedRoom(tx, userID, rawCode, now, false)
+		loaded, err := loadSharedRoom(tx, userID, rawCode, now, accessLive)
 		if err != nil {
 			return err
 		}
 		var member *SharedMember
+		var sender SharedMember
 		for i := range loaded.Members {
 			if loaded.Members[i].UserID == target {
 				member = &loaded.Members[i]
-				break
+			}
+			if loaded.Members[i].UserID == userID {
+				sender = loaded.Members[i]
 			}
 		}
 		if member == nil {
@@ -214,6 +227,8 @@ func (r *RoomQuestRepository) SaveNudge(ctx context.Context, userID uuid.UUID, r
 			return ErrNudgeDone
 		}
 		vnDate = streaktime.DateOf(now).Format("2006-01-02")
+		message = text(sender.DisplayName, sender.Nickname)
+		code = loaded.Code
 		row := domain.MascotRoomNudge{
 			RoomCode:     loaded.Code,
 			SenderUserID: userID,
@@ -240,9 +255,9 @@ func (r *RoomQuestRepository) SaveNudge(ctx context.Context, userID uuid.UUID, r
 		return nil
 	})
 	if err != nil {
-		return "", err
+		return "", "", "", err
 	}
-	return vnDate, nil
+	return code, vnDate, message, nil
 }
 
 func joinedAtOf(members []SharedMember, userID uuid.UUID) time.Time {
@@ -262,7 +277,7 @@ func spansOf(members []SharedMember) []roomday.MemberSpan {
 	return out
 }
 
-func loadSharedRoom(tx *gorm.DB, userID uuid.UUID, rawCode string, now time.Time, claimGrace bool) (SharedRoom, error) {
+func loadSharedRoom(tx *gorm.DB, userID uuid.UUID, rawCode string, now time.Time, access roomAccess) (SharedRoom, error) {
 	var zero SharedRoom
 	code, ok := lobby.NormalizeRoomCode(rawCode)
 	if !ok {
@@ -279,12 +294,19 @@ func loadSharedRoom(tx *gorm.DB, userID uuid.UUID, rawCode string, now time.Time
 	if err != nil {
 		return zero, err
 	}
-	if claimGrace {
-		if err := claimWindow(room, now); err != nil {
+	switch access {
+	case accessClaim:
+		if err := openFor(room, now, true); err != nil {
 			return zero, err
 		}
-	} else if !roomIsActive(room, now.UTC()) {
-		return zero, ErrMascotRoomEnded
+	case accessRead:
+		if err := openFor(room, now, false); err != nil {
+			return zero, err
+		}
+	default:
+		if !roomIsActive(room, now.UTC()) {
+			return zero, ErrMascotRoomEnded
+		}
 	}
 	var rows []domain.MascotRoomMember
 	if err := tx.Where("room_code = ?", code).Order("joined_at ASC, user_id ASC").Find(&rows).Error; err != nil {
@@ -357,21 +379,29 @@ func loadSharedRoom(tx *gorm.DB, userID uuid.UUID, rawCode string, now time.Time
 	}, nil
 }
 
-// claimWindow allows a chest while the room is active and for three days
-// after ends_at. Later than that, the chests are closed for good.
-func claimWindow(room domain.MascotRoom, now time.Time) error {
+type roomAccess int
+
+const (
+	accessLive roomAccess = iota
+	accessRead
+	accessClaim
+)
+
+// openFor allows the room while it is active and for three days after ends_at.
+// Past that, a claim reports the chest expiry and a read reports the room ended.
+func openFor(room domain.MascotRoom, now time.Time, claim bool) error {
 	end := effectiveEndsAt(room)
 	if end.IsZero() {
 		return ErrMascotRoomEnded
 	}
 	now = now.UTC()
-	if end.After(now) {
+	if end.After(now) || !now.After(end.Add(questClaimGrace)) {
 		return nil
 	}
-	if now.After(end.Add(questClaimGrace)) {
+	if claim {
 		return ErrQuestChestsExpired
 	}
-	return nil
+	return ErrMascotRoomEnded
 }
 
 func lookOf(row domain.UserMascot) (domain.MascotLoadout, string) {

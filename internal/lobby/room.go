@@ -191,6 +191,7 @@ func (h *Hub) allowGestureLocked(userID uuid.UUID) bool {
 		h.gestures = map[uuid.UUID]*gestureBudget{}
 	}
 	now := h.clock.Now()
+	h.evictGesturesLocked(now)
 	budget := h.gestures[userID]
 	if budget == nil {
 		budget = &gestureBudget{}
@@ -214,6 +215,21 @@ func (h *Hub) allowGestureLocked(userID uuid.UUID) bool {
 	budget.last = now
 	budget.hits = append(budget.hits, now)
 	return true
+}
+
+// evictGesturesLocked drops accounts whose last gesture is outside the
+// rolling minute. The map is per process and would otherwise keep every
+// account that ever waved.
+func (h *Hub) evictGesturesLocked(now time.Time) {
+	if h == nil {
+		return
+	}
+	cutoff := now.Add(-time.Minute)
+	for id, budget := range h.gestures {
+		if budget == nil || !budget.last.After(cutoff) {
+			delete(h.gestures, id)
+		}
+	}
 }
 
 // NotifyNudge queues a nudge for the next room tick when the nudged member
