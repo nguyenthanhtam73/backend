@@ -44,9 +44,16 @@ type MascotResponse struct {
 	LevelUp         bool    `json:"level_up"`
 	// Gender is "female" or "male". Female is the drawn art. Male is a
 	// placeholder until product art exists. IntroSeen is true after
-	// POST /api/v1/me/mascot/intro.
+	// POST /api/v1/me/mascot/intro, and false again after an admin
+	// DELETE /api/v1/me/mascot/intro.
 	Gender    string `json:"gender"`
 	IntroSeen bool   `json:"intro_seen"`
+}
+
+// MascotIntroReset is DELETE /api/v1/me/mascot/intro.
+// IntroSeen is false once the caller's intro_seen_at has been cleared.
+type MascotIntroReset struct {
+	IntroSeen bool `json:"intro_seen"`
 }
 
 // MascotSkinMark is one concern from a check-in. Level is light, medium, or heavy.

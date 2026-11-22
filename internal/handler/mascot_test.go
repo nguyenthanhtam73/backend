@@ -74,8 +74,10 @@ func newMascotAppFor(t *testing.T, asAdmin bool) (*fiber.App, *gorm.DB, uuid.UUI
 	app.Put("/api/v1/me/mascot/loadout", auth, h.PutLoadout)
 	app.Post("/api/v1/me/mascot/glow/seen", auth, h.AckGlowSeen)
 	app.Post("/api/v1/me/mascot/intro", auth, h.SaveIntro)
+	app.Delete("/api/v1/me/mascot/intro", auth, h.ResetIntro)
 	app.Get("/api/v1/me/mascot-open", h.Get)
 	app.Post("/api/v1/me/mascot-open/glow/seen", h.AckGlowSeen)
+	app.Delete("/api/v1/me/mascot-open/intro", h.ResetIntro)
 	return app, db, u.ID
 }
 
@@ -551,6 +553,138 @@ func TestMascotIntroRemembersGenderOnce(t *testing.T) {
 	if data["gender"] != "male" || data["intro_seen"] != seen {
 		t.Fatalf("kept %#v", data)
 	}
+}
+
+func TestMascotResetIntroAdminClearsSeenAndKeepsGender(t *testing.T) {
+	app, db, userID := newMascotApp(t)
+
+	status, env := mascotCall(t, app, http.MethodDelete, "/api/v1/me/mascot-open/intro", "")
+	if status != http.StatusUnauthorized || mascotCode(t, env) != "unauthorized" {
+		t.Fatalf("open %d %#v", status, env)
+	}
+
+	status, env = mascotCall(t, app, http.MethodDelete, "/api/v1/me/mascot/intro", "")
+	if status != http.StatusOK {
+		t.Fatalf("missing row %d %#v", status, env)
+	}
+	data := mascotData(t, env)
+	if data["intro_seen"] != false || len(data) != 1 {
+		t.Fatalf("missing body %#v", data)
+	}
+	var rows int64
+	if err := db.Model(&domain.UserMascot{}).Count(&rows).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("missing reset created %d rows", rows)
+	}
+
+	status, env = mascotCall(t, app, http.MethodPost, "/api/v1/me/mascot/intro", `{"gender":"male"}`)
+	if status != http.StatusOK {
+		t.Fatalf("intro %d %#v", status, env)
+	}
+	before := mascotStored(t, db, userID)
+	if before.Gender != domain.MascotGenderMale || before.IntroSeenAt == nil {
+		t.Fatalf("before %+v", before)
+	}
+	status, env = mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK {
+		t.Fatalf("seen get %d %#v", status, env)
+	}
+	seen := mascotData(t, env)
+	if seen["gender"] != "male" || seen["intro_seen"] != true {
+		t.Fatalf("seen %#v", seen)
+	}
+
+	status, env = mascotCallHeader(t, app, http.MethodDelete, "/api/v1/me/mascot/intro", "", map[string]string{
+		"X-DaDiary-Client": "android-app",
+	})
+	if status != http.StatusOK {
+		t.Fatalf("reset %d %#v", status, env)
+	}
+	data = mascotData(t, env)
+	if data["intro_seen"] != false || len(data) != 1 {
+		t.Fatalf("reset body %#v", data)
+	}
+	status, env = mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK {
+		t.Fatalf("after get %d %#v", status, env)
+	}
+	afterView := mascotData(t, env)
+	if afterView["intro_seen"] != false || afterView["gender"] != "male" {
+		t.Fatalf("after %#v", afterView)
+	}
+	if afterView["glow_level"] != seen["glow_level"] || afterView["loadout"] == nil {
+		t.Fatalf("view changed %#v", afterView)
+	}
+	after := mascotStored(t, db, userID)
+	if after.IntroSeenAt != nil || after.Gender != domain.MascotGenderMale {
+		t.Fatalf("stored %+v", after)
+	}
+	if string(after.Loadout) != string(before.Loadout) || after.GlowLevel != before.GlowLevel || after.GlowLevelSeen != before.GlowLevelSeen {
+		t.Fatalf("other columns changed before=%+v after=%+v", before, after)
+	}
+
+	status, env = mascotCall(t, app, http.MethodDelete, "/api/v1/me/mascot/intro", "")
+	if status != http.StatusOK {
+		t.Fatalf("second reset %d %#v", status, env)
+	}
+	if mascotData(t, env)["intro_seen"] != false {
+		t.Fatalf("second body %#v", env)
+	}
+	again := mascotStored(t, db, userID)
+	if again.IntroSeenAt != nil || again.Gender != domain.MascotGenderMale || string(again.Loadout) != string(before.Loadout) {
+		t.Fatalf("second stored %+v", again)
+	}
+	status, env = mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK || mascotData(t, env)["intro_seen"] != false || mascotData(t, env)["gender"] != "male" {
+		t.Fatalf("second get %d %#v", status, env)
+	}
+}
+
+func TestMascotResetIntroHiddenFromNonAdmin(t *testing.T) {
+	app, db, userID := newMascotAppFor(t, false)
+	seen := time.Now().UTC()
+	loadout, err := json.Marshal(domain.DefaultMascotLoadout())
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := &domain.UserMascot{
+		UserID:        userID,
+		Loadout:       loadout,
+		GlowLevel:     2,
+		GlowLevelSeen: 1,
+		Gender:        domain.MascotGenderMale,
+		IntroSeenAt:   &seen,
+	}
+	if err := db.Omit("User").Create(row).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	status, env := mascotCall(t, app, http.MethodDelete, "/api/v1/me/mascot/intro", "")
+	if status != http.StatusNotFound || mascotCode(t, env) != "not_found" {
+		t.Fatalf("non-admin %d %#v", status, env)
+	}
+	status, env = mascotCallHeader(t, app, http.MethodDelete, "/api/v1/me/mascot/intro", "", map[string]string{
+		"X-DaDiary-Client": "android-app",
+	})
+	if status != http.StatusNotFound || mascotCode(t, env) != "not_found" {
+		t.Fatalf("trial header %d %#v", status, env)
+	}
+
+	got := mascotStored(t, db, userID)
+	if got.IntroSeenAt == nil || got.Gender != domain.MascotGenderMale || got.GlowLevel != 2 || string(got.Loadout) != string(loadout) {
+		t.Fatalf("row changed %+v", got)
+	}
+}
+
+func mascotStored(t *testing.T, db *gorm.DB, userID uuid.UUID) domain.UserMascot {
+	t.Helper()
+	var row domain.UserMascot
+	if err := db.Where("user_id = ?", userID).First(&row).Error; err != nil {
+		t.Fatal(err)
+	}
+	return row
 }
 
 func TestMascotFirstSkinMarksFromOnboarding(t *testing.T) {
