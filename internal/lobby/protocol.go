@@ -74,6 +74,13 @@ const (
 	RoomCodeLen      = 6
 	RoomCodeAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	RoomInviteURL    = "https://dadiary.vn/be-da/phong/{code}"
+
+	// GestureMinInterval is the smallest gap between room gestures for one
+	// account. GesturePerMinute is the cap inside a rolling minute.
+	// wave, heart, cheer, and poke spend this budget. A frame over the cap
+	// is rate_limited and is not broadcast.
+	GestureMinInterval = 2 * time.Second
+	GesturePerMinute   = 20
 )
 
 // Client ops.
@@ -82,10 +89,13 @@ const (
 	OpMoveTo     = "move-to"
 	OpWave       = "wave"
 	OpHeart      = "heart"
+	OpCheer      = "cheer"
+	OpPoke       = "poke"
 	OpCompliment = "compliment"
 	OpSwitch     = "switch"
 	OpHide       = "hide"
 	OpLeave      = "leave"
+	OpNudge      = "nudge"
 )
 
 // Server ops.
@@ -156,12 +166,15 @@ type Rooms struct {
 }
 
 // Event is one thing that happened since the previous tick.
-// join and leave use id. wave, heart, and compliment use from and target.
+// join and leave use id. wave, heart, cheer, poke, and compliment use from
+// and target. nudge adds message, the server-chosen sentence. Presence
+// frames still omit email, photo, level, and points.
 type Event struct {
-	Op     string `json:"op"`
-	ID     string `json:"id,omitempty"`
-	From   string `json:"from,omitempty"`
-	Target string `json:"target,omitempty"`
+	Op      string `json:"op"`
+	ID      string `json:"id,omitempty"`
+	From    string `json:"from,omitempty"`
+	Target  string `json:"target,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 // PublicGender keeps only the male placeholder. Anything else stays empty

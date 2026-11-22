@@ -139,7 +139,9 @@ func (h *Hub) roomOpLocked(c *connState, msg clientMsg) Outcome {
 	switch msg.Op {
 	case OpMoveTo:
 		return h.moveLocked(c, msg)
-	case OpWave, OpHeart, OpCompliment:
+	case OpWave, OpHeart, OpCheer, OpPoke:
+		return h.gestureLocked(c, msg)
+	case OpCompliment:
 		return h.emoteLocked(c, msg)
 	case OpHide:
 		return h.hideLocked(c, msg)
@@ -148,6 +150,99 @@ func (h *Hub) roomOpLocked(c *connState, msg clientMsg) Outcome {
 	default:
 		return h.err(ChannelRoom, CodeBadMessage)
 	}
+}
+
+// gestureBudget is one account's accepted room gestures.
+type gestureBudget struct {
+	last time.Time
+	hits []time.Time
+}
+
+// gestureLocked broadcasts a whitelisted room gesture.
+// A frame inside 2s of the previous one, or past 20 in a rolling minute,
+// is rate_limited and is not applied. A bad target does not spend the budget.
+func (h *Hub) gestureLocked(c *connState, msg clientMsg) Outcome {
+	if c == nil || c.session == nil || c.session.roomCode == "" {
+		return h.err(ChannelRoom, CodeNotJoined)
+	}
+	switch msg.Op {
+	case OpWave, OpHeart, OpCheer, OpPoke:
+	default:
+		return h.err(ChannelRoom, CodeBadMessage)
+	}
+	if msg.Target != "" {
+		if !validSessionID(msg.Target) {
+			return h.err(ChannelRoom, CodeUnknownTarget)
+		}
+		other := h.byID[msg.Target]
+		if other == nil || !samePlace(other, c.session) {
+			return h.err(ChannelRoom, CodeUnknownTarget)
+		}
+	}
+	if !h.allowGestureLocked(c.userID) {
+		h.limited.Add(1)
+		return h.err(ChannelRoom, CodeRateLimited)
+	}
+	return h.emoteLocked(c, msg)
+}
+
+func (h *Hub) allowGestureLocked(userID uuid.UUID) bool {
+	if h.gestures == nil {
+		h.gestures = map[uuid.UUID]*gestureBudget{}
+	}
+	now := h.clock.Now()
+	budget := h.gestures[userID]
+	if budget == nil {
+		budget = &gestureBudget{}
+		h.gestures[userID] = budget
+	}
+	cutoff := now.Add(-time.Minute)
+	n := 0
+	for _, ts := range budget.hits {
+		if ts.After(cutoff) {
+			budget.hits[n] = ts
+			n++
+		}
+	}
+	budget.hits = budget.hits[:n]
+	if !budget.last.IsZero() && now.Sub(budget.last) < GestureMinInterval {
+		return false
+	}
+	if len(budget.hits) >= GesturePerMinute {
+		return false
+	}
+	budget.last = now
+	budget.hits = append(budget.hits, now)
+	return true
+}
+
+// NotifyNudge queues a nudge for the next room tick when the nudged member
+// has an open socket in this room. An offline member is not broadcast; push
+// already covers them. An empty target would be delivered to the whole room.
+func (h *Hub) NotifyNudge(code string, fromUser, toUser uuid.UUID, message string) {
+	if h == nil || message == "" {
+		return
+	}
+	code, ok := NormalizeRoomCode(code)
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room := h.rooms[code]
+	if room == nil {
+		return
+	}
+	ev := Event{Op: OpNudge, Message: message}
+	if s := h.byUser[fromUser]; s != nil && s.roomCode == code {
+		ev.From = s.id
+	}
+	target := h.byUser[toUser]
+	if target == nil || target.roomCode != code || target.conn == nil || target.conn.peer == nil {
+		return
+	}
+	ev.Target = target.id
+	h.pushEvent(room, ev)
 }
 
 func (h *Hub) joinRoomLocked(c *connState, msg clientMsg, code string, gateErr error) Outcome {
