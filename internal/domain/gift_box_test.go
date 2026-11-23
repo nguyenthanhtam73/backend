@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -15,24 +16,28 @@ func TestLeafGiftBoxCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(prizes) != 16 {
+	if len(prizes) != 20 {
 		t.Fatalf("prizes %d", len(prizes))
 	}
 	items := map[string]GiftItem{}
-	sets := 0
-	acc := 0
+	sets, acc, coins := 0, 0, 0
 	for _, prize := range prizes {
-		if prize.Kind == GiftKindSet {
+		switch prize.Kind {
+		case GiftKindSet:
 			sets++
-		} else {
+		case GiftKindAccessory:
 			acc++
+		case GiftKindCoins:
+			coins++
+		default:
+			t.Fatalf("kind %s", prize.Kind)
 		}
 		for _, item := range prize.Items {
 			items[item.ID] = item
 		}
 	}
-	if sets != 8 || acc != 8 || len(items) != 24 {
-		t.Fatalf("sets %d accessories %d items %d", sets, acc, len(items))
+	if sets != 8 || acc != 8 || coins != 4 || len(items) != 24 {
+		t.Fatalf("sets %d accessories %d coins %d items %d", sets, acc, coins, len(items))
 	}
 	clip := items[TreeItemClipLeaf]
 	if clip.ArtID != GiftPrizeClipLeaf || clip.Slot != MascotLayerHairAcc || !clip.Legacy {
@@ -70,19 +75,24 @@ func TestGiftRatesSplitEvenly(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := map[string]struct {
-		n, each, coins int
+		n, each, dupe, band int
 	}{
-		GiftRarityCommon: {10, 890, 8},
-		GiftRarityRare:   {4, 250, 88},
-		GiftRarityUltra:  {2, 50, 188},
+		GiftRarityCommon: {10, 440, 8, 4400},
+		GiftRarityRare:   {4, 125, 88, 500},
+		GiftRarityUltra:  {2, 50, 188, 100},
 	}
 	got := map[string]int{}
+	bandSum := map[string]int{}
 	sum := 0
 	for _, prize := range prizes {
 		got[prize.Rarity]++
 		sum += prize.WeightBps
+		bandSum[prize.Rarity] += prize.WeightBps
+		if prize.Kind == GiftKindCoins {
+			continue
+		}
 		band := want[prize.Rarity]
-		if prize.WeightBps != band.each || prize.DupeCoins != band.coins {
+		if prize.WeightBps != band.each || prize.DupeCoins != band.dupe || prize.Coins != 0 {
 			t.Fatalf("prize %+v", prize)
 		}
 	}
@@ -90,9 +100,31 @@ func TestGiftRatesSplitEvenly(t *testing.T) {
 		t.Fatalf("sum %d", sum)
 	}
 	for key, band := range want {
-		if got[key] != band.n {
-			t.Fatalf("%s count %d", key, got[key])
+		if got[key] != band.n || bandSum[key] != band.band {
+			t.Fatalf("%s count %d sum %d", key, got[key], bandSum[key])
 		}
+	}
+	coinWant := map[string]struct{ weight, coins int }{
+		"coins_8":  {2000, 8},
+		"coins_18": {1500, 18},
+		"coins_28": {1000, 28},
+		"coins_88": {500, 88},
+	}
+	if got[GiftRarityCoins] != len(coinWant) || bandSum[GiftRarityCoins] != 5000 {
+		t.Fatalf("xu count %d sum %d", got[GiftRarityCoins], bandSum[GiftRarityCoins])
+	}
+	for _, prize := range prizes {
+		if prize.Kind != GiftKindCoins {
+			continue
+		}
+		want := coinWant[prize.ID]
+		if prize.WeightBps != want.weight || prize.Coins != want.coins || prize.DupeCoins != 0 || prize.Name != fmt.Sprintf("%d xu", want.coins) {
+			t.Fatalf("xu prize %+v", prize)
+		}
+		delete(coinWant, prize.ID)
+	}
+	if len(coinWant) != 0 {
+		t.Fatalf("missing xu prizes %#v", coinWant)
 	}
 }
 
@@ -203,6 +235,47 @@ func TestResolveGiftGrant(t *testing.T) {
 	dupeRare := ResolveGiftGrant(rare, map[string]struct{}{rare.Items[0].ID: {}, rare.Items[1].ID: {}})
 	if dupeRare.DupeCoins != 88 {
 		t.Fatalf("rare dupe %+v", dupeRare)
+	}
+	var xu GiftPrize
+	for _, prize := range prizes {
+		if prize.ID == "coins_88" {
+			xu = prize
+		}
+	}
+	paid := ResolveGiftGrant(xu, map[string]struct{}{TreeItemClipLeaf: {}})
+	if paid.Duplicate || paid.Partial || paid.DupeCoins != 0 || paid.Coins != 88 || len(paid.GrantIDs) != 0 {
+		t.Fatalf("xu prize %+v", paid)
+	}
+}
+
+func TestCoinRatesAreSharedAcrossTrees(t *testing.T) {
+	leaf, err := WeightedPrizes(leafGiftBox())
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := leafGiftBox()
+	other.TreeType = "cherry"
+	for i := range other.Prizes {
+		other.Prizes[i].ID = "cherry_" + other.Prizes[i].ID
+		for j := range other.Prizes[i].Items {
+			other.Prizes[i].Items[j].ID = "cherry_" + other.Prizes[i].Items[j].ID
+		}
+	}
+	got, err := WeightedPrizes(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := GiftCoinPrizes()
+	if len(leaf) < len(shared) || len(got) < len(shared) {
+		t.Fatal("short prize list")
+	}
+	for i, prize := range shared {
+		if leaf[i].ID != prize.ID || leaf[i].WeightBps != prize.WeightBps || leaf[i].Coins != prize.Coins {
+			t.Fatalf("leaf xu %+v", leaf[i])
+		}
+		if got[i].ID != prize.ID || got[i].WeightBps != prize.WeightBps || got[i].Coins != prize.Coins {
+			t.Fatalf("other tree copied a different xu table %+v", got[i])
+		}
 	}
 }
 

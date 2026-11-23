@@ -47,6 +47,7 @@ type GiftOpen struct {
 	Duplicate bool
 	Partial   bool
 	DupeCoins int
+	Coins     int
 	Balance   int64
 }
 
@@ -181,9 +182,10 @@ func rollGiftBox(tx *gorm.DB, box domain.TreeGiftBox, now time.Time) (GiftOpen, 
 			return GiftOpen{}, err
 		}
 	}
-	if grant.DupeCoins > 0 {
+	pay, reason := giftPayout(grant)
+	if pay > 0 {
 		key := "giftbox:" + box.ID.String()
-		if _, err := creditCoins(tx, box.UserID, int64(grant.DupeCoins), key, domain.CoinReasonGiftBoxDupe, now); err != nil {
+		if _, err := creditCoins(tx, box.UserID, int64(pay), key, reason, now); err != nil {
 			return GiftOpen{}, err
 		}
 	}
@@ -195,6 +197,7 @@ func rollGiftBox(tx *gorm.DB, box domain.TreeGiftBox, now time.Time) (GiftOpen, 
 			"prize_id":         prize.ID,
 			"granted_item_ids": strings.Join(grant.GrantIDs, ","),
 			"dupe_coins":       grant.DupeCoins,
+			"prize_coins":      grant.Coins,
 		})
 	if res.Error != nil {
 		return GiftOpen{}, res.Error
@@ -206,6 +209,7 @@ func rollGiftBox(tx *gorm.DB, box domain.TreeGiftBox, now time.Time) (GiftOpen, 
 	box.PrizeID = prize.ID
 	box.GrantedItemIDs = strings.Join(grant.GrantIDs, ",")
 	box.DupeCoins = grant.DupeCoins
+	box.PrizeCoins = grant.Coins
 	balance, err := coinBalance(tx, box.UserID)
 	if err != nil {
 		return GiftOpen{}, err
@@ -213,8 +217,21 @@ func rollGiftBox(tx *gorm.DB, box domain.TreeGiftBox, now time.Time) (GiftOpen, 
 	return GiftOpen{
 		Box: box, Prize: prize, Granted: grantedGiftItems(prize, grant.GrantIDs),
 		Duplicate: grant.Duplicate, Partial: grant.Partial, DupeCoins: grant.DupeCoins,
-		Balance: balance,
+		Coins: grant.Coins, Balance: balance,
 	}, nil
+}
+
+// giftPayout is the single xu credit for this open. A coins prize and a
+// duplicate refund cannot both apply. The ledger id is the box id, so a
+// replay does not pay again.
+func giftPayout(grant domain.GiftGrant) (int, string) {
+	if grant.Coins > 0 {
+		return grant.Coins, domain.CoinReasonGiftBoxCoins
+	}
+	if grant.DupeCoins > 0 {
+		return grant.DupeCoins, domain.CoinReasonGiftBoxDupe
+	}
+	return 0, ""
 }
 
 func giftOpenFromBox(tx *gorm.DB, box domain.TreeGiftBox, already bool) (GiftOpen, error) {
@@ -242,6 +259,17 @@ func giftOpenFromBox(tx *gorm.DB, box domain.TreeGiftBox, already bool) (GiftOpe
 	balance, err := coinBalance(tx, box.UserID)
 	if err != nil {
 		return GiftOpen{}, err
+	}
+	if prize.Kind == domain.GiftKindCoins {
+		coins := box.PrizeCoins
+		if coins == 0 {
+			coins = prize.Coins
+		}
+		prize.Coins = coins
+		return GiftOpen{
+			Already: already, Box: box, Prize: prize, Granted: []domain.GiftItem{},
+			Coins: coins, Balance: balance,
+		}, nil
 	}
 	itemCount := len(prize.Items)
 	return GiftOpen{

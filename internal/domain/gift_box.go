@@ -11,26 +11,31 @@ import (
 
 // Gift box for a shared room tree. Opening one box yields exactly one prize.
 // A set prize grants the top and the bottom together. An accessory prize
-// grants that one piece. Rates do not move with the number of opens.
+// grants that one piece. A coins prize pays xu straight into the wallet.
+// Rates do not move with the number of opens.
 //
 // Leaf ships now. The other five trees (cherry, aloe, sunflower, dandelion,
-// quynh) are another GiftBoxDef in GiftBoxes, using the same GiftTierRates.
-// Sen hồng is not part of this set. Boxes are not sold.
+// quynh) are another GiftBoxDef in GiftBoxes. Every tree uses GiftTierRates
+// and GiftCoinPrizes, one shared table. Sen hồng is not part of this set.
+// Boxes are not sold.
 
 const (
 	GiftKindSet       = "set"
 	GiftKindAccessory = "accessory"
+	GiftKindCoins     = "coins"
 
+	GiftRarityCoins  = "coins"
 	GiftRarityCommon = "thuong"
 	GiftRarityRare   = "hiem"
 	GiftRarityUltra  = "sieu"
 
 	// GiftRollSpan is the denominator for every prize weight.
-	// 890 weight units is 8.9 percent.
 	GiftRollSpan = 10000
 
-	// CoinReasonGiftBoxDupe is the ledger reason when a box prize is already owned.
+	// CoinReasonGiftBoxDupe is the ledger reason when an item prize is already owned.
 	CoinReasonGiftBoxDupe = "gift_box_dupe"
+	// CoinReasonGiftBoxCoins is the ledger reason when the prize itself is xu.
+	CoinReasonGiftBoxCoins = "gift_box_coins"
 
 	// GiftBoxArtLeaf is the design folder for the leaf box (tree type "leaf").
 	GiftBoxArtLeaf = "la_xanh"
@@ -41,22 +46,52 @@ const (
 	GiftPrizeClipLeaf = "acc_kep_toc_la_xanh"
 )
 
-// GiftTierRate is one rarity band. WeightBps is the band's share of GiftRollSpan.
-// The band is split evenly across the prizes of that rarity.
+// GiftTierRate is one band of the shared table. WeightBps is the band's share
+// of GiftRollSpan. Each is the weight of one item prize in that band.
+// The coins band is not split evenly; GiftCoinPrizes lists those weights.
 type GiftTierRate struct {
 	Key       string
 	Name      string
 	WeightBps int
+	Each      int
 	DupeCoins int
 }
 
-// GiftTierRates is the fixed rate table for every tree box.
+// GiftTierRates is the one rate table for every tree box.
+// Item duplicate refunds stay 8 / 88 / 188. Xu prizes are not duplicates.
 func GiftTierRates() []GiftTierRate {
 	return []GiftTierRate{
-		{Key: GiftRarityCommon, Name: "Thường", WeightBps: 8900, DupeCoins: 8},
-		{Key: GiftRarityRare, Name: "Hiếm", WeightBps: 1000, DupeCoins: 88},
-		{Key: GiftRarityUltra, Name: "Siêu hiếm", WeightBps: 100, DupeCoins: 188},
+		{Key: GiftRarityCoins, Name: "Xu", WeightBps: 5000},
+		{Key: GiftRarityCommon, Name: "Thường", WeightBps: 4400, Each: 440, DupeCoins: 8},
+		{Key: GiftRarityRare, Name: "Hiếm", WeightBps: 500, Each: 125, DupeCoins: 88},
+		{Key: GiftRarityUltra, Name: "Siêu hiếm", WeightBps: 100, Each: 50, DupeCoins: 188},
 	}
+}
+
+// GiftCoinPrizes is the shared xu outcomes. The same four rows are appended
+// to every tree. They are not copied into each tree's prize list.
+func GiftCoinPrizes() []GiftPrize {
+	rows := []struct {
+		coins  int
+		weight int
+	}{
+		{8, 2000},
+		{18, 1500},
+		{28, 1000},
+		{88, 500},
+	}
+	out := make([]GiftPrize, len(rows))
+	for i, row := range rows {
+		out[i] = GiftPrize{
+			ID:        fmt.Sprintf("coins_%d", row.coins),
+			Name:      fmt.Sprintf("%d xu", row.coins),
+			Rarity:    GiftRarityCoins,
+			Kind:      GiftKindCoins,
+			WeightBps: row.weight,
+			Coins:     row.coins,
+		}
+	}
+	return out
 }
 
 // GiftItem is one wardrobe piece inside a prize.
@@ -71,7 +106,9 @@ type GiftItem struct {
 	Legacy bool
 }
 
-// GiftPrize is one of the 16 outcomes.
+// GiftPrize is one outcome. Item prizes are the tree's 16 wardrobe results.
+// Coins prizes are the shared xu results from GiftCoinPrizes. Coins is the
+// xu paid when Kind is coins. A coins prize is never a duplicate.
 type GiftPrize struct {
 	ID        string
 	Name      string
@@ -80,6 +117,7 @@ type GiftPrize struct {
 	Items     []GiftItem
 	WeightBps int
 	DupeCoins int
+	Coins     int
 }
 
 // GiftBoxDef is one tree's box. Prizes are listed in rate-table order.
@@ -123,14 +161,15 @@ func ApplyGiftBoxStage(treeType string, stage TreeStage) TreeStage {
 	return stage
 }
 
-// WeightedPrizes copies the box prizes and fills each weight from GiftTierRates.
-// A band that does not split evenly across its prizes is an error.
+// WeightedPrizes copies the tree's item prizes, fills each weight from the
+// shared item bands, and appends GiftCoinPrizes in front. The result always
+// sums to GiftRollSpan. A tree whose item counts do not match the bands fails.
 func WeightedPrizes(def GiftBoxDef) ([]GiftPrize, error) {
 	rates := GiftTierRates()
 	byKey := make(map[string]GiftTierRate, len(rates))
 	total := 0
 	for _, rate := range rates {
-		if rate.Key == "" || rate.WeightBps <= 0 || rate.DupeCoins <= 0 {
+		if rate.Key == "" || rate.WeightBps <= 0 {
 			return nil, fmt.Errorf("gift tier %q is incomplete", rate.Key)
 		}
 		if _, dup := byKey[rate.Key]; dup {
@@ -142,25 +181,43 @@ func WeightedPrizes(def GiftBoxDef) ([]GiftPrize, error) {
 	if total != GiftRollSpan {
 		return nil, fmt.Errorf("gift tier weights sum to %d", total)
 	}
+	coins := GiftCoinPrizes()
+	coinSum := 0
+	seen := map[string]struct{}{}
+	for _, prize := range coins {
+		if prize.Kind != GiftKindCoins || prize.Coins <= 0 || prize.WeightBps <= 0 || prize.DupeCoins != 0 {
+			return nil, fmt.Errorf("xu prize %s is incomplete", prize.ID)
+		}
+		if _, dup := seen[prize.ID]; dup {
+			return nil, fmt.Errorf("duplicate gift prize %s", prize.ID)
+		}
+		seen[prize.ID] = struct{}{}
+		coinSum += prize.WeightBps
+	}
+	if coinSum != byKey[GiftRarityCoins].WeightBps {
+		return nil, fmt.Errorf("xu prizes sum to %d", coinSum)
+	}
 	counts := map[string]int{}
 	for _, prize := range def.Prizes {
 		counts[prize.Rarity]++
 	}
 	for _, rate := range rates {
+		if rate.Key == GiftRarityCoins {
+			continue
+		}
 		n := counts[rate.Key]
-		if n == 0 || rate.WeightBps%n != 0 {
-			return nil, fmt.Errorf("tier %s weight %d does not split across %d prizes", rate.Key, rate.WeightBps, n)
+		if rate.Each <= 0 || n == 0 || n*rate.Each != rate.WeightBps {
+			return nil, fmt.Errorf("tier %s weight %d does not match %d prizes of %d", rate.Key, rate.WeightBps, n, rate.Each)
 		}
 	}
-	out := make([]GiftPrize, len(def.Prizes))
-	seen := map[string]struct{}{}
+	items := make([]GiftPrize, len(def.Prizes))
 	for i, prize := range def.Prizes {
 		if _, dup := seen[prize.ID]; dup {
 			return nil, fmt.Errorf("duplicate gift prize %s", prize.ID)
 		}
 		seen[prize.ID] = struct{}{}
 		rate, ok := byKey[prize.Rarity]
-		if !ok {
+		if !ok || rate.Key == GiftRarityCoins {
 			return nil, fmt.Errorf("prize %s has unknown rarity %s", prize.ID, prize.Rarity)
 		}
 		switch prize.Kind {
@@ -175,16 +232,27 @@ func WeightedPrizes(def GiftBoxDef) ([]GiftPrize, error) {
 		default:
 			return nil, fmt.Errorf("prize %s has unknown kind %s", prize.ID, prize.Kind)
 		}
-		prize.WeightBps = rate.WeightBps / counts[prize.Rarity]
+		prize.WeightBps = rate.Each
 		prize.DupeCoins = rate.DupeCoins
-		out[i] = prize
+		prize.Coins = 0
+		items[i] = prize
 	}
+	out := make([]GiftPrize, 0, len(coins)+len(items))
+	out = append(out, coins...)
+	out = append(out, items...)
 	sum := 0
+	bands := map[string]int{}
 	for _, prize := range out {
 		sum += prize.WeightBps
+		bands[prize.Rarity] += prize.WeightBps
 	}
 	if sum != GiftRollSpan {
 		return nil, fmt.Errorf("prize weights sum to %d", sum)
+	}
+	for _, rate := range rates {
+		if bands[rate.Key] != rate.WeightBps {
+			return nil, fmt.Errorf("band %s sums to %d", rate.Key, bands[rate.Key])
+		}
 	}
 	return out, nil
 }
@@ -231,18 +299,23 @@ func CryptoGiftRoll() (int, error) {
 // GiftGrant is what an open gives after comparing the prize with ownership.
 // Duplicate means the whole set, or the accessory, is already owned: pay DupeCoins
 // and grant nothing. Partial means one piece of a set was missing: grant that
-// piece and pay nothing.
+// piece and pay nothing. Coins is a xu prize: it is paid in full and is never
+// a duplicate.
 type GiftGrant struct {
 	Prize     GiftPrize
 	GrantIDs  []string
 	DupeCoins int
+	Coins     int
 	Duplicate bool
 	Partial   bool
 }
 
 // ResolveGiftGrant applies the duplicate rule. owned is the set of item ids
-// the account already holds.
+// the account already holds. A coins prize ignores ownership.
 func ResolveGiftGrant(prize GiftPrize, owned map[string]struct{}) GiftGrant {
+	if prize.Kind == GiftKindCoins {
+		return GiftGrant{Prize: prize, Coins: prize.Coins}
+	}
 	missing := make([]string, 0, len(prize.Items))
 	have := 0
 	for _, item := range prize.Items {
@@ -295,6 +368,8 @@ type TreeGiftBox struct {
 	PrizeID        string `gorm:"size:64;not null;default:''"`
 	GrantedItemIDs string `gorm:"size:256;not null;default:''"`
 	DupeCoins      int    `gorm:"not null;default:0"`
+	// PrizeCoins is the xu a coins prize paid. It stays 0 for an item prize.
+	PrizeCoins int `gorm:"not null;default:0"`
 
 	User User `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
 }
