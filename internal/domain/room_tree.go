@@ -14,6 +14,10 @@ import (
 // does not receive earlier stages. Coins and wardrobe grants stay after the
 // room's 8 days end.
 //
+// A tree that has a gift box (leaf, in this version) pays that box at stage 7
+// instead of the 150 xu and the exclusive piece. The bloom shard draw is
+// unchanged: each real member can still flip one leaf.
+//
 // Tree types live in tree_types. Adding a type is a new row and art, not a
 // code change and not a database enum. This version lets a room start as
 // leaf only. Other enabled types are listed for the client to draw.
@@ -51,12 +55,15 @@ func TreeTypeCreatable(key string) bool {
 
 // TreeStage is one rung on the shared tree, including its reward.
 // ItemID is empty when the rung pays coins only. Stage 1 pays nothing.
+// GiftBox is set by ApplyGiftBoxStage when this tree pays a box at stage 7
+// instead of Coins and ItemID.
 type TreeStage struct {
 	Stage    int
 	Name     string
 	Coins    int
 	ItemID   string
 	ItemName string
+	GiftBox  bool
 }
 
 // TreeStages is the 7-rung ladder. exclusiveID and exclusiveName fill stage 7
@@ -95,11 +102,17 @@ func TreeRewardCoins() int {
 // TreeCatalogItems are the wardrobe rows the tree grants.
 // None of them are sold: Price is nil and IsFree is false.
 // The sticker and the name frame have no wear slot, so they are preview-only.
-// Hair pieces use the accessory slot and can be equipped.
+// The leaf clip wears on hair_acc. The other stage-7 pieces stay on the
+// accessory slot until their own gift box ships.
 // OwnedItemSource is the mascot owned_items source for a grant.
 // Tree wardrobe pieces are "treeType/stage" (shared pieces use "tree").
+// A shop purchase and a gift-box grant keep the source stored on the row,
+// so a bought piece still shows up in owned_items as shop.
 // Every other grant keeps the source stored on the row.
 func OwnedItemSource(itemID, stored string) string {
+	if stored == MascotSourceShop || stored == MascotSourceGiftBox {
+		return stored
+	}
 	switch itemID {
 	case TreeItemSticker:
 		return "tree/4"
@@ -128,7 +141,7 @@ func TreeCatalogItems() []MascotItem {
 	return []MascotItem{
 		{ID: TreeItemSticker, Layer: MascotLayerSticker, Name: "Nhãn dán lá xanh", PreviewOnly: true},
 		{ID: TreeItemNameFrame, Layer: MascotLayerNameFrame, Name: "Khung tên hoa", PreviewOnly: true},
-		{ID: TreeItemClipLeaf, Layer: MascotLayerAccessory, Name: "Kẹp tóc lá xanh"},
+		{ID: TreeItemClipLeaf, Layer: MascotLayerHairAcc, Name: "Kẹp tóc lá xanh"},
 		{ID: TreeItemClipCherry, Layer: MascotLayerAccessory, Name: "Kẹp hoa anh đào"},
 		{ID: TreeItemAloeWreath, Layer: MascotLayerAccessory, Name: "Vòng lá lô hội"},
 		{ID: TreeItemSunflowerBow, Layer: MascotLayerAccessory, Name: "Nơ hoa hướng dương"},

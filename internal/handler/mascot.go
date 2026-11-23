@@ -149,11 +149,7 @@ func (h *MascotHandler) PutLoadout(c *fiber.Ctx) error {
 	if !ok {
 		return nil
 	}
-	var body domain.MascotLoadout
-	if err := c.BodyParser(&body); err != nil {
-		return response.Error(c, fiber.StatusBadRequest, "invalid_json", "body must be valid JSON")
-	}
-	view, err := h.svc.UpdateLoadout(c.UserContext(), uid, body)
+	view, err := h.svc.UpdateLoadout(c.UserContext(), uid, c.Body())
 	if err != nil {
 		return writeMascotErr(c, err)
 	}

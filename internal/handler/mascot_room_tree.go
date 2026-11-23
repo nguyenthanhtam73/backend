@@ -195,6 +195,12 @@ func writeTreeErr(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusBadRequest, "bad_pick", err.Error())
 	case errors.Is(err, repository.ErrDrawUnavailable):
 		return response.Error(c, fiber.StatusConflict, "draw_unavailable", err.Error())
+	case errors.Is(err, repository.ErrGiftBoxNotFound):
+		return response.Error(c, fiber.StatusNotFound, "gift_box_not_found", err.Error())
+	case errors.Is(err, repository.ErrGiftBoxTree):
+		return response.Error(c, fiber.StatusNotFound, "gift_box_tree", err.Error())
+	case errors.Is(err, repository.ErrGiftBoxID):
+		return response.Error(c, fiber.StatusBadRequest, "bad_gift_box", err.Error())
 	default:
 		return response.Error(c, fiber.StatusServiceUnavailable, "database_unavailable", "database is not available")
 	}

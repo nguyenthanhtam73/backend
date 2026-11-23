@@ -53,6 +53,9 @@ func (h *MascotRoomHandler) Register(r fiber.Router, jwt fiber.Handler) {
 		return
 	}
 	r.Get("/mascot/tree-types", jwt, h.TreeCatalog)
+	r.Get("/mascot/gift-boxes/rates", jwt, h.GiftBoxRates)
+	r.Get("/mascot/gift-boxes", jwt, h.GiftBoxes)
+	r.Post("/mascot/gift-boxes/:id/open", jwt, h.OpenGiftBox)
 	r.Get("/mascot/seed-bag", jwt, h.SeedBag)
 	r.Post("/mascot/seed-bag/trade", jwt, h.TradeShards)
 	r.Post("/mascot/seed-bag/buy", jwt, h.BuyShard)

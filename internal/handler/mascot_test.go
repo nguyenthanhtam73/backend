@@ -451,6 +451,90 @@ func TestMascotOwnedItems(t *testing.T) {
 	if free == nil || free["layer"] != "body" || free["source"] != "free" || free["preview_only"] != false {
 		t.Fatalf("free %#v", free)
 	}
+	price := 12
+	if err := db.Create(&domain.MascotItem{ID: "outfit_shop_ribbon", Layer: domain.MascotLayerOutfit, Name: "Nơ shop", Price: &price}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Omit("User", "Item").Create(&domain.UserMascotItem{
+		UserID: userID, ItemID: "outfit_shop_ribbon", Source: domain.MascotSourceShop, AcquiredAt: granted.Add(time.Minute),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	status, env = mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK {
+		t.Fatalf("shop get %d %#v", status, env)
+	}
+	raw, ok = mascotData(t, env)["owned_items"].([]any)
+	if !ok {
+		t.Fatal("owned_items missing")
+	}
+	var shopItem map[string]any
+	for _, item := range raw {
+		row, _ := item.(map[string]any)
+		if row["item_key"] == "outfit_shop_ribbon" {
+			shopItem = row
+		}
+	}
+	if shopItem == nil || shopItem["source"] != "shop" || shopItem["layer"] != "outfit" {
+		t.Fatalf("shop item %#v", shopItem)
+	}
+}
+
+func TestLoadoutTopReplacesOutfitAndKeepsOmittedSlots(t *testing.T) {
+	app, db, userID := newMascotApp(t)
+	status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK {
+		t.Fatalf("get %d %#v", status, env)
+	}
+	for _, item := range []domain.MascotItem{
+		{ID: "top_la_non", Layer: domain.MascotLayerTop, Name: "Áo thun Lá Non"},
+		{ID: "bottom_quan_short_kem", Layer: domain.MascotLayerBottom, Name: "Quần short Kem Sữa"},
+		{ID: "acc_no_la_xanh", Layer: domain.MascotLayerHairAcc, Name: "Nơ Lá Xanh"},
+	} {
+		if err := db.Create(&item).Error; err != nil {
+			t.Fatal(err)
+		}
+		if err := db.Omit("User", "Item").Create(&domain.UserMascotItem{
+			UserID: userID, ItemID: item.ID, Source: domain.MascotSourceGiftBox, AcquiredAt: time.Now().UTC(),
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := `{"body":"body_chibi","hair":"hair_sleep_buns","outfit":"outfit_cozy_pajamas","top":"top_la_non","bottom":"bottom_quan_short_kem","accessory":"","room_items":[]}`
+	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", body)
+	if status != http.StatusOK {
+		t.Fatalf("put top %d %#v", status, env)
+	}
+	loadout, _ := mascotData(t, env)["loadout"].(map[string]any)
+	if loadout["outfit"] != "" || loadout["top"] != "top_la_non" || loadout["bottom"] != "bottom_quan_short_kem" {
+		t.Fatalf("split look %#v", loadout)
+	}
+	oldClient := `{"body":"body_chibi","hair":"hair_sleep_buns","outfit":"outfit_cozy_pajamas","accessory":"","room_items":[]}`
+	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", oldClient)
+	if status != http.StatusOK {
+		t.Fatalf("old put %d %#v", status, env)
+	}
+	loadout, _ = mascotData(t, env)["loadout"].(map[string]any)
+	if loadout["outfit"] != "" || loadout["top"] != "top_la_non" || loadout["bottom"] != "bottom_quan_short_kem" {
+		t.Fatalf("old client stripped the shirt %#v", loadout)
+	}
+	back := `{"body":"body_chibi","hair":"hair_sleep_buns","outfit":"outfit_cozy_pajamas","top":"","bottom":"","hair_acc":"acc_no_la_xanh","accessory":"","room_items":[]}`
+	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", back)
+	if status != http.StatusOK {
+		t.Fatalf("pajamas %d %#v", status, env)
+	}
+	loadout, _ = mascotData(t, env)["loadout"].(map[string]any)
+	if loadout["outfit"] != "outfit_cozy_pajamas" || loadout["top"] != "" || loadout["bottom"] != "" || loadout["hair_acc"] != "acc_no_la_xanh" {
+		t.Fatalf("back to outfit %#v", loadout)
+	}
+	status, env = mascotCall(t, app, http.MethodPut, "/api/v1/me/mascot/loadout", oldClient)
+	if status != http.StatusOK {
+		t.Fatalf("keep bow %d %#v", status, env)
+	}
+	loadout, _ = mascotData(t, env)["loadout"].(map[string]any)
+	if loadout["hair_acc"] != "acc_no_la_xanh" || loadout["outfit"] != "outfit_cozy_pajamas" {
+		t.Fatalf("omitted hair clip %#v", loadout)
+	}
 }
 
 func TestMascotHiddenFromNonAdmin(t *testing.T) {

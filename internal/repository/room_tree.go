@@ -43,6 +43,10 @@ type TreeReward struct {
 	ItemName      string
 	PreviewOnly   bool
 	RewardedCount int
+	// GiftBox is true when this rung pays a gift box instead of coins and an item.
+	// BoxID is the caller's box for that bloom, empty on the public ladder.
+	GiftBox bool
+	BoxID   string
 }
 
 // TreeState is the shared tree as one member should see it.
@@ -682,6 +686,7 @@ func grantStage(tx *gorm.DB, room domain.MascotRoom, work *treeWork, at time.Tim
 	if !ok {
 		return nil, fmt.Errorf("unknown tree stage %d", stage)
 	}
+	spec = domain.ApplyGiftBoxStage(work.typ.Key, spec)
 	members := currentRealAt(work.stints, at)
 	var granted []TreeReward
 	for _, userID := range members {
@@ -716,9 +721,15 @@ func grantStage(tx *gorm.DB, room domain.MascotRoom, work *treeWork, at time.Tim
 				return nil, err
 			}
 		}
+		if spec.GiftBox {
+			if err := insertGiftBox(tx, room, userID, at); err != nil {
+				return nil, err
+			}
+		}
 		granted = append(granted, TreeReward{
 			Stage: stage, Name: spec.Name, Coins: spec.Coins, ItemID: spec.ItemID, ItemName: spec.ItemName,
 			PreviewOnly: spec.ItemID != "" && work.items[spec.ItemID].PreviewOnly,
+			GiftBox:     spec.GiftBox,
 		})
 	}
 	if stage == domain.TreeStageCount {
@@ -780,9 +791,11 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 	rewards := make([]TreeReward, len(ladder))
 	stageName := ""
 	for i, row := range ladder {
+		row = domain.ApplyGiftBoxStage(work.typ.Key, row)
 		rewards[i] = TreeReward{
 			Stage: row.Stage, Name: row.Name, Coins: row.Coins, ItemID: row.ItemID, ItemName: row.ItemName,
 			PreviewOnly: row.ItemID != "" && work.items[row.ItemID].PreviewOnly,
+			GiftBox:     row.GiftBox,
 		}
 		if row.Stage == work.tree.Stage {
 			stageName = row.Name
@@ -798,7 +811,7 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 	mine := []TreeReward{}
 	var balance int64
 	if viewer != uuid.Nil {
-		mine, err = myRewards(tx, room.Code, viewer, rewards)
+		mine, err = myRewards(tx, room.Code, viewer, rewards, work.items)
 		if err != nil {
 			return TreeState{}, err
 		}
@@ -837,7 +850,7 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 	}
 	unseen := []TreeReward{}
 	if viewer != uuid.Nil {
-		unseen, err = unseenRewards(tx, room.Code, viewer, rewards)
+		unseen, err = unseenRewards(tx, room.Code, viewer, rewards, work.items)
 		if err != nil {
 			return TreeState{}, err
 		}
@@ -845,6 +858,15 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 	canDraw, mineShard, draws, err := bloomBoard(tx, room.Code, viewer)
 	if err != nil {
 		return TreeState{}, err
+	}
+	if viewer != uuid.Nil {
+		boxID, err := viewerGiftBoxID(tx, room.Code, viewer)
+		if err != nil {
+			return TreeState{}, err
+		}
+		mine = stampGiftBox(mine, boxID)
+		just = stampGiftBox(just, boxID)
+		unseen = stampGiftBox(unseen, boxID)
 	}
 	return TreeState{
 		Stage: work.tree.Stage, StageName: stageName,
@@ -1097,7 +1119,7 @@ func memberDisplayName(tx *gorm.DB, code string, userID uuid.UUID) (string, erro
 	return names[0], nil
 }
 
-func myRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeReward) ([]TreeReward, error) {
+func myRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeReward, items map[string]domain.MascotItem) ([]TreeReward, error) {
 	var rows []domain.MascotRoomTreeReward
 	if err := tx.Where("room_code = ? AND user_id = ?", code, userID).Order("stage ASC").Find(&rows).Error; err != nil {
 		return nil, err
@@ -1108,11 +1130,7 @@ func myRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeReward) 
 	}
 	out := make([]TreeReward, 0, len(rows))
 	for _, row := range rows {
-		spec := byStage[row.Stage]
-		out = append(out, TreeReward{
-			Stage: row.Stage, Name: spec.Name, Coins: row.Coins, ItemID: row.ItemID, ItemName: spec.ItemName,
-			PreviewOnly: spec.PreviewOnly, RewardedCount: spec.RewardedCount,
-		})
+		out = append(out, rewardFromStored(row, byStage[row.Stage], items))
 	}
 	return out, nil
 }
@@ -1135,7 +1153,7 @@ func stageRewardCounts(tx *gorm.DB, code string) (map[int]int, error) {
 	return out, err
 }
 
-func unseenRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeReward) ([]TreeReward, error) {
+func unseenRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeReward, items map[string]domain.MascotItem) ([]TreeReward, error) {
 	var rows []domain.MascotRoomTreeReward
 	if err := tx.Where("room_code = ? AND user_id = ? AND seen_at IS NULL", code, userID).
 		Order("stage ASC").Find(&rows).Error; err != nil {
@@ -1147,13 +1165,55 @@ func unseenRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeRewa
 	}
 	out := make([]TreeReward, 0, len(rows))
 	for _, row := range rows {
-		spec := byStage[row.Stage]
-		out = append(out, TreeReward{
-			Stage: row.Stage, Name: spec.Name, Coins: row.Coins, ItemID: row.ItemID, ItemName: spec.ItemName,
-			PreviewOnly: spec.PreviewOnly, RewardedCount: spec.RewardedCount,
-		})
+		out = append(out, rewardFromStored(row, byStage[row.Stage], items))
 	}
 	return out, nil
+}
+
+// rewardFromStored keeps what was actually paid. A bloom that already paid
+// 150 xu and the clip stays that way. A new leaf bloom stored no coins and
+// no item, and the ladder marks that rung as a box.
+func rewardFromStored(row domain.MascotRoomTreeReward, spec TreeReward, items map[string]domain.MascotItem) TreeReward {
+	itemName := spec.ItemName
+	preview := spec.PreviewOnly
+	if row.ItemID != "" {
+		if item, ok := items[row.ItemID]; ok {
+			itemName = item.Name
+			preview = item.PreviewOnly
+		}
+	}
+	return TreeReward{
+		Stage: row.Stage, Name: spec.Name, Coins: row.Coins, ItemID: row.ItemID, ItemName: itemName,
+		PreviewOnly: preview, RewardedCount: spec.RewardedCount,
+		GiftBox: spec.GiftBox && row.ItemID == "" && row.Coins == 0,
+	}
+}
+
+func viewerGiftBoxID(tx *gorm.DB, code string, userID uuid.UUID) (string, error) {
+	if tx == nil || userID == uuid.Nil || !tx.Migrator().HasTable(&domain.TreeGiftBox{}) {
+		return "", nil
+	}
+	var row domain.TreeGiftBox
+	err := tx.Select("id").Where("room_code = ? AND user_id = ?", code, userID).Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return row.ID.String(), nil
+}
+
+func stampGiftBox(rows []TreeReward, boxID string) []TreeReward {
+	if boxID == "" {
+		return rows
+	}
+	for i := range rows {
+		if rows[i].GiftBox {
+			rows[i].BoxID = boxID
+		}
+	}
+	return rows
 }
 
 func loadItemMap(tx *gorm.DB) (map[string]domain.MascotItem, error) {

@@ -86,6 +86,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.UserSeedLedger{},
 		&domain.RoomBloomShard{},
 		&domain.UserTreeReveal{},
+		&domain.TreeGiftBox{},
 	); err != nil {
 		return err
 	}
@@ -99,6 +100,12 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	if err := applyCatalogFlagsOnce(db); err != nil {
+		return err
+	}
+	if err := SeedGiftBoxCatalog(db); err != nil {
+		return err
+	}
+	if err := migrateLeafClipSlot(db); err != nil {
 		return err
 	}
 	if err := applyRoomTreeFK(db); err != nil {
