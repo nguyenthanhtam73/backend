@@ -186,21 +186,12 @@ type Event struct {
 // TreeEvent is the shared-tree payload on a room tick.
 // Name is a display name. There is no account id.
 type TreeEvent struct {
-	Name     string     `json:"name,omitempty"`
-	Waters   int        `json:"waters"`
-	Required int        `json:"required"`
-	Progress float64    `json:"progress"`
-	Stage    int        `json:"stage"`
-	TreeType string     `json:"tree_type"`
-	MyShard  *TreeShard `json:"my_shard,omitempty"`
-}
-
-// TreeShard is the bloom shard for the socket's own account.
-// Other people's shards are not included.
-type TreeShard struct {
-	TypeKey string `json:"type_key"`
-	NameVI  string `json:"name_vi"`
-	Mystery bool   `json:"mystery"`
+	Name     string  `json:"name,omitempty"`
+	Waters   int     `json:"waters"`
+	Required int     `json:"required"`
+	Progress float64 `json:"progress"`
+	Stage    int     `json:"stage"`
+	TreeType string  `json:"tree_type"`
 }
 
 // PublicGender keeps only the male placeholder. Anything else stays empty

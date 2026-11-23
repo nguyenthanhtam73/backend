@@ -76,18 +76,17 @@ type Hub struct {
 	perSec     int
 	clock      Clock
 
-	mu          sync.Mutex
-	byPeer      map[Peer]*connState
-	byID        map[string]*session
-	byUser      map[uuid.UUID]*session
-	halls       []*hall
-	rooms       map[string]*hall
-	gate        RoomGate
-	saveNick    func(context.Context, uuid.UUID, string, string) error
-	careFn      func(context.Context, []uuid.UUID) map[uuid.UUID]int
-	gestures    map[uuid.UUID]*gestureBudget
-	lastCounts  []Count
-	bloomShards map[string]map[uuid.UUID]TreeShard
+	mu         sync.Mutex
+	byPeer     map[Peer]*connState
+	byID       map[string]*session
+	byUser     map[uuid.UUID]*session
+	halls      []*hall
+	rooms      map[string]*hall
+	gate       RoomGate
+	saveNick   func(context.Context, uuid.UUID, string, string) error
+	careFn     func(context.Context, []uuid.UUID) map[uuid.UUID]int
+	gestures   map[uuid.UUID]*gestureBudget
+	lastCounts []Count
 
 	in       atomic.Uint64
 	out      atomic.Uint64

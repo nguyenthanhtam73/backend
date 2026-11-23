@@ -207,19 +207,22 @@ func revealPendingBlooms(tx *gorm.DB, codes []string) error {
 	if err := tx.Where("room_code IN ? AND type_key = ?", codes, "").Find(&rows).Error; err != nil {
 		return err
 	}
+	if len(rows) == 0 {
+		return nil
+	}
 	now := time.Now().UTC()
+	bps, err := seedConfig(tx, domain.SeedConfigMysteryBps)
+	if err != nil {
+		return err
+	}
+	commons, err := commonShardKeys(tx)
+	if err != nil {
+		return err
+	}
 	for _, row := range rows {
 		room, ok := byCode[row.RoomCode]
 		if !ok {
 			continue
-		}
-		bps, err := seedConfig(tx, domain.SeedConfigMysteryBps)
-		if err != nil {
-			return err
-		}
-		commons, err := commonShardKeys(tx)
-		if err != nil {
-			return err
 		}
 		key := rollShardType(seedNextInt, bps, commons)
 		res := tx.Model(&domain.RoomBloomShard{}).
@@ -231,7 +234,7 @@ func revealPendingBlooms(tx *gorm.DB, codes []string) error {
 		if res.RowsAffected == 0 {
 			continue
 		}
-		if _, err := addShard(tx, row.UserID, key, domain.SeedSourceBloom, bloomLedgerID(room, row.UserID), now); err != nil && !IsUniqueConflict(err) {
+		if _, err := addShard(tx, row.UserID, key, domain.SeedSourceBloom, bloomLedgerID(room, row.UserID), now); err != nil {
 			return err
 		}
 	}
@@ -656,14 +659,6 @@ func (r *RoomTreeRepository) DrawShard(ctx context.Context, userID uuid.UUID, ra
 			return nil
 		}
 		if _, err := addShard(tx, userID, key, domain.SeedSourceBloom, bloomLedgerID(room, userID), now); err != nil {
-			if IsUniqueConflict(err) {
-				view, viewErr := shardView(tx, key)
-				if viewErr != nil {
-					return viewErr
-				}
-				result = DrawResult{Already: true, Pick: pick, Shard: view}
-				return nil
-			}
 			return err
 		}
 		view, err := shardView(tx, key)
@@ -1118,7 +1113,7 @@ func (r *RoomTreeRepository) ListForUser(ctx context.Context, userID uuid.UUID) 
 }
 
 // SeedSeedBag inserts missing seed_bag_config rows. It does not rewrite
-// plantable or mystery_pool. Migration 042 sets those once.
+// plantable or mystery_pool. applyCatalogFlagsOnce does that a single time.
 func SeedSeedBag(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("nil db")
@@ -1138,6 +1133,41 @@ func SeedSeedBag(db *gorm.DB) error {
 		if err := db.Create(&item).Error; err != nil && !IsUniqueConflict(err) {
 			return err
 		}
+	}
+	return nil
+}
+
+// catalogFlagsKey marks that migration 042's plantable and mystery_pool
+// values have been applied. Production boots through AutoMigrate, which
+// adds those columns as false and does not run the SQL file.
+const catalogFlagsKey = "catalog_flags_v1"
+
+// applyCatalogFlagsOnce sets the shipped plantable and mystery_pool values
+// a single time. A later boot leaves a hand edit alone.
+func applyCatalogFlagsOnce(db *gorm.DB) error {
+	if db == nil || !db.Migrator().HasTable(&domain.TreeType{}) || !db.Migrator().HasTable(&domain.SeedBagConfig{}) {
+		return nil
+	}
+	if !db.Migrator().HasColumn(&domain.TreeType{}, "plantable") || !db.Migrator().HasColumn(&domain.TreeType{}, "mystery_pool") {
+		return nil
+	}
+	var n int64
+	if err := db.Model(&domain.SeedBagConfig{}).Where("key = ?", catalogFlagsKey).Count(&n).Error; err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	plantable := []string{"leaf", "cherry", "aloe", "sunflower", "dandelion", "quynh", "sen_hong"}
+	if err := db.Model(&domain.TreeType{}).Where("key IN ?", plantable).Update("plantable", true).Error; err != nil {
+		return err
+	}
+	if err := db.Model(&domain.TreeType{}).Where("key IN ?", []string{"dandelion", "quynh"}).Update("mystery_pool", true).Error; err != nil {
+		return err
+	}
+	marker := domain.SeedBagConfig{Key: catalogFlagsKey, IntValue: 1}
+	if err := db.Create(&marker).Error; err != nil && !IsUniqueConflict(err) {
+		return err
 	}
 	return nil
 }

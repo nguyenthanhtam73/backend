@@ -98,6 +98,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := SeedSeedBag(db); err != nil {
 		return err
 	}
+	if err := applyCatalogFlagsOnce(db); err != nil {
+		return err
+	}
 	if err := applyRoomTreeFK(db); err != nil {
 		return err
 	}

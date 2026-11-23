@@ -76,7 +76,6 @@ type TreeState struct {
 	MyShard       *ShardView
 	CanDraw       bool
 	Draws         []BloomDraw
-	BloomShards   map[uuid.UUID]ShardView
 }
 
 // TreeCatalogItem is one enabled type plus the name of its stage-7 piece.
@@ -298,9 +297,6 @@ func (r *RoomTreeRepository) Water(ctx context.Context, userID uuid.UUID, rawCod
 	if watered.MyShard == nil {
 		watered.MyShard = state.MyShard
 	}
-	if len(watered.BloomShards) == 0 {
-		watered.BloomShards = state.BloomShards
-	}
 	return watered, nil
 }
 
@@ -497,18 +493,17 @@ func advanceRoom(tx *gorm.DB, room domain.MascotRoom, viewer uuid.UUID, now time
 }
 
 type treeWork struct {
-	tree        domain.MascotRoomTree
-	stints      []memberStint
-	items       map[string]domain.MascotItem
-	typ         domain.TreeType
-	waters      []domain.MascotRoomTreeWater
-	today       string
-	levels      []int
-	granted     []TreeReward
-	bloomShards map[uuid.UUID]ShardView
-	fresh       bool
-	already     bool
-	name        string
+	tree    domain.MascotRoomTree
+	stints  []memberStint
+	items   map[string]domain.MascotItem
+	typ     domain.TreeType
+	waters  []domain.MascotRoomTreeWater
+	today   string
+	levels  []int
+	granted []TreeReward
+	fresh   bool
+	already bool
+	name    string
 }
 
 func loadTreeWork(tx *gorm.DB, room domain.MascotRoom, now time.Time, create bool) (*treeWork, error) {
@@ -859,7 +854,7 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 		CanWater: can, Reason: reason, Bloomed: bloomed,
 		Rewards: rewards, MyRewards: mine, Balance: balance,
 		JustGranted: just, UnseenRewards: unseen, Levels: append([]int(nil), work.levels...),
-		WatererName: display, BloomShards: work.bloomShards, MyShard: mineShard,
+		WatererName: display, MyShard: mineShard,
 		CanDraw: canDraw, Draws: draws,
 	}, nil
 }

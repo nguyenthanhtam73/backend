@@ -16,7 +16,6 @@ import (
 // The hub drops them when nobody is connected and queues them on the next tick.
 type LiveRoom interface {
 	NotifyTree(code string, ev lobby.Event)
-	NotifyBloomShards(code string, shards map[uuid.UUID]lobby.TreeShard)
 }
 
 // Service is the shared room tree.
@@ -237,13 +236,6 @@ func (s *Service) broadcast(code string, state repository.TreeState) {
 				Progress: progress, Stage: stage, TreeType: state.TreeType,
 			},
 		})
-	}
-	if len(state.BloomShards) > 0 {
-		shards := make(map[uuid.UUID]lobby.TreeShard, len(state.BloomShards))
-		for id, shard := range state.BloomShards {
-			shards[id] = lobby.TreeShard{TypeKey: shard.TypeKey, NameVI: shard.NameVI, Mystery: shard.Mystery}
-		}
-		s.live.NotifyBloomShards(code, shards)
 	}
 }
 

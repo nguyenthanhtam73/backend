@@ -9,8 +9,10 @@ import (
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/pkg/usermsg"
+	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 func TestRollShardRatio(t *testing.T) {
@@ -628,6 +630,95 @@ func TestRollRareSkipsUnplantable(t *testing.T) {
 	})
 	if err != nil || got.Key != "quynh" {
 		t.Fatalf("rolled %+v %v", got.Key, err)
+	}
+}
+
+func TestCatalogFlagsUpgradeFromPreShardTable(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:flags_"+uuid.NewString()+"?mode=memory&cache=shared"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	if err := db.Exec(`CREATE TABLE tree_types (
+		key VARCHAR(64) PRIMARY KEY,
+		name_vi VARCHAR(128) NOT NULL,
+		rarity VARCHAR(16) NOT NULL,
+		exclusive_item_key VARCHAR(64) NOT NULL,
+		image_key VARCHAR(64) NOT NULL,
+		sort_order INTEGER NOT NULL,
+		enabled BOOLEAN NOT NULL
+	)`).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range domain.TreeTypeSeed() {
+		enabled := 0
+		if row.Enabled {
+			enabled = 1
+		}
+		if err := db.Exec(`INSERT INTO tree_types (key, name_vi, rarity, exclusive_item_key, image_key, sort_order, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			row.Key, row.NameVI, row.Rarity, row.ExclusiveItemKey, row.ImageKey, row.SortOrder, enabled).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.AutoMigrate(&domain.TreeType{}, &domain.SeedBagConfig{}); err != nil {
+		t.Fatal(err)
+	}
+	var cherry, dandelion, sen domain.TreeType
+	if err := db.Where("key = ?", "cherry").Take(&cherry).Error; err != nil {
+		t.Fatal(err)
+	}
+	if cherry.Plantable || cherry.MysteryPool {
+		t.Fatalf("fresh columns should be false: %+v", cherry)
+	}
+	if err := applyCatalogFlagsOnce(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("key = ?", "cherry").Take(&cherry).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("key = ?", "dandelion").Take(&dandelion).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("key = ?", "sen_hong").Take(&sen).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !cherry.Plantable || cherry.MysteryPool || !dandelion.Plantable || !dandelion.MysteryPool || !sen.Plantable || sen.MysteryPool {
+		t.Fatalf("flags cherry %+v dandelion %+v sen %+v", cherry, dandelion, sen)
+	}
+	var commons int64
+	if err := db.Model(&domain.TreeType{}).
+		Where("rarity = ? AND enabled = ? AND plantable = ? AND key <> ?", domain.TreeRarityCommon, true, true, domain.TreeTypeLeaf).
+		Count(&commons).Error; err != nil {
+		t.Fatal(err)
+	}
+	if commons != 3 {
+		t.Fatalf("plantable commons %d", commons)
+	}
+	if err := db.Model(&domain.TreeType{}).Where("key = ?", "dandelion").Updates(map[string]any{
+		"plantable": false, "mystery_pool": false,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := applyCatalogFlagsOnce(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("key = ?", "dandelion").Take(&dandelion).Error; err != nil {
+		t.Fatal(err)
+	}
+	if dandelion.Plantable || dandelion.MysteryPool {
+		t.Fatal("second boot overwrote a hand edit")
+	}
+	if err := db.Where("key = ?", "cherry").Take(&cherry).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !cherry.Plantable {
+		t.Fatal("second boot cleared cherry")
 	}
 }
 
