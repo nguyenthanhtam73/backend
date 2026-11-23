@@ -77,9 +77,9 @@ func TestGiftRatesSplitEvenly(t *testing.T) {
 	want := map[string]struct {
 		n, each, dupe, band int
 	}{
-		GiftRarityCommon: {10, 440, 8, 4400},
-		GiftRarityRare:   {4, 125, 88, 500},
-		GiftRarityUltra:  {2, 50, 188, 100},
+		GiftRarityCommon: {10, 479, 8, 4790},
+		GiftRarityRare:   {4, 50, 88, 200},
+		GiftRarityUltra:  {2, 5, 188, 10},
 	}
 	got := map[string]int{}
 	bandSum := map[string]int{}
@@ -125,6 +125,82 @@ func TestGiftRatesSplitEvenly(t *testing.T) {
 	}
 	if len(coinWant) != 0 {
 		t.Fatalf("missing xu prizes %#v", coinWant)
+	}
+}
+
+func TestTierPercentsAreExact(t *testing.T) {
+	rates := GiftTierRates()
+	sum := 0
+	byKey := map[string]GiftTierRate{}
+	for _, rate := range rates {
+		sum += rate.WeightBps
+		byKey[rate.Key] = rate
+	}
+	if sum != GiftRollSpan {
+		t.Fatalf("sum %d", sum)
+	}
+	// 5000/10000 = 50%, 4790/10000 = 47.9%, 200/10000 = 2%, 10/10000 = 0.1%.
+	if byKey[GiftRarityCoins].WeightBps*2 != GiftRollSpan {
+		t.Fatal("xu is not 50%")
+	}
+	if byKey[GiftRarityCommon].WeightBps*1000 != 479*GiftRollSpan {
+		t.Fatal("thuong is not 47.9%")
+	}
+	if byKey[GiftRarityRare].WeightBps*50 != GiftRollSpan {
+		t.Fatal("hiem is not 2%")
+	}
+	if byKey[GiftRarityUltra].WeightBps*1000 != GiftRollSpan {
+		t.Fatal("sieu is not 0.1%")
+	}
+	if byKey[GiftRarityCommon].Each*10 != byKey[GiftRarityCommon].WeightBps {
+		t.Fatal("thuong items do not split the band")
+	}
+	if byKey[GiftRarityRare].Each*4 != byKey[GiftRarityRare].WeightBps {
+		t.Fatal("hiem items do not split the band")
+	}
+	if byKey[GiftRarityUltra].Each*2 != byKey[GiftRarityUltra].WeightBps {
+		t.Fatal("sieu items do not split the band")
+	}
+}
+
+func TestMissingUltraPoolKeepsItsWeight(t *testing.T) {
+	def := leafGiftBox()
+	kept := make([]GiftPrize, 0, len(def.Prizes))
+	for _, prize := range def.Prizes {
+		if prize.Rarity == GiftRarityUltra {
+			continue
+		}
+		kept = append(kept, prize)
+	}
+	def.Prizes = kept
+	prizes, err := WeightedPrizes(def)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := 0
+	bands := map[string]int{}
+	var fallback GiftPrize
+	found := false
+	for _, prize := range prizes {
+		sum += prize.WeightBps
+		bands[prize.Rarity] += prize.WeightBps
+		if prize.ID == GiftUltraFallbackID {
+			fallback = prize
+			found = true
+		}
+	}
+	if sum != GiftRollSpan {
+		t.Fatalf("sum %d", sum)
+	}
+	if bands[GiftRarityCoins] != 5000 || bands[GiftRarityCommon] != 4790 || bands[GiftRarityRare] != 200 || bands[GiftRarityUltra] != 10 {
+		t.Fatalf("bands %#v", bands)
+	}
+	if !found || !fallback.Fallback || fallback.Kind != GiftKindFallback || fallback.Coins != GiftUltraFallbackCoins || fallback.WeightBps != 10 || fallback.Rarity != GiftRarityUltra {
+		t.Fatalf("fallback %+v", fallback)
+	}
+	grant := ResolveGiftGrant(fallback, map[string]struct{}{"anything": {}})
+	if grant.Duplicate || grant.DupeCoins != 0 || grant.Coins != GiftUltraFallbackCoins {
+		t.Fatalf("grant %+v", grant)
 	}
 }
 
