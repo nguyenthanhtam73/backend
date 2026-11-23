@@ -23,6 +23,27 @@ func deleteRoomSharedRows(tx *gorm.DB, codes []string) error {
 			return err
 		}
 	}
+	return deleteRoomTreeRows(tx, codes)
+}
+
+func deleteRoomTreeRows(tx *gorm.DB, codes []string) error {
+	if tx == nil || len(codes) == 0 {
+		return nil
+	}
+	models := []any{
+		&domain.MascotRoomTreeReward{},
+		&domain.MascotRoomTreeWater{},
+		&domain.MascotRoomTree{},
+		&domain.MascotRoomMemberLeave{},
+	}
+	for _, model := range models {
+		if !tx.Migrator().HasTable(model) {
+			continue
+		}
+		if err := tx.Where("room_code IN ?", codes).Delete(model).Error; err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -51,6 +72,14 @@ func deleteUserRoomSharedRows(tx *gorm.DB, userID uuid.UUID) error {
 	}
 	if tx.Migrator().HasTable(&domain.UserCoinWallet{}) {
 		if err := tx.Where("user_id = ?", userID).Delete(&domain.UserCoinWallet{}).Error; err != nil {
+			return err
+		}
+	}
+	for _, model := range []any{&domain.MascotRoomTreeReward{}, &domain.MascotRoomTreeWater{}, &domain.MascotRoomMemberLeave{}} {
+		if !tx.Migrator().HasTable(model) {
+			continue
+		}
+		if err := tx.Where("user_id = ?", userID).Delete(model).Error; err != nil {
 			return err
 		}
 	}

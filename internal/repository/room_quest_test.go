@@ -329,6 +329,7 @@ func openQuestDB(t *testing.T) *gorm.DB {
 		&domain.User{},
 		&domain.MascotRoom{},
 		&domain.MascotRoomMember{},
+		&domain.MascotRoomMemberLeave{},
 		&domain.MascotRoomActiveSeat{},
 		&domain.MascotRoomQuestClaim{},
 		&domain.MascotRoomNudge{},

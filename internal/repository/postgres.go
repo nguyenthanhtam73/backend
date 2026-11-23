@@ -74,10 +74,21 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.MascotRoomNudge{},
 		&domain.UserCoinWallet{},
 		&domain.UserCoinLedger{},
+		&domain.TreeType{},
+		&domain.MascotRoomTree{},
+		&domain.MascotRoomTreeWater{},
+		&domain.MascotRoomTreeReward{},
+		&domain.MascotRoomMemberLeave{},
 	); err != nil {
 		return err
 	}
 	if err := SeedMascotCatalog(db); err != nil {
+		return err
+	}
+	if err := SeedTreeCatalog(db); err != nil {
+		return err
+	}
+	if err := applyRoomTreeFK(db); err != nil {
 		return err
 	}
 	if err := applyRoutineFullDay(db); err != nil {
@@ -90,6 +101,29 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return PrepareOutageApologySchema(db)
+}
+
+// applyRoomTreeFK points mascot_rooms.tree_type at tree_types on Postgres.
+// SQLite tests have no foreign key. A blank type is stored as leaf first.
+func applyRoomTreeFK(db *gorm.DB) error {
+	if db == nil || db.Dialector == nil || db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	if !db.Migrator().HasTable(&domain.MascotRoom{}) || !db.Migrator().HasTable(&domain.TreeType{}) {
+		return nil
+	}
+	if err := db.Exec(`UPDATE mascot_rooms SET tree_type = 'leaf' WHERE tree_type IS NULL OR tree_type = ''`).Error; err != nil {
+		return err
+	}
+	return db.Exec(`
+		DO $$ BEGIN
+			ALTER TABLE mascot_rooms
+				ADD CONSTRAINT mascot_rooms_tree_type_fkey
+				FOREIGN KEY (tree_type) REFERENCES tree_types(key);
+		EXCEPTION
+			WHEN duplicate_object THEN NULL;
+		END $$;
+	`).Error
 }
 
 // PrepareOutageApologySchema adds the starter-generation lease columns and

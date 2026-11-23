@@ -98,14 +98,17 @@ const (
 	OpNudge      = "nudge"
 )
 
-// Server ops.
+// Server ops. tree_watered and tree_level_up are queued by the server.
+// A client frame with those ops is rejected.
 const (
-	OpHello     = "hello"
-	OpTick      = "tick"
-	OpLobbyFull = "lobby_full"
-	OpError     = "error"
-	OpBye       = "bye"
-	OpReplaced  = "replaced"
+	OpHello       = "hello"
+	OpTick        = "tick"
+	OpLobbyFull   = "lobby_full"
+	OpError       = "error"
+	OpBye         = "bye"
+	OpReplaced    = "replaced"
+	OpTreeWatered = "tree_watered"
+	OpTreeLevelUp = "tree_level_up"
 )
 
 // Error codes on op "error".
@@ -175,6 +178,20 @@ type Event struct {
 	From    string `json:"from,omitempty"`
 	Target  string `json:"target,omitempty"`
 	Message string `json:"message,omitempty"`
+	// Tree is set on tree_watered and tree_level_up. Those are server events
+	// queued onto the next room tick. They do not spend MessagesPerSec.
+	Tree *TreeEvent `json:"tree,omitempty"`
+}
+
+// TreeEvent is the shared-tree payload on a room tick.
+// Name is a display name. There is no account id.
+type TreeEvent struct {
+	Name     string  `json:"name,omitempty"`
+	Waters   int     `json:"waters"`
+	Required int     `json:"required"`
+	Progress float64 `json:"progress"`
+	Stage    int     `json:"stage"`
+	TreeType string  `json:"tree_type"`
 }
 
 // PublicGender keeps only the male placeholder. Anything else stays empty

@@ -13,6 +13,7 @@ import (
 	"github.com/dadiary/backend/internal/repository"
 	"github.com/dadiary/backend/internal/usecase/roomcare"
 	"github.com/dadiary/backend/internal/usecase/roomquest"
+	"github.com/dadiary/backend/internal/usecase/roomtree"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/dadiary/backend/pkg/usermsg"
 	"github.com/gofiber/fiber/v2"
@@ -34,6 +35,7 @@ type MascotRoomHandler struct {
 	live  liveRooms
 	care  *roomcare.Cache
 	quest *roomquest.Service
+	tree  *roomtree.Service
 }
 
 // NewMascotRoomHandler constructs the room routes.
@@ -50,8 +52,12 @@ func (h *MascotRoomHandler) Register(r fiber.Router, jwt fiber.Handler) {
 	if jwt == nil {
 		return
 	}
+	r.Get("/mascot/tree-types", jwt, h.TreeCatalog)
 	r.Post("/mascot/rooms", jwt, middleware.AILimiter(mascotRoomCreatesPerMinute, time.Minute), h.Create)
 	r.Get("/mascot/rooms/mine", jwt, h.Mine)
+	r.Get("/mascot/rooms/:code/tree", jwt, h.Tree)
+	r.Post("/mascot/rooms/:code/tree/water", jwt, h.WaterTree)
+	r.Post("/mascot/rooms/:code/tree/rewards/seen", jwt, h.MarkTreeRewardsSeen)
 	r.Get("/mascot/rooms/:code/board", jwt, h.Board)
 	r.Get("/mascot/rooms/:code/quest", jwt, h.Quest)
 	r.Post("/mascot/rooms/:code/quest/claim", jwt, h.Claim)
@@ -70,7 +76,11 @@ func (h *MascotRoomHandler) Create(c *fiber.Ctx) error {
 	if !ok {
 		return nil
 	}
-	view, err := h.repo.Create(c.UserContext(), uid)
+	treeType, err := treeTypeFromCreate(c)
+	if err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_body", "body must be valid JSON")
+	}
+	view, err := h.repo.CreateWithTree(c.UserContext(), uid, treeType)
 	if err != nil {
 		return writeRoomErr(c, err)
 	}
@@ -180,6 +190,9 @@ func (h *MascotRoomHandler) Leave(c *fiber.Ctx) error {
 	if h.live != nil {
 		h.live.LeaveLive(uid, code)
 	}
+	if h.tree != nil {
+		_ = h.tree.Sync(c.UserContext(), code)
+	}
 	return response.JSON(c, fiber.StatusOK, fiber.Map{"left": true})
 }
 
@@ -270,6 +283,10 @@ func writeRoomErr(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusConflict, "room_ended", "this room has ended")
 	case errors.Is(err, repository.ErrMascotRoomBadCode):
 		return response.Error(c, fiber.StatusBadRequest, "bad_code", "invite code is not valid")
+	case errors.Is(err, repository.ErrTreeTypeUnknown):
+		return response.Error(c, fiber.StatusBadRequest, "bad_tree_type", err.Error())
+	case errors.Is(err, repository.ErrTreeTypeUnavailable):
+		return response.Error(c, fiber.StatusBadRequest, "tree_type_unavailable", err.Error())
 	default:
 		return response.Error(c, fiber.StatusServiceUnavailable, "database_unavailable", "database is not available")
 	}

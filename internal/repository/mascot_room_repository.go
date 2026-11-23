@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -52,6 +53,29 @@ func NewMascotRoomRepository(db *gorm.DB) *MascotRoomRepository {
 // gets AlreadyInRoomError and no new row. The user row lock plus the seat
 // primary key keep two concurrent creates from both succeeding.
 func (r *MascotRoomRepository) Create(ctx context.Context, owner uuid.UUID) (MascotRoomView, error) {
+	return r.create(ctx, owner, domain.TreeTypeLeaf)
+}
+
+// CreateWithTree opens a room of the given tree type.
+// Only leaf can be planted. The key must be an enabled tree_types row when
+// that table exists. Other catalog rows are refused until seeds unlock them.
+func (r *MascotRoomRepository) CreateWithTree(ctx context.Context, owner uuid.UUID, rawType string) (MascotRoomView, error) {
+	var zero MascotRoomView
+	db, err := r.dbOrErr()
+	if err != nil {
+		return zero, err
+	}
+	key := strings.ToLower(strings.TrimSpace(rawType))
+	if key == "" {
+		key = domain.TreeTypeLeaf
+	}
+	if err := validateCreatableTree(db, key); err != nil {
+		return zero, err
+	}
+	return r.create(ctx, owner, key)
+}
+
+func (r *MascotRoomRepository) create(ctx context.Context, owner uuid.UUID, treeType string) (MascotRoomView, error) {
 	var zero MascotRoomView
 	db, err := r.dbOrErr()
 	if err != nil {
@@ -59,6 +83,9 @@ func (r *MascotRoomRepository) Create(ctx context.Context, owner uuid.UUID) (Mas
 	}
 	if owner == uuid.Nil {
 		return zero, fmt.Errorf("owner required")
+	}
+	if strings.TrimSpace(treeType) == "" {
+		treeType = domain.TreeTypeLeaf
 	}
 	var view MascotRoomView
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -82,6 +109,7 @@ func (r *MascotRoomRepository) Create(ctx context.Context, owner uuid.UUID) (Mas
 				CreatedAt:   created,
 				EndsAt:      ends,
 				MaxMembers:  lobby.RoomCap,
+				TreeType:    treeType,
 			}
 			if err := tx.SavePoint("mascot_room_code").Error; err != nil {
 				return err
@@ -95,7 +123,7 @@ func (r *MascotRoomRepository) Create(ctx context.Context, owner uuid.UUID) (Mas
 				}
 				return err
 			}
-			member := domain.MascotRoomMember{RoomCode: code, UserID: owner, JoinedAt: now}
+			member := domain.MascotRoomMember{RoomCode: code, UserID: owner, JoinedAt: created, Kind: domain.RoomMemberUser}
 			if err := tx.Create(&member).Error; err != nil {
 				return err
 			}
@@ -246,6 +274,7 @@ func (r *MascotRoomRepository) Join(ctx context.Context, userID uuid.UUID, rawCo
 			RoomCode: code,
 			UserID:   userID,
 			JoinedAt: now,
+			Kind:     domain.RoomMemberUser,
 		}).Error; err != nil {
 			if !IsUniqueConflict(err) {
 				return err
@@ -284,6 +313,15 @@ func (r *MascotRoomRepository) Leave(ctx context.Context, userID uuid.UUID, rawC
 			return err
 		}
 		if _, err := lockMascotRoom(tx, code); err != nil {
+			return err
+		}
+		var leaving domain.MascotRoomMember
+		err := tx.Where("room_code = ? AND user_id = ?", code, userID).Take(&leaving).Error
+		if err == nil {
+			if err := recordMemberLeave(tx, leaving, time.Now().UTC()); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return err
 		}
 		if err := tx.Where("room_code = ? AND user_id = ?", code, userID).Delete(&domain.MascotRoomMember{}).Error; err != nil {

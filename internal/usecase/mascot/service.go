@@ -306,7 +306,11 @@ func (s *Service) view(ctx context.Context, userID uuid.UUID, row *domain.UserMa
 	loadout = visibleLoadout(loadout, sources, glow.Level)
 	// derived.Marks are the latest check-in only. Glow fields are attached
 	// after that and do not filter skin_marks.
-	out := toResponse(loadout, derived)
+	owned, err := s.ownedItems(ctx, userID)
+	if err != nil {
+		return zero, err
+	}
+	out := toResponse(loadout, derived, owned)
 	out.Gender = shownGender(row)
 	out.IntroSeen = row != nil && row.IntroSeenAt != nil
 	out.GlowLevel = glow.Level
@@ -499,7 +503,28 @@ func keepOrDefault(id, fallback string, owned map[string]struct{}) string {
 	return id
 }
 
-func toResponse(loadout domain.MascotLoadout, derived Result) dto.MascotResponse {
+func (s *Service) ownedItems(ctx context.Context, userID uuid.UUID) ([]dto.MascotOwnedItem, error) {
+	if s == nil || s.mascots == nil {
+		return []dto.MascotOwnedItem{}, nil
+	}
+	rows, err := s.mascots.ListOwnedItems(ctx, userID, time.Now().UTC())
+	if err != nil {
+		return nil, err
+	}
+	out := make([]dto.MascotOwnedItem, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, dto.MascotOwnedItem{
+			ItemKey:     row.ItemID,
+			Layer:       row.Layer,
+			PreviewOnly: row.PreviewOnly,
+			Source:      domain.OwnedItemSource(row.ItemID, row.Source),
+			GrantedAt:   row.AcquiredAt.UTC().Format(time.RFC3339),
+		})
+	}
+	return out, nil
+}
+
+func toResponse(loadout domain.MascotLoadout, derived Result, owned []dto.MascotOwnedItem) dto.MascotResponse {
 	if loadout.RoomItems == nil {
 		loadout.RoomItems = []string{}
 	}
@@ -522,6 +547,10 @@ func toResponse(loadout domain.MascotLoadout, derived Result) dto.MascotResponse
 		StreakDays: derived.StreakDays,
 		MissedDays: derived.MissedDays,
 		MessyLevel: derived.MessyLevel,
+		OwnedItems: owned,
+	}
+	if out.OwnedItems == nil {
+		out.OwnedItems = []dto.MascotOwnedItem{}
 	}
 	if derived.LastCheckIn != nil {
 		s := derived.LastCheckIn.UTC().Format(time.RFC3339)

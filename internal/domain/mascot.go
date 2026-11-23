@@ -79,13 +79,22 @@ const (
 	MascotItemRoomPillow            = "room_pillow"
 )
 
+// Mascot layers that have no wear slot. Tree stickers and name frames use these.
+// They are owned and shown in the wardrobe, and PreviewOnly stops equip.
+const (
+	MascotLayerSticker   = "sticker"
+	MascotLayerNameFrame = "name_frame"
+)
+
 // MascotItem is one catalog row. Price is nil when the item is not sold.
+// PreviewOnly items are owned for the wardrobe but cannot be equipped yet.
 type MascotItem struct {
-	ID     string `gorm:"primaryKey;size:64" json:"id"`
-	Layer  string `gorm:"size:32;not null" json:"layer"`
-	Name   string `gorm:"size:128;not null" json:"name"`
-	IsFree bool   `gorm:"not null" json:"is_free"`
-	Price  *int   `json:"price,omitempty"`
+	ID          string `gorm:"primaryKey;size:64" json:"id"`
+	Layer       string `gorm:"size:32;not null" json:"layer"`
+	Name        string `gorm:"size:128;not null" json:"name"`
+	IsFree      bool   `gorm:"not null" json:"is_free"`
+	Price       *int   `json:"price,omitempty"`
+	PreviewOnly bool   `gorm:"not null;default:false" json:"preview_only,omitempty"`
 }
 
 func (MascotItem) TableName() string { return "mascot_items" }
@@ -174,6 +183,8 @@ func (UserMascot) TableName() string { return "user_mascot" }
 // UserMascotItem is one owned item. ExpiresAt nil means permanent.
 // Callers ignore rows whose expiry is in the past; nothing deletes them on a schedule.
 // There is no foreign key to a room, so retiring a room leaves the grant in place.
+// PreviewOnly is copied from the catalog at grant time. The wardrobe can show it;
+// loadout rejects it until a later change clears the flag.
 type UserMascotItem struct {
 	UserID       uuid.UUID  `gorm:"type:uuid;primaryKey" json:"user_id"`
 	ItemID       string     `gorm:"primaryKey;size:64" json:"item_id"`
@@ -181,6 +192,7 @@ type UserMascotItem struct {
 	SourceRoomID *string    `gorm:"size:64" json:"source_room_id,omitempty"`
 	AcquiredAt   time.Time  `gorm:"not null" json:"acquired_at"`
 	ExpiresAt    *time.Time `json:"expires_at,omitempty"`
+	PreviewOnly  bool       `gorm:"not null;default:false" json:"preview_only,omitempty"`
 
 	User User       `gorm:"foreignKey:UserID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE" json:"-"`
 	Item MascotItem `gorm:"foreignKey:ItemID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:RESTRICT" json:"-"`

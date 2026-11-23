@@ -14,11 +14,13 @@ func TestValidateLoadout(t *testing.T) {
 	price := 20
 	catalog["outfit_gold"] = domain.MascotItem{ID: "outfit_gold", Layer: domain.MascotLayerOutfit, IsFree: false, Price: &price}
 	catalog["hat_paid"] = domain.MascotItem{ID: "hat_paid", Layer: domain.MascotLayerAccessory, IsFree: false, Price: &price}
+	catalog["preview_bow"] = domain.MascotItem{ID: "preview_bow", Layer: domain.MascotLayerAccessory, Name: "Nơ xem trước", PreviewOnly: true}
 
 	ownedFree := map[string]struct{}{}
 	for _, item := range domain.DefaultMascotItems() {
 		ownedFree[item.ID] = struct{}{}
 	}
+	ownedFree["preview_bow"] = struct{}{}
 
 	ok := domain.DefaultMascotLoadout()
 	if err := ValidateLoadout(ok, catalog, ownedFree); err != nil {
@@ -48,6 +50,7 @@ func TestValidateLoadout(t *testing.T) {
 			l.RoomItems = []string{domain.MascotItemRoomPlant, domain.MascotItemRoomPlant}
 		}, "invalid_loadout", nil},
 		{"room layer", func(l *domain.MascotLoadout) { l.RoomItems = []string{domain.MascotItemBodyChibi} }, "wrong_layer", nil},
+		{"preview only", func(l *domain.MascotLoadout) { l.Accessory = "preview_bow" }, "preview_only", nil},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
