@@ -547,6 +547,66 @@ func TestTreeCreationDayCountsMembersThen(t *testing.T) {
 	}
 }
 
+func TestTreeRealCreateCountsTheOwner(t *testing.T) {
+	db := openTreeDB(t)
+	rooms := NewMascotRoomRepository(db)
+	repo := NewRoomTreeRepository(db)
+	owner := treeUser(t, db, "Lan")
+	view, err := rooms.Create(context.Background(), owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	treeSkin(t, db, owner.ID, now)
+	state, err := repo.State(context.Background(), owner.ID, view.Code, now)
+	if err != nil || state.Required != 1 || state.Waters != 0 || state.Stage != 1 {
+		t.Fatalf("opened %+v %v", state, err)
+	}
+	watered, err := repo.Water(context.Background(), owner.ID, view.Code, "tap", now)
+	if err != nil || watered.Required != 1 || watered.Waters != 1 || watered.Stage != 2 {
+		t.Fatalf("watered %+v %v", watered, err)
+	}
+
+	// The old create path stored JoinedAt a few milliseconds after created_at.
+	lateOwner := treeUser(t, db, "Mây")
+	lateView, err := rooms.Create(context.Background(), lateOwner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var room domain.MascotRoom
+	if err := db.Where("code = ?", lateView.Code).Take(&room).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&domain.MascotRoomMember{}).Where("room_code = ?", lateView.Code).
+		Update("joined_at", room.CreatedAt.Add(88*time.Millisecond)).Error; err != nil {
+		t.Fatal(err)
+	}
+	treeSkin(t, db, lateOwner.ID, now)
+	state, err = repo.State(context.Background(), lateOwner.ID, lateView.Code, now)
+	if err != nil || state.Required != 1 || state.Stage != 1 {
+		t.Fatalf("subsecond join %+v %v", state, err)
+	}
+}
+
+func TestJoinedByCountsTheCreationSecond(t *testing.T) {
+	created := time.Date(2026, 11, 23, 8, 49, 14, 0, time.UTC)
+	owner := uuid.New()
+	if !joinedBy(created.Add(88*time.Millisecond), created) {
+		t.Fatal("join inside the creation second was excluded")
+	}
+	if joinedBy(created.Add(time.Second), created) {
+		t.Fatal("the next second counted as present")
+	}
+	stints := []memberStint{{userID: owner, joined: created.Add(88 * time.Millisecond), kind: domain.RoomMemberUser}}
+	if len(presentReal(stints, created)) != 1 {
+		t.Fatal("presentReal dropped the owner")
+	}
+	late := []memberStint{{userID: owner, joined: created.Add(2 * time.Second), kind: domain.RoomMemberUser}}
+	if len(presentReal(late, created)) != 0 {
+		t.Fatal("a later join raised the lock")
+	}
+}
+
 func TestTreeHalfPlusHalfLevelsNowAndCarries(t *testing.T) {
 	db := openTreeDB(t)
 	repo := NewRoomTreeRepository(db)

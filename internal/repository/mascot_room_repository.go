@@ -123,7 +123,7 @@ func (r *MascotRoomRepository) create(ctx context.Context, owner uuid.UUID, tree
 				}
 				return err
 			}
-			member := domain.MascotRoomMember{RoomCode: code, UserID: owner, JoinedAt: now, Kind: domain.RoomMemberUser}
+			member := domain.MascotRoomMember{RoomCode: code, UserID: owner, JoinedAt: created, Kind: domain.RoomMemberUser}
 			if err := tx.Create(&member).Error; err != nil {
 				return err
 			}

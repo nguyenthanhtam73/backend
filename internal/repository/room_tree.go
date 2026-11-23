@@ -172,9 +172,6 @@ func (r *RoomTreeRepository) State(ctx context.Context, userID uuid.UUID, rawCod
 // An empty stages list marks every unseen reward. Other members are unchanged.
 func (r *RoomTreeRepository) MarkRewardsSeen(ctx context.Context, userID uuid.UUID, rawCode string, stages []int, now time.Time) (TreeState, error) {
 	var zero TreeState
-	if _, err := r.State(ctx, userID, rawCode, now); err != nil {
-		return zero, err
-	}
 	db, err := r.dbOrErr()
 	if err != nil {
 		return zero, err
@@ -183,7 +180,19 @@ func (r *RoomTreeRepository) MarkRewardsSeen(ctx context.Context, userID uuid.UU
 	if !ok {
 		return zero, ErrMascotRoomBadCode
 	}
+	if userID == uuid.Nil {
+		return zero, fmt.Errorf("user required")
+	}
+	var state TreeState
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var room domain.MascotRoom
+		err := tx.Where("code = ?", code).Take(&room).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrMascotRoomNotFound
+		}
+		if err != nil {
+			return err
+		}
 		member, real, err := callerMember(tx, code, userID)
 		if err != nil {
 			return err
@@ -194,17 +203,43 @@ func (r *RoomTreeRepository) MarkRewardsSeen(ctx context.Context, userID uuid.UU
 		if !real {
 			return ErrTreeNotReal
 		}
+		var tree domain.MascotRoomTree
+		err = tx.Where("room_code = ?", code).Take(&tree).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+		settled := ""
+		if err == nil {
+			settled = tree.SettledThrough
+		}
+		if needsDaySettle(room.CreatedAt, settled, now) {
+			room, err = lockMascotRoom(tx, code)
+			if err != nil {
+				return err
+			}
+			if _, err = advanceRoom(tx, room, userID, now); err != nil {
+				return err
+			}
+		}
 		q := tx.Model(&domain.MascotRoomTreeReward{}).
 			Where("room_code = ? AND user_id = ? AND seen_at IS NULL", code, userID)
 		if len(stages) > 0 {
 			q = q.Where("stage IN ?", stages)
 		}
-		return q.Update("seen_at", now.UTC()).Error
+		if err := q.Update("seen_at", now.UTC()).Error; err != nil {
+			return err
+		}
+		work, err := loadTreeWork(tx, room, now, false)
+		if err != nil {
+			return err
+		}
+		state, err = buildTreeState(tx, room, work, userID, now)
+		return err
 	})
 	if err != nil {
 		return zero, err
 	}
-	return r.State(ctx, userID, rawCode, now)
+	return state, nil
 }
 
 func (r *RoomTreeRepository) readState(ctx context.Context, room domain.MascotRoom, userID uuid.UUID, now time.Time) (TreeState, error) {
@@ -953,7 +988,7 @@ func requiredAt(stints []memberStint, created, midnight, until time.Time, waters
 func presentReal(stints []memberStint, at time.Time) map[uuid.UUID]struct{} {
 	out := map[uuid.UUID]struct{}{}
 	for _, stint := range stints {
-		if !domain.RealRoomMember(stint.kind) || stint.joined.After(at) {
+		if !domain.RealRoomMember(stint.kind) || !joinedBy(stint.joined, at) {
 			continue
 		}
 		if stint.left != nil && !stint.left.After(at) {
@@ -962,6 +997,16 @@ func presentReal(stints []memberStint, at time.Time) map[uuid.UUID]struct{} {
 		out[stint.userID] = struct{}{}
 	}
 	return out
+}
+
+// joinedBy reports whether this member was already in the room at `at`.
+// A join in the same clock second counts. created_at is truncated to a
+// second, and an older owner row kept the untruncated JoinedAt.
+func joinedBy(joined, at time.Time) bool {
+	if !joined.After(at) {
+		return true
+	}
+	return joined.Truncate(time.Second).Equal(at.Truncate(time.Second))
 }
 
 func currentRealAt(stints []memberStint, at time.Time) []uuid.UUID {
