@@ -140,6 +140,31 @@ func idempotencyFromWater(c *fiber.Ctx) (string, error) {
 	return strings.TrimSpace(body.IdempotencyKey), nil
 }
 
+type treeDrawBody struct {
+	Pick           *int   `json:"pick"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+// DrawTree is POST /api/v1/mascot/rooms/:code/tree/draw.
+// The body may be empty. pick, when sent, is 0, 1, or 2 and does not choose the shard.
+func (h *MascotRoomHandler) DrawTree(c *fiber.Ctx) error {
+	tree, uid, ok := h.treeOr(c)
+	if !ok {
+		return nil
+	}
+	var body treeDrawBody
+	if len(bytes.TrimSpace(c.Body())) > 0 {
+		if err := decodeStrict(c.Body(), &body); err != nil {
+			return response.Error(c, fiber.StatusBadRequest, "invalid_body", "body must be valid JSON")
+		}
+	}
+	got, err := tree.Draw(c.UserContext(), uid, c.Params("code"), body.IdempotencyKey, body.Pick)
+	if err != nil {
+		return writeTreeErr(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, got)
+}
+
 func writeTreeErr(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, repository.ErrMascotRoomNotFound):
@@ -164,6 +189,10 @@ func writeTreeErr(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusBadRequest, "tree_type_unavailable", err.Error())
 	case errors.Is(err, repository.ErrTreeBadIdempotency):
 		return response.Error(c, fiber.StatusBadRequest, "bad_idempotency_key", err.Error())
+	case errors.Is(err, repository.ErrBadPick):
+		return response.Error(c, fiber.StatusBadRequest, "bad_pick", err.Error())
+	case errors.Is(err, repository.ErrDrawUnavailable):
+		return response.Error(c, fiber.StatusConflict, "draw_unavailable", err.Error())
 	default:
 		return response.Error(c, fiber.StatusServiceUnavailable, "database_unavailable", "database is not available")
 	}

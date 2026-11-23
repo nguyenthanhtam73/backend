@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/internal/lobby"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -25,6 +26,9 @@ var (
 	ErrMysteryNotForSale  = errors.New("mystery shards are not sold")
 	ErrBadShardType       = errors.New("that shard type is not available")
 	ErrBadTrade           = errors.New("trade must offer the required shards")
+	ErrSameShardType      = errors.New("the shard you receive must be a different type")
+	ErrDrawUnavailable    = errors.New("there is no leaf to draw")
+	ErrBadPick            = errors.New("pick must be 0, 1, or 2")
 )
 
 // ShardView is one shard granted to a person.
@@ -49,15 +53,43 @@ type BagRules struct {
 	MysteryShardBps int
 }
 
+// BagCatalogItem is one non-leaf tree in the 18-slot bag.
+// Available types can be earned now. ComingSoon is a known type that is not
+// in the shard or mystery pool yet (sen hồng). Blank slots are ComingSoonCount.
+type BagCatalogItem struct {
+	TypeKey       string
+	NameVI        string
+	Rarity        string
+	ImageKey      string
+	Shards        int
+	Seeds         int
+	Available     bool
+	ComingSoon    bool
+	InMysteryPool bool
+	Revealed      bool
+}
+
 // SeedBag is GET /mascot/seed-bag and the body of a trade or buy.
 type SeedBag struct {
-	Shards        []BagStack
-	MysteryShards int
-	Seeds         []BagStack
-	MysterySeeds  int
-	Rules         BagRules
-	Balance       int64
-	Already       bool
+	Shards          []BagStack
+	MysteryShards   int
+	Seeds           []BagStack
+	MysterySeeds    int
+	Rules           BagRules
+	Balance         int64
+	Already         bool
+	Catalog         []BagCatalogItem
+	SlotCount       int
+	ComingSoonCount int
+}
+
+// DrawResult is POST /mascot/rooms/:code/tree/draw.
+// Pick is echoed and does not choose the shard.
+type DrawResult struct {
+	Already bool
+	Pick    *int
+	Shard   ShardView
+	CanDraw bool
 }
 
 // seedNextInt is the roll used for mystery shards and mystery seeds.
@@ -229,8 +261,15 @@ func tradeShards(tx *gorm.DB, userID uuid.UUID, offer []BagStack, want, idem str
 	if err != nil {
 		return err
 	}
-	if total != need || need <= 0 {
+	if len(folded) != 1 || total != need || need <= 0 {
 		return ErrBadTrade
+	}
+	offerKey := ""
+	for key := range folded {
+		offerKey = key
+	}
+	if offerKey == want {
+		return ErrSameShardType
 	}
 	if _, err := commonShardType(tx, want); err != nil {
 		return err
@@ -382,26 +421,18 @@ func adjustBalance(tx *gorm.DB, userID uuid.UUID, kind, typeKey string, delta in
 	return nil
 }
 
+// grantBloomShards records who may draw. The shard type stays hidden until
+// POST draw, so the client can flip a leaf. The type is not added to the bag yet.
 func grantBloomShards(tx *gorm.DB, room domain.MascotRoom, members []uuid.UUID, at time.Time) (map[uuid.UUID]ShardView, error) {
 	if tx == nil || !tx.Migrator().HasTable(&domain.RoomBloomShard{}) {
 		return nil, nil
 	}
-	bps, err := seedConfig(tx, domain.SeedConfigMysteryBps)
-	if err != nil {
-		return nil, err
-	}
-	commons, err := commonShardKeys(tx)
-	if err != nil {
-		return nil, err
-	}
-	out := map[uuid.UUID]ShardView{}
 	for _, userID := range members {
 		if userID == uuid.Nil {
 			continue
 		}
-		key := rollShardType(seedNextInt, bps, commons)
 		row := domain.RoomBloomShard{
-			RoomCode: room.Code, UserID: userID, TypeKey: key, CreatedAt: at.UTC(),
+			RoomCode: room.Code, UserID: userID, TypeKey: "", CreatedAt: at.UTC(),
 		}
 		res := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "room_code"}, {Name: "user_id"}},
@@ -410,19 +441,166 @@ func grantBloomShards(tx *gorm.DB, room domain.MascotRoom, members []uuid.UUID, 
 		if res.Error != nil {
 			return nil, res.Error
 		}
-		if res.RowsAffected == 0 {
-			continue
+	}
+	return nil, nil
+}
+
+// DrawShard reveals one bloom shard. pick is 0, 1, or 2 and does not change
+// the roll. A second call returns the same shard and does not grant again.
+func (r *RoomTreeRepository) DrawShard(ctx context.Context, userID uuid.UUID, rawCode, idem string, pick *int, now time.Time) (DrawResult, error) {
+	var zero DrawResult
+	if pick != nil && (*pick < 0 || *pick > 2) {
+		return zero, ErrBadPick
+	}
+	db, err := r.dbOrErr()
+	if err != nil {
+		return zero, err
+	}
+	code, ok := lobby.NormalizeRoomCode(rawCode)
+	if !ok {
+		return zero, ErrMascotRoomBadCode
+	}
+	if userID == uuid.Nil {
+		return zero, fmt.Errorf("user required")
+	}
+	idem = strings.TrimSpace(idem)
+	var result DrawResult
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if _, err := lockMascotRoom(tx, code); err != nil {
+			return err
 		}
-		if _, err := addShard(tx, userID, key, domain.SeedSourceBloom, seedLedgerID("bloom", room.Code, userID.String()), at); err != nil {
-			return nil, err
+		member, real, err := callerMember(tx, code, userID)
+		if err != nil {
+			return err
+		}
+		if !member {
+			return ErrMascotRoomNotMember
+		}
+		if !real {
+			return ErrTreeNotReal
+		}
+		var row domain.RoomBloomShard
+		err = tx.Where("room_code = ? AND user_id = ?", code, userID).Take(&row).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrDrawUnavailable
+		}
+		if err != nil {
+			return err
+		}
+		if row.TypeKey != "" {
+			view, err := shardView(tx, row.TypeKey)
+			if err != nil {
+				return err
+			}
+			result = DrawResult{Already: true, Pick: row.Pick, Shard: view}
+			return nil
+		}
+		bps, err := seedConfig(tx, domain.SeedConfigMysteryBps)
+		if err != nil {
+			return err
+		}
+		commons, err := commonShardKeys(tx)
+		if err != nil {
+			return err
+		}
+		key := rollShardType(seedNextInt, bps, commons)
+		claimed := now.UTC()
+		res := tx.Model(&domain.RoomBloomShard{}).
+			Where("room_code = ? AND user_id = ? AND type_key = ?", code, userID, "").
+			Updates(map[string]any{
+				"type_key":        key,
+				"pick":            pick,
+				"idempotency_key": idem,
+				"claimed_at":      claimed,
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			if err := tx.Where("room_code = ? AND user_id = ?", code, userID).Take(&row).Error; err != nil {
+				return err
+			}
+			view, err := shardView(tx, row.TypeKey)
+			if err != nil {
+				return err
+			}
+			result = DrawResult{Already: true, Pick: row.Pick, Shard: view}
+			return nil
+		}
+		if _, err := addShard(tx, userID, key, domain.SeedSourceBloom, seedLedgerID("bloom", code, userID.String()), now); err != nil {
+			return err
 		}
 		view, err := shardView(tx, key)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		out[userID] = view
+		result = DrawResult{Pick: pick, Shard: view}
+		return nil
+	})
+	if err != nil {
+		return zero, err
 	}
-	return out, nil
+	return result, nil
+}
+
+// BloomBoard is who may draw and what they already revealed. Names only.
+type BloomDraw struct {
+	Name    string
+	Pending bool
+	Shard   *ShardView
+}
+
+func bloomBoard(tx *gorm.DB, code string, viewer uuid.UUID) (canDraw bool, mine *ShardView, draws []BloomDraw, err error) {
+	draws = []BloomDraw{}
+	if tx == nil || !tx.Migrator().HasTable(&domain.RoomBloomShard{}) {
+		return false, nil, draws, nil
+	}
+	var rows []domain.RoomBloomShard
+	if err := tx.Where("room_code = ?", code).Order("created_at ASC, user_id ASC").Find(&rows).Error; err != nil {
+		return false, nil, nil, err
+	}
+	if len(rows) == 0 {
+		return false, nil, draws, nil
+	}
+	ids := make([]uuid.UUID, len(rows))
+	for i, row := range rows {
+		ids[i] = row.UserID
+	}
+	names, err := waterNames(tx, code, watersFor(ids))
+	if err != nil {
+		return false, nil, nil, err
+	}
+	for i, row := range rows {
+		name := "Bạn"
+		if i < len(names) {
+			name = names[i]
+		}
+		if row.TypeKey == "" {
+			draws = append(draws, BloomDraw{Name: name, Pending: true})
+			if row.UserID == viewer {
+				canDraw = true
+			}
+			continue
+		}
+		view, err := shardView(tx, row.TypeKey)
+		if err != nil {
+			return false, nil, nil, err
+		}
+		copyView := view
+		draws = append(draws, BloomDraw{Name: name, Shard: &copyView})
+		if row.UserID == viewer {
+			mine = &copyView
+		}
+	}
+	return canDraw, mine, draws, nil
+}
+
+func watersFor(ids []uuid.UUID) []domain.MascotRoomTreeWater {
+	out := make([]domain.MascotRoomTreeWater, len(ids))
+	for i, id := range ids {
+		out[i] = domain.MascotRoomTreeWater{UserID: id}
+	}
+	return out
 }
 
 type plantPlan struct {
@@ -509,7 +687,7 @@ func consumePlant(tx *gorm.DB, owner uuid.UUID, plan plantPlan, roomCode string,
 
 func rollRare(tx *gorm.DB) (domain.TreeType, error) {
 	var rows []domain.TreeType
-	err := tx.Where("rarity = ? AND plantable = ?", domain.TreeRarityRare, true).
+	err := tx.Where("mystery_pool = ?", true).
 		Order("sort_order ASC, key ASC").Find(&rows).Error
 	if err != nil {
 		return domain.TreeType{}, err
@@ -589,6 +767,7 @@ func loadSeedBag(tx *gorm.DB, userID uuid.UUID) (SeedBag, error) {
 	bag.Rules = rules
 	bag.Shards = []BagStack{}
 	bag.Seeds = []BagStack{}
+	bag.Catalog = []BagCatalogItem{}
 	if userID == uuid.Nil {
 		return bag, nil
 	}
@@ -626,7 +805,66 @@ func loadSeedBag(tx *gorm.DB, userID uuid.UUID) (SeedBag, error) {
 			bag.Seeds = append(bag.Seeds, stack)
 		}
 	}
+	catalog, slotCount, coming, err := bagCatalog(tx, userID, rows)
+	if err != nil {
+		return bag, err
+	}
+	bag.Catalog = catalog
+	bag.SlotCount = slotCount
+	bag.ComingSoonCount = coming
 	return bag, nil
+}
+
+func bagCatalog(tx *gorm.DB, userID uuid.UUID, balances []domain.UserSeedBalance) ([]BagCatalogItem, int, int, error) {
+	slotCount := 18
+	if tx.Migrator().HasTable(&domain.SeedBagConfig{}) {
+		if n, err := seedConfig(tx, domain.SeedConfigSlotCount); err == nil && n > 0 {
+			slotCount = n
+		}
+	}
+	if !tx.Migrator().HasTable(&domain.TreeType{}) {
+		return []BagCatalogItem{}, slotCount, slotCount, nil
+	}
+	var types []domain.TreeType
+	if err := tx.Where("key <> ?", domain.TreeTypeLeaf).Order("sort_order ASC, key ASC").Find(&types).Error; err != nil {
+		return nil, 0, 0, err
+	}
+	revealed := map[string]struct{}{}
+	if userID != uuid.Nil && tx.Migrator().HasTable(&domain.UserTreeReveal{}) {
+		var rows []domain.UserTreeReveal
+		if err := tx.Where("user_id = ?", userID).Find(&rows).Error; err != nil {
+			return nil, 0, 0, err
+		}
+		for _, row := range rows {
+			revealed[row.TypeKey] = struct{}{}
+		}
+	}
+	shards := map[string]int{}
+	seeds := map[string]int{}
+	for _, row := range balances {
+		if row.Kind == domain.SeedKindShard {
+			shards[row.TypeKey] = row.Count
+		}
+		if row.Kind == domain.SeedKindSeed {
+			seeds[row.TypeKey] = row.Count
+		}
+	}
+	out := make([]BagCatalogItem, 0, len(types))
+	for _, typ := range types {
+		available := typ.MysteryPool || (typ.Rarity == domain.TreeRarityCommon && typ.Enabled && typ.Plantable)
+		_, seen := revealed[typ.Key]
+		out = append(out, BagCatalogItem{
+			TypeKey: typ.Key, NameVI: typ.NameVI, Rarity: typ.Rarity, ImageKey: typ.ImageKey,
+			Shards: shards[typ.Key], Seeds: seeds[typ.Key],
+			Available: available, ComingSoon: !available, InMysteryPool: typ.MysteryPool,
+			Revealed: typ.Rarity != domain.TreeRarityRare || seen,
+		})
+	}
+	coming := slotCount - len(out)
+	if coming < 0 {
+		coming = 0
+	}
+	return out, slotCount, coming, nil
 }
 
 func loadRules(tx *gorm.DB) (BagRules, error) {
@@ -766,7 +1004,11 @@ func SeedSeedBag(db *gorm.DB) error {
 	}
 	if db.Migrator().HasColumn(&domain.TreeType{}, "plantable") {
 		for _, row := range domain.TreeTypeSeed() {
-			if err := db.Model(&domain.TreeType{}).Where("key = ?", row.Key).Update("plantable", row.Plantable).Error; err != nil {
+			updates := map[string]any{"plantable": row.Plantable}
+			if db.Migrator().HasColumn(&domain.TreeType{}, "mystery_pool") {
+				updates["mystery_pool"] = row.MysteryPool
+			}
+			if err := db.Model(&domain.TreeType{}).Where("key = ?", row.Key).Updates(updates).Error; err != nil {
 				return err
 			}
 		}

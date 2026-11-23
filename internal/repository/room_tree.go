@@ -74,6 +74,8 @@ type TreeState struct {
 	WatererName   string
 	Levels        []int
 	MyShard       *ShardView
+	CanDraw       bool
+	Draws         []BloomDraw
 	BloomShards   map[uuid.UUID]ShardView
 }
 
@@ -847,12 +849,9 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 			return TreeState{}, err
 		}
 	}
-	var mineShard *ShardView
-	if viewer != uuid.Nil && work.bloomShards != nil {
-		if shard, ok := work.bloomShards[viewer]; ok {
-			copyShard := shard
-			mineShard = &copyShard
-		}
+	canDraw, mineShard, draws, err := bloomBoard(tx, room.Code, viewer)
+	if err != nil {
+		return TreeState{}, err
 	}
 	return TreeState{
 		Stage: work.tree.Stage, StageName: stageName,
@@ -863,6 +862,7 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 		Rewards: rewards, MyRewards: mine, Balance: balance,
 		JustGranted: just, UnseenRewards: unseen, Levels: append([]int(nil), work.levels...),
 		WatererName: display, BloomShards: work.bloomShards, MyShard: mineShard,
+		CanDraw: canDraw, Draws: draws,
 	}, nil
 }
 

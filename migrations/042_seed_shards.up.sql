@@ -11,8 +11,14 @@
 ALTER TABLE tree_types
     ADD COLUMN IF NOT EXISTS plantable BOOLEAN NOT NULL DEFAULT FALSE;
 
+ALTER TABLE tree_types
+    ADD COLUMN IF NOT EXISTS mystery_pool BOOLEAN NOT NULL DEFAULT FALSE;
+
 UPDATE tree_types SET plantable = TRUE
 WHERE key IN ('leaf', 'cherry', 'aloe', 'sunflower', 'dandelion', 'quynh', 'sen_hong');
+
+UPDATE tree_types SET mystery_pool = TRUE
+WHERE key IN ('dandelion', 'quynh');
 
 ALTER TABLE user_coin_ledger DROP CONSTRAINT IF EXISTS user_coin_ledger_amount_check;
 ALTER TABLE user_coin_ledger ADD CONSTRAINT user_coin_ledger_amount_check CHECK (amount <> 0);
@@ -26,7 +32,8 @@ INSERT INTO seed_bag_config (key, int_value) VALUES
     ('mystery_shard_bps', 1000),
     ('shard_buy_price', 5000),
     ('merge_count', 5),
-    ('trade_in_count', 3)
+    ('trade_in_count', 3),
+    ('bag_slot_count', 18)
 ON CONFLICT (key) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS user_seed_balances (
@@ -52,7 +59,10 @@ CREATE INDEX IF NOT EXISTS user_seed_ledger_user_idx ON user_seed_ledger (user_i
 CREATE TABLE IF NOT EXISTS mascot_room_bloom_shards (
     room_code VARCHAR(6) NOT NULL,
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    type_key VARCHAR(64) NOT NULL,
+    type_key VARCHAR(64) NOT NULL DEFAULT '',
+    pick INTEGER,
+    idempotency_key VARCHAR(80) NOT NULL DEFAULT '',
+    claimed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (room_code, user_id)
 );

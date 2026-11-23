@@ -45,7 +45,17 @@ type RoomTreeResponse struct {
 	Leveled       bool         `json:"leveled"`
 	JustGranted   []TreeReward `json:"just_granted,omitempty"`
 	UnseenRewards []TreeReward `json:"unseen_rewards"`
+	CanDraw       bool         `json:"can_draw"`
 	MyShard       *TreeShard   `json:"my_shard,omitempty"`
+	Draws         []TreeDraw   `json:"draws"`
+}
+
+// TreeDraw is one member's leaf. Pending means they have not flipped yet.
+// A revealed shard is only present after that person has drawn.
+type TreeDraw struct {
+	Name    string     `json:"name"`
+	Pending bool       `json:"pending"`
+	Shard   *TreeShard `json:"shard,omitempty"`
 }
 
 // TreeCatalogEntry is one enabled tree the client can draw.

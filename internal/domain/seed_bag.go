@@ -31,6 +31,7 @@ const (
 	SeedConfigBuyPrice   = "shard_buy_price"
 	SeedConfigMergeCount = "merge_count"
 	SeedConfigTradeCount = "trade_in_count"
+	SeedConfigSlotCount  = "bag_slot_count"
 )
 
 // SeedBagConfig is one numeric rule. Prices and rates live here, not in code.
@@ -48,6 +49,7 @@ func SeedBagDefaults() []SeedBagConfig {
 		{Key: SeedConfigBuyPrice, IntValue: 5000},
 		{Key: SeedConfigMergeCount, IntValue: 5},
 		{Key: SeedConfigTradeCount, IntValue: 3},
+		{Key: SeedConfigSlotCount, IntValue: 18},
 	}
 }
 
@@ -76,13 +78,18 @@ type UserSeedLedger struct {
 
 func (UserSeedLedger) TableName() string { return "user_seed_ledger" }
 
-// RoomBloomShard is the one shard a real member received for a room's bloom.
-// The primary key blocks a second grant for the same room and person.
+// RoomBloomShard is one real member's leaf draw for a room's bloom.
+// The row is created when the tree blooms, with an empty TypeKey.
+// POST draw fills TypeKey once. The primary key blocks a second grant.
+// Pick is the leaf the client tapped (0–2). It does not change the shard.
 type RoomBloomShard struct {
-	RoomCode  string    `gorm:"primaryKey;size:6"`
-	UserID    uuid.UUID `gorm:"type:uuid;primaryKey"`
-	TypeKey   string    `gorm:"size:64;not null"`
-	CreatedAt time.Time `gorm:"not null"`
+	RoomCode       string     `gorm:"primaryKey;size:6"`
+	UserID         uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	TypeKey        string     `gorm:"size:64;not null;default:''"`
+	Pick           *int       `gorm:""`
+	IdempotencyKey string     `gorm:"size:80;not null;default:''"`
+	ClaimedAt      *time.Time `gorm:""`
+	CreatedAt      time.Time  `gorm:"not null"`
 }
 
 func (RoomBloomShard) TableName() string { return "mascot_room_bloom_shards" }

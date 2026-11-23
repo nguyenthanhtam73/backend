@@ -92,8 +92,24 @@ func toBag(bag repository.SeedBag) dto.SeedBagResponse {
 			MergeCount: bag.Rules.MergeCount, TradeInCount: bag.Rules.TradeInCount,
 			ShardBuyPrice: bag.Rules.ShardBuyPrice, MysteryShardBps: bag.Rules.MysteryShardBps,
 		},
+		Catalog: toCatalog(bag.Catalog), SlotCount: bag.SlotCount, ComingSoonCount: bag.ComingSoonCount,
 		Balance: bag.Balance, Already: bag.Already,
 	}
+}
+
+func toCatalog(rows []repository.BagCatalogItem) []dto.BagCatalogItem {
+	out := make([]dto.BagCatalogItem, len(rows))
+	for i, row := range rows {
+		out[i] = dto.BagCatalogItem{
+			TypeKey: row.TypeKey, NameVI: row.NameVI, Rarity: row.Rarity, ImageKey: row.ImageKey,
+			Shards: row.Shards, Seeds: row.Seeds, Available: row.Available, ComingSoon: row.ComingSoon,
+			InMysteryPool: row.InMysteryPool, Revealed: row.Revealed,
+		}
+	}
+	if out == nil {
+		return []dto.BagCatalogItem{}
+	}
+	return out
 }
 
 func toStacks(rows []repository.BagStack) []dto.BagStack {
@@ -240,8 +256,34 @@ func toDTO(state repository.TreeState) dto.RoomTreeResponse {
 		Rewards: toRewards(state.Rewards), MyRewards: toRewards(state.MyRewards), Balance: state.Balance,
 		Already: state.Already, Leveled: len(state.JustGranted) > 0, JustGranted: omitEmpty(state.JustGranted),
 		UnseenRewards: toRewards(state.UnseenRewards),
-		MyShard:       toShard(state.MyShard),
+		CanDraw:       state.CanDraw, MyShard: toShard(state.MyShard), Draws: toDraws(state.Draws),
 	}
+}
+
+// Draw reveals this member's bloom shard. pick is cosmetic.
+func (s *Service) Draw(ctx context.Context, userID uuid.UUID, code, idem string, pick *int) (dto.DrawResponse, error) {
+	var zero dto.DrawResponse
+	if s == nil || s.repo == nil {
+		return zero, domain.Unavailable("service_unavailable", "mascot unavailable")
+	}
+	got, err := s.repo.DrawShard(ctx, userID, code, idem, pick, s.clock())
+	if err != nil {
+		return zero, err
+	}
+	return dto.DrawResponse{Already: got.Already, Pick: got.Pick, MyShard: dto.TreeShard{
+		TypeKey: got.Shard.TypeKey, NameVI: got.Shard.NameVI, Mystery: got.Shard.Mystery,
+	}}, nil
+}
+
+func toDraws(rows []repository.BloomDraw) []dto.TreeDraw {
+	out := make([]dto.TreeDraw, len(rows))
+	for i, row := range rows {
+		out[i] = dto.TreeDraw{Name: row.Name, Pending: row.Pending, Shard: toShard(row.Shard)}
+	}
+	if out == nil {
+		return []dto.TreeDraw{}
+	}
+	return out
 }
 
 func toShard(shard *repository.ShardView) *dto.TreeShard {

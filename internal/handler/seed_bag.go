@@ -98,6 +98,8 @@ func writeSeedErr(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusBadRequest, "bad_shard_type", err.Error())
 	case errors.Is(err, repository.ErrBadTrade):
 		return response.Error(c, fiber.StatusBadRequest, "bad_trade", err.Error())
+	case errors.Is(err, repository.ErrSameShardType):
+		return response.Error(c, fiber.StatusBadRequest, "same_shard_type", err.Error())
 	default:
 		return writeTreeErr(c, err)
 	}

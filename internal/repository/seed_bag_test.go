@@ -58,11 +58,27 @@ func TestBloomShardOnceAndLateJoinerNone(t *testing.T) {
 	when := vnAt(2026, 11, 20, 10, 0)
 	treeSkin(t, db, owner.ID, when)
 	state, err := repo.Water(context.Background(), owner.ID, code, "bloom", when)
-	if err != nil || state.Stage != 7 || state.MyShard == nil || !state.MyShard.Mystery {
-		t.Fatalf("bloom %+v shard %+v err %v", state.Stage, state.MyShard, err)
+	if err != nil || state.Stage != 7 || !state.CanDraw || state.MyShard != nil {
+		t.Fatalf("bloom %+v shard %+v draw %v err %v", state.Stage, state.MyShard, state.CanDraw, err)
+	}
+	if got := shardCount(t, db, owner.ID, domain.SeedKindShard, domain.SeedTypeMystery); got != 0 {
+		t.Fatalf("shard granted before the draw %d", got)
+	}
+	pick := 2
+	drawn, err := repo.DrawShard(context.Background(), owner.ID, code, "flip", &pick, when)
+	if err != nil || drawn.Already || !drawn.Shard.Mystery || drawn.Pick == nil || *drawn.Pick != 2 {
+		t.Fatalf("draw %+v %v", drawn, err)
+	}
+	otherPick := 0
+	againDraw, err := repo.DrawShard(context.Background(), owner.ID, code, "flip-again", &otherPick, when)
+	if err != nil || !againDraw.Already || !againDraw.Shard.Mystery {
+		t.Fatalf("second draw %+v %v", againDraw, err)
 	}
 	if got := shardCount(t, db, owner.ID, domain.SeedKindShard, domain.SeedTypeMystery); got != 1 {
 		t.Fatalf("owner shards %d", got)
+	}
+	if _, err := repo.DrawShard(context.Background(), buddy.ID, code, "ai", nil, when); !errors.Is(err, ErrTreeNotReal) {
+		t.Fatalf("ai draw %v", err)
 	}
 	if got := shardCount(t, db, buddy.ID, domain.SeedKindShard, domain.SeedTypeMystery); got != 0 {
 		t.Fatalf("ai shards %d", got)
@@ -92,6 +108,9 @@ func TestBloomShardOnceAndLateJoinerNone(t *testing.T) {
 	addTreeMember(t, db, code, late.ID, vnAt(2026, 11, 21, 12, 0), domain.RoomMemberUser)
 	if _, err := repo.State(context.Background(), late.ID, code, vnAt(2026, 11, 21, 13, 0)); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := repo.DrawShard(context.Background(), late.ID, code, "late", nil, vnAt(2026, 11, 21, 13, 0)); !errors.Is(err, ErrDrawUnavailable) {
+		t.Fatalf("late draw %v", err)
 	}
 	if got := shardCount(t, db, late.ID, domain.SeedKindShard, domain.SeedTypeMystery); got != 0 {
 		t.Fatalf("late shards %d", got)
@@ -140,7 +159,7 @@ func TestTradeAndBuyShards(t *testing.T) {
 	now := time.Now()
 	giveShard(t, db, owner.ID, "cherry", 1)
 	giveShard(t, db, owner.ID, "cherry", 2)
-	giveShard(t, db, owner.ID, "aloe", 1)
+	giveShard(t, db, owner.ID, "cherry", 3)
 	giveShard(t, db, owner.ID, domain.SeedTypeMystery, 1)
 	_, err := repo.TradeShards(context.Background(), owner.ID, []BagStack{{TypeKey: domain.SeedTypeMystery, Count: 3}}, "cherry", "bad", now)
 	if !errors.Is(err, ErrMysteryNotTradable) {
@@ -149,25 +168,36 @@ func TestTradeAndBuyShards(t *testing.T) {
 	if got := shardCount(t, db, owner.ID, domain.SeedKindShard, domain.SeedTypeMystery); got != 1 {
 		t.Fatalf("mystery changed %d", got)
 	}
-	_, err = repo.TradeShards(context.Background(), owner.ID, []BagStack{{TypeKey: "cherry", Count: 1}}, domain.SeedTypeMystery, "bad2", now)
+	_, err = repo.TradeShards(context.Background(), owner.ID, []BagStack{{TypeKey: "cherry", Count: 3}}, domain.SeedTypeMystery, "bad2", now)
 	if !errors.Is(err, ErrMysteryNotTradable) {
 		t.Fatalf("want mystery %v", err)
 	}
-	bag, err := repo.TradeShards(context.Background(), owner.ID, []BagStack{
+	_, err = repo.TradeShards(context.Background(), owner.ID, []BagStack{
 		{TypeKey: "cherry", Count: 2},
 		{TypeKey: "aloe", Count: 1},
+	}, "sunflower", "mixed", now)
+	if !errors.Is(err, ErrBadTrade) {
+		t.Fatalf("mixed %v", err)
+	}
+	_, err = repo.TradeShards(context.Background(), owner.ID, []BagStack{{TypeKey: "cherry", Count: 3}}, "cherry", "same", now)
+	if !errors.Is(err, ErrSameShardType) {
+		t.Fatalf("same type %v", err)
+	}
+	if shardCount(t, db, owner.ID, domain.SeedKindShard, "cherry") != 3 {
+		t.Fatal("rejected trades spent shards")
+	}
+	bag, err := repo.TradeShards(context.Background(), owner.ID, []BagStack{
+		{TypeKey: "cherry", Count: 3},
 	}, "sunflower", "trade-1", now)
 	if err != nil || bag.Already {
 		t.Fatalf("trade %+v %v", bag, err)
 	}
 	if shardCount(t, db, owner.ID, domain.SeedKindShard, "cherry") != 0 ||
-		shardCount(t, db, owner.ID, domain.SeedKindShard, "aloe") != 0 ||
 		shardCount(t, db, owner.ID, domain.SeedKindShard, "sunflower") != 1 {
 		t.Fatal("trade counts")
 	}
 	again, err := repo.TradeShards(context.Background(), owner.ID, []BagStack{
-		{TypeKey: "cherry", Count: 2},
-		{TypeKey: "aloe", Count: 1},
+		{TypeKey: "cherry", Count: 3},
 	}, "sunflower", "trade-1", now)
 	if err != nil || !again.Already || shardCount(t, db, owner.ID, domain.SeedKindShard, "sunflower") != 1 {
 		t.Fatalf("replay %+v %v", again.Already, err)
@@ -202,11 +232,38 @@ func TestTradeAndBuyShards(t *testing.T) {
 	if _, err := repo.BuyShard(context.Background(), owner.ID, domain.SeedTypeMystery, "nope", now); !errors.Is(err, ErrMysteryNotForSale) {
 		t.Fatalf("mystery sale %v", err)
 	}
+	if err := credit(db, owner.ID, 5000); err != nil {
+		t.Fatal(err)
+	}
+	second, err := repo.BuyShard(context.Background(), owner.ID, "aloe", "buy-2", now)
+	if err != nil || second.Already || shardCount(t, db, owner.ID, domain.SeedKindShard, "aloe") != 1 {
+		t.Fatalf("second buy %+v %v", second, err)
+	}
+	if bag.SlotCount != 18 || bag.ComingSoonCount != 12 {
+		t.Fatalf("slots %d coming %d", bag.SlotCount, bag.ComingSoonCount)
+	}
+	var sen, dandelion bool
+	for _, row := range bag.Catalog {
+		if row.TypeKey == "sen_hong" {
+			sen = row.ComingSoon && !row.Available && !row.InMysteryPool
+		}
+		if row.TypeKey == "dandelion" {
+			dandelion = row.Available && row.InMysteryPool && !row.Revealed
+		}
+	}
+	if !sen || !dandelion {
+		t.Fatalf("catalog sen %v dandelion %v", sen, dandelion)
+	}
 }
 
 func TestPlantSeedAndMysteryReveal(t *testing.T) {
 	db := openTreeDB(t)
-	restore := SetSeedNextInt(func(int) int { return 0 })
+	nRoll := 0
+	restore := SetSeedNextInt(func(max int) int {
+		v := nRoll % max
+		nRoll++
+		return v
+	})
 	t.Cleanup(func() { SetSeedNextInt(restore) })
 	rooms := NewMascotRoomRepository(db)
 	repo := NewRoomTreeRepository(db)
@@ -267,6 +324,15 @@ func TestPlantSeedAndMysteryReveal(t *testing.T) {
 	}
 	if !leafOK {
 		t.Fatal("leaf should stay creatable")
+	}
+	third := treeUser(t, db, "Na")
+	giveSeed(t, db, third.ID, domain.SeedTypeMystery, 1)
+	second, err := rooms.CreateWithTree(context.Background(), third.ID, domain.SeedTypeMystery)
+	if err != nil || second.TreeType != "quynh" {
+		t.Fatalf("second rare %+v %v", second, err)
+	}
+	if second.TreeType == "sen_hong" || revealed.TreeType == "sen_hong" {
+		t.Fatal("sen hồng is not in the mystery pool yet")
 	}
 }
 
