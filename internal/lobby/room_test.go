@@ -71,6 +71,32 @@ func TestRoomCareStreakOnHelloAndTick(t *testing.T) {
 	}
 }
 
+func TestRoomTreeEventRidesTheTick(t *testing.T) {
+	h, _ := testHub(t)
+	code := "AB23CD"
+	gate := &memberGate{}
+	user := uuid.New()
+	gate.allow(code, user)
+	h.SetRoomGate(gate)
+	peer := &memPeer{}
+	if len(h.Handle(peer, user, roomJoinRaw("Mây Hồng", code)).Self) == 0 {
+		t.Fatal("join")
+	}
+	peer.drain()
+	h.NotifyTree(code, Event{
+		Op:   OpTreeWatered,
+		Tree: &TreeEvent{Name: "Mây Hồng", Waters: 1, Required: 2, Progress: 0.5, Stage: 1, TreeType: "leaf"},
+	})
+	h.Flush()
+	body := string(peer.last())
+	if !strings.Contains(body, `"op":"tree_watered"`) || !strings.Contains(body, `"name":"Mây Hồng"`) || !strings.Contains(body, `"waters":1`) {
+		t.Fatalf("tick %s", body)
+	}
+	if strings.Contains(body, user.String()) {
+		t.Fatal("tree event leaked an account id")
+	}
+}
+
 func TestRoomCodeAlphabet(t *testing.T) {
 	for _, bad := range []rune{'0', 'O', '1', 'I'} {
 		if strings.ContainsRune(RoomCodeAlphabet, bad) {

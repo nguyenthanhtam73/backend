@@ -41,6 +41,7 @@ import (
 	resendhookuc "github.com/dadiary/backend/internal/usecase/resendhook"
 	"github.com/dadiary/backend/internal/usecase/roomcare"
 	"github.com/dadiary/backend/internal/usecase/roomquest"
+	"github.com/dadiary/backend/internal/usecase/roomtree"
 	routineuc "github.com/dadiary/backend/internal/usecase/routine"
 	skincheckuc "github.com/dadiary/backend/internal/usecase/skincheck"
 	streakuc "github.com/dadiary/backend/internal/usecase/streak"
@@ -260,6 +261,7 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 			questSvc = roomquest.NewService(repository.NewRoomQuestRepository(db), lobbyHub)
 			roomH := NewMascotRoomHandler(roomRepo, cfg, lobbyHub, care)
 			roomH.AttachQuest(questSvc)
+			roomH.AttachTree(roomtree.NewService(repository.NewRoomTreeRepository(db), lobbyHub))
 			roomH.Register(api, jwt)
 		}
 

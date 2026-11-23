@@ -232,6 +232,27 @@ func (h *Hub) evictGesturesLocked(now time.Time) {
 	}
 }
 
+// NotifyTree queues a shared-tree event for the next room tick.
+// Nobody in the room means the event is dropped. The frame rides the same
+// flush as presence (FlushEvery) and does not spend the inbound per-connection
+// message budget.
+func (h *Hub) NotifyTree(code string, ev Event) {
+	if h == nil || (ev.Op != OpTreeWatered && ev.Op != OpTreeLevelUp) || ev.Tree == nil {
+		return
+	}
+	code, ok := NormalizeRoomCode(code)
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	room := h.rooms[code]
+	if room == nil || len(room.members) == 0 {
+		return
+	}
+	h.pushEvent(room, ev)
+}
+
 // NotifyNudge queues a nudge for the next room tick when the nudged member
 // has an open socket in this room. An offline member is not broadcast; push
 // already covers them. An empty target would be delivered to the whole room.

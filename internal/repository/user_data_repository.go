@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
@@ -122,6 +123,13 @@ func deleteOwnedMascotRooms(tx *gorm.DB, userID uuid.UUID) error {
 			return err
 		}
 		if len(codes) > 0 {
+			var inRoom []domain.MascotRoomMember
+			if err := tx.Where("room_code IN ?", codes).Find(&inRoom).Error; err != nil {
+				return err
+			}
+			if err := recordMemberLeaves(tx, inRoom, time.Now().UTC()); err != nil {
+				return err
+			}
 			if err := deleteRoomSharedRows(tx, codes); err != nil {
 				return err
 			}
@@ -139,6 +147,13 @@ func deleteOwnedMascotRooms(tx *gorm.DB, userID uuid.UUID) error {
 		if err := tx.Where("user_id = ?", userID).Delete(&domain.MascotRoomActiveSeat{}).Error; err != nil {
 			return err
 		}
+	}
+	var mine []domain.MascotRoomMember
+	if err := tx.Where("user_id = ?", userID).Find(&mine).Error; err != nil {
+		return err
+	}
+	if err := recordMemberLeaves(tx, mine, time.Now().UTC()); err != nil {
+		return err
 	}
 	if err := tx.Where("user_id = ?", userID).Delete(&domain.MascotRoomMember{}).Error; err != nil {
 		return err

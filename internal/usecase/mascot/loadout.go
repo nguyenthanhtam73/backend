@@ -77,6 +77,9 @@ func slot(id, layer string, required bool, catalog map[string]domain.MascotItem,
 	if item.Layer != layer {
 		return domain.BadRequest("wrong_layer", layer+" does not match that item")
 	}
+	if item.PreviewOnly {
+		return domain.BadRequest("preview_only", "that item can be previewed only")
+	}
 	if _, owns := owned[id]; owns {
 		return nil
 	}
