@@ -69,6 +69,25 @@ func TestValidateLoadout(t *testing.T) {
 		})
 	}
 
+	catalog["kem_hong"] = domain.MascotItem{ID: "kem_hong", Layer: domain.MascotLayerBubble, Name: "Bóng kem hồng"}
+	withBubble := ok
+	withBubble.Bubble = "kem_hong"
+	ownedBubble := map[string]struct{}{"kem_hong": {}}
+	for id := range ownedFree {
+		ownedBubble[id] = struct{}{}
+	}
+	if err := ValidateLoadout(withBubble, catalog, ownedBubble); err != nil {
+		t.Fatal(err)
+	}
+	if withBubble.Bubble != "kem_hong" {
+		t.Fatalf("loadout bubble %s", withBubble.Bubble)
+	}
+	sku := withBubble
+	sku.Bubble = "shop_bubble_kem_hong"
+	if err := ValidateLoadout(sku, catalog, ownedBubble); err == nil {
+		t.Fatal("shop sku was accepted as the worn bubble")
+	}
+
 	withHat := ok
 	withHat.Accessory = "hat_paid"
 	ownedHat := map[string]struct{}{"hat_paid": {}}

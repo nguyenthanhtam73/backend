@@ -242,5 +242,6 @@ func lookJSON(look domain.MascotLoadout, gender string) dto.RoomMascotLook {
 		Accessories: accessories,
 		RoomItems:   items,
 		Gender:      gender,
+		Bubble:      look.Bubble,
 	}
 }

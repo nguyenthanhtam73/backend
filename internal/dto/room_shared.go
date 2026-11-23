@@ -9,6 +9,8 @@ type RoomMascotLook struct {
 	Accessories []string `json:"accessories"`
 	RoomItems   []string `json:"room_items"`
 	Gender      string   `json:"gender,omitempty"`
+	// Bubble is the equipped chat colour art id. Empty is the default colour.
+	Bubble string `json:"bubble,omitempty"`
 }
 
 // RoomQuestMilestoneJSON is one chest on GET /mascot/rooms/:code/quest.

@@ -168,6 +168,39 @@ func TestShopSeedChoiceAndSetGrant(t *testing.T) {
 	}
 }
 
+func TestShopBubbleBuyEquipAndBalance(t *testing.T) {
+	db := openShopDB(t)
+	user := treeUser(t, db, "bubble")
+	if err := credit(db, user.ID, 400); err != nil {
+		t.Fatal(err)
+	}
+	repo := NewXuShopRepository(db)
+	now := time.Now().UTC()
+	got, err := repo.Buy(context.Background(), user.ID, "shop_bubble_kem_hong", "", "pink", now)
+	if err != nil || got.Charged != 400 || len(got.Granted) != 1 || got.Granted[0].ID != "kem_hong" || got.Granted[0].Layer != domain.MascotLayerBubble {
+		t.Fatalf("buy %+v %v", got, err)
+	}
+	var item domain.UserMascotItem
+	if err := db.Where("user_id = ? AND item_id = ?", user.ID, "kem_hong").Take(&item).Error; err != nil {
+		t.Fatal(err)
+	}
+	if item.Source != domain.MascotSourceShop {
+		t.Fatalf("source %s", item.Source)
+	}
+	_, err = repo.Buy(context.Background(), user.ID, "shop_bubble_kem_hong", "", "pink-again", now)
+	var shopErr *ShopError
+	if !errors.As(err, &shopErr) || shopErr.Code != "already_owned" {
+		t.Fatalf("owned %v", err)
+	}
+	_, err = repo.Buy(context.Background(), user.ID, "shop_bubble_vang_mat", "", "honey", now)
+	if !errors.As(err, &shopErr) || shopErr.Code != "not_enough_coins" || shopErr.Needed != 450 || shopErr.Balance != 0 {
+		t.Fatalf("short %+v %v", shopErr, err)
+	}
+	if coinOf(t, db, user.ID) != 0 {
+		t.Fatal("balance moved")
+	}
+}
+
 func TestShopBuyConcurrencyChargesOnce(t *testing.T) {
 	db := openShopDB(t)
 	user := treeUser(t, db, "race")

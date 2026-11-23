@@ -508,6 +508,7 @@ type clientMsg struct {
 	Outfit    string    `json:"outfit"`
 	Hair      string    `json:"hair"`
 	Accessory string    `json:"accessory"`
+	Bubble    string    `json:"bubble"`
 	Gender    string    `json:"gender"`
 	X         *float64  `json:"x"`
 	Y         *float64  `json:"y"`
@@ -534,6 +535,7 @@ func parseClient(raw []byte) (clientMsg, error) {
 	msg.Target = trim(msg.Target)
 	msg.Facing = trim(msg.Facing)
 	msg.Action = trim(msg.Action)
+	msg.Bubble = trim(msg.Bubble)
 	return msg, nil
 }
 

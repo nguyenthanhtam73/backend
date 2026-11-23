@@ -46,13 +46,24 @@ type ShopSet struct {
 }
 
 // ShopSKU is a piece sold outside a set.
+// WearID is the mascot item stored in the loadout when it differs from ID.
+// Chat bubble colours are bought as shop_bubble_* and worn as the art id.
 type ShopSKU struct {
-	ID    string
-	Name  string
-	Layer string
-	Price int
-	ArtID string
-	Group string
+	ID     string
+	Name   string
+	Layer  string
+	Price  int
+	ArtID  string
+	WearID string
+	Group  string
+}
+
+// EquipID is the wardrobe id a purchase grants and a loadout slot stores.
+func (s ShopSKU) EquipID() string {
+	if s.WearID != "" {
+		return s.WearID
+	}
+	return s.ID
 }
 
 // ShopSets is the five outfit collections. The first four sum to 25000.
@@ -86,6 +97,10 @@ func ShopDaily() []ShopSKU {
 		{ID: "shop_sticker_may", Name: "Nhãn dán mây", Layer: MascotLayerSticker, Price: 500, Group: ShopGroupDaily, ArtID: "tree_sticker_la_xanh"},
 		{ID: "shop_frame_tron", Name: "Khung tên tròn", Layer: MascotLayerNameFrame, Price: 800, Group: ShopGroupDaily, ArtID: "tree_frame_hoa"},
 		{ID: "shop_bubble_la", Name: "Bong bóng chat lá", Layer: MascotLayerBubble, Price: 1000, Group: ShopGroupDaily, ArtID: "bubble_la"},
+		{ID: "shop_bubble_kem_hong", Name: "Bóng kem hồng", Layer: MascotLayerBubble, Price: 400, Group: ShopGroupDaily, ArtID: "kem_hong", WearID: "kem_hong"},
+		{ID: "shop_bubble_mint_mat", Name: "Bóng mint mát", Layer: MascotLayerBubble, Price: 400, Group: ShopGroupDaily, ArtID: "mint_mat", WearID: "mint_mat"},
+		{ID: "shop_bubble_vang_mat", Name: "Bóng vàng mật", Layer: MascotLayerBubble, Price: 450, Group: ShopGroupDaily, ArtID: "vang_mat", WearID: "vang_mat"},
+		{ID: "shop_bubble_dao_cam", Name: "Bóng đào cam", Layer: MascotLayerBubble, Price: 450, Group: ShopGroupDaily, ArtID: "dao_cam", WearID: "dao_cam"},
 	}
 }
 
@@ -134,7 +149,7 @@ func ShopMascotItems() []MascotItem {
 		add(row.ID, row.Name, row.Layer, row.Price)
 	}
 	for _, row := range ShopDaily() {
-		add(row.ID, row.Name, row.Layer, row.Price)
+		add(row.EquipID(), row.Name, row.Layer, row.Price)
 	}
 	return out
 }
@@ -196,11 +211,11 @@ func QuoteShop(itemID, treeType string, owned map[string]struct{}, streak int, u
 	}
 	if _, ok := shopSKU(itemID); ok {
 		row, _ := shopSKU(itemID)
-		if _, has := owned[row.ID]; has {
+		if _, has := owned[row.EquipID()]; has {
 			return ShopQuote{ItemID: itemID, Code: "already_owned"}
 		}
 		return ShopQuote{Kind: "item", ItemID: itemID, Charge: row.Price, Grant: []ShopPiece{{
-			ID: row.ID, Name: row.Name, Layer: row.Layer, Price: row.Price, ArtID: row.ArtID,
+			ID: row.EquipID(), Name: row.Name, Layer: row.Layer, Price: row.Price, ArtID: row.ArtID,
 		}}}
 	}
 	return ShopQuote{ItemID: itemID, Code: "not_for_sale"}

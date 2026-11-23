@@ -182,7 +182,7 @@ func shopCatalogJSON(view repository.ShopView) fiber.Map {
 func shopSKUGroup(rows []domain.ShopSKU, owned map[string]struct{}) []fiber.Map {
 	out := make([]fiber.Map, 0, len(rows))
 	for _, row := range rows {
-		_, has := owned[row.ID]
+		_, has := owned[row.EquipID()]
 		out = append(out, shopRow(row.ID, row.Name, row.Layer, row.ArtID, row.Price, has, false))
 	}
 	return out
