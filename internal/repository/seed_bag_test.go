@@ -3,10 +3,12 @@ package repository
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/dadiary/backend/internal/domain"
+	"github.com/dadiary/backend/pkg/usermsg"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -333,6 +335,314 @@ func TestPlantSeedAndMysteryReveal(t *testing.T) {
 	}
 	if second.TreeType == "sen_hong" || revealed.TreeType == "sen_hong" {
 		t.Fatal("sen hồng is not in the mystery pool yet")
+	}
+}
+
+func TestBuyAndTradeRequireIdempotencyKey(t *testing.T) {
+	db := openTreeDB(t)
+	repo := NewRoomTreeRepository(db)
+	owner := treeUser(t, db, "Lan")
+	now := time.Now()
+	giveShard(t, db, owner.ID, "cherry", 1)
+	giveShard(t, db, owner.ID, "cherry", 2)
+	giveShard(t, db, owner.ID, "cherry", 3)
+	if err := credit(db, owner.ID, 5000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.BuyShard(context.Background(), owner.ID, "cherry", "  ", now); !errors.Is(err, ErrIdempotencyKey) {
+		t.Fatalf("empty buy key %v", err)
+	}
+	if _, err := repo.TradeShards(context.Background(), owner.ID, []BagStack{{TypeKey: "cherry", Count: 3}}, "aloe", "", now); !errors.Is(err, ErrIdempotencyKey) {
+		t.Fatalf("empty trade key %v", err)
+	}
+	if shardCount(t, db, owner.ID, domain.SeedKindShard, "cherry") != 3 || coinOf(t, db, owner.ID) != 5000 {
+		t.Fatal("missing key changed the bag or the wallet")
+	}
+	if _, err := repo.BuyShard(context.Background(), owner.ID, "cherry", "  ", now); !errors.Is(err, ErrIdempotencyKey) {
+		t.Fatalf("second empty buy %v", err)
+	}
+	if coinOf(t, db, owner.ID) != 5000 {
+		t.Fatal("second empty buy charged")
+	}
+}
+
+func TestIdempotencyKeyRejectsADifferentPayload(t *testing.T) {
+	db := openTreeDB(t)
+	repo := NewRoomTreeRepository(db)
+	owner := treeUser(t, db, "Lan")
+	now := time.Now()
+	if err := credit(db, owner.ID, 10000); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.BuyShard(context.Background(), owner.ID, "cherry", "one-key", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.BuyShard(context.Background(), owner.ID, "aloe", "one-key", now); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("conflict %v", err)
+	}
+	if shardCount(t, db, owner.ID, domain.SeedKindShard, "cherry") != 1 ||
+		shardCount(t, db, owner.ID, domain.SeedKindShard, "aloe") != 0 ||
+		coinOf(t, db, owner.ID) != 5000 {
+		t.Fatal("conflict charged or granted")
+	}
+	giveShard(t, db, owner.ID, "sunflower", 1)
+	giveShard(t, db, owner.ID, "sunflower", 2)
+	giveShard(t, db, owner.ID, "sunflower", 3)
+	if _, err := repo.TradeShards(context.Background(), owner.ID, []BagStack{{TypeKey: "sunflower", Count: 3}}, "cherry", "trade-key", now); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.TradeShards(context.Background(), owner.ID, []BagStack{{TypeKey: "sunflower", Count: 3}}, "aloe", "trade-key", now); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("trade conflict %v", err)
+	}
+	if shardCount(t, db, owner.ID, domain.SeedKindShard, "sunflower") != 0 ||
+		shardCount(t, db, owner.ID, domain.SeedKindShard, "aloe") != 0 ||
+		shardCount(t, db, owner.ID, domain.SeedKindShard, "cherry") != 2 {
+		t.Fatal("trade conflict moved shards")
+	}
+	if usermsg.Plain((tradeOfferError{need: 3}).Error()) != "Bạn cần đúng 3 cánh cùng một loại thường." {
+		t.Fatalf("trade copy %q", usermsg.Plain((tradeOfferError{need: 3}).Error()))
+	}
+}
+
+func TestConcurrentBuyReturnsAlready(t *testing.T) {
+	db := openTreeDB(t)
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(2)
+	repo := NewRoomTreeRepository(db)
+	owner := treeUser(t, db, "Lan")
+	now := time.Now()
+	if err := credit(db, owner.ID, 5000); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	type result struct {
+		already bool
+		err     error
+	}
+	out := make([]result, 2)
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			bag, err := repo.BuyShard(context.Background(), owner.ID, "cherry", "tap", now)
+			out[i] = result{already: bag.Already, err: err}
+		}(i)
+	}
+	wg.Wait()
+	already := 0
+	for _, row := range out {
+		if row.err != nil {
+			t.Fatalf("concurrent buy %v", row.err)
+		}
+		if row.already {
+			already++
+		}
+	}
+	if already != 1 || shardCount(t, db, owner.ID, domain.SeedKindShard, "cherry") != 1 || coinOf(t, db, owner.ID) != 0 {
+		t.Fatalf("results %+v shards %d balance %d", out, shardCount(t, db, owner.ID, domain.SeedKindShard, "cherry"), coinOf(t, db, owner.ID))
+	}
+}
+
+func TestLeftMemberCanStillDraw(t *testing.T) {
+	db := openTreeDB(t)
+	restore := SetSeedNextInt(func(n int) int { return 0 })
+	t.Cleanup(func() { SetSeedNextInt(restore) })
+	repo := NewRoomTreeRepository(db)
+	owner := treeUser(t, db, "Lan")
+	friend := treeUser(t, db, "Mây")
+	code := treeRoom(t, db, owner, vnAt(2026, 11, 19, 10, 0))
+	addTreeMember(t, db, code, friend.ID, vnAt(2026, 11, 19, 11, 0), domain.RoomMemberUser)
+	if _, err := repo.State(context.Background(), owner.ID, code, vnAt(2026, 11, 20, 8, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := forceStage(t, db, code, 6, "2026-11-19"); err != nil {
+		t.Fatal(err)
+	}
+	when := vnAt(2026, 11, 20, 10, 0)
+	treeSkin(t, db, owner.ID, when)
+	treeSkin(t, db, friend.ID, when)
+	if _, err := repo.Water(context.Background(), owner.ID, code, "a", when); err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.Water(context.Background(), friend.ID, code, "b", when.Add(time.Minute))
+	if err != nil || state.Stage != 7 || !state.CanDraw {
+		t.Fatalf("bloom %+v %v", state.Stage, err)
+	}
+	leaveTreeMember(t, db, code, friend.ID, when.Add(2*time.Minute))
+	pick := 1
+	drawn, err := repo.DrawShard(context.Background(), friend.ID, code, "flip", &pick, when.Add(3*time.Minute))
+	if err != nil || drawn.Already || drawn.Shard.TypeKey == "" {
+		t.Fatalf("left draw %+v %v", drawn, err)
+	}
+	if shardCount(t, db, friend.ID, domain.SeedKindShard, drawn.Shard.TypeKey) != 1 {
+		t.Fatal("left member did not receive one shard")
+	}
+	other := 0
+	if _, err := repo.DrawShard(context.Background(), friend.ID, code, "flip", &other, when.Add(4*time.Minute)); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("same key different pick %v", err)
+	}
+	if shardCount(t, db, friend.ID, domain.SeedKindShard, drawn.Shard.TypeKey) != 1 {
+		t.Fatal("conflict granted again")
+	}
+}
+
+func TestCleanupGrantsPendingDrawOnce(t *testing.T) {
+	db := openTreeDB(t)
+	restore := SetSeedNextInt(func(n int) int { return 0 })
+	t.Cleanup(func() { SetSeedNextInt(restore) })
+	repo := NewRoomTreeRepository(db)
+	owner := treeUser(t, db, "Lan")
+	code := treeRoom(t, db, owner, vnAt(2026, 11, 19, 10, 0))
+	if _, err := repo.State(context.Background(), owner.ID, code, vnAt(2026, 11, 20, 8, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if err := forceStage(t, db, code, 6, "2026-11-19"); err != nil {
+		t.Fatal(err)
+	}
+	when := vnAt(2026, 11, 20, 10, 0)
+	treeSkin(t, db, owner.ID, when)
+	state, err := repo.Water(context.Background(), owner.ID, code, "bloom", when)
+	if err != nil || state.Stage != 7 || !state.CanDraw || state.MyShard != nil {
+		t.Fatalf("pending bloom %+v %v", state, err)
+	}
+	if shardCount(t, db, owner.ID, domain.SeedKindShard, domain.SeedTypeMystery) != 0 {
+		t.Fatal("shard before cleanup")
+	}
+	if err := deleteRoomSharedRows(db, []string{code}); err != nil {
+		t.Fatal(err)
+	}
+	if shardCount(t, db, owner.ID, domain.SeedKindShard, domain.SeedTypeMystery) != 1 {
+		t.Fatal("cleanup did not grant")
+	}
+	var blooms int64
+	if err := db.Model(&domain.RoomBloomShard{}).Where("room_code = ?", code).Count(&blooms).Error; err != nil {
+		t.Fatal(err)
+	}
+	if blooms != 0 {
+		t.Fatalf("bloom rows left %d", blooms)
+	}
+	if err := deleteRoomSharedRows(db, []string{code}); err != nil {
+		t.Fatal(err)
+	}
+	if shardCount(t, db, owner.ID, domain.SeedKindShard, domain.SeedTypeMystery) != 1 {
+		t.Fatal("cleanup granted twice")
+	}
+	var grants int64
+	if err := db.Model(&domain.UserSeedLedger{}).Where("user_id = ? AND source = ?", owner.ID, domain.SeedSourceBloom).Count(&grants).Error; err != nil {
+		t.Fatal(err)
+	}
+	if grants != 1 {
+		t.Fatalf("bloom ledger %d", grants)
+	}
+}
+
+func TestSeedSeedBagKeepsEditedRows(t *testing.T) {
+	db := openTreeDB(t)
+	if err := db.Model(&domain.TreeType{}).Where("key = ?", "dandelion").Updates(map[string]any{
+		"mystery_pool": false, "plantable": false,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Model(&domain.SeedBagConfig{}).Where("key = ?", domain.SeedConfigBuyPrice).Update("int_value", 1).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("key = ?", domain.SeedConfigMysteryBps).Delete(&domain.SeedBagConfig{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := SeedSeedBag(db); err != nil {
+		t.Fatal(err)
+	}
+	var typ domain.TreeType
+	if err := db.Where("key = ?", "dandelion").Take(&typ).Error; err != nil {
+		t.Fatal(err)
+	}
+	if typ.MysteryPool || typ.Plantable {
+		t.Fatalf("boot rewrote flags %+v", typ)
+	}
+	var price domain.SeedBagConfig
+	if err := db.Where("key = ?", domain.SeedConfigBuyPrice).Take(&price).Error; err != nil {
+		t.Fatal(err)
+	}
+	if price.IntValue != 1 {
+		t.Fatalf("price reset to %d", price.IntValue)
+	}
+	var bps domain.SeedBagConfig
+	if err := db.Where("key = ?", domain.SeedConfigMysteryBps).Take(&bps).Error; err != nil {
+		t.Fatal(err)
+	}
+	if bps.IntValue != 1000 {
+		t.Fatalf("missing rule not restored %+v", bps)
+	}
+}
+
+func TestBloomAndPlantLedgerIDsIncludeCreatedAt(t *testing.T) {
+	user := uuid.New()
+	first := domain.MascotRoom{Code: "AB23CD", CreatedAt: time.Unix(0, 10).UTC()}
+	second := first
+	second.CreatedAt = time.Unix(0, 11).UTC()
+	if bloomLedgerID(first, user) == bloomLedgerID(second, user) {
+		t.Fatal("bloom ledger id ignored created_at")
+	}
+	if plantLedgerID(first.Code, first.CreatedAt, user, "cherry") == plantLedgerID(second.Code, second.CreatedAt, user, "cherry") {
+		t.Fatal("plant ledger id ignored created_at")
+	}
+}
+
+func TestPlantFailureAfterConsumeReturnsTheSeed(t *testing.T) {
+	db := openTreeDB(t)
+	rooms := NewMascotRoomRepository(db)
+	owner := treeUser(t, db, "Lan")
+	giveSeed(t, db, owner.ID, "cherry", 1)
+	plantFailAfterConsume = func() error { return errors.New("boom") }
+	t.Cleanup(func() { plantFailAfterConsume = nil })
+	if _, err := rooms.CreateWithTree(context.Background(), owner.ID, "cherry"); err == nil || err.Error() != "boom" {
+		t.Fatalf("create %v", err)
+	}
+	if shardCount(t, db, owner.ID, domain.SeedKindSeed, "cherry") != 1 {
+		t.Fatal("seed was not returned")
+	}
+	var roomsLeft int64
+	if err := db.Model(&domain.MascotRoom{}).Count(&roomsLeft).Error; err != nil {
+		t.Fatal(err)
+	}
+	if roomsLeft != 0 {
+		t.Fatalf("room left behind %d", roomsLeft)
+	}
+}
+
+func TestRollRareSkipsUnplantable(t *testing.T) {
+	db := openTreeDB(t)
+	if err := db.Model(&domain.TreeType{}).Where("key = ?", "dandelion").Update("plantable", false).Error; err != nil {
+		t.Fatal(err)
+	}
+	restore := SetSeedNextInt(func(n int) int { return 0 })
+	t.Cleanup(func() { SetSeedNextInt(restore) })
+	var got domain.TreeType
+	err := db.Transaction(func(tx *gorm.DB) error {
+		row, err := rollRare(tx)
+		got = row
+		return err
+	})
+	if err != nil || got.Key != "quynh" {
+		t.Fatalf("rolled %+v %v", got.Key, err)
+	}
+}
+
+func TestLedgerAmountCheckAction(t *testing.T) {
+	if ledgerAmountCheckAction("CHECK ((amount <> 0))") != "keep" {
+		t.Fatal("already allows a debit")
+	}
+	if ledgerAmountCheckAction("CHECK ((amount != 0))") != "keep" {
+		t.Fatal("!= form")
+	}
+	if ledgerAmountCheckAction("CHECK ((amount > 0))") != "replace" {
+		t.Fatal("old check")
+	}
+	if ledgerAmountCheckAction("") != "add" {
+		t.Fatal("missing check")
 	}
 }
 

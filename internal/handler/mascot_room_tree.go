@@ -187,8 +187,10 @@ func writeTreeErr(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusBadRequest, "bad_tree_type", err.Error())
 	case errors.Is(err, repository.ErrTreeTypeUnavailable):
 		return response.Error(c, fiber.StatusBadRequest, "tree_type_unavailable", err.Error())
-	case errors.Is(err, repository.ErrTreeBadIdempotency):
+	case errors.Is(err, repository.ErrTreeBadIdempotency), errors.Is(err, repository.ErrIdempotencyKey):
 		return response.Error(c, fiber.StatusBadRequest, "bad_idempotency_key", err.Error())
+	case errors.Is(err, repository.ErrIdempotencyConflict):
+		return response.Error(c, fiber.StatusConflict, "idempotency_conflict", err.Error())
 	case errors.Is(err, repository.ErrBadPick):
 		return response.Error(c, fiber.StatusBadRequest, "bad_pick", err.Error())
 	case errors.Is(err, repository.ErrDrawUnavailable):

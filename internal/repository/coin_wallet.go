@@ -62,31 +62,35 @@ func debitCoins(tx *gorm.DB, userID uuid.UUID, amount int64, key, reason string,
 	if amount <= 0 || key == "" {
 		return 0, false, fmt.Errorf("coin debit requires a positive amount")
 	}
-	var existing int64
-	if err := tx.Model(&domain.UserCoinLedger{}).Where("id = ?", key).Count(&existing).Error; err != nil {
-		return 0, false, err
+	row := domain.UserCoinLedger{
+		ID: key, UserID: userID, Amount: -amount, Reason: reason, CreatedAt: now.UTC(),
 	}
-	if existing > 0 {
+	res := tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoNothing: true,
+	}).Create(&row)
+	if res.Error != nil {
+		if IsUniqueConflict(res.Error) {
+			bal, err := coinBalance(tx, userID)
+			return bal, false, err
+		}
+		return 0, false, res.Error
+	}
+	if res.RowsAffected == 0 {
 		bal, err := coinBalance(tx, userID)
 		return bal, false, err
 	}
-	res := tx.Model(&domain.UserCoinWallet{}).
+	updated := tx.Model(&domain.UserCoinWallet{}).
 		Where("user_id = ? AND balance >= ?", userID, amount).
 		Updates(map[string]any{
 			"balance":    gorm.Expr("balance - ?", amount),
 			"updated_at": now.UTC(),
 		})
-	if res.Error != nil {
-		return 0, false, res.Error
+	if updated.Error != nil {
+		return 0, false, updated.Error
 	}
-	if res.RowsAffected == 0 {
+	if updated.RowsAffected == 0 {
 		return 0, false, ErrNotEnoughCoins
-	}
-	row := domain.UserCoinLedger{
-		ID: key, UserID: userID, Amount: -amount, Reason: reason, CreatedAt: now.UTC(),
-	}
-	if err := tx.Create(&row).Error; err != nil {
-		return 0, false, err
 	}
 	bal, err := coinBalance(tx, userID)
 	return bal, true, err

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"sort"
 	"strings"
 	"time"
 
@@ -19,16 +20,18 @@ import (
 
 // Seed-bag errors. Handlers map these to HTTP codes.
 var (
-	ErrNeedSeed           = errors.New("you need a seed to plant this tree")
-	ErrNotEnoughCoins     = errors.New("not enough coins")
-	ErrNotEnoughShards    = errors.New("not enough shards")
-	ErrMysteryNotTradable = errors.New("mystery shards cannot be traded")
-	ErrMysteryNotForSale  = errors.New("mystery shards are not sold")
-	ErrBadShardType       = errors.New("that shard type is not available")
-	ErrBadTrade           = errors.New("trade must offer the required shards")
-	ErrSameShardType      = errors.New("the shard you receive must be a different type")
-	ErrDrawUnavailable    = errors.New("there is no leaf to draw")
-	ErrBadPick            = errors.New("pick must be 0, 1, or 2")
+	ErrNeedSeed            = errors.New("you need a seed to plant this tree")
+	ErrNotEnoughCoins      = errors.New("not enough coins")
+	ErrNotEnoughShards     = errors.New("not enough shards")
+	ErrMysteryNotTradable  = errors.New("mystery shards cannot be traded")
+	ErrMysteryNotForSale   = errors.New("mystery shards are not sold")
+	ErrBadShardType        = errors.New("that shard type is not available")
+	ErrBadTrade            = errors.New("trade must offer the required shards")
+	ErrSameShardType       = errors.New("the shard you receive must be a different type")
+	ErrDrawUnavailable     = errors.New("there is no leaf to draw")
+	ErrBadPick             = errors.New("pick must be 0, 1, or 2")
+	ErrIdempotencyKey      = errors.New("idempotency key is required")
+	ErrIdempotencyConflict = errors.New("idempotency key was used for a different request")
 )
 
 // ShardView is one shard granted to a person.
@@ -130,6 +133,111 @@ func seedLedgerID(parts ...string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// bloomLedgerID and plantLedgerID include the room's created instant so a
+// reused room code cannot replay an old bloom or plant.
+func bloomLedgerID(room domain.MascotRoom, userID uuid.UUID) string {
+	return seedLedgerID("bloom", room.Code, fmt.Sprint(room.CreatedAt.UTC().UnixNano()), userID.String())
+}
+
+func plantLedgerID(roomCode string, created time.Time, owner uuid.UUID, consumeKey string) string {
+	return seedLedgerID("plant", owner.String(), roomCode, fmt.Sprint(created.UTC().UnixNano()), consumeKey)
+}
+
+func samePick(a, b *int) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+
+func tradePayload(folded map[string]int, want string) string {
+	parts := make([]string, 0, len(folded))
+	for key, count := range folded {
+		parts = append(parts, fmt.Sprintf("%s:%d", key, count))
+	}
+	sort.Strings(parts)
+	return want + "|" + strings.Join(parts, ",")
+}
+
+// beginIdempotent claims one key. The same payload replays. A different
+// payload is a conflict. The caller must not have written yet.
+func beginIdempotent(tx *gorm.DB, userID uuid.UUID, action, idem, payload string, now time.Time) error {
+	sum := sha256.Sum256([]byte(payload))
+	hash := hex.EncodeToString(sum[:])
+	id := seedLedgerID("idem", action, userID.String(), idem)
+	row := domain.UserSeedLedger{
+		ID: id, UserID: userID, Kind: "idem", TypeKey: hash, Delta: 1, Source: action, CreatedAt: now.UTC(),
+	}
+	res := tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoNothing: true,
+	}).Create(&row)
+	if res.Error != nil && !IsUniqueConflict(res.Error) {
+		return res.Error
+	}
+	if res.Error == nil && res.RowsAffected > 0 {
+		return nil
+	}
+	var existing domain.UserSeedLedger
+	if err := tx.Where("id = ?", id).Take(&existing).Error; err != nil {
+		return err
+	}
+	if existing.TypeKey != hash {
+		return ErrIdempotencyConflict
+	}
+	return errBagReplay
+}
+
+// revealPendingBlooms grants a shard for every leaf that was never flipped,
+// then the caller may delete the draw rows. Each grant uses bloomLedgerID,
+// so a second pass does not pay again.
+func revealPendingBlooms(tx *gorm.DB, codes []string) error {
+	if tx == nil || len(codes) == 0 || !tx.Migrator().HasTable(&domain.RoomBloomShard{}) {
+		return nil
+	}
+	var rooms []domain.MascotRoom
+	if err := tx.Where("code IN ?", codes).Find(&rooms).Error; err != nil {
+		return err
+	}
+	byCode := make(map[string]domain.MascotRoom, len(rooms))
+	for _, room := range rooms {
+		byCode[room.Code] = room
+	}
+	var rows []domain.RoomBloomShard
+	if err := tx.Where("room_code IN ? AND type_key = ?", codes, "").Find(&rows).Error; err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	for _, row := range rows {
+		room, ok := byCode[row.RoomCode]
+		if !ok {
+			continue
+		}
+		bps, err := seedConfig(tx, domain.SeedConfigMysteryBps)
+		if err != nil {
+			return err
+		}
+		commons, err := commonShardKeys(tx)
+		if err != nil {
+			return err
+		}
+		key := rollShardType(seedNextInt, bps, commons)
+		res := tx.Model(&domain.RoomBloomShard{}).
+			Where("room_code = ? AND user_id = ? AND type_key = ?", row.RoomCode, row.UserID, "").
+			Updates(map[string]any{"type_key": key, "claimed_at": now, "idempotency_key": "cleanup"})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			continue
+		}
+		if _, err := addShard(tx, row.UserID, key, domain.SeedSourceBloom, bloomLedgerID(room, row.UserID), now); err != nil && !IsUniqueConflict(err) {
+			return err
+		}
+	}
+	return nil
+}
+
 // SeedBag loads the caller's shards, seeds, rules, and xu balance.
 func (r *RoomTreeRepository) SeedBag(ctx context.Context, userID uuid.UUID) (SeedBag, error) {
 	var zero SeedBag
@@ -215,7 +323,13 @@ func buyShard(tx *gorm.DB, userID uuid.UUID, typeKey, idem string, now time.Time
 	}
 	idem = strings.TrimSpace(idem)
 	if idem == "" {
-		idem = uuid.NewString()
+		return ErrIdempotencyKey
+	}
+	if len(idem) > 80 {
+		return ErrTreeBadIdempotency
+	}
+	if err := beginIdempotent(tx, userID, domain.SeedSourceBuy, idem, key, now); err != nil {
+		return err
 	}
 	coinID := seedLedgerID("buy-coin", userID.String(), idem)
 	price, err := seedConfig(tx, domain.SeedConfigBuyPrice)
@@ -243,16 +357,12 @@ func tradeShards(tx *gorm.DB, userID uuid.UUID, offer []BagStack, want, idem str
 	}
 	idem = strings.TrimSpace(idem)
 	if idem == "" {
-		idem = uuid.NewString()
+		return ErrIdempotencyKey
+	}
+	if len(idem) > 80 {
+		return ErrTreeBadIdempotency
 	}
 	inID := seedLedgerID("trade-in", userID.String(), idem)
-	var existing int64
-	if err := tx.Model(&domain.UserSeedLedger{}).Where("id = ?", inID).Count(&existing).Error; err != nil {
-		return err
-	}
-	if existing > 0 {
-		return errBagReplay
-	}
 	need, err := seedConfig(tx, domain.SeedConfigTradeCount)
 	if err != nil {
 		return err
@@ -262,7 +372,7 @@ func tradeShards(tx *gorm.DB, userID uuid.UUID, offer []BagStack, want, idem str
 		return err
 	}
 	if len(folded) != 1 || total != need || need <= 0 {
-		return ErrBadTrade
+		return tradeOfferError{need: need}
 	}
 	offerKey := ""
 	for key := range folded {
@@ -272,6 +382,9 @@ func tradeShards(tx *gorm.DB, userID uuid.UUID, offer []BagStack, want, idem str
 		return ErrSameShardType
 	}
 	if _, err := commonShardType(tx, want); err != nil {
+		return err
+	}
+	if err := beginIdempotent(tx, userID, domain.SeedSourceTradeIn, idem, tradePayload(folded, want), now); err != nil {
 		return err
 	}
 	for key, count := range folded {
@@ -327,6 +440,15 @@ func foldOffer(tx *gorm.DB, offer []BagStack) (map[string]int, int, error) {
 
 // errBagReplay tells changeBag to reload the bag and mark already.
 var errBagReplay = errors.New("seed bag replay")
+
+// tradeOfferError carries the configured shard count into the user-facing text.
+type tradeOfferError struct{ need int }
+
+func (e tradeOfferError) Error() string {
+	return fmt.Sprintf("trade must offer %d shards of one common type", e.need)
+}
+
+func (e tradeOfferError) Is(target error) bool { return target == ErrBadTrade }
 
 // Wrap changeBag so replay is success. Redefine the method body by replacing changeBag's error handling.
 // The function above is unused until changeBag checks it. See changeBag.
@@ -423,9 +545,9 @@ func adjustBalance(tx *gorm.DB, userID uuid.UUID, kind, typeKey string, delta in
 
 // grantBloomShards records who may draw. The shard type stays hidden until
 // POST draw, so the client can flip a leaf. The type is not added to the bag yet.
-func grantBloomShards(tx *gorm.DB, room domain.MascotRoom, members []uuid.UUID, at time.Time) (map[uuid.UUID]ShardView, error) {
+func grantBloomShards(tx *gorm.DB, room domain.MascotRoom, members []uuid.UUID, at time.Time) error {
 	if tx == nil || !tx.Migrator().HasTable(&domain.RoomBloomShard{}) {
-		return nil, nil
+		return nil
 	}
 	for _, userID := range members {
 		if userID == uuid.Nil {
@@ -439,10 +561,10 @@ func grantBloomShards(tx *gorm.DB, room domain.MascotRoom, members []uuid.UUID, 
 			DoNothing: true,
 		}).Create(&row)
 		if res.Error != nil {
-			return nil, res.Error
+			return res.Error
 		}
 	}
-	return nil, nil
+	return nil
 }
 
 // DrawShard reveals one bloom shard. pick is 0, 1, or 2 and does not change
@@ -466,28 +588,31 @@ func (r *RoomTreeRepository) DrawShard(ctx context.Context, userID uuid.UUID, ra
 	idem = strings.TrimSpace(idem)
 	var result DrawResult
 	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		if _, err := lockMascotRoom(tx, code); err != nil {
-			return err
-		}
-		member, real, err := callerMember(tx, code, userID)
+		room, err := lockMascotRoom(tx, code)
 		if err != nil {
 			return err
-		}
-		if !member {
-			return ErrMascotRoomNotMember
-		}
-		if !real {
-			return ErrTreeNotReal
 		}
 		var row domain.RoomBloomShard
 		err = tx.Where("room_code = ? AND user_id = ?", code, userID).Take(&row).Error
 		if errors.Is(err, gorm.ErrRecordNotFound) {
+			member, real, memErr := callerMember(tx, code, userID)
+			if memErr != nil {
+				return memErr
+			}
+			if member && !real {
+				return ErrTreeNotReal
+			}
 			return ErrDrawUnavailable
 		}
 		if err != nil {
 			return err
 		}
+		// The row was written for a real member at bloom. They may have left
+		// the room since then and can still flip that leaf.
 		if row.TypeKey != "" {
+			if idem != "" && row.IdempotencyKey == idem && !samePick(row.Pick, pick) {
+				return ErrIdempotencyConflict
+			}
 			view, err := shardView(tx, row.TypeKey)
 			if err != nil {
 				return err
@@ -520,6 +645,9 @@ func (r *RoomTreeRepository) DrawShard(ctx context.Context, userID uuid.UUID, ra
 			if err := tx.Where("room_code = ? AND user_id = ?", code, userID).Take(&row).Error; err != nil {
 				return err
 			}
+			if idem != "" && row.IdempotencyKey == idem && !samePick(row.Pick, pick) {
+				return ErrIdempotencyConflict
+			}
 			view, err := shardView(tx, row.TypeKey)
 			if err != nil {
 				return err
@@ -527,7 +655,15 @@ func (r *RoomTreeRepository) DrawShard(ctx context.Context, userID uuid.UUID, ra
 			result = DrawResult{Already: true, Pick: row.Pick, Shard: view}
 			return nil
 		}
-		if _, err := addShard(tx, userID, key, domain.SeedSourceBloom, seedLedgerID("bloom", code, userID.String()), now); err != nil {
+		if _, err := addShard(tx, userID, key, domain.SeedSourceBloom, bloomLedgerID(room, userID), now); err != nil {
+			if IsUniqueConflict(err) {
+				view, viewErr := shardView(tx, key)
+				if viewErr != nil {
+					return viewErr
+				}
+				result = DrawResult{Already: true, Pick: pick, Shard: view}
+				return nil
+			}
 			return err
 		}
 		view, err := shardView(tx, key)
@@ -657,11 +793,11 @@ func preparePlant(tx *gorm.DB, owner uuid.UUID, requested string) (plantPlan, er
 	return plantPlan{treeType: typ.Key, consumeKey: typ.Key, name: typ.NameVI, image: typ.ImageKey}, nil
 }
 
-func consumePlant(tx *gorm.DB, owner uuid.UUID, plan plantPlan, roomCode string, now time.Time) error {
+func consumePlant(tx *gorm.DB, owner uuid.UUID, plan plantPlan, roomCode string, created, now time.Time) error {
 	if plan.consumeKey == "" {
 		return nil
 	}
-	id := seedLedgerID("plant", owner.String(), roomCode, plan.consumeKey)
+	id := plantLedgerID(roomCode, created, owner, plan.consumeKey)
 	fresh, err := appendLedger(tx, id, owner, domain.SeedKindSeed, plan.consumeKey, -1, domain.SeedSourcePlant, now)
 	if err != nil {
 		return err
@@ -687,7 +823,7 @@ func consumePlant(tx *gorm.DB, owner uuid.UUID, plan plantPlan, roomCode string,
 
 func rollRare(tx *gorm.DB) (domain.TreeType, error) {
 	var rows []domain.TreeType
-	err := tx.Where("mystery_pool = ?", true).
+	err := tx.Where("mystery_pool = ? AND plantable = ?", true, true).
 		Order("sort_order ASC, key ASC").Find(&rows).Error
 	if err != nil {
 		return domain.TreeType{}, err
@@ -981,7 +1117,8 @@ func (r *RoomTreeRepository) ListForUser(ctx context.Context, userID uuid.UUID) 
 	return out, nil
 }
 
-// SeedSeedBag inserts missing rules and marks the shipped tree types plantable.
+// SeedSeedBag inserts missing seed_bag_config rows. It does not rewrite
+// plantable or mystery_pool. Migration 042 sets those once.
 func SeedSeedBag(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("nil db")
@@ -1000,17 +1137,6 @@ func SeedSeedBag(db *gorm.DB) error {
 		item := row
 		if err := db.Create(&item).Error; err != nil && !IsUniqueConflict(err) {
 			return err
-		}
-	}
-	if db.Migrator().HasColumn(&domain.TreeType{}, "plantable") {
-		for _, row := range domain.TreeTypeSeed() {
-			updates := map[string]any{"plantable": row.Plantable}
-			if db.Migrator().HasColumn(&domain.TreeType{}, "mystery_pool") {
-				updates["mystery_pool"] = row.MysteryPool
-			}
-			if err := db.Model(&domain.TreeType{}).Where("key = ?", row.Key).Updates(updates).Error; err != nil {
-				return err
-			}
 		}
 	}
 	return nil

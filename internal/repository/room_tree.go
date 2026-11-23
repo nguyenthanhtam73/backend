@@ -727,11 +727,9 @@ func grantStage(tx *gorm.DB, room domain.MascotRoom, work *treeWork, at time.Tim
 		})
 	}
 	if stage == domain.TreeStageCount {
-		shards, err := grantBloomShards(tx, room, members, at)
-		if err != nil {
+		if err := grantBloomShards(tx, room, members, at); err != nil {
 			return nil, err
 		}
-		work.bloomShards = shards
 	}
 	return granted, nil
 }

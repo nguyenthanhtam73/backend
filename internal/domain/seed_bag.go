@@ -12,10 +12,10 @@ const (
 	SeedKindShard = "shard"
 	SeedKindSeed  = "seed"
 
-	// SeedTypeMystery is the bag key for Mảnh bí ẩn / Hạt bí ẩn.
+	// SeedTypeMystery is the bag key for Cánh bí ẩn / Hạt bí ẩn.
 	SeedTypeMystery = "mystery"
 
-	MysteryShardName = "Mảnh bí ẩn"
+	MysteryShardName = "Cánh bí ẩn"
 	MysterySeedName  = "Hạt bí ẩn"
 
 	CoinReasonShardBuy = "shard_buy"

@@ -52,6 +52,11 @@ func NewMascotRoomRepository(db *gorm.DB) *MascotRoomRepository {
 	return &MascotRoomRepository{db: db}
 }
 
+// plantFailAfterConsume, when set, runs after a seed is consumed and before
+// the room transaction commits. Tests use it to prove a later failure puts
+// the seed back. Production leaves it nil.
+var plantFailAfterConsume func() error
+
 // Create opens a room and adds the owner as the first member.
 // The room ends 8 days later. An account that is already in an active room
 // gets AlreadyInRoomError and no new row. The user row lock plus the seat
@@ -128,8 +133,13 @@ func (r *MascotRoomRepository) create(ctx context.Context, owner uuid.UUID, tree
 			if err := claimActiveSeat(tx, owner, code, ends, now); err != nil {
 				return err
 			}
-			if err := consumePlant(tx, owner, plan, code, now); err != nil {
+			if err := consumePlant(tx, owner, plan, code, created, now); err != nil {
 				return err
+			}
+			if plantFailAfterConsume != nil {
+				if err := plantFailAfterConsume(); err != nil {
+					return err
+				}
 			}
 			view = MascotRoomView{
 				Code: code, CreatedAt: created, EndsAt: ends, Cap: lobby.RoomCap,
