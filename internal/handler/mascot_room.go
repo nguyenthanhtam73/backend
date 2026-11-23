@@ -57,6 +57,7 @@ func (h *MascotRoomHandler) Register(r fiber.Router, jwt fiber.Handler) {
 	r.Get("/mascot/rooms/mine", jwt, h.Mine)
 	r.Get("/mascot/rooms/:code/tree", jwt, h.Tree)
 	r.Post("/mascot/rooms/:code/tree/water", jwt, h.WaterTree)
+	r.Post("/mascot/rooms/:code/tree/rewards/seen", jwt, h.MarkTreeRewardsSeen)
 	r.Get("/mascot/rooms/:code/board", jwt, h.Board)
 	r.Get("/mascot/rooms/:code/quest", jwt, h.Quest)
 	r.Post("/mascot/rooms/:code/quest/claim", jwt, h.Claim)

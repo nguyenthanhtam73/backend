@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS mascot_room_tree_rewards (
     coins INTEGER NOT NULL DEFAULT 0,
     item_id VARCHAR(64) NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- Null until this member has opened the reward. Each member has their own.
+    seen_at TIMESTAMPTZ,
     PRIMARY KEY (room_code, user_id, stage)
 );
 

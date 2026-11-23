@@ -454,7 +454,7 @@ func openConcurrentRoomDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	sqlDB.SetMaxOpenConns(4)
-	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomActiveSeat{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomMemberLeave{}, &domain.MascotRoomActiveSeat{}); err != nil {
 		t.Fatal(err)
 	}
 	return db

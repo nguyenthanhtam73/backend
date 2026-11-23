@@ -141,8 +141,9 @@ func TreeTypeSeed() []TreeType {
 
 // MascotRoomTree is the one shared tree on a room.
 // ProgressNum/ProgressDen is the banked fraction toward the next stage,
-// always in [0, 1). Today's partial waters are not stored here; they are
-// added when the Vietnam day closes, or consumed when a full day levels early.
+// always in [0, 1). It does not include today's waters until that Vietnam
+// day closes. An immediate level leaves this as the start-of-day bank; the
+// leftover (bank + today's fraction − 1) is written when the day closes.
 // LeveledOn is the Vietnam date of the latest level (at most one a day).
 // SettledThrough is the last Vietnam date whose close has been applied.
 type MascotRoomTree struct {
@@ -175,12 +176,13 @@ func (MascotRoomTreeWater) TableName() string { return "mascot_room_tree_waters"
 // removes this note. The coin ledger row and the wardrobe grant do not
 // reference the room, so they stay after the room ends or is deleted.
 type MascotRoomTreeReward struct {
-	RoomCode  string    `gorm:"primaryKey;size:6"`
-	UserID    uuid.UUID `gorm:"type:uuid;primaryKey"`
-	Stage     int       `gorm:"primaryKey"`
-	Coins     int       `gorm:"not null;default:0"`
-	ItemID    string    `gorm:"size:64;not null;default:''"`
-	CreatedAt time.Time `gorm:"not null"`
+	RoomCode  string     `gorm:"primaryKey;size:6"`
+	UserID    uuid.UUID  `gorm:"type:uuid;primaryKey"`
+	Stage     int        `gorm:"primaryKey"`
+	Coins     int        `gorm:"not null;default:0"`
+	ItemID    string     `gorm:"size:64;not null;default:''"`
+	CreatedAt time.Time  `gorm:"not null"`
+	SeenAt    *time.Time `gorm:"column:seen_at"`
 }
 
 func (MascotRoomTreeReward) TableName() string { return "mascot_room_tree_rewards" }

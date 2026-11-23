@@ -172,7 +172,7 @@ func TestMascotRoomRESTAndSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomActiveSeat{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomMemberLeave{}, &domain.MascotRoomActiveSeat{}); err != nil {
 		t.Fatal(err)
 	}
 	users := repository.NewUserRepository(db)
@@ -495,7 +495,7 @@ func TestMascotRoomCareBoard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomActiveSeat{}, &domain.RoutineEntry{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomMemberLeave{}, &domain.MascotRoomActiveSeat{}, &domain.RoutineEntry{}); err != nil {
 		t.Fatal(err)
 	}
 	users := repository.NewUserRepository(db)
@@ -669,7 +669,7 @@ func startRoomHTTP(t *testing.T, emails ...string) (base string, tokens map[stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomActiveSeat{}); err != nil {
+	if err := db.AutoMigrate(&domain.User{}, &domain.MascotRoom{}, &domain.MascotRoomMember{}, &domain.MascotRoomMemberLeave{}, &domain.MascotRoomActiveSeat{}); err != nil {
 		t.Fatal(err)
 	}
 	users := repository.NewUserRepository(db)

@@ -50,27 +50,28 @@ type TreeReward struct {
 // JustGranted is what this call paid the caller (empty on a plain read that
 // did not level). Levels is every stage reached inside this call, in order.
 type TreeState struct {
-	Stage       int
-	StageName   string
-	TreeType    string
-	TreeName    string
-	Rarity      string
-	ImageKey    string
-	Waters      int
-	Required    int
-	Watered     []string
-	Progress    float64
-	CanWater    bool
-	Reason      string
-	Bloomed     bool
-	Rewards     []TreeReward
-	MyRewards   []TreeReward
-	Balance     int64
-	Already     bool
-	JustGranted []TreeReward
-	FreshWater  bool
-	WatererName string
-	Levels      []int
+	Stage         int
+	StageName     string
+	TreeType      string
+	TreeName      string
+	Rarity        string
+	ImageKey      string
+	Waters        int
+	Required      int
+	Watered       []string
+	Progress      float64
+	CanWater      bool
+	Reason        string
+	Bloomed       bool
+	Rewards       []TreeReward
+	MyRewards     []TreeReward
+	Balance       int64
+	Already       bool
+	JustGranted   []TreeReward
+	UnseenRewards []TreeReward
+	FreshWater    bool
+	WatererName   string
+	Levels        []int
 }
 
 // TreeCatalogItem is one enabled type plus the name of its stage-7 piece.
@@ -127,11 +128,107 @@ func (r *RoomTreeRepository) ListEnabled(ctx context.Context) ([]TreeCatalogItem
 	return out, nil
 }
 
-// State reads the tree for a real member, closing any Vietnam days that have
-// already ended. A day that fills the bar levels here, at most one stage
-// per closed day.
+// State reads the tree for a real member. A Vietnam day that has already
+// ended is closed here, once, under the room lock. Any other read does not
+// lock the room and does not write. An immediate level-up happens on water
+// or on Sync, not on this read.
 func (r *RoomTreeRepository) State(ctx context.Context, userID uuid.UUID, rawCode string, now time.Time) (TreeState, error) {
-	return r.run(ctx, treeCall{userID: userID, now: now}, rawCode)
+	var zero TreeState
+	db, err := r.dbOrErr()
+	if err != nil {
+		return zero, err
+	}
+	code, ok := lobby.NormalizeRoomCode(rawCode)
+	if !ok {
+		return zero, ErrMascotRoomBadCode
+	}
+	if userID == uuid.Nil {
+		return zero, fmt.Errorf("user required")
+	}
+	var room domain.MascotRoom
+	err = db.WithContext(ctx).Where("code = ?", code).Take(&room).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return zero, ErrMascotRoomNotFound
+	}
+	if err != nil {
+		return zero, err
+	}
+	var tree domain.MascotRoomTree
+	err = db.WithContext(ctx).Where("room_code = ?", code).Take(&tree).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		err = nil
+		tree = domain.MascotRoomTree{}
+	}
+	if err != nil {
+		return zero, err
+	}
+	if needsDaySettle(room.CreatedAt, tree.SettledThrough, now) {
+		return r.run(ctx, treeCall{userID: userID, now: now}, rawCode)
+	}
+	return r.readState(ctx, room, userID, now)
+}
+
+// MarkRewardsSeen stamps seen_at on this member's stage rewards.
+// An empty stages list marks every unseen reward. Other members are unchanged.
+func (r *RoomTreeRepository) MarkRewardsSeen(ctx context.Context, userID uuid.UUID, rawCode string, stages []int, now time.Time) (TreeState, error) {
+	var zero TreeState
+	if _, err := r.State(ctx, userID, rawCode, now); err != nil {
+		return zero, err
+	}
+	db, err := r.dbOrErr()
+	if err != nil {
+		return zero, err
+	}
+	code, ok := lobby.NormalizeRoomCode(rawCode)
+	if !ok {
+		return zero, ErrMascotRoomBadCode
+	}
+	err = db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		member, real, err := callerMember(tx, code, userID)
+		if err != nil {
+			return err
+		}
+		if !member {
+			return ErrMascotRoomNotMember
+		}
+		if !real {
+			return ErrTreeNotReal
+		}
+		q := tx.Model(&domain.MascotRoomTreeReward{}).
+			Where("room_code = ? AND user_id = ? AND seen_at IS NULL", code, userID)
+		if len(stages) > 0 {
+			q = q.Where("stage IN ?", stages)
+		}
+		return q.Update("seen_at", now.UTC()).Error
+	})
+	if err != nil {
+		return zero, err
+	}
+	return r.State(ctx, userID, rawCode, now)
+}
+
+func (r *RoomTreeRepository) readState(ctx context.Context, room domain.MascotRoom, userID uuid.UUID, now time.Time) (TreeState, error) {
+	var zero TreeState
+	db, err := r.dbOrErr()
+	if err != nil {
+		return zero, err
+	}
+	tx := db.WithContext(ctx)
+	member, real, err := callerMember(tx, room.Code, userID)
+	if err != nil {
+		return zero, err
+	}
+	if !member {
+		return zero, ErrMascotRoomNotMember
+	}
+	if !real {
+		return zero, ErrTreeNotReal
+	}
+	work, err := loadTreeWork(tx, room, now, false)
+	if err != nil {
+		return zero, err
+	}
+	return buildTreeState(tx, room, work, userID, now)
 }
 
 // Water records one real member's daily water. A full day levels immediately.
@@ -270,7 +367,7 @@ func (r *RoomTreeRepository) insertWater(ctx context.Context, userID uuid.UUID, 
 		if !real {
 			return ErrTreeNotReal
 		}
-		work, err := loadTreeWork(tx, room, now)
+		work, err := loadTreeWork(tx, room, now, true)
 		if err != nil {
 			return err
 		}
@@ -335,7 +432,7 @@ func waterGateError(state TreeState) error {
 // advanceRoom closes finished Vietnam days and levels immediately when today's
 // waters already cover the required count (a leave can do that).
 func advanceRoom(tx *gorm.DB, room domain.MascotRoom, viewer uuid.UUID, now time.Time) (TreeState, error) {
-	work, err := loadTreeWork(tx, room, now)
+	work, err := loadTreeWork(tx, room, now, true)
 	if err != nil {
 		return TreeState{}, err
 	}
@@ -365,12 +462,21 @@ type treeWork struct {
 	name    string
 }
 
-func loadTreeWork(tx *gorm.DB, room domain.MascotRoom, now time.Time) (*treeWork, error) {
+func loadTreeWork(tx *gorm.DB, room domain.MascotRoom, now time.Time, create bool) (*treeWork, error) {
 	stints, err := loadStints(tx, room.Code)
 	if err != nil {
 		return nil, err
 	}
-	tree, err := ensureTree(tx, room.Code, now)
+	var tree domain.MascotRoomTree
+	if create {
+		tree, err = ensureTree(tx, room.Code, now)
+	} else {
+		err = tx.Where("room_code = ?", room.Code).Take(&tree).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			err = nil
+			tree = domain.MascotRoomTree{RoomCode: room.Code, Stage: 1, ProgressNum: 0, ProgressDen: 1}
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -413,23 +519,31 @@ func closePastDays(tx *gorm.DB, room domain.MascotRoom, work *treeWork, now time
 func closeOneDay(tx *gorm.DB, room domain.MascotRoom, work *treeWork, day time.Time) error {
 	key := day.In(streaktime.Location).Format("2006-01-02")
 	work.tree.SettledThrough = key
-	if work.tree.LeveledOn == key || work.tree.Stage >= domain.TreeStageCount {
+	if work.tree.Stage >= domain.TreeStageCount && work.tree.LeveledOn != key {
 		return nil
 	}
 	waters, err := loadWaters(tx, room.Code, key)
 	if err != nil {
 		return err
 	}
-	required := requiredAt(work.stints, day, day.Add(24*time.Hour), len(waters))
-	if required <= 0 || len(waters) == 0 {
+	required := requiredAt(work.stints, room.CreatedAt, day, day.Add(24*time.Hour), len(waters))
+	banked := newFrac(work.tree.ProgressNum, work.tree.ProgressDen)
+	if work.tree.LeveledOn == key {
+		// The stage was taken during the day. Keep only the leftover.
+		if required > 0 && len(waters) > 0 {
+			banked = withToday(banked, len(waters), required)
+			if banked.ge1() {
+				banked = banked.sub1()
+			}
+			work.tree.ProgressNum = banked.n
+			work.tree.ProgressDen = banked.d
+		}
 		return nil
 	}
-	banked := newFrac(work.tree.ProgressNum, work.tree.ProgressDen)
-	add := len(waters)
-	if add > required {
-		add = required
+	if work.tree.Stage >= domain.TreeStageCount || required <= 0 || len(waters) == 0 {
+		return nil
 	}
-	banked = banked.add(int64(add), int64(required))
+	banked = withToday(banked, len(waters), required)
 	if banked.ge1() {
 		work.tree.Stage++
 		banked = banked.sub1()
@@ -450,13 +564,15 @@ func levelIfFull(tx *gorm.DB, room domain.MascotRoom, work *treeWork, now time.T
 	if work.tree.Stage >= domain.TreeStageCount || work.tree.LeveledOn == work.today {
 		return nil
 	}
-	required := requiredAt(work.stints, vnMidnight(now), now, len(work.waters))
-	if required <= 0 || len(work.waters) < required {
+	required := requiredAt(work.stints, room.CreatedAt, vnMidnight(now), now, len(work.waters))
+	banked := newFrac(work.tree.ProgressNum, work.tree.ProgressDen)
+	combined := withToday(banked, len(work.waters), required)
+	if !combined.ge1() {
 		return nil
 	}
+	// One stage only. The start-of-day bank stays stored; the leftover is
+	// written when this Vietnam day closes, and the bar shows it now.
 	work.tree.Stage++
-	work.tree.ProgressNum = 0
-	work.tree.ProgressDen = 1
 	work.tree.LeveledOn = work.today
 	work.levels = append(work.levels, work.tree.Stage)
 	granted, err := grantStage(tx, room, work, now, work.tree.Stage)
@@ -588,7 +704,7 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 		waters = reloaded
 		work.waters = reloaded
 	}
-	required := requiredAt(work.stints, vnMidnight(now), now, len(waters))
+	required := requiredAt(work.stints, room.CreatedAt, vnMidnight(now), now, len(waters))
 	names, err := waterNames(tx, room.Code, waters)
 	if err != nil {
 		return TreeState{}, err
@@ -662,6 +778,13 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 	if names == nil {
 		names = []string{}
 	}
+	unseen := []TreeReward{}
+	if viewer != uuid.Nil {
+		unseen, err = unseenRewards(tx, room.Code, viewer, rewards)
+		if err != nil {
+			return TreeState{}, err
+		}
+	}
 	return TreeState{
 		Stage: work.tree.Stage, StageName: stageName,
 		TreeType: work.typ.Key, TreeName: work.typ.NameVI, Rarity: work.typ.Rarity, ImageKey: work.typ.ImageKey,
@@ -669,7 +792,7 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 		Progress: shownProgress(banked, len(waters), required, leveledToday),
 		CanWater: can, Reason: reason, Bloomed: bloomed,
 		Rewards: rewards, MyRewards: mine, Balance: balance,
-		JustGranted: just, Levels: append([]int(nil), work.levels...),
+		JustGranted: just, UnseenRewards: unseen, Levels: append([]int(nil), work.levels...),
 		WatererName: display,
 	}, nil
 }
@@ -785,26 +908,26 @@ func loadStints(tx *gorm.DB, code string) ([]memberStint, error) {
 	for _, row := range members {
 		out = append(out, memberStint{userID: row.UserID, joined: row.JoinedAt, kind: row.Kind})
 	}
-	if tx.Migrator().HasTable(&domain.MascotRoomMemberLeave{}) {
-		var leaves []domain.MascotRoomMemberLeave
-		if err := tx.Where("room_code = ?", code).Find(&leaves).Error; err != nil {
-			return nil, err
-		}
-		for _, row := range leaves {
-			left := row.LeftAt
-			out = append(out, memberStint{userID: row.UserID, joined: row.JoinedAt, left: &left, kind: row.Kind})
-		}
+	var leaves []domain.MascotRoomMemberLeave
+	if err := tx.Where("room_code = ?", code).Find(&leaves).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range leaves {
+		left := row.LeftAt
+		out = append(out, memberStint{userID: row.UserID, joined: row.JoinedAt, left: &left, kind: row.Kind})
 	}
 	return out, nil
 }
 
 // requiredAt is how many waters the day needs.
-// locked is the real members present at the Vietnam midnight that opened the day.
-// Someone who joined after that does not raise it. Someone from that set who
-// left before `until` lowers it, but not below the waters already recorded.
+// On the room's creation day the lock is the real members present at creation,
+// because nobody was in the room at 00:00. Later days lock at that midnight.
+// Someone who joins after the lock does not raise it. Someone from that set
+// who left before `until` lowers it, but not below the waters already recorded.
 // A day that locked at zero stays at zero.
-func requiredAt(stints []memberStint, midnight, until time.Time, waters int) int {
-	locked := presentReal(stints, midnight)
+func requiredAt(stints []memberStint, created, midnight, until time.Time, waters int) int {
+	anchor := dayAnchor(created, midnight)
+	locked := presentReal(stints, anchor)
 	if len(locked) == 0 {
 		return 0
 	}
@@ -813,7 +936,7 @@ func requiredAt(stints []memberStint, midnight, until time.Time, waters int) int
 		if _, ok := locked[stint.userID]; !ok || stint.left == nil || !domain.RealRoomMember(stint.kind) {
 			continue
 		}
-		if stint.left.After(midnight) && !stint.left.After(until) {
+		if stint.left.After(anchor) && !stint.left.After(until) {
 			left[stint.userID] = struct{}{}
 		}
 	}
@@ -905,6 +1028,27 @@ func memberDisplayName(tx *gorm.DB, code string, userID uuid.UUID) (string, erro
 func myRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeReward) ([]TreeReward, error) {
 	var rows []domain.MascotRoomTreeReward
 	if err := tx.Where("room_code = ? AND user_id = ?", code, userID).Order("stage ASC").Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	byStage := map[int]TreeReward{}
+	for _, row := range ladder {
+		byStage[row.Stage] = row
+	}
+	out := make([]TreeReward, 0, len(rows))
+	for _, row := range rows {
+		spec := byStage[row.Stage]
+		out = append(out, TreeReward{
+			Stage: row.Stage, Name: spec.Name, Coins: row.Coins, ItemID: row.ItemID, ItemName: spec.ItemName,
+			PreviewOnly: spec.PreviewOnly,
+		})
+	}
+	return out, nil
+}
+
+func unseenRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeReward) ([]TreeReward, error) {
+	var rows []domain.MascotRoomTreeReward
+	if err := tx.Where("room_code = ? AND user_id = ? AND seen_at IS NULL", code, userID).
+		Order("stage ASC").Find(&rows).Error; err != nil {
 		return nil, err
 	}
 	byStage := map[int]TreeReward{}
@@ -1017,14 +1161,45 @@ func (f frac) float() float64 {
 }
 
 func shownProgress(banked frac, waters, required int, leveledToday bool) float64 {
-	if leveledToday || required <= 0 || waters <= 0 {
-		return banked.float()
+	combined := withToday(banked, waters, required)
+	if leveledToday && combined.ge1() {
+		return combined.sub1().float()
+	}
+	return combined.float()
+}
+
+// withToday adds today's capped water fraction to the start-of-day bank.
+func withToday(banked frac, waters, required int) frac {
+	if required <= 0 || waters <= 0 {
+		return banked
 	}
 	add := waters
 	if add > required {
 		add = required
 	}
-	return banked.add(int64(add), int64(required)).float()
+	return banked.add(int64(add), int64(required))
+}
+
+// dayAnchor is when the day's required count locks.
+// The creation day locks at room creation. Every later day locks at 00:00 VN.
+func dayAnchor(created, midnight time.Time) time.Time {
+	if vnDateKey(created) == vnDateKey(midnight) && created.After(midnight) {
+		return created
+	}
+	return midnight
+}
+
+// needsDaySettle reports whether a Vietnam day before today is still open.
+func needsDaySettle(created time.Time, settledThrough string, now time.Time) bool {
+	start := vnMidnight(created)
+	if settledThrough != "" {
+		settled, err := time.ParseInLocation("2006-01-02", settledThrough, streaktime.Location)
+		if err != nil {
+			return true
+		}
+		start = settled.Add(24 * time.Hour)
+	}
+	return start.Before(vnMidnight(now))
 }
 
 func gcdInt(a, b int64) int64 {
@@ -1112,14 +1287,10 @@ func validateCreatableTree(db *gorm.DB, key string) error {
 	return nil
 }
 
-// recordMemberLeave stores one ended stint. Missing the table is ignored so
-// older test databases can still leave a room. A repeat of the same stint
+// recordMemberLeave stores one ended stint. A repeat of the same stint
 // does not insert a second row.
 func recordMemberLeave(tx *gorm.DB, member domain.MascotRoomMember, at time.Time) error {
 	if tx == nil || member.UserID == uuid.Nil || member.RoomCode == "" {
-		return nil
-	}
-	if !tx.Migrator().HasTable(&domain.MascotRoomMemberLeave{}) {
 		return nil
 	}
 	kind := member.Kind

@@ -32,6 +32,7 @@ func TestTreeMigrationIsDataNotEnum(t *testing.T) {
 		"mascot_room_tree_waters", "mascot_room_tree_rewards", "preview_only",
 		"PRIMARY KEY (room_code, user_id, vn_date)",
 		"PRIMARY KEY (room_code, user_id, stage)",
+		"seen_at",
 	} {
 		if !strings.Contains(up, piece) {
 			t.Fatalf("up migration missing %s", piece)
@@ -184,20 +185,20 @@ func TestTreePartialProgressAcrossDays(t *testing.T) {
 	day2 := vnAt(2026, 11, 21, 10, 0)
 	treeSkin(t, db, b.ID, day2)
 	state, err = repo.Water(context.Background(), b.ID, code, "c", day2)
-	if err != nil || state.Stage != 1 || state.Waters != 1 || state.Required != 3 {
+	if err != nil || state.Stage != 2 || state.Waters != 1 || state.Required != 3 {
 		t.Fatalf("day2 water %+v %v", state, err)
-	}
-	near(t, state.Progress, 1)
-
-	day3 := vnAt(2026, 11, 22, 0, 30)
-	state, err = repo.State(context.Background(), owner.ID, code, day3)
-	if err != nil || state.Stage != 2 || state.Required != 3 {
-		t.Fatalf("day3 %+v %v", state, err)
 	}
 	near(t, state.Progress, 0)
 	if len(state.JustGranted) != 1 || state.JustGranted[0].Coins != 20 {
 		t.Fatalf("grant %+v", state.JustGranted)
 	}
+
+	day3 := vnAt(2026, 11, 22, 0, 30)
+	state, err = repo.State(context.Background(), owner.ID, code, day3)
+	if err != nil || state.Stage != 2 || state.Required != 3 || len(state.JustGranted) != 0 {
+		t.Fatalf("day3 %+v %v", state, err)
+	}
+	near(t, state.Progress, 0)
 	for _, user := range []*domain.User{owner, a, b} {
 		var balance int64
 		if err := db.Model(&domain.UserCoinWallet{}).Where("user_id = ?", user.ID).Pluck("balance", &balance).Error; err != nil {
@@ -266,7 +267,7 @@ func TestTreeMaxOneLevelPerDay(t *testing.T) {
 	if err != nil || state.Stage != 2 || state.Balance != 20 {
 		t.Fatalf("full day %+v %v", state, err)
 	}
-	near(t, state.Progress, 0)
+	near(t, state.Progress, 0.5)
 	if _, err := repo.Water(context.Background(), owner.ID, code, "again", day2.Add(2*time.Minute)); !errors.Is(err, ErrTreeAlreadyWatered) {
 		t.Fatalf("same day %v", err)
 	}
@@ -492,9 +493,167 @@ func TestTreeLeaveCanCompleteTheDay(t *testing.T) {
 		t.Fatal(err)
 	}
 	leaveTreeMember(t, db, code, b.ID, vnAt(2026, 11, 20, 11, 0))
-	state, err := repo.State(context.Background(), owner.ID, code, vnAt(2026, 11, 20, 12, 0))
+	state, err := repo.Sync(context.Background(), code, vnAt(2026, 11, 20, 12, 0))
 	if err != nil || state.Stage != 2 || state.Required != 2 || state.Waters != 2 {
 		t.Fatalf("level on leave %+v %v", state, err)
+	}
+}
+
+func TestTreeCreationDayCountsMembersThen(t *testing.T) {
+	db := openTreeDB(t)
+	repo := NewRoomTreeRepository(db)
+	owner := treeUser(t, db, "Lan")
+	founder := treeUser(t, db, "Mây")
+	late := treeUser(t, db, "Na")
+	buddy := treeUser(t, db, "Bé")
+	created := vnAt(2026, 11, 23, 10, 0)
+	code := treeRoom(t, db, owner, created)
+	addTreeMember(t, db, code, founder.ID, created, domain.RoomMemberUser)
+	addTreeMember(t, db, code, buddy.ID, created, domain.RoomMemberAI)
+	addTreeMember(t, db, code, late.ID, vnAt(2026, 11, 23, 15, 0), domain.RoomMemberUser)
+
+	var trees int64
+	if err := db.Model(&domain.MascotRoomTree{}).Count(&trees).Error; err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.State(context.Background(), owner.ID, code, vnAt(2026, 11, 23, 16, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Required != 2 || state.Stage != 1 {
+		t.Fatalf("creation afternoon %+v", state)
+	}
+	var after int64
+	if err := db.Model(&domain.MascotRoomTree{}).Count(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if after != trees {
+		t.Fatalf("creation-day read wrote a tree row (%d -> %d)", trees, after)
+	}
+
+	treeSkin(t, db, owner.ID, created)
+	treeSkin(t, db, founder.ID, created)
+	if _, err := repo.Water(context.Background(), owner.ID, code, "a", vnAt(2026, 11, 23, 17, 0)); err != nil {
+		t.Fatal(err)
+	}
+	state, err = repo.Water(context.Background(), founder.ID, code, "b", vnAt(2026, 11, 23, 18, 0))
+	if err != nil || state.Stage != 2 || state.Required != 2 || state.Waters != 2 {
+		t.Fatalf("creation day filled %+v %v", state, err)
+	}
+
+	next, err := repo.State(context.Background(), owner.ID, code, vnAt(2026, 11, 24, 8, 0))
+	if err != nil || next.Stage != 2 {
+		t.Fatalf("next day %+v %v", next, err)
+	}
+}
+
+func TestTreeHalfPlusHalfLevelsNowAndCarries(t *testing.T) {
+	db := openTreeDB(t)
+	repo := NewRoomTreeRepository(db)
+	owner := treeUser(t, db, "Lan")
+	friend := treeUser(t, db, "Mây")
+	code := treeRoom(t, db, owner, vnAt(2026, 11, 19, 10, 0))
+	addTreeMember(t, db, code, friend.ID, vnAt(2026, 11, 19, 11, 0), domain.RoomMemberUser)
+	day1 := vnAt(2026, 11, 20, 10, 0)
+	treeSkin(t, db, owner.ID, day1)
+	state, err := repo.Water(context.Background(), owner.ID, code, "d1", day1)
+	if err != nil || state.Stage != 1 {
+		t.Fatalf("half %+v %v", state, err)
+	}
+	near(t, state.Progress, 0.5)
+
+	day2 := vnAt(2026, 11, 21, 10, 0)
+	treeSkin(t, db, friend.ID, day2)
+	state, err = repo.Water(context.Background(), friend.ID, code, "d2", day2)
+	if err != nil || state.Stage != 2 || len(state.JustGranted) != 1 {
+		t.Fatalf("half+half %+v %v", state, err)
+	}
+	near(t, state.Progress, 0)
+
+	treeSkin(t, db, owner.ID, day2)
+	state, err = repo.Water(context.Background(), owner.ID, code, "d2b", day2.Add(time.Minute))
+	if err != nil || state.Stage != 2 {
+		t.Fatalf("second water same day %+v %v", state, err)
+	}
+	near(t, state.Progress, 0.5)
+	var rewards int64
+	if err := db.Model(&domain.MascotRoomTreeReward{}).Count(&rewards).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rewards != 2 {
+		t.Fatalf("stages paid %d, want one stage", rewards)
+	}
+
+	day3, err := repo.State(context.Background(), owner.ID, code, vnAt(2026, 11, 22, 0, 30))
+	if err != nil || day3.Stage != 2 || len(day3.JustGranted) != 0 {
+		t.Fatalf("carry into next day %+v %v", day3, err)
+	}
+	near(t, day3.Progress, 0.5)
+}
+
+func TestTreeRolloverRewardIsUnseenForEachMember(t *testing.T) {
+	db := openTreeDB(t)
+	repo := NewRoomTreeRepository(db)
+	owner := treeUser(t, db, "Lan")
+	friend := treeUser(t, db, "Mây")
+	created := vnAt(2026, 11, 19, 10, 0)
+	code := treeRoom(t, db, owner, created)
+	addTreeMember(t, db, code, friend.ID, created.Add(time.Hour), domain.RoomMemberUser)
+	day := "2026-11-20"
+	for _, id := range []uuid.UUID{owner.ID, friend.ID} {
+		if err := db.Create(&domain.MascotRoomTreeWater{
+			RoomCode: code, UserID: id, VNDate: day, CreatedAt: vnAt(2026, 11, 20, 11, 0),
+		}).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	opened := vnAt(2026, 11, 21, 8, 0)
+	first, err := repo.State(context.Background(), owner.ID, code, opened)
+	if err != nil || first.Stage != 2 || len(first.JustGranted) != 1 || len(first.UnseenRewards) != 1 {
+		t.Fatalf("first open %+v %v", first, err)
+	}
+	second, err := repo.State(context.Background(), friend.ID, code, opened.Add(time.Minute))
+	if err != nil || second.Stage != 2 || len(second.JustGranted) != 0 || len(second.UnseenRewards) != 1 {
+		t.Fatalf("second open %+v %v", second, err)
+	}
+	if second.UnseenRewards[0].Coins != 20 || second.UnseenRewards[0].Stage != 2 {
+		t.Fatalf("unseen %+v", second.UnseenRewards)
+	}
+	var updated domain.MascotRoomTree
+	if err := db.Where("room_code = ?", code).Take(&updated).Error; err != nil {
+		t.Fatal(err)
+	}
+	stamp := updated.UpdatedAt
+	again, err := repo.State(context.Background(), friend.ID, code, opened.Add(2*time.Minute))
+	if err != nil || len(again.UnseenRewards) != 1 {
+		t.Fatalf("reread %+v %v", again, err)
+	}
+	var after domain.MascotRoomTree
+	if err := db.Where("room_code = ?", code).Take(&after).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !after.UpdatedAt.Equal(stamp) || after.SettledThrough != "2026-11-20" {
+		t.Fatalf("settled read wrote %+v", after)
+	}
+
+	seen, err := repo.MarkRewardsSeen(context.Background(), owner.ID, code, nil, opened.Add(3*time.Minute))
+	if err != nil || len(seen.UnseenRewards) != 0 || len(seen.MyRewards) != 1 {
+		t.Fatalf("owner seen %+v %v", seen, err)
+	}
+	still, err := repo.State(context.Background(), friend.ID, code, opened.Add(4*time.Minute))
+	if err != nil || len(still.UnseenRewards) != 1 {
+		t.Fatalf("friend still unseen %+v %v", still, err)
+	}
+	seen, err = repo.MarkRewardsSeen(context.Background(), friend.ID, code, []int{2}, opened.Add(5*time.Minute))
+	if err != nil || len(seen.UnseenRewards) != 0 {
+		t.Fatalf("friend seen %+v %v", seen, err)
+	}
+	var ledger int64
+	if err := db.Model(&domain.UserCoinLedger{}).Where("reason = ?", domain.CoinReasonTreeStage).Count(&ledger).Error; err != nil {
+		t.Fatal(err)
+	}
+	if ledger != 2 {
+		t.Fatalf("ledger %d", ledger)
 	}
 }
 

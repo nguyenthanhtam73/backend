@@ -95,6 +95,20 @@ func (s *Service) Water(ctx context.Context, userID uuid.UUID, code, idempotency
 	return toDTO(state), nil
 }
 
+// MarkRewardsSeen marks this member's unseen stage rewards as seen.
+// stages empty marks all of them. Other members keep their own unseen rows.
+func (s *Service) MarkRewardsSeen(ctx context.Context, userID uuid.UUID, code string, stages []int) (dto.RoomTreeResponse, error) {
+	var zero dto.RoomTreeResponse
+	if s == nil || s.repo == nil {
+		return zero, domain.Unavailable("service_unavailable", "mascot unavailable")
+	}
+	state, err := s.repo.MarkRewardsSeen(ctx, userID, code, stages, s.clock())
+	if err != nil {
+		return zero, err
+	}
+	return toDTO(state), nil
+}
+
 // Sync applies a membership change. A leave can drop the required count and
 // level the tree. A deleted room is ignored.
 func (s *Service) Sync(ctx context.Context, code string) error {
@@ -155,6 +169,7 @@ func toDTO(state repository.TreeState) dto.RoomTreeResponse {
 		Progress: state.Progress, CanWater: state.CanWater, Reason: state.Reason, Bloomed: state.Bloomed,
 		Rewards: toRewards(state.Rewards), MyRewards: toRewards(state.MyRewards), Balance: state.Balance,
 		Already: state.Already, Leveled: len(state.JustGranted) > 0, JustGranted: omitEmpty(state.JustGranted),
+		UnseenRewards: toRewards(state.UnseenRewards),
 	}
 }
 

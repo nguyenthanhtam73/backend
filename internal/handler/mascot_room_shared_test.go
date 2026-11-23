@@ -248,6 +248,7 @@ func startSharedRoom(t *testing.T) sharedEnv {
 		&domain.User{},
 		&domain.MascotRoom{},
 		&domain.MascotRoomMember{},
+		&domain.MascotRoomMemberLeave{},
 		&domain.MascotRoomActiveSeat{},
 		&domain.MascotRoomQuestClaim{},
 		&domain.MascotRoomNudge{},

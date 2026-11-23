@@ -80,6 +80,29 @@ func (h *MascotRoomHandler) WaterTree(c *fiber.Ctx) error {
 	return response.JSON(c, fiber.StatusOK, state)
 }
 
+type treeSeenBody struct {
+	Stages []int `json:"stages"`
+}
+
+// MarkTreeRewardsSeen is POST /api/v1/mascot/rooms/:code/tree/rewards/seen.
+// The body may be empty, which marks every unseen reward for this member,
+// or {"stages":[2,3]}.
+func (h *MascotRoomHandler) MarkTreeRewardsSeen(c *fiber.Ctx) error {
+	tree, uid, ok := h.treeOr(c)
+	if !ok {
+		return nil
+	}
+	stages, err := stagesFromSeen(c)
+	if err != nil {
+		return response.Error(c, fiber.StatusBadRequest, "invalid_body", "body must be valid JSON")
+	}
+	state, err := tree.MarkRewardsSeen(c.UserContext(), uid, c.Params("code"), stages)
+	if err != nil {
+		return writeTreeErr(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, state)
+}
+
 type createRoomBody struct {
 	TreeType string `json:"tree_type"`
 }
@@ -93,6 +116,17 @@ func treeTypeFromCreate(c *fiber.Ctx) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(body.TreeType), nil
+}
+
+func stagesFromSeen(c *fiber.Ctx) ([]int, error) {
+	if c == nil || len(bytes.TrimSpace(c.Body())) == 0 {
+		return nil, nil
+	}
+	var body treeSeenBody
+	if err := decodeStrict(c.Body(), &body); err != nil {
+		return nil, err
+	}
+	return body.Stages, nil
 }
 
 func idempotencyFromWater(c *fiber.Ctx) (string, error) {

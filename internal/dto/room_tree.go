@@ -13,35 +13,37 @@ type TreeReward struct {
 // RoomTreeResponse is GET /api/v1/mascot/rooms/:code/tree and the body of a
 // successful POST /api/v1/mascot/rooms/:code/tree/water.
 //
-// stage is 1..7. progress is the fraction toward the next stage, from 0 up to
-// and including values at or above 1 when today's partial water plus the bank
-// has filled the bar but the day has not closed yet. A full day (waters >=
-// required, required > 0) levels immediately and progress resets.
-// watered is display names only, in the order they watered today.
-// can_water is false with reason needs_skin_check, already_watered, bloomed,
-// or room_ended.
+// stage is 1..7. progress is the fraction toward the next stage. Today's
+// waters are added to the banked fraction. When that sum reaches 1 the tree
+// levels immediately (still at most one stage per Vietnam day) and progress
+// is the leftover. watered is display names only, in the order they watered
+// today. can_water is false with reason needs_skin_check, already_watered,
+// bloomed, or room_ended.
 // rewards is the full ladder for this tree type. my_rewards is what the caller
 // has been paid on this tree. just_granted is what this call paid them.
+// unseen_rewards is every paid stage this caller has not marked seen yet.
+// POST .../tree/rewards/seen marks those stages seen for this caller only.
 type RoomTreeResponse struct {
-	Stage       int          `json:"stage"`
-	StageName   string       `json:"stage_name"`
-	TreeType    string       `json:"tree_type"`
-	TreeName    string       `json:"tree_name"`
-	Rarity      string       `json:"rarity"`
-	ImageKey    string       `json:"image_key"`
-	Waters      int          `json:"waters"`
-	Required    int          `json:"required"`
-	Watered     []string     `json:"watered"`
-	Progress    float64      `json:"progress"`
-	CanWater    bool         `json:"can_water"`
-	Reason      string       `json:"reason,omitempty"`
-	Bloomed     bool         `json:"bloomed"`
-	Rewards     []TreeReward `json:"rewards"`
-	MyRewards   []TreeReward `json:"my_rewards"`
-	Balance     int64        `json:"balance"`
-	Already     bool         `json:"already"`
-	Leveled     bool         `json:"leveled"`
-	JustGranted []TreeReward `json:"just_granted,omitempty"`
+	Stage         int          `json:"stage"`
+	StageName     string       `json:"stage_name"`
+	TreeType      string       `json:"tree_type"`
+	TreeName      string       `json:"tree_name"`
+	Rarity        string       `json:"rarity"`
+	ImageKey      string       `json:"image_key"`
+	Waters        int          `json:"waters"`
+	Required      int          `json:"required"`
+	Watered       []string     `json:"watered"`
+	Progress      float64      `json:"progress"`
+	CanWater      bool         `json:"can_water"`
+	Reason        string       `json:"reason,omitempty"`
+	Bloomed       bool         `json:"bloomed"`
+	Rewards       []TreeReward `json:"rewards"`
+	MyRewards     []TreeReward `json:"my_rewards"`
+	Balance       int64        `json:"balance"`
+	Already       bool         `json:"already"`
+	Leveled       bool         `json:"leveled"`
+	JustGranted   []TreeReward `json:"just_granted,omitempty"`
+	UnseenRewards []TreeReward `json:"unseen_rewards"`
 }
 
 // TreeCatalogEntry is one enabled tree the client can draw.
