@@ -74,7 +74,7 @@ func toGiftOpen(got repository.GiftOpen) dto.GiftBoxOpenResponse {
 		Already: got.Already, Box: toBoxSummary(got.Box, true),
 		Prize: toPrizeView(got.Prize), GrantedItems: toGiftItems(got.Granted),
 		Duplicate: got.Duplicate, Partial: got.Partial, DupeCoins: got.DupeCoins,
-		Balance: got.Balance,
+		Coins: got.Coins, Balance: got.Balance,
 	}
 }
 
@@ -122,10 +122,7 @@ func toRateCard(def domain.GiftBoxDef) (dto.GiftRateCard, error) {
 	tiers := make([]dto.GiftRateTier, len(rates))
 	for i, rate := range rates {
 		n := counts[rate.Key]
-		each := 0
-		if n > 0 {
-			each = rate.WeightBps / n
-		}
+		each := sharedPrizeWeight(prizes, rate.Key)
 		tiers[i] = dto.GiftRateTier{
 			Key: rate.Key, Name: rate.Name, WeightBps: rate.WeightBps,
 			PrizeCount: n, PerPrizeBps: each, DupeCoins: rate.DupeCoins,
@@ -145,7 +142,7 @@ func toPrizeView(prize domain.GiftPrize) dto.GiftPrizeView {
 	return dto.GiftPrizeView{
 		ID: prize.ID, Name: prize.Name, Rarity: prize.Rarity, RarityName: rarityName(prize.Rarity),
 		Kind: prize.Kind, WeightBps: prize.WeightBps, DupeCoins: prize.DupeCoins,
-		Items: toGiftItems(prize.Items),
+		Coins: prize.Coins, Items: toGiftItems(prize.Items),
 	}
 }
 
@@ -158,6 +155,31 @@ func toGiftItems(items []domain.GiftItem) []dto.GiftBoxItem {
 		})
 	}
 	return out
+}
+
+// sharedPrizeWeight is the per-prize weight when every prize in the band
+// has the same weight. Xu prizes differ, so that band reports 0 and the
+// client reads each prize's weight_bps.
+func sharedPrizeWeight(prizes []domain.GiftPrize, rarity string) int {
+	weight := 0
+	n := 0
+	for _, prize := range prizes {
+		if prize.Rarity != rarity {
+			continue
+		}
+		n++
+		if weight == 0 {
+			weight = prize.WeightBps
+			continue
+		}
+		if prize.WeightBps != weight {
+			return 0
+		}
+	}
+	if n == 0 {
+		return 0
+	}
+	return weight
 }
 
 func rarityName(key string) string {

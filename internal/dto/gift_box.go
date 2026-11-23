@@ -33,8 +33,9 @@ type GiftBoxListResponse struct {
 	Boxes []GiftBoxSummary `json:"boxes"`
 }
 
-// GiftPrizeView is one of the 16 outcomes. weight_bps is the server rate
-// out of 10000, so 890 is 8.9%. The client does not roll.
+// GiftPrizeView is one outcome on the rate table and on an open.
+// kind is set, accessory, or coins. weight_bps is the server rate out of
+// 10000. coins is the xu paid when kind is coins. The client does not roll.
 type GiftPrizeView struct {
 	ID         string        `json:"id"`
 	Name       string        `json:"name"`
@@ -43,6 +44,7 @@ type GiftPrizeView struct {
 	Kind       string        `json:"kind"`
 	WeightBps  int           `json:"weight_bps"`
 	DupeCoins  int           `json:"dupe_coins"`
+	Coins      int           `json:"coins,omitempty"`
 	Items      []GiftBoxItem `json:"items"`
 }
 
@@ -51,6 +53,8 @@ type GiftPrizeView struct {
 // duplicate means the whole set or the accessory was already owned, so dupe_coins
 // were added and granted_items is empty. partial means one piece of a set was
 // missing: that piece is in granted_items and dupe_coins is 0.
+// coins is set when the prize itself is xu. A xu prize is never a duplicate.
+// balance is the wallet after this open.
 type GiftBoxOpenResponse struct {
 	Already      bool           `json:"already"`
 	Box          GiftBoxSummary `json:"box"`
@@ -59,6 +63,7 @@ type GiftBoxOpenResponse struct {
 	Duplicate    bool           `json:"duplicate"`
 	Partial      bool           `json:"partial"`
 	DupeCoins    int            `json:"dupe_coins"`
+	Coins        int            `json:"coins,omitempty"`
 	Balance      int64          `json:"balance"`
 }
 

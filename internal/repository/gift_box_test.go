@@ -120,7 +120,7 @@ func TestLeafBloomBoxAndCherryStillPays(t *testing.T) {
 func TestOpenGiftBoxIsIdempotent(t *testing.T) {
 	db := openTreeDB(t)
 	repo := NewRoomTreeRepository(db)
-	restore := SetGiftRoll(func() (int, error) { return 0, nil })
+	restore := SetGiftRoll(func() (int, error) { return giftRollAt(t, "set_la_non"), nil })
 	t.Cleanup(func() { SetGiftRoll(restore) })
 	owner := treeUser(t, db, "Lan")
 	other := treeUser(t, db, "Mây")
@@ -171,7 +171,7 @@ func TestOpenGiftBoxDuplicateAndPartial(t *testing.T) {
 	when := vnAt(2026, 11, 20, 11, 0)
 
 	t.Run("partial set grants the missing piece", func(t *testing.T) {
-		restore := SetGiftRoll(func() (int, error) { return 0, nil })
+		restore := SetGiftRoll(func() (int, error) { return giftRollAt(t, "set_la_non"), nil })
 		t.Cleanup(func() { SetGiftRoll(restore) })
 		owner := treeUser(t, db, "Lan")
 		grantItem(t, db, owner.ID, "top_la_non", domain.MascotLayerTop)
@@ -186,7 +186,7 @@ func TestOpenGiftBoxDuplicateAndPartial(t *testing.T) {
 	})
 
 	t.Run("owned set pays xu", func(t *testing.T) {
-		restore := SetGiftRoll(func() (int, error) { return 0, nil })
+		restore := SetGiftRoll(func() (int, error) { return giftRollAt(t, "set_la_non"), nil })
 		t.Cleanup(func() { SetGiftRoll(restore) })
 		owner := treeUser(t, db, "Na")
 		grantItem(t, db, owner.ID, "top_la_non", domain.MascotLayerTop)
@@ -295,6 +295,59 @@ func TestLeafClipSlotMigration(t *testing.T) {
 	if item.Layer != domain.MascotLayerAccessory {
 		t.Fatal("second boot rewrote the layer")
 	}
+}
+
+func TestOpenGiftBoxPaysXu(t *testing.T) {
+	db := openTreeDB(t)
+	repo := NewRoomTreeRepository(db)
+	when := vnAt(2026, 11, 20, 11, 0)
+	for _, id := range []string{"coins_8", "coins_18", "coins_28", "coins_88"} {
+		t.Run(id, func(t *testing.T) {
+			at := giftRollAt(t, id)
+			restore := SetGiftRoll(func() (int, error) { return at, nil })
+			t.Cleanup(func() { SetGiftRoll(restore) })
+			owner := treeUser(t, db, "Xu")
+			if !strings.HasSuffix(owner.Email, "@example.com") {
+				t.Fatalf("test account %s", owner.Email)
+			}
+			box := bloomOneBox(t, db, repo, owner)
+			opened, err := repo.OpenGiftBox(context.Background(), owner.ID, box.ID, when)
+			if err != nil || opened.Already || opened.Duplicate || opened.Partial || opened.DupeCoins != 0 || len(opened.Granted) != 0 {
+				t.Fatalf("open %+v %v", opened, err)
+			}
+			if opened.Prize.Kind != domain.GiftKindCoins || opened.Prize.ID != id || opened.Coins != opened.Prize.Coins || opened.Balance != int64(opened.Coins) {
+				t.Fatalf("xu %+v", opened)
+			}
+			again, err := repo.OpenGiftBox(context.Background(), owner.ID, box.ID, when.Add(time.Minute))
+			if err != nil || !again.Already || again.Coins != opened.Coins || again.Balance != opened.Balance || again.Duplicate {
+				t.Fatalf("replay %+v %v", again, err)
+			}
+			var credits int64
+			if err := db.Model(&domain.UserCoinLedger{}).Where("user_id = ? AND reason = ?", owner.ID, domain.CoinReasonGiftBoxCoins).Count(&credits).Error; err != nil {
+				t.Fatal(err)
+			}
+			if credits != 1 {
+				t.Fatalf("ledger rows %d", credits)
+			}
+		})
+	}
+}
+
+func giftRollAt(t *testing.T, id string) int {
+	t.Helper()
+	def, ok := domain.GiftBoxByTree(domain.TreeTypeLeaf)
+	if !ok {
+		t.Fatal("leaf box")
+	}
+	prizes, err := domain.WeightedPrizes(def)
+	if err != nil {
+		t.Fatal(err)
+	}
+	at, ok := domain.GiftRollStart(prizes, id)
+	if !ok {
+		t.Fatalf("missing prize %s", id)
+	}
+	return at
 }
 
 func bloomOneBox(t *testing.T, db *gorm.DB, repo *RoomTreeRepository, owner *domain.User) domain.TreeGiftBox {
