@@ -2,12 +2,13 @@ package dto
 
 // TreeReward is one rung, or one rung this member has already received.
 type TreeReward struct {
-	Stage       int    `json:"stage"`
-	Name        string `json:"name,omitempty"`
-	Coins       int    `json:"coins"`
-	ItemID      string `json:"item_id,omitempty"`
-	ItemName    string `json:"item_name,omitempty"`
-	PreviewOnly bool   `json:"preview_only,omitempty"`
+	Stage         int    `json:"stage"`
+	Name          string `json:"name,omitempty"`
+	Coins         int    `json:"coins"`
+	ItemID        string `json:"item_id,omitempty"`
+	ItemName      string `json:"item_name,omitempty"`
+	PreviewOnly   bool   `json:"preview_only,omitempty"`
+	RewardedCount int    `json:"rewarded_count"`
 }
 
 // RoomTreeResponse is GET /api/v1/mascot/rooms/:code/tree and the body of a

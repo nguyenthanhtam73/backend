@@ -96,6 +96,34 @@ func TreeRewardCoins() int {
 // None of them are sold: Price is nil and IsFree is false.
 // The sticker and the name frame have no wear slot, so they are preview-only.
 // Hair pieces use the accessory slot and can be equipped.
+// OwnedItemSource is the mascot owned_items source for a grant.
+// Tree wardrobe pieces are "treeType/stage" (shared pieces use "tree").
+// Every other grant keeps the source stored on the row.
+func OwnedItemSource(itemID, stored string) string {
+	switch itemID {
+	case TreeItemSticker:
+		return "tree/4"
+	case TreeItemNameFrame:
+		return "tree/6"
+	case TreeItemClipLeaf:
+		return "leaf/7"
+	case TreeItemClipCherry:
+		return "cherry/7"
+	case TreeItemAloeWreath:
+		return "aloe/7"
+	case TreeItemSunflowerBow:
+		return "sunflower/7"
+	case TreeItemClipDandelion:
+		return "dandelion/7"
+	case TreeItemClipQuynh:
+		return "quynh/7"
+	case TreeItemClipSenHong:
+		return "sen_hong/7"
+	default:
+		return stored
+	}
+}
+
 func TreeCatalogItems() []MascotItem {
 	return []MascotItem{
 		{ID: TreeItemSticker, Layer: MascotLayerSticker, Name: "Nhãn dán lá xanh", PreviewOnly: true},

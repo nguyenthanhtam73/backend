@@ -547,6 +547,50 @@ func TestTreeCreationDayCountsMembersThen(t *testing.T) {
 	}
 }
 
+func TestTreeRewardCountIsEveryoneWhoWasPaid(t *testing.T) {
+	db := openTreeDB(t)
+	repo := NewRoomTreeRepository(db)
+	owner := treeUser(t, db, "Lan")
+	friend := treeUser(t, db, "Mây")
+	code := treeRoom(t, db, owner, vnAt(2026, 11, 19, 10, 0))
+	addTreeMember(t, db, code, friend.ID, vnAt(2026, 11, 19, 11, 0), domain.RoomMemberUser)
+	when := vnAt(2026, 11, 20, 10, 0)
+	treeSkin(t, db, owner.ID, when)
+	treeSkin(t, db, friend.ID, when)
+	if _, err := repo.Water(context.Background(), owner.ID, code, "a", when); err != nil {
+		t.Fatal(err)
+	}
+	state, err := repo.Water(context.Background(), friend.ID, code, "b", when.Add(time.Minute))
+	if err != nil || state.Stage != 2 || len(state.JustGranted) != 1 {
+		t.Fatalf("level %+v %v", state, err)
+	}
+	if state.JustGranted[0].RewardedCount != 2 {
+		t.Fatalf("just granted count %d", state.JustGranted[0].RewardedCount)
+	}
+	var stage1, stage2 int
+	for _, row := range state.Rewards {
+		switch row.Stage {
+		case 1:
+			stage1 = row.RewardedCount
+		case 2:
+			stage2 = row.RewardedCount
+		}
+	}
+	if stage1 != 0 || stage2 != 2 {
+		t.Fatalf("ladder counts stage1 %d stage2 %d", stage1, stage2)
+	}
+	if len(state.UnseenRewards) != 1 || state.UnseenRewards[0].RewardedCount != 2 {
+		t.Fatalf("unseen %+v", state.UnseenRewards)
+	}
+	other, err := repo.State(context.Background(), owner.ID, code, when.Add(2*time.Minute))
+	if err != nil || len(other.UnseenRewards) != 1 || other.UnseenRewards[0].RewardedCount != 2 {
+		t.Fatalf("owner unseen %+v %v", other.UnseenRewards, err)
+	}
+	if len(other.MyRewards) != 1 || other.MyRewards[0].RewardedCount != 2 {
+		t.Fatalf("my rewards %+v", other.MyRewards)
+	}
+}
+
 func TestTreeRealCreateCountsTheOwner(t *testing.T) {
 	db := openTreeDB(t)
 	rooms := NewMascotRoomRepository(db)

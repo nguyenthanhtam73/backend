@@ -182,6 +182,35 @@ func (r *MascotRepository) ActiveItemSources(ctx context.Context, userID uuid.UU
 	return out, nil
 }
 
+// OwnedItem is one non-expired grant plus the catalog layer.
+type OwnedItem struct {
+	ItemID      string
+	Layer       string
+	PreviewOnly bool
+	Source      string
+	AcquiredAt  time.Time
+}
+
+// ListOwnedItems returns the caller's grants that have not expired,
+// oldest first. Expired rows stay in the table and are left out.
+func (r *MascotRepository) ListOwnedItems(ctx context.Context, userID uuid.UUID, now time.Time) ([]OwnedItem, error) {
+	db, err := r.dbOrErr()
+	if err != nil {
+		return nil, err
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	var rows []OwnedItem
+	err = db.WithContext(ctx).Table("user_mascot_items").
+		Select("user_mascot_items.item_id, user_mascot_items.source, user_mascot_items.preview_only, user_mascot_items.acquired_at, mascot_items.layer").
+		Joins("LEFT JOIN mascot_items ON mascot_items.id = user_mascot_items.item_id").
+		Where("user_mascot_items.user_id = ? AND (user_mascot_items.expires_at IS NULL OR user_mascot_items.expires_at > ?)", userID, now.UTC()).
+		Order("user_mascot_items.acquired_at ASC, user_mascot_items.item_id ASC").
+		Scan(&rows).Error
+	return rows, err
+}
+
 // SaveLoadout replaces the JSON look without writing the glow columns.
 func (r *MascotRepository) SaveLoadout(ctx context.Context, userID uuid.UUID, raw json.RawMessage) error {
 	db, err := r.dbOrErr()

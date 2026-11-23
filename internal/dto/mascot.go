@@ -48,6 +48,19 @@ type MascotResponse struct {
 	// DELETE /api/v1/me/mascot/intro.
 	Gender    string `json:"gender"`
 	IntroSeen bool   `json:"intro_seen"`
+	// OwnedItems is every grant still in user_mascot_items that has not expired.
+	// source is the stored grant source, or "treeType/stage" for a tree piece
+	// (for example "leaf/7"). granted_at is RFC3339.
+	OwnedItems []MascotOwnedItem `json:"owned_items"`
+}
+
+// MascotOwnedItem is one row the caller holds in user_mascot_items.
+type MascotOwnedItem struct {
+	ItemKey     string `json:"item_key"`
+	Layer       string `json:"layer"`
+	PreviewOnly bool   `json:"preview_only"`
+	Source      string `json:"source"`
+	GrantedAt   string `json:"granted_at"`
 }
 
 // MascotIntroReset is DELETE /api/v1/me/mascot/intro.

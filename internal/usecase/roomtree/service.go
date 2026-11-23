@@ -178,7 +178,7 @@ func toRewards(rows []repository.TreeReward) []dto.TreeReward {
 	for i, row := range rows {
 		out[i] = dto.TreeReward{
 			Stage: row.Stage, Name: row.Name, Coins: row.Coins, ItemID: row.ItemID, ItemName: row.ItemName,
-			PreviewOnly: row.PreviewOnly,
+			PreviewOnly: row.PreviewOnly, RewardedCount: row.RewardedCount,
 		}
 	}
 	return out

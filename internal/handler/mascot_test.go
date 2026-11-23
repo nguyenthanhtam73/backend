@@ -411,6 +411,48 @@ func TestMascotMissedDaysFollowLatestCare(t *testing.T) {
 	})
 }
 
+func TestMascotOwnedItems(t *testing.T) {
+	app, db, userID := newMascotApp(t)
+	if err := repository.SeedMascotCatalog(db); err != nil {
+		t.Fatal(err)
+	}
+	clipItem := domain.MascotItem{ID: domain.TreeItemClipLeaf, Layer: domain.MascotLayerAccessory, Name: "Kẹp tóc lá xanh"}
+	if err := db.Create(&clipItem).Error; err != nil {
+		t.Fatal(err)
+	}
+	granted := time.Date(2026, 11, 23, 8, 0, 0, 0, time.UTC)
+	if err := db.Omit("User", "Item").Create(&domain.UserMascotItem{
+		UserID: userID, ItemID: domain.TreeItemClipLeaf, Source: domain.MascotSourceRoomReward,
+		AcquiredAt: granted,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")
+	if status != http.StatusOK {
+		t.Fatalf("get %d %#v", status, env)
+	}
+	raw, ok := mascotData(t, env)["owned_items"].([]any)
+	if !ok || len(raw) == 0 {
+		t.Fatalf("owned_items %#v", mascotData(t, env)["owned_items"])
+	}
+	var clip, free map[string]any
+	for _, item := range raw {
+		row, _ := item.(map[string]any)
+		switch row["item_key"] {
+		case domain.TreeItemClipLeaf:
+			clip = row
+		case domain.MascotItemBodyChibi:
+			free = row
+		}
+	}
+	if clip == nil || clip["layer"] != "accessory" || clip["preview_only"] != false || clip["source"] != "leaf/7" || clip["granted_at"] == "" {
+		t.Fatalf("clip %#v", clip)
+	}
+	if free == nil || free["layer"] != "body" || free["source"] != "free" || free["preview_only"] != false {
+		t.Fatalf("free %#v", free)
+	}
+}
+
 func TestMascotHiddenFromNonAdmin(t *testing.T) {
 	app, db, _ := newMascotAppFor(t, false)
 	status, env := mascotCall(t, app, http.MethodGet, "/api/v1/me/mascot", "")

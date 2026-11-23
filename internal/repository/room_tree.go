@@ -36,12 +36,13 @@ var (
 
 // TreeReward is one stage reward, for the ladder or for one member.
 type TreeReward struct {
-	Stage       int
-	Name        string
-	Coins       int
-	ItemID      string
-	ItemName    string
-	PreviewOnly bool
+	Stage         int
+	Name          string
+	Coins         int
+	ItemID        string
+	ItemName      string
+	PreviewOnly   bool
+	RewardedCount int
 }
 
 // TreeState is the shared tree as one member should see it.
@@ -774,6 +775,13 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 			stageName = row.Name
 		}
 	}
+	counts, err := stageRewardCounts(tx, room.Code)
+	if err != nil {
+		return TreeState{}, err
+	}
+	for i := range rewards {
+		rewards[i].RewardedCount = counts[rewards[i].Stage]
+	}
 	mine := []TreeReward{}
 	var balance int64
 	if viewer != uuid.Nil {
@@ -803,6 +811,7 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 			}
 			for _, member := range mine {
 				if member.Stage == row.Stage {
+					row.RewardedCount = counts[row.Stage]
 					just = append(just, row)
 					seenStage[row.Stage] = struct{}{}
 					break
@@ -1084,10 +1093,28 @@ func myRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeReward) 
 		spec := byStage[row.Stage]
 		out = append(out, TreeReward{
 			Stage: row.Stage, Name: spec.Name, Coins: row.Coins, ItemID: row.ItemID, ItemName: spec.ItemName,
-			PreviewOnly: spec.PreviewOnly,
+			PreviewOnly: spec.PreviewOnly, RewardedCount: spec.RewardedCount,
 		})
 	}
 	return out, nil
+}
+
+func stageRewardCounts(tx *gorm.DB, code string) (map[int]int, error) {
+	type counted struct {
+		Stage int
+		N     int
+	}
+	var rows []counted
+	err := tx.Model(&domain.MascotRoomTreeReward{}).
+		Select("stage, COUNT(*) AS n").
+		Where("room_code = ?", code).
+		Group("stage").
+		Scan(&rows).Error
+	out := map[int]int{}
+	for _, row := range rows {
+		out[row.Stage] = row.N
+	}
+	return out, err
 }
 
 func unseenRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeReward) ([]TreeReward, error) {
@@ -1105,7 +1132,7 @@ func unseenRewards(tx *gorm.DB, code string, userID uuid.UUID, ladder []TreeRewa
 		spec := byStage[row.Stage]
 		out = append(out, TreeReward{
 			Stage: row.Stage, Name: spec.Name, Coins: row.Coins, ItemID: row.ItemID, ItemName: spec.ItemName,
-			PreviewOnly: spec.PreviewOnly,
+			PreviewOnly: spec.PreviewOnly, RewardedCount: spec.RewardedCount,
 		})
 	}
 	return out, nil
