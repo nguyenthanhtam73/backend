@@ -298,8 +298,24 @@ func TestTreeRewardsKeptAfterRoomExpiry(t *testing.T) {
 		}
 	}
 	done, err := repo.State(context.Background(), owner.ID, code, vnAt(2026, 11, 15, 12, 0))
-	if err != nil || !done.Bloomed || done.Balance != 420 || done.CanWater || done.Reason != TreeReasonBloomed {
+	if err != nil || !done.Bloomed || done.Balance != 270 || done.CanWater || done.Reason != TreeReasonBloomed || !done.CanDraw {
 		t.Fatalf("bloomed %+v %v", done, err)
+	}
+	foundBox := false
+	for _, row := range done.Rewards {
+		if row.Stage == domain.TreeStageCount {
+			if !row.GiftBox || row.Coins != 0 || row.ItemID != "" {
+				t.Fatalf("ladder stage 7 %+v", row)
+			}
+		}
+	}
+	for _, row := range done.MyRewards {
+		if row.Stage == domain.TreeStageCount {
+			foundBox = row.GiftBox && row.BoxID != "" && row.Coins == 0 && row.ItemID == ""
+		}
+	}
+	if !foundBox {
+		t.Fatalf("my stage 7 %+v", done.MyRewards)
 	}
 	if _, err := repo.Water(context.Background(), owner.ID, code, "", vnAt(2026, 11, 16, 10, 0)); !errors.Is(err, ErrTreeBloomed) {
 		t.Fatalf("after bloom %v", err)
@@ -312,14 +328,24 @@ func TestTreeRewardsKeptAfterRoomExpiry(t *testing.T) {
 	for _, row := range owned {
 		got[row.ItemID] = row
 	}
-	for _, id := range []string{domain.TreeItemSticker, domain.TreeItemNameFrame, domain.TreeItemClipLeaf} {
+	for _, id := range []string{domain.TreeItemSticker, domain.TreeItemNameFrame} {
 		row, ok := got[id]
 		if !ok || row.Source != domain.MascotSourceRoomReward {
 			t.Fatalf("missing %s %+v", id, row)
 		}
 	}
-	if !got[domain.TreeItemSticker].PreviewOnly || !got[domain.TreeItemNameFrame].PreviewOnly || got[domain.TreeItemClipLeaf].PreviewOnly {
+	if _, ok := got[domain.TreeItemClipLeaf]; ok {
+		t.Fatal("bloom granted the clip directly")
+	}
+	if !got[domain.TreeItemSticker].PreviewOnly || !got[domain.TreeItemNameFrame].PreviewOnly {
 		t.Fatalf("preview flags %+v", got)
+	}
+	var boxes int64
+	if err := db.Model(&domain.TreeGiftBox{}).Where("user_id = ? AND room_code = ?", owner.ID, code).Count(&boxes).Error; err != nil {
+		t.Fatal(err)
+	}
+	if boxes != 1 {
+		t.Fatalf("boxes %d", boxes)
 	}
 	var clip domain.MascotItem
 	if err := db.Where("id = ?", domain.TreeItemClipLeaf).Take(&clip).Error; err != nil {
@@ -339,15 +365,22 @@ func TestTreeRewardsKeptAfterRoomExpiry(t *testing.T) {
 	if err := db.Model(&domain.UserCoinWallet{}).Where("user_id = ?", owner.ID).Pluck("balance", &balance).Error; err != nil {
 		t.Fatal(err)
 	}
-	if balance != 420 {
+	if balance != 270 {
 		t.Fatalf("balance after end %d", balance)
 	}
 	var still int64
 	if err := db.Model(&domain.UserMascotItem{}).Where("user_id = ?", owner.ID).Count(&still).Error; err != nil {
 		t.Fatal(err)
 	}
-	if still != 3 {
+	if still != 2 {
 		t.Fatalf("items after end %d", still)
+	}
+	var boxStill int64
+	if err := db.Model(&domain.TreeGiftBox{}).Where("user_id = ?", owner.ID).Count(&boxStill).Error; err != nil {
+		t.Fatal(err)
+	}
+	if boxStill != 1 {
+		t.Fatalf("box after end %d", boxStill)
 	}
 }
 
@@ -793,6 +826,7 @@ func openTreeDB(t *testing.T) *gorm.DB {
 		&domain.UserSeedLedger{},
 		&domain.RoomBloomShard{},
 		&domain.UserTreeReveal{},
+		&domain.TreeGiftBox{},
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -800,6 +834,9 @@ func openTreeDB(t *testing.T) *gorm.DB {
 		t.Fatal(err)
 	}
 	if err := SeedSeedBag(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := SeedGiftBoxCatalog(db); err != nil {
 		t.Fatal(err)
 	}
 	return db

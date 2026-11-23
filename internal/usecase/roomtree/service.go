@@ -139,6 +139,9 @@ func (s *Service) Catalog(ctx context.Context, userID uuid.UUID) (dto.TreeCatalo
 			SortOrder: row.SortOrder, ExclusiveItemKey: row.ExclusiveItemKey,
 			ExclusiveItemName: row.ExclusiveItemName, Creatable: row.Creatable, Revealed: row.Revealed,
 		}
+		if _, ok := domain.GiftBoxByTree(row.Key); ok {
+			out.Types[i].BloomGift = "box"
+		}
 	}
 	return out, nil
 }
@@ -291,6 +294,7 @@ func toRewards(rows []repository.TreeReward) []dto.TreeReward {
 		out[i] = dto.TreeReward{
 			Stage: row.Stage, Name: row.Name, Coins: row.Coins, ItemID: row.ItemID, ItemName: row.ItemName,
 			PreviewOnly: row.PreviewOnly, RewardedCount: row.RewardedCount,
+			GiftBox: row.GiftBox, BoxID: row.BoxID,
 		}
 	}
 	return out

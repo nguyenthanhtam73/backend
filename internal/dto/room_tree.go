@@ -9,6 +9,10 @@ type TreeReward struct {
 	ItemName      string `json:"item_name,omitempty"`
 	PreviewOnly   bool   `json:"preview_only,omitempty"`
 	RewardedCount int    `json:"rewarded_count"`
+	// GiftBox is true when this rung pays one gift box instead of coins and an item.
+	// BoxID is set on the caller's own reward for that bloom.
+	GiftBox bool   `json:"gift_box,omitempty"`
+	BoxID   string `json:"box_id,omitempty"`
 }
 
 // RoomTreeResponse is GET /api/v1/mascot/rooms/:code/tree and the body of a
@@ -70,6 +74,9 @@ type TreeCatalogEntry struct {
 	ExclusiveItemName string `json:"exclusive_item_name,omitempty"`
 	Creatable         bool   `json:"creatable"`
 	Revealed          bool   `json:"revealed,omitempty"`
+	// BloomGift is "box" when a full bloom pays a gift box instead of the
+	// stage-7 coins and exclusive item. Empty means the ladder still pays those.
+	BloomGift string `json:"bloom_gift,omitempty"`
 }
 
 // TreeShard is the bloom shard for the caller.

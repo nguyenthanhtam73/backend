@@ -1143,7 +1143,9 @@ func SeedSeedBag(db *gorm.DB) error {
 const catalogFlagsKey = "catalog_flags_v1"
 
 // applyCatalogFlagsOnce sets the shipped plantable and mystery_pool values
-// a single time. A later boot leaves a hand edit alone.
+// a single time, in one transaction. The marker is written first, so a crash
+// while the flags are updating rolls the marker back and the next boot tries
+// again. A later boot leaves a hand edit alone.
 func applyCatalogFlagsOnce(db *gorm.DB) error {
 	if db == nil || !db.Migrator().HasTable(&domain.TreeType{}) || !db.Migrator().HasTable(&domain.SeedBagConfig{}) {
 		return nil
@@ -1151,23 +1153,45 @@ func applyCatalogFlagsOnce(db *gorm.DB) error {
 	if !db.Migrator().HasColumn(&domain.TreeType{}, "plantable") || !db.Migrator().HasColumn(&domain.TreeType{}, "mystery_pool") {
 		return nil
 	}
-	var n int64
-	if err := db.Model(&domain.SeedBagConfig{}).Where("key = ?", catalogFlagsKey).Count(&n).Error; err != nil {
-		return err
+	plantable, mystery := catalogFlagKeys()
+	if len(plantable) == 0 {
+		return fmt.Errorf("tree catalog has no plantable types")
 	}
-	if n > 0 {
-		return nil
+	return db.Transaction(func(tx *gorm.DB) error {
+		marker := domain.SeedBagConfig{Key: catalogFlagsKey, IntValue: 1}
+		res := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "key"}},
+			DoNothing: true,
+		}).Create(&marker)
+		if res.Error != nil {
+			if IsUniqueConflict(res.Error) {
+				return nil
+			}
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return nil
+		}
+		if err := tx.Model(&domain.TreeType{}).Where("key IN ?", plantable).Update("plantable", true).Error; err != nil {
+			return err
+		}
+		if len(mystery) == 0 {
+			return nil
+		}
+		return tx.Model(&domain.TreeType{}).Where("key IN ?", mystery).Update("mystery_pool", true).Error
+	})
+}
+
+// catalogFlagKeys reads the shipped plantable and mystery flags from the
+// tree catalog so the one-time upgrade stays next to TreeTypeSeed.
+func catalogFlagKeys() (plantable, mystery []string) {
+	for _, row := range domain.TreeTypeSeed() {
+		if row.Plantable {
+			plantable = append(plantable, row.Key)
+		}
+		if row.MysteryPool {
+			mystery = append(mystery, row.Key)
+		}
 	}
-	plantable := []string{"leaf", "cherry", "aloe", "sunflower", "dandelion", "quynh", "sen_hong"}
-	if err := db.Model(&domain.TreeType{}).Where("key IN ?", plantable).Update("plantable", true).Error; err != nil {
-		return err
-	}
-	if err := db.Model(&domain.TreeType{}).Where("key IN ?", []string{"dandelion", "quynh"}).Update("mystery_pool", true).Error; err != nil {
-		return err
-	}
-	marker := domain.SeedBagConfig{Key: catalogFlagsKey, IntValue: 1}
-	if err := db.Create(&marker).Error; err != nil && !IsUniqueConflict(err) {
-		return err
-	}
-	return nil
+	return plantable, mystery
 }

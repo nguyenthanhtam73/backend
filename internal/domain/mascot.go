@@ -9,12 +9,29 @@ import (
 )
 
 // Mascot layers. room items live in loadout.room_items; the others are single slots.
+//
+// Outfit is a one-piece look (pajamas and the older full sets). Top and bottom
+// are separate pieces worn together: the client draws bottom, then top over it.
+// Shoes stay inside the bottom art and have no slot.
+//
+// Hair is the hairstyle. HairAcc is a clip, bow, pin, or stick and is worn at
+// the same time as Hat. Earring, glasses, cheek, bracelet, and bag are one
+// piece each and are worn together with those.
 const (
 	MascotLayerBody      = "body"
 	MascotLayerHair      = "hair"
 	MascotLayerOutfit    = "outfit"
 	MascotLayerAccessory = "accessory"
 	MascotLayerRoom      = "room"
+	MascotLayerTop       = "top"
+	MascotLayerBottom    = "bottom"
+	MascotLayerHairAcc   = "hair_acc"
+	MascotLayerHat       = "hat"
+	MascotLayerEarring   = "earring"
+	MascotLayerGlasses   = "glasses"
+	MascotLayerCheek     = "cheek"
+	MascotLayerBracelet  = "bracelet"
+	MascotLayerBag       = "bag"
 )
 
 // MascotOpenToEveryone opens Góc bình yên / Bé Da to every account.
@@ -64,6 +81,8 @@ const (
 	MascotSourceRoomReward     = "room_reward"
 	MascotSourceRoomGraduation = "room_graduation"
 	MascotSourceShop           = "shop"
+	// MascotSourceGiftBox is a piece taken out of a tree gift box.
+	MascotSourceGiftBox = "gift_box"
 )
 
 // Free starter ids. These match the SVG filenames in the frontend mascot
@@ -114,15 +133,50 @@ func DefaultMascotItems() []MascotItem {
 }
 
 // MascotLoadout is the equipped look. Stored as JSON so new items need no migration.
-// Accessories is the full worn set. Accessory is the first entry, kept so older
-// clients that only read one id still see a clip.
+// Accessories is the full worn set of legacy accessory-layer pieces (star clip,
+// headband, and stage-7 clips that are not on a new slot yet). Accessory is the
+// first entry, kept so older clients that only read one id still see a clip.
+//
+// Top and bottom are the split clothing slots. They are mutually exclusive with
+// Outfit: ResolveClothing clears the outfit when either split piece is set,
+// because a one-piece outfit cannot be worn under a new shirt and its lower
+// half is not a separate bottom the account owns. A bottom already stored in
+// Bottom stays when only Top changes. An outfit is worn only when Top and
+// Bottom are both empty.
+//
+// HairAcc, Hat, Earring, Glasses, Cheek, Bracelet, and Bag are one piece each
+// and can all be worn at once, including with the legacy accessory list.
+// There is no shoes slot.
 type MascotLoadout struct {
 	Body        string   `json:"body"`
 	Hair        string   `json:"hair"`
 	Outfit      string   `json:"outfit"`
+	Top         string   `json:"top"`
+	Bottom      string   `json:"bottom"`
 	Accessory   string   `json:"accessory"`
 	Accessories []string `json:"accessories"`
+	HairAcc     string   `json:"hair_acc"`
+	Hat         string   `json:"hat"`
+	Earring     string   `json:"earring"`
+	Glasses     string   `json:"glasses"`
+	Cheek       string   `json:"cheek"`
+	Bracelet    string   `json:"bracelet"`
+	Bag         string   `json:"bag"`
 	RoomItems   []string `json:"room_items"`
+}
+
+// ResolveClothing applies the outfit / top / bottom rule.
+// A top or a bottom replaces a full outfit. The outfit is one item, so its
+// lower half is not kept. A bottom already chosen in the bottom slot stays
+// when the top changes. The outfit stays only when both split slots are empty.
+func ResolveClothing(in MascotLoadout) MascotLoadout {
+	in.Outfit = strings.TrimSpace(in.Outfit)
+	in.Top = strings.TrimSpace(in.Top)
+	in.Bottom = strings.TrimSpace(in.Bottom)
+	if in.Top != "" || in.Bottom != "" {
+		in.Outfit = ""
+	}
+	return in
 }
 
 // DefaultMascotLoadout is the free look created on the first GET.

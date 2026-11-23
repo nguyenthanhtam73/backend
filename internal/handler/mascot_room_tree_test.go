@@ -28,6 +28,12 @@ func TestTreeErrorCodes(t *testing.T) {
 			return writeTreeErr(c, repository.ErrIdempotencyKey)
 		case "conflict":
 			return writeTreeErr(c, repository.ErrIdempotencyConflict)
+		case "box":
+			return writeTreeErr(c, repository.ErrGiftBoxNotFound)
+		case "box-tree":
+			return writeTreeErr(c, repository.ErrGiftBoxTree)
+		case "box-id":
+			return writeTreeErr(c, repository.ErrGiftBoxID)
 		default:
 			return writeTreeErr(c, repository.ErrMascotRoomEnded)
 		}
@@ -45,6 +51,9 @@ func TestTreeErrorCodes(t *testing.T) {
 		{"ended", 409, "room_ended"},
 		{"idem", 400, "bad_idempotency_key"},
 		{"conflict", 409, "idempotency_conflict"},
+		{"box", 404, "gift_box_not_found"},
+		{"box-tree", 404, "gift_box_tree"},
+		{"box-id", 400, "bad_gift_box"},
 	}
 	for _, tc := range cases {
 		req := httptest.NewRequest("GET", "/err?kind="+tc.kind, nil)

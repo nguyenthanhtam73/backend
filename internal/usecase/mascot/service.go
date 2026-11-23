@@ -166,7 +166,9 @@ func (s *Service) AckGlowSeen(ctx context.Context, userID uuid.UUID) (dto.Mascot
 }
 
 // UpdateLoadout saves a lookout of free (or owned) items and returns the fresh view.
-func (s *Service) UpdateLoadout(ctx context.Context, userID uuid.UUID, loadout domain.MascotLoadout) (dto.MascotResponse, error) {
+// raw is the request JSON. Slots the body does not mention stay as stored, so an
+// older client that only sends outfit does not take off a top or a hair clip.
+func (s *Service) UpdateLoadout(ctx context.Context, userID uuid.UUID, raw []byte) (dto.MascotResponse, error) {
 	var zero dto.MascotResponse
 	if s == nil || s.mascots == nil {
 		return zero, domain.Unavailable("service_unavailable", "mascot unavailable")
@@ -174,7 +176,19 @@ func (s *Service) UpdateLoadout(ctx context.Context, userID uuid.UUID, loadout d
 	if userID == uuid.Nil {
 		return zero, domain.Unauthorized("unauthorized", "missing user")
 	}
-	loadout = normalizeLoadout(loadout)
+	var incoming domain.MascotLoadout
+	if err := json.Unmarshal(raw, &incoming); err != nil {
+		return zero, domain.BadRequest("invalid_json", "body must be valid JSON")
+	}
+	existing, err := s.mascots.Get(ctx, userID)
+	if err != nil {
+		return zero, err
+	}
+	var prev domain.MascotLoadout
+	if existing != nil {
+		prev = decodeLoadout(existing)
+	}
+	loadout := normalizeLoadout(mergeKeptSlots(prev, incoming, raw))
 	if err := s.mascots.EnsureCatalog(ctx); err != nil {
 		return zero, err
 	}
@@ -200,7 +214,7 @@ func (s *Service) UpdateLoadout(ctx context.Context, userID uuid.UUID, loadout d
 	if err := ValidateGlowWear(loadout, level, sources); err != nil {
 		return zero, err
 	}
-	raw, err := json.Marshal(loadout)
+	raw, err = json.Marshal(loadout)
 	if err != nil {
 		return zero, domain.BadRequest("invalid_loadout", "could not store loadout")
 	}
@@ -448,7 +462,22 @@ func visibleLoadout(loadout domain.MascotLoadout, sources map[string]string, lev
 	owned := grantIDs(sources)
 	loadout.Body = keepOrDefault(loadout.Body, domain.MascotItemBodyChibi, owned)
 	loadout.Hair = keepOrDefault(loadout.Hair, domain.MascotItemHairSleepBuns, owned)
-	loadout.Outfit = keepOrDefault(loadout.Outfit, domain.MascotItemOutfitCozyPajamas, owned)
+	loadout.Top = keepOwned(loadout.Top, owned)
+	loadout.Bottom = keepOwned(loadout.Bottom, owned)
+	loadout.HairAcc = keepOwned(loadout.HairAcc, owned)
+	loadout.Hat = keepOwned(loadout.Hat, owned)
+	loadout.Earring = keepOwned(loadout.Earring, owned)
+	loadout.Glasses = keepOwned(loadout.Glasses, owned)
+	loadout.Cheek = keepOwned(loadout.Cheek, owned)
+	loadout.Bracelet = keepOwned(loadout.Bracelet, owned)
+	loadout.Bag = keepOwned(loadout.Bag, owned)
+	// A worn top or bottom hides the one-piece outfit. When both are gone,
+	// fall back to the free pajamas if that grant is still active.
+	if loadout.Top != "" || loadout.Bottom != "" {
+		loadout.Outfit = ""
+	} else {
+		loadout.Outfit = keepOrDefault(loadout.Outfit, domain.MascotItemOutfitCozyPajamas, owned)
+	}
 	raw := loadout.Accessories
 	if len(raw) == 0 && loadout.Accessory != "" {
 		raw = []string{loadout.Accessory}
@@ -501,6 +530,13 @@ func keepOrDefault(id, fallback string, owned map[string]struct{}) string {
 		return fallback
 	}
 	return id
+}
+
+func keepOwned(id string, owned map[string]struct{}) string {
+	if _, ok := owned[id]; ok {
+		return id
+	}
+	return ""
 }
 
 func (s *Service) ownedItems(ctx context.Context, userID uuid.UUID) ([]dto.MascotOwnedItem, error) {
@@ -591,7 +627,17 @@ func normalizeLoadout(in domain.MascotLoadout) domain.MascotLoadout {
 	in.Body = strings.TrimSpace(in.Body)
 	in.Hair = strings.TrimSpace(in.Hair)
 	in.Outfit = strings.TrimSpace(in.Outfit)
+	in.Top = strings.TrimSpace(in.Top)
+	in.Bottom = strings.TrimSpace(in.Bottom)
+	in.HairAcc = strings.TrimSpace(in.HairAcc)
+	in.Hat = strings.TrimSpace(in.Hat)
+	in.Earring = strings.TrimSpace(in.Earring)
+	in.Glasses = strings.TrimSpace(in.Glasses)
+	in.Cheek = strings.TrimSpace(in.Cheek)
+	in.Bracelet = strings.TrimSpace(in.Bracelet)
+	in.Bag = strings.TrimSpace(in.Bag)
 	in.Accessory = strings.TrimSpace(in.Accessory)
+	in = domain.ResolveClothing(in)
 	if in.RoomItems == nil {
 		in.RoomItems = []string{}
 	}

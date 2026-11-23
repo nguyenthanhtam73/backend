@@ -1,6 +1,7 @@
 package mascot
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
 
@@ -24,10 +25,44 @@ func ValidateLoadout(loadout domain.MascotLoadout, catalog map[string]domain.Mas
 	if err := slot(loadout.Hair, domain.MascotLayerHair, true, catalog, owned); err != nil {
 		return err
 	}
-	if err := slot(loadout.Outfit, domain.MascotLayerOutfit, true, catalog, owned); err != nil {
+	// A top or a bottom replaces the one-piece outfit. The outfit is required
+	// only when both split slots are empty, so the mascot is never stored with
+	// no clothes at all.
+	if loadout.Top != "" || loadout.Bottom != "" {
+		if loadout.Outfit != "" {
+			return domain.BadRequest("invalid_loadout", "outfit and separate pieces cannot be worn together")
+		}
+	} else if err := slot(loadout.Outfit, domain.MascotLayerOutfit, true, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Top, domain.MascotLayerTop, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Bottom, domain.MascotLayerBottom, false, catalog, owned); err != nil {
 		return err
 	}
 	if err := slot(loadout.Accessory, domain.MascotLayerAccessory, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.HairAcc, domain.MascotLayerHairAcc, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Hat, domain.MascotLayerHat, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Earring, domain.MascotLayerEarring, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Glasses, domain.MascotLayerGlasses, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Cheek, domain.MascotLayerCheek, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Bracelet, domain.MascotLayerBracelet, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Bag, domain.MascotLayerBag, false, catalog, owned); err != nil {
 		return err
 	}
 	if len(loadout.Accessories) > maxAccessories {
@@ -84,4 +119,51 @@ func slot(id, layer string, required bool, catalog map[string]domain.MascotItem,
 		return nil
 	}
 	return domain.BadRequest("item_not_owned", "that item is not owned")
+}
+
+// keptSlotKeys are the slots an older client does not send. A missing key
+// keeps the stored piece. An explicit empty string clears it.
+var keptSlotKeys = []string{"top", "bottom", "hair_acc", "hat", "earring", "glasses", "cheek", "bracelet", "bag"}
+
+// mergeKeptSlots copies stored values for new slots the request left out.
+func mergeKeptSlots(prev, incoming domain.MascotLoadout, raw []byte) domain.MascotLoadout {
+	present := map[string]json.RawMessage{}
+	_ = json.Unmarshal(raw, &present)
+	keep := map[string]string{
+		"top":      prev.Top,
+		"bottom":   prev.Bottom,
+		"hair_acc": prev.HairAcc,
+		"hat":      prev.Hat,
+		"earring":  prev.Earring,
+		"glasses":  prev.Glasses,
+		"cheek":    prev.Cheek,
+		"bracelet": prev.Bracelet,
+		"bag":      prev.Bag,
+	}
+	for _, key := range keptSlotKeys {
+		if _, ok := present[key]; ok {
+			continue
+		}
+		switch key {
+		case "top":
+			incoming.Top = keep[key]
+		case "bottom":
+			incoming.Bottom = keep[key]
+		case "hair_acc":
+			incoming.HairAcc = keep[key]
+		case "hat":
+			incoming.Hat = keep[key]
+		case "earring":
+			incoming.Earring = keep[key]
+		case "glasses":
+			incoming.Glasses = keep[key]
+		case "cheek":
+			incoming.Cheek = keep[key]
+		case "bracelet":
+			incoming.Bracelet = keep[key]
+		case "bag":
+			incoming.Bag = keep[key]
+		}
+	}
+	return incoming
 }

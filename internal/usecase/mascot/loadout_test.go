@@ -78,4 +78,24 @@ func TestValidateLoadout(t *testing.T) {
 	if err := ValidateLoadout(withHat, catalog, ownedHat); err != nil {
 		t.Fatal(err)
 	}
+
+	catalog["top_la_non"] = domain.MascotItem{ID: "top_la_non", Layer: domain.MascotLayerTop, Name: "Áo thun Lá Non"}
+	catalog["bottom_quan_short_kem"] = domain.MascotItem{ID: "bottom_quan_short_kem", Layer: domain.MascotLayerBottom, Name: "Quần short Kem Sữa"}
+	ownedSplit := map[string]struct{}{}
+	for id := range ownedFree {
+		ownedSplit[id] = struct{}{}
+	}
+	ownedSplit["top_la_non"] = struct{}{}
+	ownedSplit["bottom_quan_short_kem"] = struct{}{}
+	split := ok
+	split.Outfit = ""
+	split.Top = "top_la_non"
+	split.Bottom = "bottom_quan_short_kem"
+	if err := ValidateLoadout(split, catalog, ownedSplit); err != nil {
+		t.Fatal(err)
+	}
+	split.Outfit = domain.MascotItemOutfitCozyPajamas
+	if err := ValidateLoadout(split, catalog, ownedSplit); err == nil {
+		t.Fatal("outfit and top together")
+	}
 }
