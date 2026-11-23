@@ -37,15 +37,19 @@ type GiftBoxListResponse struct {
 // kind is set, accessory, or coins. weight_bps is the server rate out of
 // 10000. coins is the xu paid when kind is coins. The client does not roll.
 type GiftPrizeView struct {
-	ID         string        `json:"id"`
-	Name       string        `json:"name"`
-	Rarity     string        `json:"rarity"`
-	RarityName string        `json:"rarity_name"`
-	Kind       string        `json:"kind"`
-	WeightBps  int           `json:"weight_bps"`
-	DupeCoins  int           `json:"dupe_coins"`
-	Coins      int           `json:"coins,omitempty"`
-	Items      []GiftBoxItem `json:"items"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Rarity     string `json:"rarity"`
+	RarityName string `json:"rarity_name"`
+	Kind       string `json:"kind"`
+	WeightBps  int    `json:"weight_bps"`
+	DupeCoins  int    `json:"dupe_coins"`
+	Coins      int    `json:"coins,omitempty"`
+	// Fallback is true when this row is the Siêu hiếm slot for a tree that
+	// has no Siêu hiếm items. coins is what that slot pays. The weight stays
+	// on Siêu hiếm.
+	Fallback bool          `json:"fallback,omitempty"`
+	Items    []GiftBoxItem `json:"items"`
 }
 
 // GiftBoxOpenResponse is POST /api/v1/mascot/gift-boxes/:id/open.
@@ -85,6 +89,19 @@ type GiftRateCard struct {
 	TreeName string          `json:"tree_name"`
 	Tiers    []GiftRateTier  `json:"tiers"`
 	Prizes   []GiftPrizeView `json:"prizes"`
+	// UltraFallback is the Siêu hiếm 0.1% slot when this tree has no Siêu hiếm
+	// items. Active is false while real Siêu hiếm items hold that weight.
+	// The weight is not added to Xu, Thường, or Hiếm.
+	UltraFallback *GiftUltraFallback `json:"ultra_fallback,omitempty"`
+}
+
+// GiftUltraFallback describes the Siêu hiếm slot with no items.
+// weight_bps stays on Siêu hiếm. coins is the xu paid instead of an item.
+type GiftUltraFallback struct {
+	Active    bool   `json:"active"`
+	PrizeID   string `json:"prize_id"`
+	WeightBps int    `json:"weight_bps"`
+	Coins     int    `json:"coins"`
 }
 
 // GiftRatesResponse is GET /api/v1/mascot/gift-boxes/rates.

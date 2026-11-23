@@ -134,15 +134,35 @@ func toRateCard(def domain.GiftBoxDef) (dto.GiftRateCard, error) {
 	}
 	return dto.GiftRateCard{
 		TreeType: def.TreeType, ArtKey: def.ArtKey, Name: def.Name, TreeName: def.TreeName,
-		Tiers: tiers, Prizes: views,
+		Tiers: tiers, Prizes: views, UltraFallback: ultraFallback(prizes),
 	}, nil
+}
+
+func ultraFallback(prizes []domain.GiftPrize) *dto.GiftUltraFallback {
+	active := false
+	for _, prize := range prizes {
+		if prize.ID == domain.GiftUltraFallbackID {
+			active = true
+			break
+		}
+	}
+	weight := 0
+	for _, rate := range domain.GiftTierRates() {
+		if rate.Key == domain.GiftRarityUltra {
+			weight = rate.WeightBps
+		}
+	}
+	return &dto.GiftUltraFallback{
+		Active: active, PrizeID: domain.GiftUltraFallbackID,
+		WeightBps: weight, Coins: domain.GiftUltraFallbackCoins,
+	}
 }
 
 func toPrizeView(prize domain.GiftPrize) dto.GiftPrizeView {
 	return dto.GiftPrizeView{
 		ID: prize.ID, Name: prize.Name, Rarity: prize.Rarity, RarityName: rarityName(prize.Rarity),
 		Kind: prize.Kind, WeightBps: prize.WeightBps, DupeCoins: prize.DupeCoins,
-		Coins: prize.Coins, Items: toGiftItems(prize.Items),
+		Coins: prize.Coins, Fallback: prize.Fallback, Items: toGiftItems(prize.Items),
 	}
 }
 

@@ -260,7 +260,7 @@ func giftOpenFromBox(tx *gorm.DB, box domain.TreeGiftBox, already bool) (GiftOpe
 	if err != nil {
 		return GiftOpen{}, err
 	}
-	if prize.Kind == domain.GiftKindCoins {
+	if prize.Kind == domain.GiftKindCoins || prize.Kind == domain.GiftKindFallback {
 		coins := box.PrizeCoins
 		if coins == 0 {
 			coins = prize.Coins

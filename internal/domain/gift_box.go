@@ -23,6 +23,14 @@ const (
 	GiftKindSet       = "set"
 	GiftKindAccessory = "accessory"
 	GiftKindCoins     = "coins"
+	// GiftKindFallback is the Siêu hiếm slot when a tree has no Siêu hiếm items.
+	// It is not part of the Xu band.
+	GiftKindFallback = "fallback"
+
+	// GiftUltraFallbackID is that slot. GiftUltraFallbackCoins is what it pays:
+	// the Siêu hiếm duplicate amount, still counted in the Siêu hiếm band.
+	GiftUltraFallbackID    = "sieu_fallback"
+	GiftUltraFallbackCoins = 188
 
 	GiftRarityCoins  = "coins"
 	GiftRarityCommon = "thuong"
@@ -62,9 +70,9 @@ type GiftTierRate struct {
 func GiftTierRates() []GiftTierRate {
 	return []GiftTierRate{
 		{Key: GiftRarityCoins, Name: "Xu", WeightBps: 5000},
-		{Key: GiftRarityCommon, Name: "Thường", WeightBps: 4400, Each: 440, DupeCoins: 8},
-		{Key: GiftRarityRare, Name: "Hiếm", WeightBps: 500, Each: 125, DupeCoins: 88},
-		{Key: GiftRarityUltra, Name: "Siêu hiếm", WeightBps: 100, Each: 50, DupeCoins: 188},
+		{Key: GiftRarityCommon, Name: "Thường", WeightBps: 4790, Each: 479, DupeCoins: 8},
+		{Key: GiftRarityRare, Name: "Hiếm", WeightBps: 200, Each: 50, DupeCoins: 88},
+		{Key: GiftRarityUltra, Name: "Siêu hiếm", WeightBps: 10, Each: 5, DupeCoins: 188},
 	}
 }
 
@@ -118,6 +126,9 @@ type GiftPrize struct {
 	WeightBps int
 	DupeCoins int
 	Coins     int
+	// Fallback is the Siêu hiếm slot when this tree has no Siêu hiếm items.
+	// The weight stays on Siêu hiếm. It is not added to Xu, Thường, or Hiếm.
+	Fallback bool
 }
 
 // GiftBoxDef is one tree's box. Prizes are listed in rate-table order.
@@ -163,7 +174,9 @@ func ApplyGiftBoxStage(treeType string, stage TreeStage) TreeStage {
 
 // WeightedPrizes copies the tree's item prizes, fills each weight from the
 // shared item bands, and appends GiftCoinPrizes in front. The result always
-// sums to GiftRollSpan. A tree whose item counts do not match the bands fails.
+// sums to GiftRollSpan. A tree with no Siêu hiếm items keeps that band's
+// weight as GiftUltraFallbackID, which pays GiftUltraFallbackCoins. A tree
+// whose Thường or Hiếm counts do not match the bands fails.
 func WeightedPrizes(def GiftBoxDef) ([]GiftPrize, error) {
 	rates := GiftTierRates()
 	byKey := make(map[string]GiftTierRate, len(rates))
@@ -206,6 +219,9 @@ func WeightedPrizes(def GiftBoxDef) ([]GiftPrize, error) {
 			continue
 		}
 		n := counts[rate.Key]
+		if rate.Key == GiftRarityUltra && n == 0 {
+			continue
+		}
 		if rate.Each <= 0 || n == 0 || n*rate.Each != rate.WeightBps {
 			return nil, fmt.Errorf("tier %s weight %d does not match %d prizes of %d", rate.Key, rate.WeightBps, n, rate.Each)
 		}
@@ -235,7 +251,17 @@ func WeightedPrizes(def GiftBoxDef) ([]GiftPrize, error) {
 		prize.WeightBps = rate.Each
 		prize.DupeCoins = rate.DupeCoins
 		prize.Coins = 0
+		prize.Fallback = false
 		items[i] = prize
+	}
+	if counts[GiftRarityUltra] == 0 {
+		ultra := byKey[GiftRarityUltra]
+		fallback := GiftPrize{
+			ID: GiftUltraFallbackID, Name: fmt.Sprintf("%d xu", GiftUltraFallbackCoins),
+			Rarity: GiftRarityUltra, Kind: GiftKindFallback,
+			WeightBps: ultra.WeightBps, Coins: GiftUltraFallbackCoins, Fallback: true,
+		}
+		items = append(items, fallback)
 	}
 	out := make([]GiftPrize, 0, len(coins)+len(items))
 	out = append(out, coins...)
@@ -313,7 +339,7 @@ type GiftGrant struct {
 // ResolveGiftGrant applies the duplicate rule. owned is the set of item ids
 // the account already holds. A coins prize ignores ownership.
 func ResolveGiftGrant(prize GiftPrize, owned map[string]struct{}) GiftGrant {
-	if prize.Kind == GiftKindCoins {
+	if prize.Kind == GiftKindCoins || prize.Kind == GiftKindFallback {
 		return GiftGrant{Prize: prize, Coins: prize.Coins}
 	}
 	missing := make([]string, 0, len(prize.Items))
