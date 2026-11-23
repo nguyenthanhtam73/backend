@@ -34,11 +34,11 @@ func (h *MascotRoomHandler) treeOr(c *fiber.Ctx) (*roomtree.Service, uuid.UUID, 
 // TreeCatalog is GET /api/v1/mascot/tree-types.
 // It lists enabled types. creatable is true only for leaf.
 func (h *MascotRoomHandler) TreeCatalog(c *fiber.Ctx) error {
-	tree, _, ok := h.treeOr(c)
+	tree, uid, ok := h.treeOr(c)
 	if !ok {
 		return nil
 	}
-	body, err := tree.Catalog(c.UserContext())
+	body, err := tree.Catalog(c.UserContext(), uid)
 	if err != nil {
 		return writeTreeErr(c, err)
 	}

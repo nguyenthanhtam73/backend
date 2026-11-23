@@ -45,6 +45,7 @@ type RoomTreeResponse struct {
 	Leveled       bool         `json:"leveled"`
 	JustGranted   []TreeReward `json:"just_granted,omitempty"`
 	UnseenRewards []TreeReward `json:"unseen_rewards"`
+	MyShard       *TreeShard   `json:"my_shard,omitempty"`
 }
 
 // TreeCatalogEntry is one enabled tree the client can draw.
@@ -58,6 +59,14 @@ type TreeCatalogEntry struct {
 	ExclusiveItemKey  string `json:"exclusive_item_key"`
 	ExclusiveItemName string `json:"exclusive_item_name,omitempty"`
 	Creatable         bool   `json:"creatable"`
+	Revealed          bool   `json:"revealed,omitempty"`
+}
+
+// TreeShard is the bloom shard for the caller.
+type TreeShard struct {
+	TypeKey string `json:"type_key"`
+	NameVI  string `json:"name_vi"`
+	Mystery bool   `json:"mystery"`
 }
 
 // TreeCatalogResponse is GET /api/v1/mascot/tree-types.

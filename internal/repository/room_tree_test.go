@@ -429,7 +429,7 @@ func TestTreeCatalogCreateAllowsLeafOnly(t *testing.T) {
 		t.Fatalf("rares %d", rares)
 	}
 	owner := treeUser(t, db, "Lan")
-	if _, err := rooms.CreateWithTree(context.Background(), owner.ID, "cherry"); !errors.Is(err, ErrTreeTypeUnavailable) {
+	if _, err := rooms.CreateWithTree(context.Background(), owner.ID, "cherry"); !errors.Is(err, ErrNeedSeed) {
 		t.Fatalf("cherry %v", err)
 	}
 	if _, err := rooms.CreateWithTree(context.Background(), owner.ID, "dandelion"); !errors.Is(err, ErrTreeTypeUnavailable) {
@@ -788,10 +788,18 @@ func openTreeDB(t *testing.T) *gorm.DB {
 		&domain.UserCoinWallet{},
 		&domain.UserCoinLedger{},
 		&domain.SkinCheck{},
+		&domain.SeedBagConfig{},
+		&domain.UserSeedBalance{},
+		&domain.UserSeedLedger{},
+		&domain.RoomBloomShard{},
+		&domain.UserTreeReveal{},
 	); err != nil {
 		t.Fatal(err)
 	}
 	if err := SeedTreeCatalog(db); err != nil {
+		t.Fatal(err)
+	}
+	if err := SeedSeedBag(db); err != nil {
 		t.Fatal(err)
 	}
 	return db

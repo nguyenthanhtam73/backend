@@ -16,6 +16,7 @@ import (
 // The hub drops them when nobody is connected and queues them on the next tick.
 type LiveRoom interface {
 	NotifyTree(code string, ev lobby.Event)
+	NotifyBloomShards(code string, shards map[uuid.UUID]lobby.TreeShard)
 }
 
 // Service is the shared room tree.
@@ -44,13 +45,75 @@ func (s *Service) clock() time.Time {
 	return time.Now()
 }
 
+// Bag is the caller's shards, seeds, and the live trade rules.
+func (s *Service) Bag(ctx context.Context, userID uuid.UUID) (dto.SeedBagResponse, error) {
+	var zero dto.SeedBagResponse
+	if s == nil || s.repo == nil {
+		return zero, domain.Unavailable("service_unavailable", "mascot unavailable")
+	}
+	bag, err := s.repo.SeedBag(ctx, userID)
+	if err != nil {
+		return zero, err
+	}
+	return toBag(bag), nil
+}
+
+// Trade exchanges common shards for one common shard of want.
+func (s *Service) Trade(ctx context.Context, userID uuid.UUID, offer []repository.BagStack, want, idem string) (dto.SeedBagResponse, error) {
+	var zero dto.SeedBagResponse
+	if s == nil || s.repo == nil {
+		return zero, domain.Unavailable("service_unavailable", "mascot unavailable")
+	}
+	bag, err := s.repo.TradeShards(ctx, userID, offer, want, idem, s.clock())
+	if err != nil {
+		return zero, err
+	}
+	return toBag(bag), nil
+}
+
+// Buy spends xu for one common shard. The price is a config row.
+func (s *Service) Buy(ctx context.Context, userID uuid.UUID, typeKey, idem string) (dto.SeedBagResponse, error) {
+	var zero dto.SeedBagResponse
+	if s == nil || s.repo == nil {
+		return zero, domain.Unavailable("service_unavailable", "mascot unavailable")
+	}
+	bag, err := s.repo.BuyShard(ctx, userID, typeKey, idem, s.clock())
+	if err != nil {
+		return zero, err
+	}
+	return toBag(bag), nil
+}
+
+func toBag(bag repository.SeedBag) dto.SeedBagResponse {
+	return dto.SeedBagResponse{
+		Shards: toStacks(bag.Shards), MysteryShards: bag.MysteryShards, MysteryShardName: domain.MysteryShardName,
+		Seeds: toStacks(bag.Seeds), MysterySeeds: bag.MysterySeeds, MysterySeedName: domain.MysterySeedName,
+		Rules: dto.SeedBagRules{
+			MergeCount: bag.Rules.MergeCount, TradeInCount: bag.Rules.TradeInCount,
+			ShardBuyPrice: bag.Rules.ShardBuyPrice, MysteryShardBps: bag.Rules.MysteryShardBps,
+		},
+		Balance: bag.Balance, Already: bag.Already,
+	}
+}
+
+func toStacks(rows []repository.BagStack) []dto.BagStack {
+	out := make([]dto.BagStack, len(rows))
+	for i, row := range rows {
+		out[i] = dto.BagStack{TypeKey: row.TypeKey, NameVI: row.NameVI, Count: row.Count}
+	}
+	if out == nil {
+		return []dto.BagStack{}
+	}
+	return out
+}
+
 // Catalog lists enabled tree types for the client to draw.
-func (s *Service) Catalog(ctx context.Context) (dto.TreeCatalogResponse, error) {
+func (s *Service) Catalog(ctx context.Context, userID uuid.UUID) (dto.TreeCatalogResponse, error) {
 	var zero dto.TreeCatalogResponse
 	if s == nil || s.repo == nil {
 		return zero, domain.Unavailable("service_unavailable", "mascot unavailable")
 	}
-	rows, err := s.repo.ListEnabled(ctx)
+	rows, err := s.repo.ListForUser(ctx, userID)
 	if err != nil {
 		return zero, err
 	}
@@ -59,7 +122,7 @@ func (s *Service) Catalog(ctx context.Context) (dto.TreeCatalogResponse, error) 
 		out.Types[i] = dto.TreeCatalogEntry{
 			Key: row.Key, NameVI: row.NameVI, Rarity: row.Rarity, ImageKey: row.ImageKey,
 			SortOrder: row.SortOrder, ExclusiveItemKey: row.ExclusiveItemKey,
-			ExclusiveItemName: row.ExclusiveItemName, Creatable: domain.TreeTypeCreatable(row.Key),
+			ExclusiveItemName: row.ExclusiveItemName, Creatable: row.Creatable, Revealed: row.Revealed,
 		}
 	}
 	return out, nil
@@ -159,6 +222,13 @@ func (s *Service) broadcast(code string, state repository.TreeState) {
 			},
 		})
 	}
+	if len(state.BloomShards) > 0 {
+		shards := make(map[uuid.UUID]lobby.TreeShard, len(state.BloomShards))
+		for id, shard := range state.BloomShards {
+			shards[id] = lobby.TreeShard{TypeKey: shard.TypeKey, NameVI: shard.NameVI, Mystery: shard.Mystery}
+		}
+		s.live.NotifyBloomShards(code, shards)
+	}
 }
 
 func toDTO(state repository.TreeState) dto.RoomTreeResponse {
@@ -170,7 +240,15 @@ func toDTO(state repository.TreeState) dto.RoomTreeResponse {
 		Rewards: toRewards(state.Rewards), MyRewards: toRewards(state.MyRewards), Balance: state.Balance,
 		Already: state.Already, Leveled: len(state.JustGranted) > 0, JustGranted: omitEmpty(state.JustGranted),
 		UnseenRewards: toRewards(state.UnseenRewards),
+		MyShard:       toShard(state.MyShard),
 	}
+}
+
+func toShard(shard *repository.ShardView) *dto.TreeShard {
+	if shard == nil {
+		return nil
+	}
+	return &dto.TreeShard{TypeKey: shard.TypeKey, NameVI: shard.NameVI, Mystery: shard.Mystery}
 }
 
 func toRewards(rows []repository.TreeReward) []dto.TreeReward {

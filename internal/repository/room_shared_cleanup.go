@@ -75,7 +75,15 @@ func deleteUserRoomSharedRows(tx *gorm.DB, userID uuid.UUID) error {
 			return err
 		}
 	}
-	for _, model := range []any{&domain.MascotRoomTreeReward{}, &domain.MascotRoomTreeWater{}, &domain.MascotRoomMemberLeave{}} {
+	for _, model := range []any{
+		&domain.MascotRoomTreeReward{},
+		&domain.MascotRoomTreeWater{},
+		&domain.MascotRoomMemberLeave{},
+		&domain.UserSeedBalance{},
+		&domain.UserSeedLedger{},
+		&domain.RoomBloomShard{},
+		&domain.UserTreeReveal{},
+	} {
 		if !tx.Migrator().HasTable(model) {
 			continue
 		}

@@ -232,6 +232,24 @@ func (h *Hub) evictGesturesLocked(now time.Time) {
 	}
 }
 
+// NotifyBloomShards remembers each member's bloom shard until the next room tick.
+// The tick for that socket gets my_shard. Other sockets do not see it.
+func (h *Hub) NotifyBloomShards(code string, shards map[uuid.UUID]TreeShard) {
+	if h == nil || len(shards) == 0 {
+		return
+	}
+	code, ok := NormalizeRoomCode(code)
+	if !ok {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.bloomShards == nil {
+		h.bloomShards = map[string]map[uuid.UUID]TreeShard{}
+	}
+	h.bloomShards[code] = shards
+}
+
 // NotifyTree queues a shared-tree event for the next room tick.
 // Nobody in the room means the event is dropped. The frame rides the same
 // flush as presence (FlushEvery) and does not spend the inbound per-connection
@@ -493,6 +511,21 @@ func (h *Hub) addToRoomLocked(s *session, code string) {
 	h.pushEvent(room, Event{Op: OpJoin, ID: s.id})
 }
 
+func stampMyShard(events []Event, shard TreeShard) []Event {
+	out := make([]Event, len(events))
+	copy(out, events)
+	for i, ev := range out {
+		if ev.Op != OpTreeLevelUp || ev.Tree == nil || ev.Tree.Stage != 7 {
+			continue
+		}
+		cp := *ev.Tree
+		mine := shard
+		cp.MyShard = &mine
+		out[i].Tree = &cp
+	}
+	return out
+}
+
 func (h *Hub) helloRoomLocked(s *session) []byte {
 	people := []roomPerson{}
 	if room := h.rooms[s.roomCode]; room != nil {
@@ -546,12 +579,17 @@ func (h *Hub) collectRoomsLocked() []delivery {
 		room.upserts = map[string]struct{}{}
 		room.left = nil
 		room.events = nil
+		shards := h.bloomShards[code]
+		delete(h.bloomShards, code)
 		count := len(room.members)
 		for _, m := range room.members {
 			if m == nil || m.conn == nil || m.conn.peer == nil {
 				continue
 			}
 			ev := filterEvents(events, m.id, m.hide)
+			if shard, ok := shards[m.userID]; ok {
+				ev = stampMyShard(ev, shard)
+			}
 			if ev == nil {
 				ev = []Event{}
 			}
