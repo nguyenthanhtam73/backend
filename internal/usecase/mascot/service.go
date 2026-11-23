@@ -471,6 +471,15 @@ func visibleLoadout(loadout domain.MascotLoadout, sources map[string]string, lev
 	loadout.Cheek = keepOwned(loadout.Cheek, owned)
 	loadout.Bracelet = keepOwned(loadout.Bracelet, owned)
 	loadout.Bag = keepOwned(loadout.Bag, owned)
+	loadout.Shoes = keepOwned(loadout.Shoes, owned)
+	loadout.Held = keepOwned(loadout.Held, owned)
+	loadout.Necklace = keepOwned(loadout.Necklace, owned)
+	loadout.Scarf = keepOwned(loadout.Scarf, owned)
+	loadout.Gloves = keepOwned(loadout.Gloves, owned)
+	loadout.NameFrame = keepOwned(loadout.NameFrame, owned)
+	loadout.Sticker = keepOwned(loadout.Sticker, owned)
+	loadout.Bubble = keepOwned(loadout.Bubble, owned)
+	loadout.FX = keepOwned(loadout.FX, owned)
 	// A worn top or bottom hides the one-piece outfit. When both are gone,
 	// fall back to the free pajamas if that grant is still active.
 	if loadout.Top != "" || loadout.Bottom != "" {
@@ -636,6 +645,15 @@ func normalizeLoadout(in domain.MascotLoadout) domain.MascotLoadout {
 	in.Cheek = strings.TrimSpace(in.Cheek)
 	in.Bracelet = strings.TrimSpace(in.Bracelet)
 	in.Bag = strings.TrimSpace(in.Bag)
+	in.Shoes = strings.TrimSpace(in.Shoes)
+	in.Held = strings.TrimSpace(in.Held)
+	in.Necklace = strings.TrimSpace(in.Necklace)
+	in.Scarf = strings.TrimSpace(in.Scarf)
+	in.Gloves = strings.TrimSpace(in.Gloves)
+	in.NameFrame = strings.TrimSpace(in.NameFrame)
+	in.Sticker = strings.TrimSpace(in.Sticker)
+	in.Bubble = strings.TrimSpace(in.Bubble)
+	in.FX = strings.TrimSpace(in.FX)
 	in.Accessory = strings.TrimSpace(in.Accessory)
 	in = domain.ResolveClothing(in)
 	if in.RoomItems == nil {

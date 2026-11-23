@@ -65,6 +65,33 @@ func ValidateLoadout(loadout domain.MascotLoadout, catalog map[string]domain.Mas
 	if err := slot(loadout.Bag, domain.MascotLayerBag, false, catalog, owned); err != nil {
 		return err
 	}
+	if err := slot(loadout.Shoes, domain.MascotLayerShoes, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Held, domain.MascotLayerHeld, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Necklace, domain.MascotLayerNecklace, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Scarf, domain.MascotLayerScarf, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Gloves, domain.MascotLayerGloves, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.NameFrame, domain.MascotLayerNameFrame, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Sticker, domain.MascotLayerSticker, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.Bubble, domain.MascotLayerBubble, false, catalog, owned); err != nil {
+		return err
+	}
+	if err := slot(loadout.FX, domain.MascotLayerFX, false, catalog, owned); err != nil {
+		return err
+	}
 	if len(loadout.Accessories) > maxAccessories {
 		return domain.BadRequest("invalid_loadout", "too many accessories")
 	}
@@ -123,22 +150,34 @@ func slot(id, layer string, required bool, catalog map[string]domain.MascotItem,
 
 // keptSlotKeys are the slots an older client does not send. A missing key
 // keeps the stored piece. An explicit empty string clears it.
-var keptSlotKeys = []string{"top", "bottom", "hair_acc", "hat", "earring", "glasses", "cheek", "bracelet", "bag"}
+var keptSlotKeys = []string{
+	"top", "bottom", "hair_acc", "hat", "earring", "glasses", "cheek", "bracelet", "bag",
+	"shoes", "held", "necklace", "scarf", "gloves", "name_frame", "sticker", "bubble", "fx",
+}
 
 // mergeKeptSlots copies stored values for new slots the request left out.
 func mergeKeptSlots(prev, incoming domain.MascotLoadout, raw []byte) domain.MascotLoadout {
 	present := map[string]json.RawMessage{}
 	_ = json.Unmarshal(raw, &present)
 	keep := map[string]string{
-		"top":      prev.Top,
-		"bottom":   prev.Bottom,
-		"hair_acc": prev.HairAcc,
-		"hat":      prev.Hat,
-		"earring":  prev.Earring,
-		"glasses":  prev.Glasses,
-		"cheek":    prev.Cheek,
-		"bracelet": prev.Bracelet,
-		"bag":      prev.Bag,
+		"top":        prev.Top,
+		"bottom":     prev.Bottom,
+		"hair_acc":   prev.HairAcc,
+		"hat":        prev.Hat,
+		"earring":    prev.Earring,
+		"glasses":    prev.Glasses,
+		"cheek":      prev.Cheek,
+		"bracelet":   prev.Bracelet,
+		"bag":        prev.Bag,
+		"shoes":      prev.Shoes,
+		"held":       prev.Held,
+		"necklace":   prev.Necklace,
+		"scarf":      prev.Scarf,
+		"gloves":     prev.Gloves,
+		"name_frame": prev.NameFrame,
+		"sticker":    prev.Sticker,
+		"bubble":     prev.Bubble,
+		"fx":         prev.FX,
 	}
 	for _, key := range keptSlotKeys {
 		if _, ok := present[key]; ok {
@@ -163,6 +202,24 @@ func mergeKeptSlots(prev, incoming domain.MascotLoadout, raw []byte) domain.Masc
 			incoming.Bracelet = keep[key]
 		case "bag":
 			incoming.Bag = keep[key]
+		case "shoes":
+			incoming.Shoes = keep[key]
+		case "held":
+			incoming.Held = keep[key]
+		case "necklace":
+			incoming.Necklace = keep[key]
+		case "scarf":
+			incoming.Scarf = keep[key]
+		case "gloves":
+			incoming.Gloves = keep[key]
+		case "name_frame":
+			incoming.NameFrame = keep[key]
+		case "sticker":
+			incoming.Sticker = keep[key]
+		case "bubble":
+			incoming.Bubble = keep[key]
+		case "fx":
+			incoming.FX = keep[key]
 		}
 	}
 	return incoming

@@ -5,6 +5,7 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/middleware"
+	"github.com/dadiary/backend/internal/repository"
 	mascotuc "github.com/dadiary/backend/internal/usecase/mascot"
 	"github.com/dadiary/backend/pkg/response"
 	"github.com/gofiber/fiber/v2"
@@ -15,8 +16,16 @@ import (
 // POST /api/v1/me/mascot/glow/seen, POST /api/v1/me/mascot/intro, and
 // DELETE /api/v1/me/mascot/intro.
 type MascotHandler struct {
-	svc *mascotuc.Service
-	cfg *config.Config
+	svc  *mascotuc.Service
+	cfg  *config.Config
+	shop *repository.XuShopRepository
+}
+
+// AttachShop sells regular pieces for xu. The same Bé Da gate covers it.
+func (h *MascotHandler) AttachShop(shop *repository.XuShopRepository) {
+	if h != nil {
+		h.shop = shop
+	}
 }
 
 // NewMascotHandler constructs the handler.
