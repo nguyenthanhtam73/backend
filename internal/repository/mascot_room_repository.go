@@ -36,6 +36,10 @@ type MascotRoomView struct {
 	MemberCount int
 	Joined      bool
 	Owner       bool
+	TreeType    string
+	TreeName    string
+	ImageKey    string
+	Revealed    bool
 }
 
 // MascotRoomRepository stores invite rooms and their members.
@@ -48,6 +52,11 @@ func NewMascotRoomRepository(db *gorm.DB) *MascotRoomRepository {
 	return &MascotRoomRepository{db: db}
 }
 
+// plantFailAfterConsume, when set, runs after a seed is consumed and before
+// the room transaction commits. Tests use it to prove a later failure puts
+// the seed back. Production leaves it nil.
+var plantFailAfterConsume func() error
+
 // Create opens a room and adds the owner as the first member.
 // The room ends 8 days later. An account that is already in an active room
 // gets AlreadyInRoomError and no new row. The user row lock plus the seat
@@ -56,23 +65,12 @@ func (r *MascotRoomRepository) Create(ctx context.Context, owner uuid.UUID) (Mas
 	return r.create(ctx, owner, domain.TreeTypeLeaf)
 }
 
-// CreateWithTree opens a room of the given tree type.
-// Only leaf can be planted. The key must be an enabled tree_types row when
-// that table exists. Other catalog rows are refused until seeds unlock them.
+// CreateWithTree opens a room of the requested type.
+// Leaf is free. Another common type spends one seed of that type. "mystery"
+// spends one Hạt bí ẩn and rolls a plantable rare type. The seed is removed
+// in the same transaction as the room, and only if the room is created.
 func (r *MascotRoomRepository) CreateWithTree(ctx context.Context, owner uuid.UUID, rawType string) (MascotRoomView, error) {
-	var zero MascotRoomView
-	db, err := r.dbOrErr()
-	if err != nil {
-		return zero, err
-	}
-	key := strings.ToLower(strings.TrimSpace(rawType))
-	if key == "" {
-		key = domain.TreeTypeLeaf
-	}
-	if err := validateCreatableTree(db, key); err != nil {
-		return zero, err
-	}
-	return r.create(ctx, owner, key)
+	return r.create(ctx, owner, rawType)
 }
 
 func (r *MascotRoomRepository) create(ctx context.Context, owner uuid.UUID, treeType string) (MascotRoomView, error) {
@@ -96,6 +94,11 @@ func (r *MascotRoomRepository) create(ctx context.Context, owner uuid.UUID, tree
 		if err := rejectIfInActiveRoom(tx, owner, now); err != nil {
 			return err
 		}
+		plan, err := preparePlant(tx, owner, treeType)
+		if err != nil {
+			return err
+		}
+		treeType = plan.treeType
 		created := now.Truncate(time.Second)
 		ends := created.Add(domain.MascotRoomDuration)
 		for i := 0; i < 8; i++ {
@@ -130,9 +133,18 @@ func (r *MascotRoomRepository) create(ctx context.Context, owner uuid.UUID, tree
 			if err := claimActiveSeat(tx, owner, code, ends, now); err != nil {
 				return err
 			}
+			if err := consumePlant(tx, owner, plan, code, created, now); err != nil {
+				return err
+			}
+			if plantFailAfterConsume != nil {
+				if err := plantFailAfterConsume(); err != nil {
+					return err
+				}
+			}
 			view = MascotRoomView{
 				Code: code, CreatedAt: created, EndsAt: ends, Cap: lobby.RoomCap,
 				MemberCount: 1, Joined: true, Owner: true,
+				TreeType: plan.treeType, TreeName: plan.name, ImageKey: plan.image, Revealed: plan.revealed,
 			}
 			return nil
 		}

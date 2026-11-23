@@ -53,11 +53,15 @@ func (h *MascotRoomHandler) Register(r fiber.Router, jwt fiber.Handler) {
 		return
 	}
 	r.Get("/mascot/tree-types", jwt, h.TreeCatalog)
+	r.Get("/mascot/seed-bag", jwt, h.SeedBag)
+	r.Post("/mascot/seed-bag/trade", jwt, h.TradeShards)
+	r.Post("/mascot/seed-bag/buy", jwt, h.BuyShard)
 	r.Post("/mascot/rooms", jwt, middleware.AILimiter(mascotRoomCreatesPerMinute, time.Minute), h.Create)
 	r.Get("/mascot/rooms/mine", jwt, h.Mine)
 	r.Get("/mascot/rooms/:code/tree", jwt, h.Tree)
 	r.Post("/mascot/rooms/:code/tree/water", jwt, h.WaterTree)
 	r.Post("/mascot/rooms/:code/tree/rewards/seen", jwt, h.MarkTreeRewardsSeen)
+	r.Post("/mascot/rooms/:code/tree/draw", jwt, h.DrawTree)
 	r.Get("/mascot/rooms/:code/board", jwt, h.Board)
 	r.Get("/mascot/rooms/:code/quest", jwt, h.Quest)
 	r.Post("/mascot/rooms/:code/quest/claim", jwt, h.Claim)
@@ -266,6 +270,18 @@ func roomJSON(view repository.MascotRoomView) fiber.Map {
 	if !view.EndsAt.IsZero() {
 		body["ends_at"] = view.EndsAt.UTC().Format(time.RFC3339)
 	}
+	if view.TreeType != "" {
+		body["tree_type"] = view.TreeType
+	}
+	if view.TreeName != "" {
+		body["tree_name"] = view.TreeName
+	}
+	if view.ImageKey != "" {
+		body["image_key"] = view.ImageKey
+	}
+	if view.Revealed {
+		body["revealed"] = true
+	}
 	return body
 }
 
@@ -287,6 +303,8 @@ func writeRoomErr(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusBadRequest, "bad_tree_type", err.Error())
 	case errors.Is(err, repository.ErrTreeTypeUnavailable):
 		return response.Error(c, fiber.StatusBadRequest, "tree_type_unavailable", err.Error())
+	case errors.Is(err, repository.ErrNeedSeed):
+		return response.Error(c, fiber.StatusConflict, "need_seed", err.Error())
 	default:
 		return response.Error(c, fiber.StatusServiceUnavailable, "database_unavailable", "database is not available")
 	}

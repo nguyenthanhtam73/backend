@@ -2,8 +2,10 @@
 package repository
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
@@ -79,6 +81,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.MascotRoomTreeWater{},
 		&domain.MascotRoomTreeReward{},
 		&domain.MascotRoomMemberLeave{},
+		&domain.SeedBagConfig{},
+		&domain.UserSeedBalance{},
+		&domain.UserSeedLedger{},
+		&domain.RoomBloomShard{},
+		&domain.UserTreeReveal{},
 	); err != nil {
 		return err
 	}
@@ -88,7 +95,16 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := SeedTreeCatalog(db); err != nil {
 		return err
 	}
+	if err := SeedSeedBag(db); err != nil {
+		return err
+	}
+	if err := applyCatalogFlagsOnce(db); err != nil {
+		return err
+	}
 	if err := applyRoomTreeFK(db); err != nil {
+		return err
+	}
+	if err := applyShardBuyLedger(db); err != nil {
 		return err
 	}
 	if err := applyRoutineFullDay(db); err != nil {
@@ -101,6 +117,43 @@ func AutoMigrate(db *gorm.DB) error {
 		return err
 	}
 	return PrepareOutageApologySchema(db)
+}
+
+// applyShardBuyLedger lets a shard purchase store a negative ledger amount.
+// The wallet check still refuses a balance below zero.
+func applyShardBuyLedger(db *gorm.DB) error {
+	if db == nil || db.Dialector == nil || db.Dialector.Name() != "postgres" {
+		return nil
+	}
+	if !db.Migrator().HasTable(&domain.UserCoinLedger{}) {
+		return nil
+	}
+	var def string
+	err := db.Raw(`SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'user_coin_ledger_amount_check'`).Scan(&def).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	switch ledgerAmountCheckAction(def) {
+	case "keep":
+		return nil
+	case "replace":
+		if err := db.Exec(`ALTER TABLE user_coin_ledger DROP CONSTRAINT IF EXISTS user_coin_ledger_amount_check`).Error; err != nil {
+			return err
+		}
+	}
+	return db.Exec(`ALTER TABLE user_coin_ledger ADD CONSTRAINT user_coin_ledger_amount_check CHECK (amount <> 0)`).Error
+}
+
+// ledgerAmountCheckAction reports whether the amount check already allows a debit.
+func ledgerAmountCheckAction(def string) string {
+	low := strings.ToLower(strings.ReplaceAll(def, " ", ""))
+	if strings.Contains(low, "<>0") || strings.Contains(low, "!=0") {
+		return "keep"
+	}
+	if strings.TrimSpace(def) == "" {
+		return "add"
+	}
+	return "replace"
 }
 
 // applyRoomTreeFK points mascot_rooms.tree_type at tree_types on Postgres.

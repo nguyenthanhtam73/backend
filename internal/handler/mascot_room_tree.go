@@ -34,11 +34,11 @@ func (h *MascotRoomHandler) treeOr(c *fiber.Ctx) (*roomtree.Service, uuid.UUID, 
 // TreeCatalog is GET /api/v1/mascot/tree-types.
 // It lists enabled types. creatable is true only for leaf.
 func (h *MascotRoomHandler) TreeCatalog(c *fiber.Ctx) error {
-	tree, _, ok := h.treeOr(c)
+	tree, uid, ok := h.treeOr(c)
 	if !ok {
 		return nil
 	}
-	body, err := tree.Catalog(c.UserContext())
+	body, err := tree.Catalog(c.UserContext(), uid)
 	if err != nil {
 		return writeTreeErr(c, err)
 	}
@@ -140,6 +140,31 @@ func idempotencyFromWater(c *fiber.Ctx) (string, error) {
 	return strings.TrimSpace(body.IdempotencyKey), nil
 }
 
+type treeDrawBody struct {
+	Pick           *int   `json:"pick"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+// DrawTree is POST /api/v1/mascot/rooms/:code/tree/draw.
+// The body may be empty. pick, when sent, is 0, 1, or 2 and does not choose the shard.
+func (h *MascotRoomHandler) DrawTree(c *fiber.Ctx) error {
+	tree, uid, ok := h.treeOr(c)
+	if !ok {
+		return nil
+	}
+	var body treeDrawBody
+	if len(bytes.TrimSpace(c.Body())) > 0 {
+		if err := decodeStrict(c.Body(), &body); err != nil {
+			return response.Error(c, fiber.StatusBadRequest, "invalid_body", "body must be valid JSON")
+		}
+	}
+	got, err := tree.Draw(c.UserContext(), uid, c.Params("code"), body.IdempotencyKey, body.Pick)
+	if err != nil {
+		return writeTreeErr(c, err)
+	}
+	return response.JSON(c, fiber.StatusOK, got)
+}
+
 func writeTreeErr(c *fiber.Ctx, err error) error {
 	switch {
 	case errors.Is(err, repository.ErrMascotRoomNotFound):
@@ -162,8 +187,14 @@ func writeTreeErr(c *fiber.Ctx, err error) error {
 		return response.Error(c, fiber.StatusBadRequest, "bad_tree_type", err.Error())
 	case errors.Is(err, repository.ErrTreeTypeUnavailable):
 		return response.Error(c, fiber.StatusBadRequest, "tree_type_unavailable", err.Error())
-	case errors.Is(err, repository.ErrTreeBadIdempotency):
+	case errors.Is(err, repository.ErrTreeBadIdempotency), errors.Is(err, repository.ErrIdempotencyKey):
 		return response.Error(c, fiber.StatusBadRequest, "bad_idempotency_key", err.Error())
+	case errors.Is(err, repository.ErrIdempotencyConflict):
+		return response.Error(c, fiber.StatusConflict, "idempotency_conflict", err.Error())
+	case errors.Is(err, repository.ErrBadPick):
+		return response.Error(c, fiber.StatusBadRequest, "bad_pick", err.Error())
+	case errors.Is(err, repository.ErrDrawUnavailable):
+		return response.Error(c, fiber.StatusConflict, "draw_unavailable", err.Error())
 	default:
 		return response.Error(c, fiber.StatusServiceUnavailable, "database_unavailable", "database is not available")
 	}

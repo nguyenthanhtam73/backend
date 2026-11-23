@@ -24,6 +24,10 @@ func TestTreeErrorCodes(t *testing.T) {
 			return writeTreeErr(c, repository.ErrTreeNotReal)
 		case "type":
 			return writeTreeErr(c, repository.ErrTreeTypeUnavailable)
+		case "idem":
+			return writeTreeErr(c, repository.ErrIdempotencyKey)
+		case "conflict":
+			return writeTreeErr(c, repository.ErrIdempotencyConflict)
 		default:
 			return writeTreeErr(c, repository.ErrMascotRoomEnded)
 		}
@@ -39,6 +43,8 @@ func TestTreeErrorCodes(t *testing.T) {
 		{"ai", 403, "not_real_member"},
 		{"type", 400, "tree_type_unavailable"},
 		{"ended", 409, "room_ended"},
+		{"idem", 400, "bad_idempotency_key"},
+		{"conflict", 409, "idempotency_conflict"},
 	}
 	for _, tc := range cases {
 		req := httptest.NewRequest("GET", "/err?kind="+tc.kind, nil)

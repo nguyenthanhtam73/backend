@@ -30,11 +30,15 @@ func deleteRoomTreeRows(tx *gorm.DB, codes []string) error {
 	if tx == nil || len(codes) == 0 {
 		return nil
 	}
+	if err := revealPendingBlooms(tx, codes); err != nil {
+		return err
+	}
 	models := []any{
 		&domain.MascotRoomTreeReward{},
 		&domain.MascotRoomTreeWater{},
 		&domain.MascotRoomTree{},
 		&domain.MascotRoomMemberLeave{},
+		&domain.RoomBloomShard{},
 	}
 	for _, model := range models {
 		if !tx.Migrator().HasTable(model) {
@@ -75,7 +79,15 @@ func deleteUserRoomSharedRows(tx *gorm.DB, userID uuid.UUID) error {
 			return err
 		}
 	}
-	for _, model := range []any{&domain.MascotRoomTreeReward{}, &domain.MascotRoomTreeWater{}, &domain.MascotRoomMemberLeave{}} {
+	for _, model := range []any{
+		&domain.MascotRoomTreeReward{},
+		&domain.MascotRoomTreeWater{},
+		&domain.MascotRoomMemberLeave{},
+		&domain.UserSeedBalance{},
+		&domain.UserSeedLedger{},
+		&domain.RoomBloomShard{},
+		&domain.UserTreeReveal{},
+	} {
 		if !tx.Migrator().HasTable(model) {
 			continue
 		}

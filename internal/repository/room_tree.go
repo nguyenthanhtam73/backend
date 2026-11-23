@@ -73,6 +73,9 @@ type TreeState struct {
 	FreshWater    bool
 	WatererName   string
 	Levels        []int
+	MyShard       *ShardView
+	CanDraw       bool
+	Draws         []BloomDraw
 }
 
 // TreeCatalogItem is one enabled type plus the name of its stage-7 piece.
@@ -85,6 +88,8 @@ type TreeCatalogItem struct {
 	ExclusiveItemKey  string
 	ExclusiveItemName string
 	Enabled           bool
+	Creatable         bool
+	Revealed          bool
 }
 
 // RoomTreeRepository stores the shared tree, its waters, and its rewards.
@@ -289,6 +294,9 @@ func (r *RoomTreeRepository) Water(ctx context.Context, userID uuid.UUID, rawCod
 	}
 	watered.Levels = append(append([]int{}, state.Levels...), watered.Levels...)
 	watered.JustGranted = append(append([]TreeReward{}, state.JustGranted...), watered.JustGranted...)
+	if watered.MyShard == nil {
+		watered.MyShard = state.MyShard
+	}
 	return watered, nil
 }
 
@@ -713,6 +721,11 @@ func grantStage(tx *gorm.DB, room domain.MascotRoom, work *treeWork, at time.Tim
 			PreviewOnly: spec.ItemID != "" && work.items[spec.ItemID].PreviewOnly,
 		})
 	}
+	if stage == domain.TreeStageCount {
+		if err := grantBloomShards(tx, room, members, at); err != nil {
+			return nil, err
+		}
+	}
 	return granted, nil
 }
 
@@ -829,6 +842,10 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 			return TreeState{}, err
 		}
 	}
+	canDraw, mineShard, draws, err := bloomBoard(tx, room.Code, viewer)
+	if err != nil {
+		return TreeState{}, err
+	}
 	return TreeState{
 		Stage: work.tree.Stage, StageName: stageName,
 		TreeType: work.typ.Key, TreeName: work.typ.NameVI, Rarity: work.typ.Rarity, ImageKey: work.typ.ImageKey,
@@ -837,7 +854,8 @@ func buildTreeState(tx *gorm.DB, room domain.MascotRoom, work *treeWork, viewer 
 		CanWater: can, Reason: reason, Bloomed: bloomed,
 		Rewards: rewards, MyRewards: mine, Balance: balance,
 		JustGranted: just, UnseenRewards: unseen, Levels: append([]int(nil), work.levels...),
-		WatererName: display,
+		WatererName: display, MyShard: mineShard,
+		CanDraw: canDraw, Draws: draws,
 	}, nil
 }
 

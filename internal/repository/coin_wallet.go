@@ -52,6 +52,50 @@ func creditCoins(tx *gorm.DB, userID uuid.UUID, amount int64, key, reason string
 	return coinBalance(tx, userID)
 }
 
+// debitCoins subtracts amount from the wallet and writes a negative ledger row.
+// The ledger id is the idempotency key. A repeat returns fresh=false and does
+// not subtract again. A short balance returns ErrNotEnoughCoins and changes nothing.
+func debitCoins(tx *gorm.DB, userID uuid.UUID, amount int64, key, reason string, now time.Time) (int64, bool, error) {
+	if tx == nil || userID == uuid.Nil {
+		return 0, false, fmt.Errorf("coin debit requires a user")
+	}
+	if amount <= 0 || key == "" {
+		return 0, false, fmt.Errorf("coin debit requires a positive amount")
+	}
+	row := domain.UserCoinLedger{
+		ID: key, UserID: userID, Amount: -amount, Reason: reason, CreatedAt: now.UTC(),
+	}
+	res := tx.Clauses(clause.OnConflict{
+		Columns:   []clause.Column{{Name: "id"}},
+		DoNothing: true,
+	}).Create(&row)
+	if res.Error != nil {
+		if IsUniqueConflict(res.Error) {
+			bal, err := coinBalance(tx, userID)
+			return bal, false, err
+		}
+		return 0, false, res.Error
+	}
+	if res.RowsAffected == 0 {
+		bal, err := coinBalance(tx, userID)
+		return bal, false, err
+	}
+	updated := tx.Model(&domain.UserCoinWallet{}).
+		Where("user_id = ? AND balance >= ?", userID, amount).
+		Updates(map[string]any{
+			"balance":    gorm.Expr("balance - ?", amount),
+			"updated_at": now.UTC(),
+		})
+	if updated.Error != nil {
+		return 0, false, updated.Error
+	}
+	if updated.RowsAffected == 0 {
+		return 0, false, ErrNotEnoughCoins
+	}
+	bal, err := coinBalance(tx, userID)
+	return bal, true, err
+}
+
 func coinBalance(tx *gorm.DB, userID uuid.UUID) (int64, error) {
 	var row domain.UserCoinWallet
 	err := tx.Where("user_id = ?", userID).Take(&row).Error

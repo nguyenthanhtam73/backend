@@ -149,21 +149,29 @@ type TreeType struct {
 	ImageKey         string `gorm:"size:64;not null"`
 	SortOrder        int    `gorm:"not null"`
 	Enabled          bool   `gorm:"not null"`
+	// Plantable is separate from Enabled. Enabled rows are the public catalog.
+	// A rare type can be planted from a mystery seed while Enabled stays false,
+	// so it stays out of the catalog until that user has revealed it.
+	Plantable bool `gorm:"not null;default:false"`
+	// MysteryPool is the rare set a Hạt bí ẩn may reveal. Sen hồng stays out
+	// until a later row flips this on.
+	MysteryPool bool `gorm:"not null;default:false"`
 }
 
 func (TreeType) TableName() string { return "tree_types" }
 
 // TreeTypeSeed is the catalog shipped with this version.
-// Rare types are present and disabled. Only leaf is plantable (see TreeTypeCreatable).
+// Rare types are present, disabled in the public catalog, and plantable
+// through a mystery seed. Leaf is free. Other common types need a seed.
 func TreeTypeSeed() []TreeType {
 	return []TreeType{
-		{Key: TreeTypeLeaf, NameVI: "Cây lá xanh", Rarity: TreeRarityCommon, ExclusiveItemKey: TreeItemClipLeaf, ImageKey: TreeTypeLeaf, SortOrder: 1, Enabled: true},
-		{Key: "cherry", NameVI: "Hoa anh đào", Rarity: TreeRarityCommon, ExclusiveItemKey: TreeItemClipCherry, ImageKey: "cherry", SortOrder: 2, Enabled: true},
-		{Key: "aloe", NameVI: "Lô hội", Rarity: TreeRarityCommon, ExclusiveItemKey: TreeItemAloeWreath, ImageKey: "aloe", SortOrder: 3, Enabled: true},
-		{Key: "sunflower", NameVI: "Hướng dương", Rarity: TreeRarityCommon, ExclusiveItemKey: TreeItemSunflowerBow, ImageKey: "sunflower", SortOrder: 4, Enabled: true},
-		{Key: "dandelion", NameVI: "Bồ công anh", Rarity: TreeRarityRare, ExclusiveItemKey: TreeItemClipDandelion, ImageKey: "dandelion", SortOrder: 5, Enabled: false},
-		{Key: "quynh", NameVI: "Hoa quỳnh", Rarity: TreeRarityRare, ExclusiveItemKey: TreeItemClipQuynh, ImageKey: "quynh", SortOrder: 6, Enabled: false},
-		{Key: "sen_hong", NameVI: "Sen hồng", Rarity: TreeRarityRare, ExclusiveItemKey: TreeItemClipSenHong, ImageKey: "sen_hong", SortOrder: 7, Enabled: false},
+		{Key: TreeTypeLeaf, NameVI: "Cây lá xanh", Rarity: TreeRarityCommon, ExclusiveItemKey: TreeItemClipLeaf, ImageKey: TreeTypeLeaf, SortOrder: 1, Enabled: true, Plantable: true},
+		{Key: "cherry", NameVI: "Hoa anh đào", Rarity: TreeRarityCommon, ExclusiveItemKey: TreeItemClipCherry, ImageKey: "cherry", SortOrder: 2, Enabled: true, Plantable: true},
+		{Key: "aloe", NameVI: "Lô hội", Rarity: TreeRarityCommon, ExclusiveItemKey: TreeItemAloeWreath, ImageKey: "aloe", SortOrder: 3, Enabled: true, Plantable: true},
+		{Key: "sunflower", NameVI: "Hướng dương", Rarity: TreeRarityCommon, ExclusiveItemKey: TreeItemSunflowerBow, ImageKey: "sunflower", SortOrder: 4, Enabled: true, Plantable: true},
+		{Key: "dandelion", NameVI: "Bồ công anh", Rarity: TreeRarityRare, ExclusiveItemKey: TreeItemClipDandelion, ImageKey: "dandelion", SortOrder: 5, Enabled: false, Plantable: true, MysteryPool: true},
+		{Key: "quynh", NameVI: "Hoa quỳnh", Rarity: TreeRarityRare, ExclusiveItemKey: TreeItemClipQuynh, ImageKey: "quynh", SortOrder: 6, Enabled: false, Plantable: true, MysteryPool: true},
+		{Key: "sen_hong", NameVI: "Sen hồng", Rarity: TreeRarityRare, ExclusiveItemKey: TreeItemClipSenHong, ImageKey: "sen_hong", SortOrder: 7, Enabled: false, Plantable: true},
 	}
 }
 
