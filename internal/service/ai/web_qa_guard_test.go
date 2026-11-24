@@ -44,6 +44,9 @@ func TestQA_ReviewSentencesThroughPolish(t *testing.T) {
 		"Nếu thấy đỡ rát thì cứ giữ routine như lần trước nha.",
 		"Lần trước mày dùng kem gì mà đỡ khô vậy?",
 		"Lần sau chụp giống lần trước để dễ so hơn nha.",
+		"Lần sau rửa mặt nhẹ hơn lần trước nha.",
+		"Mày vẫn rửa mặt như hôm qua là được.",
+		"Hôm qua mày ngủ muộn thì tối nay ngủ sớm hơn nha.",
 	} {
 		if got := stripInvalidComparison(keep); got != keep {
 			t.Fatalf("%q -> %q", keep, got)
@@ -70,6 +73,23 @@ func TestQA_ReviewSentencesThroughPolish(t *testing.T) {
 		if got := stripInvalidComparison(drop); got != "" {
 			t.Fatalf("%q -> %q", drop, got)
 		}
+		if strings.Contains(drop, "nha") || strings.Contains(drop, "là được") {
+			t.Fatalf("dropped example is advice: %q", drop)
+		}
+	}
+	const echoed = "Hôm nay đỏ hơn hôm qua."
+	if got := stripInvalidComparison(echoed); got != "" {
+		t.Fatalf("without a user note %q -> %q", echoed, got)
+	}
+	echo := &CoachStructuredOutput{SituationAnalysis: echoed}
+	sanitizeWebCoachOutput(echo, webQA{GuardComparison: true, PreviousComparable: false, UserSaidHomQua: true})
+	if echo.SituationAnalysis != echoed {
+		t.Fatalf("user said hôm qua: %q -> %q", echoed, echo.SituationAnalysis)
+	}
+	still := &CoachStructuredOutput{SituationAnalysis: "Da ổn. Má trái kém lần trước."}
+	sanitizeWebCoachOutput(still, webQA{GuardComparison: true, PreviousComparable: false, UserSaidHomQua: true})
+	if still.SituationAnalysis != "Da ổn." {
+		t.Fatalf("lần trước still compared: %q", still.SituationAnalysis)
 	}
 }
 

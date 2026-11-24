@@ -542,6 +542,18 @@ func TestFallbackZoneNotes_EnglishLocaleKeepsEnglish(t *testing.T) {
 	if len(kept) != 1 || kept[0].Note != want {
 		t.Fatalf("en note %#v", kept)
 	}
+	oilyVision := `{"zone_observations":[{"zone":"chin","cue":"oily","severity":"mild"}]}`
+	oily, _ := NormalizeCheckInDetail(nil, nil, oilyVision, nil, PhotoEvidenceOK, "en", "")
+	if len(oily) != 1 || oily[0].Note != "Looks like oily." {
+		t.Fatalf("en oily %#v", oily)
+	}
+	viOily := mustRawJSON(t, []map[string]string{{
+		"zone": "chin", "note": "Trông giống oily.", "severity": "mild",
+	}})
+	dropped, _ := NormalizeCheckInDetail(viOily, nil, oilyVision, nil, PhotoEvidenceOK, "vi", "")
+	if len(dropped) != 0 {
+		t.Fatalf("Trông giống oily. kept %#v", dropped)
+	}
 	web := map[string]any{}
 	ApplyCheckInDetail(web, &CoachStructuredOutput{ZoneNotesRaw: raw}, vision, nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientWeb, "en")
 	if _, ok := web["zone_notes"]; !ok {
@@ -577,6 +589,17 @@ func TestFallbackZoneNotes_EnglishIsDropped(t *testing.T) {
 		"whiteheads",
 		"irritated skin",
 		"PIH",
+		"oily",
+		"pore",
+		"pores",
+		"tone",
+		"tones",
+		"tiny",
+		"pale",
+		"mole",
+		"moles",
+		"nose",
+		"noses",
 	} {
 		vision := `{"zone_observations":[{"zone":"chin","cue":"` + cue + `","severity":"mild"}]}`
 		notes, _ := NormalizeCheckInDetail(nil, nil, vision, nil, PhotoEvidenceOK, "vi", "")

@@ -299,14 +299,32 @@ func leftoverEnglish(s string) bool {
 	return false
 }
 
+// englishLeakWords catches short English words that look like Vietnamese
+// syllables (oily, pore, tone). Plurals are listed too. Checked only when
+// the language is not English.
+var englishLeakWords = map[string]struct{}{
+	"acne": {}, "blackhead": {}, "blackheads": {}, "bump": {}, "bumps": {},
+	"dry": {}, "enlarged": {}, "flake": {}, "flaking": {}, "flaky": {},
+	"fold": {}, "folds": {}, "hyperpigmentation": {}, "indicating": {},
+	"inflamed": {}, "inflammation": {}, "inflammatory": {}, "mole": {}, "moles": {},
+	"nasolabial": {}, "near": {}, "nose": {}, "noses": {}, "oily": {},
+	"pale": {}, "papule": {}, "pigment": {}, "pigmentation": {}, "pore": {}, "pores": {},
+	"post": {}, "pustule": {}, "red": {}, "redness": {}, "sheen": {}, "small": {},
+	"spot": {}, "spots": {}, "swollen": {}, "texture": {}, "tiny": {}, "tone": {}, "tones": {},
+	"visible": {}, "whitehead": {}, "whiteheads": {},
+}
+
 func englishToken(word string) bool {
 	if allCapsAbbrev(word) {
+		return true
+	}
+	low := strings.ToLower(word)
+	if _, ok := englishLeakWords[low]; ok {
 		return true
 	}
 	if !asciiLetters(word) || len(word) < 3 {
 		return false
 	}
-	low := strings.ToLower(word)
 	if strings.ContainsAny(low, "fjwz") {
 		return true
 	}

@@ -22,6 +22,7 @@ type webQA struct {
 	PreviousComparable bool
 	PhotoLimited       bool
 	WorseThanLast      bool
+	UserSaidHomQua     bool
 }
 
 func webQAForCheck(check *domain.SkinCheck, facts CheckInCoachFacts, visionStatus, visionRaw string, out *CoachStructuredOutput) webQA {
@@ -50,6 +51,7 @@ func webQAForCheck(check *domain.SkinCheck, facts CheckInCoachFacts, visionStatu
 		PreviousComparable: prevOK,
 		PhotoLimited:       limited,
 		WorseThanLast:      skinTrendWorse(facts, scoreOf(out)) && prevOK && !limited,
+		UserSaidHomQua:     strings.Contains(strings.ToLower(note), "hôm qua"),
 	}
 }
 
@@ -138,7 +140,7 @@ func applyWebQA(fields []polishField, qa webQA) {
 			s = stripInventedUserNote(s)
 		}
 		if qa.GuardComparison && !qa.PreviousComparable {
-			s = stripInvalidComparison(s)
+			s = stripInvalidComparisonWhen(s, qa.UserSaidHomQua)
 		}
 		if qa.SwapCheeks && !f.skipCheek {
 			s = FlipFrameCheeks(s)
@@ -188,10 +190,14 @@ func inventedNoteClaim(low string) bool {
 // last time: "so với lần trước", "hơn/kém lần trước", "đỡ … hơn lần trước".
 // Advice such as "Lần sau chụp giống lần trước…" stays.
 func stripInvalidComparison(s string) string {
+	return stripInvalidComparisonWhen(s, false)
+}
+
+func stripInvalidComparisonWhen(s string, userSaidHomQua bool) string {
 	parts := splitSentences(s)
 	kept := make([]string, 0, len(parts))
 	for _, sentence := range parts {
-		if skinComparisonSentence(strings.ToLower(sentence)) {
+		if skinComparisonSentence(strings.ToLower(sentence), userSaidHomQua) {
 			continue
 		}
 		kept = append(kept, sentence)
@@ -199,8 +205,11 @@ func stripInvalidComparison(s string) string {
 	return strings.TrimSpace(strings.Join(kept, ""))
 }
 
-func skinComparisonSentence(low string) bool {
-	if questionSentence(low) || photoTakingSentence(low) || keepLikeLastTimeAdvice(low) {
+func skinComparisonSentence(low string, userSaidHomQua bool) bool {
+	if questionSentence(low) || photoTakingSentence(low) || keepLikeLastTimeAdvice(low) || adviceSentence(low) {
+		return false
+	}
+	if userSaidHomQua && strings.Contains(low, "hôm qua") {
 		return false
 	}
 	if strings.Contains(low, "so với lần trước") || strings.Contains(low, "kém lần trước") {
@@ -210,6 +219,14 @@ func skinComparisonSentence(low string) bool {
 		return false
 	}
 	return strings.Contains(low, "hơn") || stillLikeBefore(low)
+}
+
+func adviceSentence(low string) bool {
+	if _, n := findPhrase(low, "nha"); n > 0 {
+		return true
+	}
+	_, n := findPhrase(low, "là được")
+	return n > 0
 }
 
 func comparisonTimeWord(low string) bool {
