@@ -341,7 +341,7 @@ func positiveVisibleSign(low string) bool {
 		cleaned = strings.ReplaceAll(cleaned, neg, " ")
 	}
 	for _, sign := range []string{"lỗ chân lông", "kích ứng", "nốt", "mụn", "đỏ", "thâm", "sưng", "khô", "bong", "dầu", "sần", "chấm", "ửng", "hạt"} {
-		if strings.Contains(cleaned, sign) {
+		if _, n := findPhrase(cleaned, sign); n > 0 {
 			return true
 		}
 	}

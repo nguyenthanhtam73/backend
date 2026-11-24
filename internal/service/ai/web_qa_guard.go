@@ -603,6 +603,9 @@ func applyWebVIPost(out *CoachStructuredOutput, zones []polishZone, scores []pol
 		out.CareSuggestions[i].Why = rewrite(out.CareSuggestions[i].Why)
 		out.CareSuggestions[i].SafetyNote = rewrite(out.CareSuggestions[i].SafetyNote)
 	}
+	for i := range out.ProductGuidance {
+		out.ProductGuidance[i].Why = rewrite(out.ProductGuidance[i].Why)
+	}
 	for i := range zones {
 		zones[i].note = viRewrite(zones[i].note, zoneSevere(zones[i].severity), qa)
 	}
@@ -615,6 +618,12 @@ func applyWebVIPost(out *CoachStructuredOutput, zones []polishZone, scores []pol
 	for i := range zones {
 		zones[i].note = glossMiliaOnce(zones[i].note, &explained)
 	}
+	polishShownProse(out, zones, scores)
+	for i := range zones {
+		zones[i].note = softenGoodSkinNote(zones[i].note)
+	}
+	hideDuplicateOverall(out.ConcernAlignment, scores)
+	capShownMay(outputMaySlots(out, zones, scores))
 	out.SituationAnalysis = insertCuaMay(out.SituationAnalysis, screenMayCount(out, zones, scores))
 	if hadSituation && strings.TrimSpace(out.SituationAnalysis) == "" {
 		out.SituationAnalysis = neutralMainSentence
@@ -647,6 +656,9 @@ func applyWebVIDetail(d *dto.SkinCoachDetail, qa webQA) {
 		d.CareSuggestions[i].Why = rewrite(d.CareSuggestions[i].Why)
 		d.CareSuggestions[i].SafetyNote = rewrite(d.CareSuggestions[i].SafetyNote)
 	}
+	for i := range d.ProductGuidance {
+		d.ProductGuidance[i].Why = rewrite(d.ProductGuidance[i].Why)
+	}
 	for i := range d.ZoneNotes {
 		d.ZoneNotes[i].Note = viRewrite(d.ZoneNotes[i].Note, zoneSevere(d.ZoneNotes[i].Severity), qa)
 	}
@@ -663,6 +675,14 @@ func applyWebVIDetail(d *dto.SkinCoachDetail, qa webQA) {
 	for i := range d.ZoneNotes {
 		d.ZoneNotes[i].Note = glossMiliaOnce(d.ZoneNotes[i].Note, &explained)
 	}
+	polishShownDetail(d)
+	for i := range d.ZoneNotes {
+		d.ZoneNotes[i].Note = softenGoodSkinNote(d.ZoneNotes[i].Note)
+	}
+	if d.SkinScoreNotes != nil {
+		hideDuplicateOverallText(d.ConcernAlignment, &d.SkinScoreNotes.Overall)
+	}
+	capShownMay(detailMaySlots(d))
 	d.SituationSummary = insertCuaMay(d.SituationSummary, detailMayCount(d))
 	if hadSituation && strings.TrimSpace(d.SituationSummary) == "" {
 		d.SituationSummary = neutralMainSentence
@@ -694,6 +714,9 @@ func detailMayCount(d *dto.SkinCoachDetail) int {
 	}
 	for _, item := range d.CareSuggestions {
 		n += countWord(item.Step, "mày") + countWord(item.Why, "mày") + countWord(item.SafetyNote, "mày")
+	}
+	for _, item := range d.ProductGuidance {
+		n += countWord(item.Why, "mày")
 	}
 	for _, z := range d.ZoneNotes {
 		n += countWord(z.Note, "mày")
@@ -811,6 +834,9 @@ func screenMayCount(out *CoachStructuredOutput, zones []polishZone, scores []pol
 	}
 	for _, item := range out.CareSuggestions {
 		n += countWord(item.Step, "mày") + countWord(item.Why, "mày") + countWord(item.SafetyNote, "mày")
+	}
+	for _, item := range out.ProductGuidance {
+		n += countWord(item.Why, "mày")
 	}
 	for _, z := range zones {
 		n += countWord(z.note, "mày")
@@ -1104,4 +1130,382 @@ func atSentenceStart(s string, idx int) bool {
 
 func indexFold(low, phrase string) int {
 	return strings.Index(low, strings.ToLower(phrase))
+}
+
+const (
+	mayOther = iota
+	maySituation
+	mayProduct
+)
+
+type maySlot struct {
+	text *string
+	kind int
+}
+
+func polishVisibleProse(s string) string {
+	s = replaceFold(s, "xây dựng routine chăm sóc", "xây dựng thói quen chăm da")
+	return dropStackedTruoc(s)
+}
+
+func dropStackedTruoc(s string) string {
+	parts := splitSentences(s)
+	for i, part := range parts {
+		parts[i] = dropStackedTruocSentence(part)
+	}
+	return strings.Join(parts, "")
+}
+
+// dropStackedTruocSentence removes a leading «trước» in «… trước, để … trước khi …».
+// The «trước khi» stays.
+func dropStackedTruocSentence(s string) string {
+	low := strings.ToLower(s)
+	khiAt, _ := findPhrase(low, "trước khi")
+	if khiAt < 0 {
+		return s
+	}
+	head := low[:khiAt]
+	from := 0
+	for from < len(head) {
+		rel, size := findPhrase(head[from:], "trước")
+		if rel < 0 {
+			return s
+		}
+		at := from + rel
+		after := strings.TrimLeft(head[at+size:], " \t")
+		if strings.HasPrefix(after, ",") {
+			word := strings.TrimLeft(after[1:], " \t")
+			if _, ok := skipWholeWord(word, "để"); ok {
+				start := at
+				if start > 0 && (s[start-1] == ' ' || s[start-1] == '\t') {
+					start--
+				}
+				return s[:start] + s[at+size:]
+			}
+		}
+		from = at + size
+	}
+	return s
+}
+
+func polishShownProse(out *CoachStructuredOutput, zones []polishZone, scores []polishScore) {
+	if out == nil {
+		return
+	}
+	out.SituationAnalysis = polishVisibleProse(out.SituationAnalysis)
+	out.ConcernAlignment = polishVisibleProse(out.ConcernAlignment)
+	out.MedicalDisclaimer = polishVisibleProse(out.MedicalDisclaimer)
+	out.RoutineHints = rewriteList(out.RoutineHints, polishVisibleProse)
+	out.AvoidOrPatch = rewriteList(out.AvoidOrPatch, polishVisibleProse)
+	out.SafetyReminders = rewriteList(out.SafetyReminders, polishVisibleProse)
+	for i := range out.Improvements {
+		out.Improvements[i].Tip = polishVisibleProse(out.Improvements[i].Tip)
+		out.Improvements[i].Why = polishVisibleProse(out.Improvements[i].Why)
+	}
+	for i := range out.CareSuggestions {
+		out.CareSuggestions[i].Step = polishVisibleProse(out.CareSuggestions[i].Step)
+		out.CareSuggestions[i].Why = polishVisibleProse(out.CareSuggestions[i].Why)
+		out.CareSuggestions[i].SafetyNote = polishVisibleProse(out.CareSuggestions[i].SafetyNote)
+	}
+	for i := range out.ProductGuidance {
+		out.ProductGuidance[i].Why = polishVisibleProse(out.ProductGuidance[i].Why)
+	}
+	for i := range zones {
+		zones[i].note = polishVisibleProse(zones[i].note)
+	}
+	for i := range scores {
+		scores[i].val = polishVisibleProse(scores[i].val)
+	}
+}
+
+func polishShownDetail(d *dto.SkinCoachDetail) {
+	if d == nil {
+		return
+	}
+	d.SituationSummary = polishVisibleProse(d.SituationSummary)
+	d.ConcernAlignment = polishVisibleProse(d.ConcernAlignment)
+	d.MedicalDisclaimer = polishVisibleProse(d.MedicalDisclaimer)
+	d.RoutineHints = rewriteList(d.RoutineHints, polishVisibleProse)
+	d.AvoidOrPatch = rewriteList(d.AvoidOrPatch, polishVisibleProse)
+	d.SafetyReminders = rewriteList(d.SafetyReminders, polishVisibleProse)
+	for i := range d.Improvements {
+		d.Improvements[i].Tip = polishVisibleProse(d.Improvements[i].Tip)
+		d.Improvements[i].Why = polishVisibleProse(d.Improvements[i].Why)
+	}
+	for i := range d.CareSuggestions {
+		d.CareSuggestions[i].Step = polishVisibleProse(d.CareSuggestions[i].Step)
+		d.CareSuggestions[i].Why = polishVisibleProse(d.CareSuggestions[i].Why)
+		d.CareSuggestions[i].SafetyNote = polishVisibleProse(d.CareSuggestions[i].SafetyNote)
+	}
+	for i := range d.ProductGuidance {
+		d.ProductGuidance[i].Why = polishVisibleProse(d.ProductGuidance[i].Why)
+	}
+	for i := range d.ZoneNotes {
+		d.ZoneNotes[i].Note = polishVisibleProse(d.ZoneNotes[i].Note)
+	}
+	if d.SkinScoreNotes != nil {
+		n := d.SkinScoreNotes
+		n.Overall = polishVisibleProse(n.Overall)
+		n.Hydration = polishVisibleProse(n.Hydration)
+		n.Clarity = polishVisibleProse(n.Clarity)
+		n.Barrier = polishVisibleProse(n.Barrier)
+	}
+}
+
+func hideDuplicateOverall(concern string, scores []polishScore) {
+	for i := range scores {
+		if strings.EqualFold(scores[i].key, "overall") && sameProse(scores[i].val, concern) {
+			scores[i].val = ""
+		}
+	}
+}
+
+func hideDuplicateOverallText(concern string, overall *string) {
+	if overall != nil && sameProse(*overall, concern) {
+		*overall = ""
+	}
+}
+
+func sameProse(a, b string) bool {
+	na, nb := normProse(a), normProse(b)
+	return na != "" && na == nb
+}
+
+func normProse(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.TrimRight(s, ".!… \t")
+	return squeezeSpaces(s)
+}
+
+func outputMaySlots(out *CoachStructuredOutput, zones []polishZone, scores []polishScore) []maySlot {
+	if out == nil {
+		return nil
+	}
+	slots := []maySlot{{&out.SituationAnalysis, maySituation}, {&out.ConcernAlignment, mayOther}, {&out.MedicalDisclaimer, mayOther}}
+	slots = append(slots, listSlots(out.RoutineHints, mayOther)...)
+	slots = append(slots, listSlots(out.AvoidOrPatch, mayOther)...)
+	slots = append(slots, listSlots(out.SafetyReminders, mayOther)...)
+	for i := range out.Improvements {
+		slots = append(slots, maySlot{&out.Improvements[i].Tip, mayOther}, maySlot{&out.Improvements[i].Why, mayOther})
+	}
+	for i := range out.CareSuggestions {
+		item := &out.CareSuggestions[i]
+		slots = append(slots, maySlot{&item.Step, mayOther}, maySlot{&item.Why, mayOther}, maySlot{&item.SafetyNote, mayOther})
+	}
+	for i := range out.ProductGuidance {
+		slots = append(slots, maySlot{&out.ProductGuidance[i].Why, mayProduct})
+	}
+	for i := range zones {
+		slots = append(slots, maySlot{&zones[i].note, mayOther})
+	}
+	for i := range scores {
+		slots = append(slots, maySlot{&scores[i].val, mayOther})
+	}
+	return slots
+}
+
+func detailMaySlots(d *dto.SkinCoachDetail) []maySlot {
+	if d == nil {
+		return nil
+	}
+	slots := []maySlot{{&d.SituationSummary, maySituation}, {&d.ConcernAlignment, mayOther}, {&d.MedicalDisclaimer, mayOther}}
+	slots = append(slots, listSlots(d.RoutineHints, mayOther)...)
+	slots = append(slots, listSlots(d.AvoidOrPatch, mayOther)...)
+	slots = append(slots, listSlots(d.SafetyReminders, mayOther)...)
+	for i := range d.Improvements {
+		slots = append(slots, maySlot{&d.Improvements[i].Tip, mayOther}, maySlot{&d.Improvements[i].Why, mayOther})
+	}
+	for i := range d.CareSuggestions {
+		item := &d.CareSuggestions[i]
+		slots = append(slots, maySlot{&item.Step, mayOther}, maySlot{&item.Why, mayOther}, maySlot{&item.SafetyNote, mayOther})
+	}
+	for i := range d.ProductGuidance {
+		slots = append(slots, maySlot{&d.ProductGuidance[i].Why, mayProduct})
+	}
+	for i := range d.ZoneNotes {
+		slots = append(slots, maySlot{&d.ZoneNotes[i].Note, mayOther})
+	}
+	if d.SkinScoreNotes != nil {
+		n := d.SkinScoreNotes
+		slots = append(slots,
+			maySlot{&n.Overall, mayOther},
+			maySlot{&n.Hydration, mayOther},
+			maySlot{&n.Clarity, mayOther},
+			maySlot{&n.Barrier, mayOther},
+		)
+	}
+	return slots
+}
+
+func listSlots(items []string, kind int) []maySlot {
+	out := make([]maySlot, len(items))
+	for i := range items {
+		out[i] = maySlot{&items[i], kind}
+	}
+	return out
+}
+
+type mayHit struct {
+	slot    int
+	at      int
+	sent    int
+	last    int
+	protect bool
+}
+
+// capShownMay keeps the first «mày» in the opening sentence and at most one
+// more, preferring the last situation sentence, then a product line.
+// Other «mày» go only through the safe rewrites. A subject that those
+// rewrites do not cover stays.
+func capShownMay(slots []maySlot) {
+	var hits []mayHit
+	protected := -1
+	for si, sl := range slots {
+		if sl.text == nil || strings.TrimSpace(*sl.text) == "" {
+			continue
+		}
+		parts := splitSentences(*sl.text)
+		last := len(parts) - 1
+		if last < 0 {
+			last = 0
+		}
+		off := 0
+		for sent, part := range parts {
+			from := 0
+			for {
+				rel, size := findPhrase(part[from:], "mày")
+				if rel < 0 {
+					break
+				}
+				h := mayHit{slot: si, at: off + from + rel, sent: sent, last: last}
+				if sl.kind == maySituation && sent == 0 && protected < 0 {
+					h.protect = true
+					protected = len(hits)
+				}
+				hits = append(hits, h)
+				from += rel + size
+			}
+			off += len(part)
+		}
+	}
+	extras := 0
+	for _, h := range hits {
+		if !h.protect {
+			extras++
+		}
+	}
+	if extras <= 1 {
+		return
+	}
+	keep := map[[2]int]bool{}
+	if protected >= 0 {
+		h := hits[protected]
+		keep[[2]int{h.slot, h.at}] = true
+	}
+	keeper := -1
+	for i, h := range hits {
+		if h.protect || slots[h.slot].kind != maySituation || h.sent != h.last {
+			continue
+		}
+		keeper = i
+		break
+	}
+	if keeper < 0 {
+		for i, h := range hits {
+			if h.protect || slots[h.slot].kind != mayProduct {
+				continue
+			}
+			keeper = i
+			break
+		}
+	}
+	if keeper >= 0 {
+		h := hits[keeper]
+		keep[[2]int{h.slot, h.at}] = true
+	}
+	seen := map[int]bool{}
+	for si, sl := range slots {
+		if sl.text == nil || seen[si] {
+			continue
+		}
+		seen[si] = true
+		*sl.text = stripUnkeptMay(*sl.text, si, keep)
+	}
+}
+
+func stripUnkeptMay(s string, slot int, keep map[[2]int]bool) string {
+	idxs := mayIndexes(s)
+	for i := len(idxs) - 1; i >= 0; i-- {
+		at := idxs[i]
+		if keep[[2]int{slot, at}] {
+			continue
+		}
+		if next, ok := dropOneMay(s, at); ok {
+			s = next
+		}
+	}
+	return squeezeSpaces(s)
+}
+
+func mayIndexes(s string) []int {
+	var out []int
+	from := 0
+	for {
+		rel, size := findPhrase(s[from:], "mày")
+		if rel < 0 {
+			return out
+		}
+		out = append(out, from+rel)
+		from += rel + size
+	}
+}
+
+func dropOneMay(s string, at int) (string, bool) {
+	low := strings.ToLower(s)
+	if at < 0 || at+len("mày") > len(low) || low[at:at+len("mày")] != "mày" {
+		return s, false
+	}
+	for _, rule := range []struct{ from, to string }{
+		{"da sẽ cảm ơn mày", "da sẽ khoẻ hơn"},
+		{"để mày xây dựng", "để xây dựng"},
+		{"nếu da mày", "nếu da"},
+		{"da mày", "da"},
+		{"của mày", ""},
+	} {
+		start, ok := coverMay(low, at, rule.from)
+		if !ok {
+			continue
+		}
+		end := start + len(rule.from)
+		if rule.to == "" {
+			return dropPhrase(s, start, end), true
+		}
+		return s[:start] + matchVoiceCase(s[start:end], rule.to) + s[end:], true
+	}
+	return s, false
+}
+
+func coverMay(low string, at int, phrase string) (int, bool) {
+	rel := strings.Index(phrase, "mày")
+	if rel < 0 {
+		return 0, false
+	}
+	start := at - rel
+	end := start + len(phrase)
+	if start < 0 || end > len(low) || low[start:end] != phrase {
+		return 0, false
+	}
+	if !bounded(low, start, end) {
+		return 0, false
+	}
+	return start, true
+}
+
+func dropPhrase(s string, start, end int) string {
+	if start > 0 && (s[start-1] == ' ' || s[start-1] == '\t') {
+		start--
+	} else if end < len(s) && (s[end] == ' ' || s[end] == '\t') {
+		end++
+	}
+	return s[:start] + s[end:]
 }
