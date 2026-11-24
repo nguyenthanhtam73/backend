@@ -196,8 +196,31 @@ func stripInvalidComparison(s string) string {
 	return strings.TrimSpace(strings.Join(kept, ""))
 }
 
+// replaceUncleanJudgement replaces a whole sentence that says the skin looks
+// unclean. Splicing "dễ bóng dầu" after an oil subject repeats the word
+// ("Dầu dễ bóng dầu"), so the sentence becomes "Da dễ bóng dầu."
 func replaceUncleanJudgement(s string) string {
-	return replaceFold(s, "làm da trông không sạch", "dễ bóng dầu")
+	parts := splitSentences(s)
+	changed := false
+	for i, sentence := range parts {
+		if !strings.Contains(strings.ToLower(sentence), "làm da trông không sạch") {
+			continue
+		}
+		punct := ""
+		trimmed := strings.TrimRight(sentence, " \t")
+		if trimmed != "" {
+			last := trimmed[len(trimmed)-1]
+			if last == '.' || last == '!' || last == '?' {
+				punct = string(last)
+			}
+		}
+		parts[i] = "Da dễ bóng dầu" + punct
+		changed = true
+	}
+	if !changed {
+		return s
+	}
+	return strings.Join(parts, "")
 }
 
 func plainLoanwords(s string) string {

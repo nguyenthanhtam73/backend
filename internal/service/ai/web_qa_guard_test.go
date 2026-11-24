@@ -123,9 +123,15 @@ func TestQA_SmoothSkinDoesNotClaimBumps(t *testing.T) {
 	if got := softenSmoothSkinClaim("không thấy milia"); got != "không thấy milia" {
 		t.Fatalf("negated milia %q", got)
 	}
-	judged := replaceUncleanJudgement("Dầu làm da trông không sạch.")
-	if strings.Contains(judged, "nốt") || !strings.Contains(judged, "dễ bóng dầu") {
-		t.Fatalf("judging %q", judged)
+	oil := &CoachStructuredOutput{SituationAnalysis: "Dầu làm da trông không sạch."}
+	sanitizeWebCoachOutput(oil, webQA{})
+	if oil.SituationAnalysis != "Da dễ bóng dầu." {
+		t.Fatalf("Dầu làm da trông không sạch. -> %q, want %q", oil.SituationAnalysis, "Da dễ bóng dầu.")
+	}
+	other := &CoachStructuredOutput{SituationAnalysis: "Da dầu làm da trông không sạch."}
+	sanitizeWebCoachOutput(other, webQA{})
+	if other.SituationAnalysis != "Da dễ bóng dầu." {
+		t.Fatalf("oil sentence repeated dầu: %q", other.SituationAnalysis)
 	}
 }
 
