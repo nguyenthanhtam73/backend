@@ -159,7 +159,7 @@ type polishField struct {
 
 // neutralMainSentence stands in when the only sentence of the main paragraph
 // was removed. An empty situation analysis is dropped at save time.
-const neutralMainSentence = "Da hôm nay trông vậy."
+const neutralMainSentence = "Tao xem ảnh hôm nay rồi nha mày."
 
 func polishFields(fields []polishField, qa webQA) {
 	original := make([]string, len(fields))
@@ -319,12 +319,16 @@ func positiveBumpClaim(low string) bool {
 // describesVisibleBump reports a sentence that names a bump the photo shows.
 // Those sentences stay even when the skin is also called smooth.
 func describesVisibleBump(low string) bool {
-	for _, word := range []string{"nốt", "hạt", "cục", "sần"} {
+	for _, word := range []string{"nốt", "cục", "sần"} {
 		if strings.Contains(low, word) {
 			return true
 		}
 	}
-	return false
+	if !strings.Contains(low, "hạt") {
+		return false
+	}
+	// "hạt milia" names milia. It is not a bump the photo shows.
+	return strings.Contains(strings.ReplaceAll(low, "hạt milia", ""), "hạt")
 }
 
 func bumpNegated(low string) bool {

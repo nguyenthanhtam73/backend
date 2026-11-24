@@ -182,17 +182,41 @@ func TestQA_SmoothSkinDoesNotClaimBumps(t *testing.T) {
 	if other.SituationAnalysis != "Da dễ bóng dầu." {
 		t.Fatalf("oil sentence repeated dầu: %q", other.SituationAnalysis)
 	}
+	const oily = "Lớp dầu nhờn làm da trông không sạch lắm, nhưng không sao!"
+	keep := &CoachStructuredOutput{SituationAnalysis: oily}
+	sanitizeWebCoachOutput(keep, webQA{})
+	if keep.SituationAnalysis != "Da dễ bóng dầu, nhưng không sao." {
+		t.Fatalf("%q -> %q", oily, keep.SituationAnalysis)
+	}
+	const milia = "Da mịn màng, có hạt milia nhỏ li ti ở hai má."
+	if got := softenSmoothSkinClaim(milia); strings.Contains(strings.ToLower(got), "milia") || strings.Contains(got, "hạt") {
+		t.Fatalf("%q -> %q", milia, got)
+	}
+	miliaOut := &CoachStructuredOutput{SituationAnalysis: milia}
+	sanitizeWebCoachOutput(miliaOut, webQA{})
+	if miliaOut.SituationAnalysis != "Tao xem ảnh hôm nay rồi nha mày." {
+		t.Fatalf("%q -> %q", milia, miliaOut.SituationAnalysis)
+	}
+	const compared = "Má trái đỡ sưng rồi, lần trước to hơn."
+	if got := stripInvalidComparison(compared); got != "" {
+		t.Fatalf("%q -> %q", compared, got)
+	}
+	secondary := &CoachStructuredOutput{SummaryNotes: compared}
+	sanitizeWebCoachOutput(secondary, webQA{GuardComparison: true, PreviousComparable: false})
+	if secondary.SummaryNotes != "" {
+		t.Fatalf("secondary comparison stayed %q", secondary.SummaryNotes)
+	}
 }
 
 func TestQA_MainFieldDoesNotGoEmpty(t *testing.T) {
 	smooth := &CoachStructuredOutput{SituationAnalysis: "Da mịn màng, đây là mụn ẩn."}
 	sanitizeWebCoachOutput(smooth, webQA{})
-	if smooth.SituationAnalysis != "Da hôm nay trông vậy." {
+	if smooth.SituationAnalysis != "Tao xem ảnh hôm nay rồi nha mày." {
 		t.Fatalf("smooth-only -> %q", smooth.SituationAnalysis)
 	}
 	cmp := &CoachStructuredOutput{SituationAnalysis: "So với lần trước, vùng này trông sưng hơn."}
 	sanitizeWebCoachOutput(cmp, webQA{GuardComparison: true, PreviousComparable: false})
-	if cmp.SituationAnalysis != "Da hôm nay trông vậy." {
+	if cmp.SituationAnalysis != "Tao xem ảnh hôm nay rồi nha mày." {
 		t.Fatalf("comparison-only -> %q", cmp.SituationAnalysis)
 	}
 	kept := &CoachStructuredOutput{SituationAnalysis: "Da ổn. So với lần trước da đỏ hơn."}

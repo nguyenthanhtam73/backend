@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/dadiary/backend/internal/dto"
 	"golang.org/x/text/unicode/norm"
@@ -113,17 +114,18 @@ func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, vi
 }
 
 // cheekZonesForSave maps the image-reading step's cheek keys onto the user's
-// face before the zone filter and before fallback notes. The rule is
-// ShouldSwapCheeks. A user-picked zone close-up stays as labeled. Android
-// keeps the keys the coach wrote. A check with no photo meta is left alone,
-// and this never rewrites a row that was already saved.
+// face before the zone filter and before fallback notes. It uses
+// ShouldSwapCheeks, including when web sends no photo_meta (that function
+// swaps). A user-picked zone close-up stays as labeled. Android keeps the
+// keys the coach wrote. This runs at save time and does not rewrite a row
+// that was already stored.
 func cheekZonesForSave(visionRaw string, photoCtx json.RawMessage, clientKind string) []visionZone {
 	zones := zoneObservationValues(visionRaw)
 	if IsAndroidCoachVoice(clientKind) || len(zones) == 0 {
 		return zones
 	}
 	doc := dto.DecodePhotoContext(photoCtx)
-	if len(doc.Images) == 0 || !ShouldSwapCheeks(doc) {
+	if !ShouldSwapCheeks(doc) {
 		return zones
 	}
 	for i := range zones {
@@ -262,17 +264,56 @@ func fallbackZoneNotes(zones []visionZone, locale string) []dto.CoachZoneNote {
 		note := cue
 		if !en {
 			note = ToVietnameseSkinWords(note)
-		}
-		if !noteSaysLooksLike(note) {
-			if en {
-				note = "Looks like " + cue
-			} else {
+			if !noteSaysLooksLike(note) {
 				note = "Trông giống " + note
 			}
+			if leftoverEnglish(note) {
+				note = plainZoneFallback
+			}
+			note = ensureSentencePeriod(note)
+		} else if !noteSaysLooksLike(note) {
+			note = ensureSentencePeriod("Looks like " + cue)
+		} else {
+			note = ensureSentencePeriod(note)
 		}
 		out = append(out, dto.CoachZoneNote{Zone: z.Zone, Note: note, Severity: z.Severity})
 	}
 	return out
+}
+
+// plainZoneFallback replaces a fallback note that still contains English
+// words after translation. It does not name a condition.
+const plainZoneFallback = "Trông giống một điểm trên ảnh."
+
+func leftoverEnglish(s string) bool {
+	for _, part := range splitVoiceChunks(s) {
+		if !part.word || len(part.text) < 3 || !asciiLetters(part.text) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func asciiLetters(s string) bool {
+	for _, r := range s {
+		if r < 'A' || (r > 'Z' && r < 'a') || r > 'z' {
+			return false
+		}
+	}
+	return s != ""
+}
+
+func ensureSentencePeriod(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	r, _ := utf8.DecodeLastRuneInString(s)
+	if r == '.' || r == '!' || r == '?' || r == '…' {
+		return s
+	}
+	return s + "."
 }
 
 func noteSaysLooksLike(note string) bool {

@@ -203,7 +203,12 @@ func skinComparisonSentence(low string) bool {
 	if strings.Contains(low, "so với lần trước") {
 		return true
 	}
-	if strings.Contains(low, "hơn lần trước") || strings.Contains(low, "kém lần trước") {
+	if strings.Contains(low, "hơn lần trước") || strings.Contains(low, "kém lần trước") || strings.Contains(low, "lần trước to hơn") {
+		return true
+	}
+	// "Má trái đỡ sưng rồi, lần trước to hơn." compares the skin.
+	// Retake advice such as "chụp giống lần trước" does not.
+	if strings.Contains(low, "đỡ") && strings.Contains(low, "lần trước") && !strings.Contains(low, "chụp") {
 		return true
 	}
 	return false
@@ -219,15 +224,11 @@ func replaceUncleanJudgement(s string) string {
 		if !strings.Contains(strings.ToLower(sentence), "làm da trông không sạch") {
 			continue
 		}
-		punct := ""
-		trimmed := strings.TrimRight(sentence, " \t")
-		if trimmed != "" {
-			last := trimmed[len(trimmed)-1]
-			if last == '.' || last == '!' || last == '?' {
-				punct = string(last)
-			}
+		repl := "Da dễ bóng dầu"
+		if strings.Contains(strings.ToLower(sentence), "không sao") {
+			repl = "Da dễ bóng dầu, nhưng không sao"
 		}
-		parts[i] = "Da dễ bóng dầu" + punct
+		parts[i] = repl + "."
 		changed = true
 	}
 	if !changed {
