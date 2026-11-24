@@ -34,6 +34,20 @@ func TestRoutineAllStepsDone(t *testing.T) {
 	}
 }
 
+func TestRoutineOneSessionDone(t *testing.T) {
+	done := json.RawMessage(`[{"id":"a","title":"A","completed":true}]`)
+	partial := json.RawMessage(`[{"id":"a","title":"A","completed":true},{"id":"b","title":"B","completed":false}]`)
+	if !RoutineOneSessionDone(done) {
+		t.Fatal("ticked session")
+	}
+	if RoutineOneSessionDone(partial) || RoutineOneSessionDone(nil) || RoutineOneSessionDone(json.RawMessage(`[]`)) {
+		t.Fatal("open or empty session")
+	}
+	if RoutineOneSessionDone(json.RawMessage(`["Rửa mặt"]`)) {
+		t.Fatal("legacy strings are not ticked")
+	}
+}
+
 func TestRoutineSessionDone(t *testing.T) {
 	morning := json.RawMessage(`[{"id":"a","title":"A","completed":true}]`)
 	eveningOpen := json.RawMessage(`[{"id":"b","title":"B","completed":false}]`)

@@ -44,3 +44,24 @@ func DateOf(t time.Time) time.Time {
 	local := t.In(Location)
 	return time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
 }
+
+// RoutineDayRollHour is when the routine care day rolls, Vietnam wall clock.
+// Morning opens at 04:00. Until then the evening session still belongs to
+// the previous civil day. Check-ins stay on DateOf (civil midnight).
+const RoutineDayRollHour = 4
+
+// RoutineCareDay is the calendar day a routine tick is stored on.
+// From 00:00 until 04:00 Asia/Ho_Chi_Minh it is the previous civil day.
+// At 04:00 it becomes that morning's civil day. The result is UTC midnight
+// of that Y-M-D, matching routine_entries.routine_date.
+// The daily quest chest uses the same day: an evening claim after midnight
+// and before 04:00 still belongs to the previous care day, and both sessions
+// of that day stay claimable until the roll.
+func RoutineCareDay(now time.Time) time.Time {
+	local := now.In(Location)
+	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
+	if local.Hour() < RoutineDayRollHour {
+		return day.AddDate(0, 0, -1)
+	}
+	return day
+}

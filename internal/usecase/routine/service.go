@@ -703,21 +703,12 @@ func parseRoutineDate(raw string) (time.Time, error) {
 	return time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, time.UTC), nil
 }
 
-// routineDayRollHour is when the routine care day rolls, Vietnam wall clock.
-// Morning opens at 04:00. Until then the evening session still belongs to
-// the previous civil day.
-const routineDayRollHour = 4
-
-// routineCareDay is the calendar day a routine tick is stored on.
-// From 00:00 until 04:00 Asia/Ho_Chi_Minh it is the previous civil day.
-// At 04:00 it becomes that morning's civil day. Check-ins keep midnight.
+// routineCareDay is streaktime.RoutineCareDay.
+// From 00:00 until 04:00 Asia/Ho_Chi_Minh the open evening session still
+// belongs to the previous civil day. At 04:00 the day rolls forward.
+// Check-ins keep midnight.
 func routineCareDay(now time.Time) time.Time {
-	local := now.In(streaktime.Location)
-	day := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, time.UTC)
-	if local.Hour() < routineDayRollHour {
-		return day.AddDate(0, 0, -1)
-	}
-	return day
+	return streaktime.RoutineCareDay(now)
 }
 
 // routineToday is the care day for the wall clock. Tests that freeze time

@@ -76,6 +76,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.MascotRoomNudge{},
 		&domain.UserCoinWallet{},
 		&domain.UserCoinLedger{},
+		&domain.DailyQuestClaim{},
 		&domain.TreeType{},
 		&domain.MascotRoomTree{},
 		&domain.MascotRoomTreeWater{},
