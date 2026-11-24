@@ -20,7 +20,7 @@ func polishWebCoachDetail(d *dto.SkinCoachDetail) {
 		return
 	}
 	fields := detailFields(d)
-	polishFields(fields, false)
+	polishFields(fields, webQA{})
 	d.ClarifyQuestions = capFollowUpQuestions(d.ClarifyQuestions)
 }
 
@@ -29,10 +29,10 @@ func polishWebCoachScreen(out *CoachStructuredOutput) bool {
 	if out == nil {
 		return false
 	}
-	return sanitizeWebCoachOutput(out, false)
+	return sanitizeWebCoachOutput(out, webQA{})
 }
 
-func sanitizeWebCoachOutput(out *CoachStructuredOutput, worseThanLast bool) bool {
+func sanitizeWebCoachOutput(out *CoachStructuredOutput, qa webQA) bool {
 	if out == nil {
 		return false
 	}
@@ -46,7 +46,7 @@ func sanitizeWebCoachOutput(out *CoachStructuredOutput, worseThanLast bool) bool
 	for i := range scores {
 		fields = append(fields, polishField{text: &scores[i].val})
 	}
-	polishFields(fields, worseThanLast)
+	polishFields(fields, qa)
 	out.ZoneNotesRaw = encodePolishZones(out.ZoneNotesRaw, zones)
 	out.SkinScoreNotesRaw = encodePolishScores(out.SkinScoreNotesRaw, scores)
 	return coachSnapshot(out) != before
@@ -143,7 +143,7 @@ type polishField struct {
 	zoneNote bool
 }
 
-func polishFields(fields []polishField, worse bool) {
+func polishFields(fields []polishField, qa webQA) {
 	for _, f := range fields {
 		if f.text == nil {
 			continue
@@ -154,9 +154,7 @@ func polishFields(fields []polishField, worse bool) {
 		}
 	}
 	applyFirstGlosses(fields)
-	if worse {
-		reassureOpening(fields)
-	}
+	applyWebQA(fields, qa)
 }
 
 func polishOneSentence(s string) string {
@@ -266,7 +264,7 @@ func softenSmoothSkinClaim(s string) string {
 	changed := false
 	for i, sentence := range sentences {
 		low := strings.ToLower(sentence)
-		if !strings.Contains(low, "mụn ẩn") {
+		if !strings.Contains(low, "mụn ẩn") && !strings.Contains(low, "milia") {
 			continue
 		}
 		smooth := strings.Contains(low, "mịn màng") || strings.Contains(low, "da mịn") || strings.Contains(low, "bề mặt mịn") || strings.Contains(low, "da đang mịn")
@@ -282,6 +280,7 @@ func softenSmoothSkinClaim(s string) string {
 		next := sentence
 		next = replaceFold(next, " là mụn ẩn", " có vài nốt nhỏ, chưa chắc")
 		next = replaceFold(next, "có mụn ẩn", "có vài nốt nhỏ, chưa chắc")
+		next = replaceFold(next, "milia", "có vài nốt nhỏ, chưa chắc")
 		if next != sentence {
 			sentences[i] = next
 			changed = true

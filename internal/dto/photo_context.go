@@ -32,10 +32,14 @@ func (e *PhotoContextError) Error() string {
 
 // PhotoMetaImage is one uploaded photo's framing. Index is the 0-based position
 // in images[] so a dropped entry does not shift the photos after it.
+// Camera is "front" or "rear" when the client knows which lens took the photo.
+// Empty means the client did not say. Callers that map cheeks treat empty as
+// front: a check-in face photo is a mirrored selfie unless the client says rear.
 type PhotoMetaImage struct {
-	Index int    `json:"index"`
-	Kind  string `json:"kind"`
-	Zone  string `json:"zone,omitempty"`
+	Index  int    `json:"index"`
+	Kind   string `json:"kind"`
+	Zone   string `json:"zone,omitempty"`
+	Camera string `json:"camera,omitempty"`
 }
 
 // SkinContextInput is what the user reports about touch, timing, and pain.
@@ -145,6 +149,14 @@ func parsePhotoMeta(raw string, imageCount int) ([]PhotoMetaImage, error) {
 		img := PhotoMetaImage{Index: i, Kind: kind}
 		if zone != "" {
 			img.Zone = zone
+		}
+		if cam, ok := jsonStringField(obj["camera"]); ok {
+			switch strings.ToLower(strings.TrimSpace(cam)) {
+			case "front", "user", "selfie":
+				img.Camera = "front"
+			case "rear", "back", "environment":
+				img.Camera = "rear"
+			}
 		}
 		out = append(out, img)
 	}

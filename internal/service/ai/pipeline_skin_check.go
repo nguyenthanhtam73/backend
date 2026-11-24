@@ -163,7 +163,7 @@ func runSkinCheckCoachAfterVision(
 	if check != nil {
 		clientKind = check.ClientKind
 	}
-	if applyCoachVoiceGuard(parsed, clientKind, skinTrendWorse(facts, parsed.Score)) {
+	if applyCoachVoiceGuard(parsed, clientKind, webQAForCheck(check, facts, visionStatus, visionRaw, parsed)) {
 		slog.Warn("skin-check: voice guard rewrote coach text", "check_id", check.ID, "prompt_family", promptFamilyForCoachLog(clientKind))
 	}
 	if ApplyCheckInAdviceGuard(parsed, facts, clientKind) {
@@ -257,11 +257,11 @@ func PipelineModelVersion(visionModel, visionStatus, coachModel, coachProvider s
 
 // applyCoachVoiceGuard runs one sanitizer. Android never falls through to the
 // web polish, even when the Android sanitizer leaves the text unchanged.
-func applyCoachVoiceGuard(out *CoachStructuredOutput, clientKind string, worseThanLast bool) bool {
+func applyCoachVoiceGuard(out *CoachStructuredOutput, clientKind string, qa webQA) bool {
 	if IsAndroidCoachVoice(clientKind) {
 		return SanitizeAndroidCoachOutput(out)
 	}
-	return sanitizeWebFull(out, worseThanLast)
+	return sanitizeWebFull(out, qa)
 }
 
 // skinTrendWorse is true only when today's score is lower than the newest

@@ -114,7 +114,7 @@ func generateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 			out = retryOut
 		}
 	}
-	if applyCoachVoiceGuard(out, clientKind, false) {
+	if applyCoachVoiceGuard(out, clientKind, webQA{}) {
 		slog.Warn("daily-feedback: voice guard rewrote coach text", "prompt_family", promptFamilyForCoachLog(clientKind))
 	}
 	return out, nil

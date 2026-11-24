@@ -10,7 +10,7 @@ import (
 func TestAndroidVoiceGuard_DoesNotRunWebPolish(t *testing.T) {
 	const in = "Hôm nay da bạn ổn…"
 	out := &CoachStructuredOutput{SituationAnalysis: in}
-	if applyCoachVoiceGuard(out, "android", true) {
+	if applyCoachVoiceGuard(out, "android", webQA{WorseThanLast: true}) {
 		t.Fatal("android sanitizer reported a change")
 	}
 	if out.SituationAnalysis != in {

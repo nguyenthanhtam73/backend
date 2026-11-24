@@ -39,8 +39,14 @@ func TestCoachPromptVersion_v33(t *testing.T) {
 }
 
 func TestCoachPromptVersion_v34(t *testing.T) {
-	if CoachDailyPromptVersion != 34 {
-		t.Fatalf("expected CoachDailyPromptVersion == 34, got %d", CoachDailyPromptVersion)
+	if CoachDailyPromptVersion < 34 {
+		t.Fatalf("expected CoachDailyPromptVersion >= 34, got %d", CoachDailyPromptVersion)
+	}
+}
+
+func TestCoachPromptVersion_v35(t *testing.T) {
+	if CoachDailyPromptVersion != 35 {
+		t.Fatalf("expected CoachDailyPromptVersion == 35, got %d", CoachDailyPromptVersion)
 	}
 }
 
