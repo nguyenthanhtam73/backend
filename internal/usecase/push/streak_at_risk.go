@@ -282,6 +282,9 @@ func (s *Service) SendStreakAtRiskNotifications(ctx context.Context) (StreakAtRi
 			result.SkippedNoSubscription++
 		case errors.Is(err, ErrSenderUnavailable):
 			result.Skipped++
+		case errors.Is(err, pushsvc.ErrVAPIDAuthFailed):
+			// Same JWT will be rejected again on the next 30-minute tick.
+			result.Skipped++
 		default:
 			result.Failed++
 			// Continue — one bad endpoint must not abort the whole batch.

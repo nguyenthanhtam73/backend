@@ -159,8 +159,11 @@ type DailyReminderConfig struct {
 type VAPIDConfig struct {
 	PublicKey  string `mapstructure:"public_key"`  // DADIARY_VAPID_PUBLIC_KEY
 	PrivateKey string `mapstructure:"private_key"` // DADIARY_VAPID_PRIVATE_KEY
-	// Subject is the VAPID JWT "sub" claim (mailto: or https: contact).
-	// Defaults to mailto:noreply@dadiary.app when empty.
+	// Subject is the VAPID contact passed to the push library.
+	// A bare email is signed as one mailto: URI. An https URL is signed as-is.
+	// A value that already starts with mailto: is stripped once before send,
+	// because webpush-go v1.4.0 adds that prefix itself.
+	// Defaults to noreply@dadiary.app when empty.
 	Subject string `mapstructure:"subject"` // DADIARY_VAPID_SUBJECT
 }
 
@@ -479,7 +482,7 @@ func Load(relativeEnvPath string) (*Config, error) {
 	cfg.VAPID.PrivateKey = strings.TrimSpace(cfg.VAPID.PrivateKey)
 	cfg.VAPID.Subject = strings.TrimSpace(cfg.VAPID.Subject)
 	if cfg.VAPID.Subject == "" {
-		cfg.VAPID.Subject = "mailto:noreply@dadiary.app"
+		cfg.VAPID.Subject = "noreply@dadiary.app"
 	}
 
 	// Daily reminder defaults: 20:00 local, enabled unless explicitly turned off.

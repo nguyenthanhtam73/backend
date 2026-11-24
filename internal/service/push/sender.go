@@ -9,13 +9,16 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SherClockHolmes/webpush-go"
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/repository"
+	"github.com/dadiary/backend/internal/streaktime"
 	"github.com/google/uuid"
 )
 
@@ -28,6 +31,12 @@ var (
 	ErrSendFailed = errors.New("push send failed")
 	// ErrSubscriptionExpired means the endpoint is gone (404/410); row was deleted.
 	ErrSubscriptionExpired = errors.New("push subscription expired")
+	// ErrVAPIDAuthFailed means the push service rejected the VAPID JWT
+	// (HTTP 401/403, including Apple {"reason":"BadJwtToken"}).
+	// The subscription stays active. The same subscription is not contacted
+	// again for the rest of the Vietnam civil day, so a 30-minute job tick
+	// does not repeat a request that cannot succeed with the same keys.
+	ErrVAPIDAuthFailed = errors.New("push vapid auth failed")
 )
 
 // Default asset paths served by the Next.js public/ folder.
@@ -77,6 +86,11 @@ type NotificationPayload struct {
 type PushSender struct {
 	cfg  *config.Config
 	repo *repository.GormPushSubscriptionRepository
+
+	// vapidAuthFail records subscriptions that already got HTTP 401/403 today
+	// (Vietnam civil date). A later send in this process skips the network.
+	vapidMu       sync.Mutex
+	vapidAuthFail map[string]struct{}
 }
 
 // NewPushSender constructs a sender. Returns a usable instance even when VAPID
@@ -119,6 +133,8 @@ func (s *PushSender) SendToUser(
 
 // SendToSubscription encrypts and POSTs a notification to one endpoint.
 // On 404/410 (expired / unsubscribed), the row is deleted automatically.
+// HTTP 401/403 (VAPID / BadJwtToken) leaves the row active and is not sent
+// again for that subscription on the same Vietnam civil day.
 func (s *PushSender) SendToSubscription(
 	ctx context.Context,
 	subscription *domain.PushSubscription,
@@ -141,6 +157,16 @@ func (s *PushSender) SendToSubscription(
 		return fmt.Errorf("marshal push payload: %w", err)
 	}
 
+	day := streaktime.TodayString()
+	if s.vapidAuthBlocked(subscription, day) {
+		slog.Warn("push: skip send — vapid auth already failed today",
+			"user_id", subscription.UserID.String(),
+			"subscription_id", subscription.ID.String(),
+			"endpoint_domain", endpointDomain(subscription.Endpoint),
+		)
+		return fmt.Errorf("%w: %w", ErrSendFailed, ErrVAPIDAuthFailed)
+	}
+
 	wpSub := &webpush.Subscription{
 		Endpoint: subscription.Endpoint,
 		Keys: webpush.Keys{
@@ -151,7 +177,7 @@ func (s *PushSender) SendToSubscription(
 
 	ttl := TTLForPayload(normalized)
 	opts := &webpush.Options{
-		Subscriber:      s.cfg.VAPID.Subject,
+		Subscriber:      vapidSubscriber(s.cfg.VAPID.Subject),
 		VAPIDPublicKey:  s.cfg.VAPID.PublicKey,
 		VAPIDPrivateKey: s.cfg.VAPID.PrivateKey,
 		TTL:             ttl,
@@ -164,16 +190,17 @@ func (s *PushSender) SendToSubscription(
 			"kind", kind,
 			"user_id", subscription.UserID.String(),
 			"subscription_id", subscription.ID.String(),
-			"endpoint_suffix", endpointSuffix(subscription.Endpoint),
+			"endpoint_domain", endpointDomain(subscription.Endpoint),
 			"ttl", ttl,
-			"err", err,
+			"err", redactEndpoint(err.Error(), subscription.Endpoint),
 		)
-		return fmt.Errorf("%w: %s: %v", ErrSendFailed, kind, err)
+		return fmt.Errorf("%w: %s: %s", ErrSendFailed, kind, redactEndpoint(err.Error(), subscription.Endpoint))
 	}
 	defer resp.Body.Close()
 
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 	kind := classifyHTTPStatus(resp.StatusCode)
+	domain := endpointDomain(subscription.Endpoint)
 
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
@@ -194,15 +221,30 @@ func (s *PushSender) SendToSubscription(
 			"user_id", subscription.UserID.String(),
 			"subscription_id", subscription.ID.String(),
 			"status", resp.StatusCode,
-			"endpoint_suffix", endpointSuffix(subscription.Endpoint),
+			"endpoint_domain", domain,
 		)
 		if delErr := s.repo.DeleteByEndpoint(ctx, subscription.Endpoint); delErr != nil {
 			slog.Error("push: failed to delete stale subscription",
-				"endpoint_suffix", endpointSuffix(subscription.Endpoint),
+				"endpoint_domain", domain,
 				"err", delErr,
 			)
 		}
 		return fmt.Errorf("%w: %w (HTTP %d)", ErrSendFailed, ErrSubscriptionExpired, resp.StatusCode)
+
+	case resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden:
+		// Apple BadJwtToken is HTTP 403. Do not delete or disable the row —
+		// only 404 and 410 mean the subscription is gone. Remember the failure
+		// so this process does not POST the same subscription again today.
+		s.rememberVAPIDAuthFailure(subscription, day)
+		slog.Error("push: delivery rejected",
+			"kind", kind,
+			"user_id", subscription.UserID.String(),
+			"subscription_id", subscription.ID.String(),
+			"status", resp.StatusCode,
+			"reason", pushRejectReason(respBody),
+			"endpoint_domain", domain,
+		)
+		return fmt.Errorf("%w: %w (HTTP %d)", ErrSendFailed, ErrVAPIDAuthFailed, resp.StatusCode)
 
 	default:
 		slog.Error("push: delivery rejected",
@@ -210,11 +252,61 @@ func (s *PushSender) SendToSubscription(
 			"user_id", subscription.UserID.String(),
 			"subscription_id", subscription.ID.String(),
 			"status", resp.StatusCode,
-			"body", string(respBody),
-			"endpoint_suffix", endpointSuffix(subscription.Endpoint),
+			"reason", pushRejectReason(respBody),
+			"endpoint_domain", domain,
 		)
 		return fmt.Errorf("%w: %s (HTTP %d)", ErrSendFailed, kind, resp.StatusCode)
 	}
+}
+
+// vapidSubscriber is the contact passed to webpush-go as Options.Subscriber.
+// v1.4.0 prepends "mailto:" unless the value starts with "https:", so a
+// subject that already includes "mailto:" would be signed as "mailto:mailto:…"
+// and Apple rejects that JWT with HTTP 403 BadJwtToken.
+func vapidSubscriber(subject string) string {
+	subject = strings.TrimSpace(subject)
+	if strings.HasPrefix(subject, "https:") {
+		return subject
+	}
+	const prefix = "mailto:"
+	if len(subject) >= len(prefix) && strings.EqualFold(subject[:len(prefix)], prefix) {
+		return strings.TrimSpace(subject[len(prefix):])
+	}
+	return subject
+}
+
+func vapidAuthIdentity(sub *domain.PushSubscription) string {
+	if sub == nil {
+		return ""
+	}
+	if sub.ID != uuid.Nil {
+		return "id:" + sub.ID.String()
+	}
+	return "ep:" + sub.Endpoint
+}
+
+func (s *PushSender) vapidAuthBlocked(sub *domain.PushSubscription, day string) bool {
+	if s == nil || sub == nil || day == "" {
+		return false
+	}
+	key := day + "\n" + vapidAuthIdentity(sub)
+	s.vapidMu.Lock()
+	defer s.vapidMu.Unlock()
+	_, ok := s.vapidAuthFail[key]
+	return ok
+}
+
+func (s *PushSender) rememberVAPIDAuthFailure(sub *domain.PushSubscription, day string) {
+	if s == nil || sub == nil || day == "" {
+		return
+	}
+	key := day + "\n" + vapidAuthIdentity(sub)
+	s.vapidMu.Lock()
+	defer s.vapidMu.Unlock()
+	if s.vapidAuthFail == nil {
+		s.vapidAuthFail = make(map[string]struct{})
+	}
+	s.vapidAuthFail[key] = struct{}{}
 }
 
 // classifyHTTPStatus maps push-service status codes to stable log labels.
@@ -318,9 +410,49 @@ func normalizePayload(p NotificationPayload) (NotificationPayload, error) {
 	return p, nil
 }
 
-func endpointSuffix(endpoint string) string {
-	if len(endpoint) <= 48 {
-		return endpoint
+// endpointDomain is the only endpoint detail written to logs.
+// The path of a push URL is a device token and must not be logged.
+func endpointDomain(endpoint string) string {
+	u, err := url.Parse(strings.TrimSpace(endpoint))
+	if err != nil || u.Hostname() == "" {
+		return "unknown"
 	}
-	return "…" + endpoint[len(endpoint)-48:]
+	return u.Hostname()
+}
+
+// redactEndpoint replaces a full push URL in an error string with its host.
+func redactEndpoint(msg, endpoint string) string {
+	endpoint = strings.TrimSpace(endpoint)
+	if msg == "" || endpoint == "" {
+		return msg
+	}
+	host := endpointDomain(endpoint)
+	if host == "" || host == "unknown" {
+		return msg
+	}
+	return strings.ReplaceAll(msg, endpoint, host)
+}
+
+// pushRejectReason returns a short provider reason such as BadJwtToken.
+// Anything that is not a single token is dropped so a body that echoes a
+// JWT, key, or endpoint is never logged.
+func pushRejectReason(body []byte) string {
+	var parsed struct {
+		Reason string `json:"reason"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return ""
+	}
+	reason := strings.TrimSpace(parsed.Reason)
+	if reason == "" || len(reason) > 64 {
+		return ""
+	}
+	for _, r := range reason {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_':
+		default:
+			return ""
+		}
+	}
+	return reason
 }
