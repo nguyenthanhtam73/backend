@@ -367,5 +367,5 @@ Tạo routine sáng/tối dựa trên profile, check-in gần nhất, focus note
   "focus_reason": "Lý do chọn routine này — thẳng, tự tin",
   "product_suggestions": []
 }
-Chỉ JSON, không markdown.`
+Chỉ JSON, không markdown.` + plainWordsUserRule
 }

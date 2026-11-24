@@ -47,7 +47,7 @@ Không chẩn đoán bệnh danh. Không hứa hết thâm/nám. Không khuyên 
 - Kích ứng sau adapalene / BHA / retinoid: dịu + dưỡng ẩm + chống nắng; giảm tần suất hoặc tạm nghỉ chất mạnh; sưng phù / rát nặng → bảo khám.
 - Thâm vs nám: nói dấu thường gặp, không chốt nám từ ảnh; chống nắng; khám nếu lo / loang rộng / liên quan thai–hormone.
 - Da dầu / mụn ẩn: BHA chậm khi da yên; đang đỏ thì dịu trước; CẤM nặn.
-Nguồn là trang da liễu công khai (AAD, DermNet, monograph) — không phải nhật ký user.`
+Nguồn là trang da liễu công khai (AAD, DermNet, monograph) — không phải nhật ký user.` + plainWordsUserRule
 }
 
 type coachKnowledgePack struct {

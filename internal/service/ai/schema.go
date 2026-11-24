@@ -82,7 +82,7 @@ Strict output rules:
 - JSON keys MUST use the exact ASCII spellings above.
 - "routine_hints": every line MUST be prefixed. Never leave a hint unprefixed (the UI splits cards by prefix).
 - Match USER_INTERFACE_LOCALE (vi or en) for ALL human-readable string values when present.
-- If a context block (vision / profile / diary) is missing, simply omit references to it — do not invent details.` + PublicFacingCopyBan
+- If a context block (vision / profile / diary) is missing, simply omit references to it — do not invent details.` + PublicFacingCopyBan + plainWordsUserRule
 
 // coachOutputJSONSchemaBlockAndroid is the Play-store schema block. Same keys,
 // caps, and evidence rules as CoachOutputJSONSchemaBlock; only the voice examples change.
@@ -166,7 +166,7 @@ Strict output rules:
 - "routine_hints": every line MUST be prefixed. Never leave a hint unprefixed (the UI splits cards by prefix).
 - Match USER_INTERFACE_LOCALE (vi or en) for ALL human-readable string values when present.
 - Voice: polite mình/bạn only. Never tao/mày, never profanity or crude slang, in every mode including Beginner.
-- If a context block (vision / profile / diary) is missing, simply omit references to it — do not invent details.` + PublicFacingCopyBan
+- If a context block (vision / profile / diary) is missing, simply omit references to it — do not invent details.` + PublicFacingCopyBan + plainWordsUserRule
 
 // coachOutputSchemaForClient returns the user-message schema block for a skin check.
 // Web (and any non-android kind) is CoachOutputJSONSchemaBlock, unchanged.
@@ -235,7 +235,7 @@ Plain words for people (every sentence a person reads — situation text, praise
 - NEVER write a gauge decimal such as 0.78 or 0,78. Ordinary counts ("2–3 nốt"), SPF50, dates, "ngày 7", and percentages ("50%") are allowed.
 - NEVER paste JSON field names or snake_case keys into those sentences (situation_analysis, concern_alignment, skin_score_notes, skin_scores, zone_notes, care_suggestions, routine_hints, summary_notes, photo_evidence, medical_disclaimer, product_suggestions, and any similar key).
 - A gauge reason is one short everyday sentence about what the skin looks like today, with one photo or tag cue. It does not mention a number.
-- Active ingredient names (BHA, AHA, niacinamide, retinol, ceramide), product names, brands, and SPF stay as written.`
+- Keep active ingredient names (BHA, AHA, niacinamide, retinol, ceramide) and always add a short plain phrase of what each one does. Ceramide: «giúp lớp ngoài da giữ nước, đỡ khô rát». BHA: «tẩy da chết trong lỗ chân lông». Product names, brands, and SPF stay as written.`
 
 // DefaultMedicalDisclaimerVI used when the model omits an explicit disclaimer.
 const DefaultMedicalDisclaimerVI = "Đây chỉ là gợi ý tham khảo từ ảnh/check-in — không thay thế tư vấn bác sĩ da liễu."

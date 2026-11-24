@@ -93,7 +93,7 @@
     "concerns": ["acne", "breakout", "clogged_pores", "oily", "large_pores"],
     "phases": ["can_add_active"],
     "active_kind": "bha",
-    "reason_template": "1 hoạt chất BHA khi da ổn định — nhắm {concern}, không stack thêm acid khác.",
+    "reason_template": "Khi da đang ổn, một bước làm sạch lỗ chân lông — nhắm {concern}, không thêm chất trị mụn khác cùng lúc.",
     "price_range": "314k-390k",
     "affiliate_link": "https://s.shopee.vn/9KfK5f8jH1"
   },
@@ -121,7 +121,7 @@
     "concerns": ["acne", "breakout", "clogged_pores", "large_pores", "oily", "dull"],
     "phases": ["can_add_active"],
     "active_kind": "other",
-    "reason_template": "Serum hỗ trợ dầu/{concern} — chỉ thêm khi phase can_add_active, không stack BHA cùng lúc.",
+    "reason_template": "Serum hỗ trợ da dầu và {concern} — chỉ thêm khi da đang ổn, không dùng cùng chất làm sạch lỗ chân lông.",
     "price_range": "186k-395k",
     "affiliate_link": "https://s.shopee.vn/5VSbWhy8zA"
   },
@@ -219,7 +219,7 @@
     "concerns": ["weak_barrier", "irritated", "redness", "sensitive", "stinging", "acne"],
     "phases": ["calm_first", "can_add_active"],
     "active_kind": "none",
-    "reason_template": "Kem phục hồi barrier — ưu tiên khi da đang đỏ / {concern}.",
+    "reason_template": "Kem giúp da đỡ khô rát — ưu tiên khi da đang đỏ / {concern}.",
     "price_range": "384k",
     "affiliate_link": "https://s.shopee.vn/7VDg438uB9"
   },

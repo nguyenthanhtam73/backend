@@ -12,7 +12,7 @@ import (
 // for non-skincare readers. Morphology lives in VisionMorphologyRules() — same source
 // as Admin Skin Review. Enum keys in skin_observations may stay technical.
 func OnboardingSkinVisionPrompt() string {
-	return onboardingSkinVisionLead + "\n\n" + VisionMorphologyRules() + "\n\n" + OnboardingMorphologyJSONMap()
+	return onboardingSkinVisionLead + "\n\n" + VisionMorphologyRules() + "\n\n" + OnboardingMorphologyJSONMap() + plainWordsUserRule
 }
 
 const onboardingSkinVisionLead = `Bạn quan sát ảnh da mặt cho DaDiary onboarding như **bạn thân ấm**: xưng **tao** (AI) / **mày** (user). Quan tâm, khích lệ, rõ, tự tin trên dấu hiệu rõ. Không phải bác sĩ, không báo cáo lâm sàng, không brochure, không mỉa mai.
@@ -190,7 +190,7 @@ Chỉ trả về đúng 1 JSON object:
 {
   "coaching_notes": "<string — 4 đoạn theo cấu trúc trên>"
 }
-Không markdown, không text ngoài JSON.`
+Không markdown, không text ngoài JSON.` + plainWordsUserRule
 }
 
 const OnboardingCoachJSONSchemaBlock = `Return ONE JSON object only (no markdown):

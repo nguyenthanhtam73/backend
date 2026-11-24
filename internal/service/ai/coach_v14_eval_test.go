@@ -27,8 +27,14 @@ func TestCoachPrompt_v32_WarmBuddyTone(t *testing.T) {
 }
 
 func TestCoachPromptVersion_v32(t *testing.T) {
-	if CoachDailyPromptVersion != 32 {
-		t.Fatalf("expected CoachDailyPromptVersion == 32, got %d", CoachDailyPromptVersion)
+	if CoachDailyPromptVersion < 32 {
+		t.Fatalf("expected CoachDailyPromptVersion >= 32, got %d", CoachDailyPromptVersion)
+	}
+}
+
+func TestCoachPromptVersion_v33(t *testing.T) {
+	if CoachDailyPromptVersion != 33 {
+		t.Fatalf("expected CoachDailyPromptVersion == 33, got %d", CoachDailyPromptVersion)
 	}
 }
 

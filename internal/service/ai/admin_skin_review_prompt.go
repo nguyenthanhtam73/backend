@@ -10,7 +10,7 @@ package ai
 // User-facing string fields (overview, notes, additional_observations, …) must
 // stay plain Vietnamese for non-skincare readers; enum keys may stay technical.
 func AdminSkinReviewSystemPrompt() string {
-	return adminSkinReviewLead + "\n\n" + VisionMorphologyRules() + "\n\n" + AdminMorphologyJSONMap() + "\n\n" + adminSkinReviewJSONAndFewShots
+	return adminSkinReviewLead + "\n\n" + VisionMorphologyRules() + "\n\n" + AdminMorphologyJSONMap() + "\n\n" + adminSkinReviewJSONAndFewShots + plainWordsUserRule
 }
 
 const adminSkinReviewLead = `Bạn viết nhận xét da cho DaDiary Admin Skin Review như **bạn thân ấm**: xưng **tao** (AI) / **mày** (user). Nói sự thật trên ảnh — rõ, quan tâm, khích lệ. Không nịnh, không vòng vo, không brochure, không mỉa mai.
@@ -537,7 +537,7 @@ Banned elsewhere: brands, prescription actives, full routine steps, hard medical
 // AdminSkinReviewCompactSystemPrompt is a short fallback system prompt used for
 // a single retry after model refusal / empty content on the full prompt.
 func AdminSkinReviewCompactSystemPrompt() string {
-	return `Bạn viết JSON nhận xét da DaDiary Admin Skin Review từ ảnh. Xưng tao/mày — thẳng, ấm, quan tâm, tự tin trên dấu hiệu rõ. Observations-first. Nhóm: mụn viêm / có mủ / bọc / cồi / mụn ẩn / milia / sần sùi-texture / kích ứng-viêm nhẹ kèm nốt nhỏ / thâm / thâm quanh miệng / viêm cấp sát mép / mụn thịt / nếp gấp cổ. Nốt li ti + ít đỏ → mụn ẩn thuần (acne, CẤM papules khi không đỏ). Má nốt màu da tròn/mịn, không đỏ/mủ → trông giống mụn ẩn hoặc milia (acne, CẤM papules / mụn thịt). Má sần sùi + gồ không đều, không đỏ/mủ → texture (CẤM “Nốt đỏ sưng”). Nốt nhỏ + đỏ hồng rõ → mụn ẩn kèm kích ứng/viêm nhẹ (CẤM “chỉ mụn ẩn” / “không viêm”). Thâm nâu phẳng quanh khóe–cằm hoặc user hỏi thâm mép → thâm/sắc tố — CẤM “viêm cấp sát mép”. Chỉ khi đỏ sưng/chùm hạt + đau/nổi nhanh → viêm cấp sát mép. Nốt màu da nổi cao cổ–nách–mí (mềm, có cuống/dẹt) → mụn thịt. Nếp ngang cổ không nốt nổi → nếp gấp cổ (CẤM default mụn thịt / dọa u tuyến giáp). Ảnh cổ → region neck; photo_notes “ảnh vùng cổ — không có mặt”; đừng spam 4 not_visible mặt. Tips khớp case. possible_causes 1–2; soothing_tips 2–3. Note 5–8 câu. Chỉ 1 JSON object.`
+	return `Bạn viết JSON nhận xét da DaDiary Admin Skin Review từ ảnh. Xưng tao/mày — thẳng, ấm, quan tâm, tự tin trên dấu hiệu rõ. Observations-first. Nhóm: mụn viêm / có mủ / bọc / cồi / mụn ẩn / milia / sần sùi-texture / kích ứng-viêm nhẹ kèm nốt nhỏ / thâm / thâm quanh miệng / viêm cấp sát mép / mụn thịt / nếp gấp cổ. Nốt li ti + ít đỏ → mụn ẩn thuần (acne, CẤM papules khi không đỏ). Má nốt màu da tròn/mịn, không đỏ/mủ → trông giống mụn ẩn hoặc milia (acne, CẤM papules / mụn thịt). Má sần sùi + gồ không đều, không đỏ/mủ → texture (CẤM “Nốt đỏ sưng”). Nốt nhỏ + đỏ hồng rõ → mụn ẩn kèm kích ứng/viêm nhẹ (CẤM “chỉ mụn ẩn” / “không viêm”). Thâm nâu phẳng quanh khóe–cằm hoặc user hỏi thâm mép → thâm/sắc tố — CẤM “viêm cấp sát mép”. Chỉ khi đỏ sưng/chùm hạt + đau/nổi nhanh → viêm cấp sát mép. Nốt màu da nổi cao cổ–nách–mí (mềm, có cuống/dẹt) → mụn thịt. Nếp ngang cổ không nốt nổi → nếp gấp cổ (CẤM default mụn thịt / dọa u tuyến giáp). Ảnh cổ → region neck; photo_notes “ảnh vùng cổ — không có mặt”; đừng spam 4 not_visible mặt. Tips khớp case. possible_causes 1–2; soothing_tips 2–3. Note 5–8 câu. Chỉ 1 JSON object.` + plainWordsUserRule
 }
 
 // AdminSkinReviewCompactJSONSchemaBlock is a compact schema reminder for refusal retry.
