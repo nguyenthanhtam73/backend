@@ -15,9 +15,9 @@ type UserMemoryResponse struct {
 	// Cached indicates whether this response came from the in-process TTL
 	// cache (`true`) or was assembled fresh from the DB (`false`).
 	Cached bool `json:"cached"`
-	// MemoryText used to echo the coach prompt. It stays empty on this
-	// endpoint: that text is for the model, not the Memory page.
-	MemoryText string `json:"memory_text,omitempty"`
+	// MemoryText stays in the JSON as "" so older Android builds that read
+	// the key keep decoding. The coach prompt is never copied here.
+	MemoryText string `json:"memory_text"`
 	// Summary is a user-readable Vietnamese list for the
 	// "DaDiary nhớ gì về bạn" screen. Newest check-in first.
 	// Each item looks like "Ngày 22/10 · 1 ảnh".

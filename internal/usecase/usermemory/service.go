@@ -121,10 +121,14 @@ func assembleUserMemoryResponse(userID uuid.UUID, promptText string, cached bool
 	if summary == nil {
 		summary = []string{}
 	}
+	if stats.SectionsPresent == nil {
+		stats.SectionsPresent = []string{}
+	}
 	return dto.UserMemoryResponse{
 		UserID:      userID.String(),
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Cached:      cached,
+		MemoryText:  "",
 		Summary:     summary,
 		Stats:       stats,
 	}

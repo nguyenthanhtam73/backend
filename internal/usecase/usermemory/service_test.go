@@ -28,9 +28,16 @@ func TestGet_FreshUserEmptySummary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertNoPromptMarkers(t, string(raw))
-	if strings.Contains(string(raw), "memory_text") {
-		t.Fatalf("memory_text key present: %s", raw)
+	body := string(raw)
+	assertNoPromptMarkers(t, body)
+	if !strings.Contains(body, `"memory_text":""`) {
+		t.Fatalf("memory_text %s", body)
+	}
+	if !strings.Contains(body, `"summary":[]`) {
+		t.Fatalf("summary %s", body)
+	}
+	if !strings.Contains(body, `"sections_present":[]`) {
+		t.Fatalf("sections_present %s", body)
 	}
 }
 
@@ -57,6 +64,9 @@ func TestAssemble_SavedMemoryOmitsPrompt(t *testing.T) {
 	body := string(raw)
 	if !strings.Contains(body, "Ngày 22/10 · 1 ảnh") {
 		t.Fatalf("summary missing: %s", body)
+	}
+	if !strings.Contains(body, `"memory_text":""`) {
+		t.Fatalf("memory_text %s", body)
 	}
 	assertNoPromptMarkers(t, body)
 }
