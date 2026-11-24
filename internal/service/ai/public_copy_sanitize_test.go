@@ -38,7 +38,12 @@ func TestSanitizePublicCopy_StripsTechnicalTokens(t *testing.T) {
 		{"Retinol 0.025 hoặc 0.05", "Retinol 0.025 hoặc 0.05"},
 		{"Gel 0.5g", "Gel 0.5g"},
 		{"Bôi 1,0 lớp", "Bôi 1,0 lớp"},
-		{"hydration: 0.78 vì da khô", "hydration: vì da khô"},
+		{"hydration: 0.78 vì da khô", "Da khô"},
+		{"Hydration: 0.78 vì da khô", "Da khô"},
+		{"overall: 0.78", ""},
+		{"Retinol: 0.025", "Retinol: 0.025"},
+		{"Vitamin C: 0.025", "Vitamin C: 0.025"},
+		{"BHA: 0.5", "BHA: 0.5"},
 	}
 	for _, tc := range cases {
 		got := SanitizePublicCopy(tc.in)
@@ -110,8 +115,14 @@ func TestCoachProseLeakDetectors(t *testing.T) {
 	if !CoachProseHasScoreLeak("score 0.78 vì da khỏe") {
 		t.Fatal("score sentence")
 	}
-	if !CoachProseHasScoreLeak("da 0,78") {
-		t.Fatal("comma decimal")
+	if !CoachProseHasScoreLeak("hydration: 0,78 vì da khô") {
+		t.Fatal("gauge label decimal")
+	}
+	if CoachProseHasScoreLeak("Lấy 0,5 ml serum") || CoachProseHasScoreLeak("Retinol 0.025 hoặc 0.05") || CoachProseHasScoreLeak("BHA 0.5–2%") || CoachProseHasScoreLeak("Retinol: 0.025") {
+		t.Fatal("dose, range, or ingredient strength counted as a score leak")
+	}
+	if CoachProseHasScoreLeak("da 0,78") {
+		t.Fatal("bare decimal without a gauge label is not a leak")
 	}
 	if CoachProseHasScoreLeak("Có 2–3 nốt, SPF50, ngày 7, tăng 50%") {
 		t.Fatal("ordinary numbers flagged")

@@ -21,10 +21,6 @@ func init() {
 // a longer word like "scored".
 var scoreLeakPattern = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])scores?(?:[^A-Za-z0-9]|$)`)
 
-// gaugeDecimalPattern matches a 0.xx / 0,xx gauge. The caller skips a match
-// that is a percentage ("0.5%").
-var gaugeDecimalPattern = regexp.MustCompile(`(?:^|[^0-9])0[.,][0-9]+`)
-
 var snakeFieldPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+$`)
 
 // SanitizePublicCopy strips technical tokens from one sentence a person reads.
@@ -43,26 +39,14 @@ func SanitizePublicCopy(s string) string {
 	kept := false
 	changed := false
 	for i, tok := range toks {
+		if drop[i] || tok.kind == "snake" || tok.kind == "score" {
+			changed = true
+			if !kept {
+				droppedPrefix = true
+			}
+			continue
+		}
 		switch tok.kind {
-		case "snake", "score":
-			changed = true
-			if !kept {
-				droppedPrefix = true
-			}
-		case "decimal":
-			if !drop[i] {
-				text := tok.text
-				if !kept && droppedPrefix {
-					text = capitalizeSentenceStart(text)
-				}
-				b.WriteString(text)
-				kept = true
-				continue
-			}
-			changed = true
-			if !kept {
-				droppedPrefix = true
-			}
 		case "space":
 			b.WriteString(tok.text)
 		case "punct":
@@ -137,12 +121,22 @@ func SanitizePublicCoachOutput(out *CoachStructuredOutput) bool {
 }
 
 // CoachProseHasScoreLeak reports whether user-facing text contains the word
-// score or a gauge decimal. Percentages, counts, and SPF50 do not match.
+// score or a gauge decimal the filter would remove. Doses with a unit, ranges,
+// and ingredient strengths do not match.
 func CoachProseHasScoreLeak(s string) bool {
 	if scoreLeakPattern.MatchString(s) {
 		return true
 	}
-	return hasGaugeDecimal(s)
+	if strings.TrimSpace(s) == "" {
+		return false
+	}
+	toks := tokenizePublicCopy(s)
+	for _, leak := range decimalLeakFlags(toks) {
+		if leak {
+			return true
+		}
+	}
+	return false
 }
 
 // CoachProseHasTaoMay reports whether user-facing text contains the words
@@ -435,11 +429,62 @@ func decimalLeakFlags(toks []publicTok) []bool {
 		if decimalHasUnit(toks, i) || decimalInRange(toks, i) {
 			continue
 		}
-		if decimalNextToLeakLabel(toks, i) {
-			drop[i] = true
+		label, colon := labelBeforeDecimal(toks, i)
+		if label >= 0 && isIngredientLabel(toks, label) {
+			continue
+		}
+		if !decimalNextToLeakLabel(toks, i) {
+			continue
+		}
+		drop[i] = true
+		if label >= 0 && isGaugeKey(toks[label].text) {
+			drop[label] = true
+			if colon >= 0 {
+				drop[colon] = true
+			}
 		}
 	}
 	return drop
+}
+
+func labelBeforeDecimal(toks []publicTok, i int) (label, colon int) {
+	prev := prevContent(toks, i)
+	if prev < 0 || !isColon(toks[prev].text) {
+		return -1, -1
+	}
+	label = prevContent(toks, prev)
+	if label < 0 || toks[label].kind == "punct" || toks[label].kind == "space" || toks[label].kind == "decimal" {
+		return -1, -1
+	}
+	return label, prev
+}
+
+func isGaugeKey(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "overall", "hydration", "clarity", "barrier", "score", "scores":
+		return true
+	default:
+		return false
+	}
+}
+
+func isIngredientLabel(toks []publicTok, label int) bool {
+	key := strings.ToLower(strings.TrimSpace(toks[label].text))
+	if _, ok := ingredientNames[key]; ok {
+		return true
+	}
+	if key == "c" {
+		prev := prevContent(toks, label)
+		return prev >= 0 && strings.EqualFold(strings.TrimSpace(toks[prev].text), "vitamin")
+	}
+	return false
+}
+
+var ingredientNames = map[string]struct{}{
+	"retinol": {}, "retinoid": {}, "tretinoin": {}, "adapalene": {},
+	"bha": {}, "aha": {}, "pha": {}, "niacinamide": {}, "ceramide": {},
+	"ceramides": {}, "azelaic": {}, "benzoyl": {}, "salicylic": {},
+	"vitamin": {},
 }
 
 func decimalHasUnit(toks []publicTok, i int) bool {
@@ -551,18 +596,6 @@ func finishPublicCopy(s string) string {
 		return ""
 	}
 	return s
-}
-
-func hasGaugeDecimal(s string) bool {
-	idxs := gaugeDecimalPattern.FindAllStringIndex(s, -1)
-	for _, loc := range idxs {
-		rest := strings.TrimLeft(s[loc[1]:], " \t")
-		if strings.HasPrefix(rest, "%") {
-			continue
-		}
-		return true
-	}
-	return false
 }
 
 func jsonStringValues(blob string) []string {
