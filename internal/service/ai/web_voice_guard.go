@@ -1,20 +1,29 @@
 package ai
 
 import (
+	"encoding/json"
 	"strings"
 	"unicode"
-	"unicode/utf8"
+
+	"github.com/dadiary/backend/internal/dto"
+	"golang.org/x/text/unicode/norm"
 )
 
-// webProfanityDrop are vulgar tokens removed from web coach copy.
-// tao/mày stay. The Android sanitizer is a separate path and is not used here.
-var webProfanityDrop = map[string]struct{}{
-	"đm": {}, "dm": {}, "địt": {}, "đụ": {}, "đéo": {}, "đếch": {},
-	"vl": {}, "vcl": {}, "vkl": {}, "vãi": {}, "lồn": {}, "đệt": {}, "cc": {},
+func init() {
+	// Read path for stored coach JSON. Technical-number stripping stays in #82.
+	dto.CleanWebProfanity = SanitizeWebCoachText
 }
 
-// SanitizeWebCoachOutput drops swearing and technical numbers from web coach
-// text. It keeps tao/mày. Android checks do not use this function.
+// webProfanityDrop keys are folded (no diacritics, đ→d). tao/mày stay.
+// The Android sanitizer is a separate path and is not used here.
+var webProfanityDrop = map[string]struct{}{
+	"dm": {}, "dit": {}, "du": {}, "deo": {}, "dech": {},
+	"vl": {}, "vcl": {}, "vkl": {}, "vai": {}, "lon": {}, "det": {}, "cc": {},
+	"dcm": {}, "dmm": {}, "cmn": {}, "clgt": {},
+}
+
+// SanitizeWebCoachOutput drops swearing from web coach text. It keeps tao/mày
+// and does not touch numbers. Android checks do not use this function.
 func SanitizeWebCoachOutput(out *CoachStructuredOutput) bool {
 	if out == nil {
 		return false
@@ -36,6 +45,57 @@ func SanitizeWebCoachOutput(out *CoachStructuredOutput) bool {
 		out.CareSuggestions[i].Step = cleanWebField(out.CareSuggestions[i].Step, &changed)
 		out.CareSuggestions[i].Why = cleanWebField(out.CareSuggestions[i].Why, &changed)
 		out.CareSuggestions[i].SafetyNote = cleanWebField(out.CareSuggestions[i].SafetyNote, &changed)
+	}
+	for i := range out.ProductSuggestions {
+		item := &out.ProductSuggestions[i]
+		item.Reason = cleanWebField(item.Reason, &changed)
+		item.Step = cleanWebField(item.Step, &changed)
+		item.HowToUse = cleanWebField(item.HowToUse, &changed)
+		item.Caution = cleanWebField(item.Caution, &changed)
+		item.Benefits = cleanWebList(item.Benefits, &changed)
+	}
+	for i := range out.ProductGuidance {
+		item := &out.ProductGuidance[i]
+		item.Why = cleanWebField(item.Why, &changed)
+		item.Step = cleanWebField(item.Step, &changed)
+		item.HowToUse = cleanWebField(item.HowToUse, &changed)
+		item.Caution = cleanWebField(item.Caution, &changed)
+		item.Benefits = cleanWebList(item.Benefits, &changed)
+	}
+	out.ZoneNotesRaw = cleanWebZoneNotes(out.ZoneNotesRaw, &changed)
+	out.SkinScoreNotesRaw = cleanWebScoreNotes(out.SkinScoreNotesRaw, &changed)
+	return changed
+}
+
+// SanitizeWebStarterRoutine drops swearing from every sentence of an onboarding
+// starter routine, including product reasons and how-to text.
+func SanitizeWebStarterRoutine(out *StarterRoutine) bool {
+	if out == nil {
+		return false
+	}
+	changed := false
+	out.Morning = cleanWebList(out.Morning, &changed)
+	out.Evening = cleanWebList(out.Evening, &changed)
+	out.WeekNotes = cleanWebField(out.WeekNotes, &changed)
+	out.SafetyNotes = cleanWebField(out.SafetyNotes, &changed)
+	out.Encouragement = cleanWebField(out.Encouragement, &changed)
+	out.SkinReadback = cleanWebField(out.SkinReadback, &changed)
+	out.Rationale = cleanWebField(out.Rationale, &changed)
+	out.ClosingReminder = cleanWebField(out.ClosingReminder, &changed)
+	for i := range out.ProductSuggestions {
+		item := &out.ProductSuggestions[i]
+		item.Reason = cleanWebField(item.Reason, &changed)
+		item.Step = cleanWebField(item.Step, &changed)
+		item.HowToUse = cleanWebField(item.HowToUse, &changed)
+		item.Caution = cleanWebField(item.Caution, &changed)
+		item.Benefits = cleanWebList(item.Benefits, &changed)
+	}
+	for i := range out.ProductGuidance {
+		item := &out.ProductGuidance[i]
+		item.Why = cleanWebField(item.Why, &changed)
+		item.HowToUse = cleanWebField(item.HowToUse, &changed)
+		item.Caution = cleanWebField(item.Caution, &changed)
+		item.Benefits = cleanWebList(item.Benefits, &changed)
 	}
 	return changed
 }
@@ -75,12 +135,15 @@ func replaceWebVoiceTokens(s string) (string, bool) {
 		return s, false
 	}
 	parts := splitVoiceChunks(s)
+	protected := urlOrPathTokenRanges(s)
 	changed := false
 	droppedPrefix := false
 	kept := false
 	var b strings.Builder
-	for i := 0; i < len(parts); i++ {
-		part := parts[i]
+	offset := 0
+	for _, part := range parts {
+		start := offset
+		offset += len(part.text)
 		if !part.word {
 			if !kept && droppedPrefix && webLeadingPunct(part.text) {
 				changed = true
@@ -89,24 +152,17 @@ func replaceWebVoiceTokens(s string) (string, bool) {
 			b.WriteString(part.text)
 			continue
 		}
-		key := strings.ToLower(part.text)
-		if _, drop := webProfanityDrop[key]; drop || key == "score" || key == "scores" {
+		if spanCovers(protected, start, offset) {
+			b.WriteString(part.text)
+			kept = true
+			continue
+		}
+		key := foldProfanityKey(part.text)
+		if _, drop := webProfanityDrop[key]; drop {
 			changed = true
 			if !kept {
 				droppedPrefix = true
 			}
-			continue
-		}
-		if key == "0" && i+2 < len(parts) && webGaugeSep(parts[i+1].text) && webDigits(parts[i+2].text) && !webPercentAfter(parts, i+2) {
-			changed = true
-			if !kept {
-				droppedPrefix = true
-			}
-			i += 2
-			continue
-		}
-		if !kept && droppedPrefix && strings.EqualFold(key, "vì") {
-			changed = true
 			continue
 		}
 		text := part.text
@@ -142,36 +198,77 @@ func webLeadingPunct(s string) bool {
 	return true
 }
 
-func webGaugeSep(s string) bool {
-	return s == "." || s == ","
-}
-
-func webDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
-}
-
-func webPercentAfter(parts []voiceChunk, idx int) bool {
-	for j := idx + 1; j < len(parts); j++ {
-		text := strings.TrimSpace(parts[j].text)
-		if text == "" {
+func foldProfanityKey(s string) string {
+	s = strings.ToLower(s)
+	s = strings.ReplaceAll(s, "đ", "d")
+	var b strings.Builder
+	for _, r := range norm.NFD.String(s) {
+		if unicode.Is(unicode.Mn, r) {
 			continue
 		}
-		r, _ := utf8.DecodeRuneInString(text)
-		if r == '%' {
-			return true
-		}
-		if !parts[j].word && unicode.IsSpace(r) {
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func cleanWebZoneNotes(raw json.RawMessage, changed *bool) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return raw
+	}
+	var items []map[string]any
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return raw
+	}
+	dirty := false
+	for _, item := range items {
+		note, ok := item["note"].(string)
+		if !ok {
 			continue
 		}
-		return false
+		next := SanitizeWebCoachText(note)
+		if next != note {
+			dirty = true
+			item["note"] = next
+		}
 	}
-	return false
+	if !dirty {
+		return raw
+	}
+	*changed = true
+	b, err := json.Marshal(items)
+	if err != nil {
+		return raw
+	}
+	return b
+}
+
+func cleanWebScoreNotes(raw json.RawMessage, changed *bool) json.RawMessage {
+	if len(raw) == 0 || string(raw) == "null" {
+		return raw
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return raw
+	}
+	dirty := false
+	for _, key := range []string{"overall", "hydration", "clarity", "barrier"} {
+		note, ok := obj[key].(string)
+		if !ok {
+			continue
+		}
+		next := SanitizeWebCoachText(note)
+		if next != note {
+			dirty = true
+			obj[key] = next
+		}
+	}
+	if !dirty {
+		return raw
+	}
+	*changed = true
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return raw
+	}
+	return b
 }

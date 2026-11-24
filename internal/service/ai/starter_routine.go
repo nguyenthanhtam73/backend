@@ -145,6 +145,7 @@ func GenerateStarterRoutine(ctx context.Context, cfg *config.Config, onboardingJ
 	}
 	normalizeStarterRoutine(&out)
 	attachStarterCommerce(&out, onboardingJSON, locale, userMemory)
+	SanitizeWebStarterRoutine(&out)
 	return out, nil
 }
 

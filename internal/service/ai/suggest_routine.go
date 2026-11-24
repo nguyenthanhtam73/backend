@@ -113,6 +113,7 @@ func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
 			rich.Rationale = strings.TrimSpace(rich.FocusReason)
 		}
 		rich.ProductSuggestions = SanitizeProductSuggestions(rich.ProductSuggestions)
+		sanitizeSuggestedRoutine(&rich)
 		return rich, nil
 	}
 
@@ -134,7 +135,7 @@ func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
 	if strings.TrimSpace(rationale) == "" {
 		rationale = strings.TrimSpace(loose.FocusReason)
 	}
-	return SuggestedRoutine{
+	out := SuggestedRoutine{
 		Morning:            coerceSteps(loose.Morning),
 		Evening:            coerceSteps(loose.Evening),
 		Encouragement:      loose.Encouragement,
@@ -143,7 +144,41 @@ func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
 		SafetyNotes:        loose.SafetyNotes,
 		ClosingReminder:    loose.ClosingReminder,
 		ProductSuggestions: SanitizeProductSuggestions(loose.ProductSuggestions),
-	}, nil
+	}
+	sanitizeSuggestedRoutine(&out)
+	return out, nil
+}
+
+func sanitizeSuggestedRoutine(out *SuggestedRoutine) {
+	if out == nil {
+		return
+	}
+	out.Encouragement = SanitizeWebCoachText(out.Encouragement)
+	out.Rationale = SanitizeWebCoachText(out.Rationale)
+	out.FocusReason = SanitizeWebCoachText(out.FocusReason)
+	out.WeekNotes = SanitizeWebCoachText(out.WeekNotes)
+	out.SafetyNotes = SanitizeWebCoachText(out.SafetyNotes)
+	out.ClosingReminder = SanitizeWebCoachText(out.ClosingReminder)
+	for i := range out.Morning {
+		out.Morning[i].Title = SanitizeWebCoachText(out.Morning[i].Title)
+		out.Morning[i].Notes = SanitizeWebCoachText(out.Morning[i].Notes)
+	}
+	for i := range out.Evening {
+		out.Evening[i].Title = SanitizeWebCoachText(out.Evening[i].Title)
+		out.Evening[i].Notes = SanitizeWebCoachText(out.Evening[i].Notes)
+	}
+	for i := range out.ProductSuggestions {
+		item := &out.ProductSuggestions[i]
+		item.Reason = SanitizeWebCoachText(item.Reason)
+		item.HowToUse = SanitizeWebCoachText(item.HowToUse)
+		item.Caution = SanitizeWebCoachText(item.Caution)
+	}
+	for i := range out.ProductGuidance {
+		item := &out.ProductGuidance[i]
+		item.Why = SanitizeWebCoachText(item.Why)
+		item.HowToUse = SanitizeWebCoachText(item.HowToUse)
+		item.Caution = SanitizeWebCoachText(item.Caution)
+	}
 }
 
 // coerceSteps tolerates older "list of strings" replies and converts them
