@@ -542,6 +542,21 @@ func TestWebVI_ProdPhrases(t *testing.T) {
 	if patch.SafetyReminders[0] != "Thử trước ở một vùng nhỏ nha." {
 		t.Fatalf("patch trước %q", patch.SafetyReminders[0])
 	}
+	beforeUse := &CoachStructuredOutput{SafetyReminders: []string{"Nhớ patch-test trước khi dùng."}}
+	sanitizeWebCoachOutput(beforeUse, qa)
+	if beforeUse.SafetyReminders[0] != "Nhớ thử ở một vùng nhỏ trước khi dùng." {
+		t.Fatalf("trước khi %q", beforeUse.SafetyReminders[0])
+	}
+	neu := &CoachStructuredOutput{SituationAnalysis: "Nếu mày bảo là da rát thì dừng BHA nha."}
+	sanitizeWebCoachOutput(neu, qa)
+	if neu.SituationAnalysis != "Nếu mày bảo là da rát thì dừng BHA nha." {
+		t.Fatalf("nếu mày %q", neu.SituationAnalysis)
+	}
+	theo := &CoachStructuredOutput{ConcernAlignment: "Theo mày nói là da ổn."}
+	sanitizeWebCoachOutput(theo, qa)
+	if strings.TrimSpace(theo.ConcernAlignment) != "" {
+		t.Fatalf("theo mày stayed %q", theo.ConcernAlignment)
+	}
 	for _, keep := range []string{
 		"Ảnh hơi tối nên mụn chưa rõ ràng.",
 		"Chưa rõ ràng có mụn hay không.",

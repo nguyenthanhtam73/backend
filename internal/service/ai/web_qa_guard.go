@@ -201,6 +201,10 @@ func indexFakeNoteClaim(s string) int {
 				break
 			}
 			idx := from + rel
+			if previousWord(low, idx) == "nếu" {
+				from = idx + size
+				continue
+			}
 			rest := strings.TrimLeft(low[idx+size:], " \t")
 			if next, ok := skipWholeWord(rest, "có"); ok {
 				rest = next
@@ -229,6 +233,22 @@ func indexFakeNoteClaim(s string) int {
 		}
 	}
 	return best
+}
+
+func previousWord(s string, idx int) string {
+	head := strings.TrimRight(s[:idx], " \t")
+	if head == "" {
+		return ""
+	}
+	i := len(head)
+	for i > 0 {
+		r, n := utf8.DecodeLastRuneInString(head[:i])
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			break
+		}
+		i -= n
+	}
+	return head[i:]
 }
 
 func skipWholeWord(s, word string) (string, bool) {
@@ -1029,7 +1049,6 @@ func dropExtraPatchTruoc(s string) string {
 			return b.String()
 		}
 		end := i + len(phrase)
-		b.WriteString(s[:end])
 		rest := s[end:]
 		lowRest := low[end:]
 		spaces := 0
@@ -1038,16 +1057,40 @@ func dropExtraPatchTruoc(s string) string {
 		}
 		word := lowRest[spaces:]
 		next, ok := skipWholeWord(word, "trước")
-		followedByO := strings.HasPrefix(strings.TrimLeft(next, " \t"), "ở")
+		afterTruoc := strings.TrimLeft(next, " \t")
+		_, followedByKhi := skipWholeWord(afterTruoc, "khi")
+		followedByO := strings.HasPrefix(afterTruoc, "ở")
+		if ok && followedByKhi {
+			b.WriteString(s[:i])
+			b.WriteString(dropInnerTruoc(s[i:end]))
+			s = rest
+			low = lowRest
+			continue
+		}
 		if ok && !followedByO {
+			b.WriteString(s[:end])
 			skipped := spaces + len("trước")
 			s = rest[skipped:]
 			low = lowRest[skipped:]
 			continue
 		}
+		b.WriteString(s[:end])
 		s = rest
 		low = lowRest
 	}
+}
+
+func dropInnerTruoc(phrase string) string {
+	low := strings.ToLower(phrase)
+	i := strings.Index(low, "trước")
+	if i < 0 {
+		return phrase
+	}
+	end := i + len("trước")
+	if end < len(phrase) && (phrase[end] == ' ' || phrase[end] == '\t') {
+		end++
+	}
+	return phrase[:i] + phrase[end:]
 }
 
 func atSentenceStart(s string, idx int) bool {
