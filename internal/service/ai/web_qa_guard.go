@@ -23,6 +23,7 @@ type webQA struct {
 	PhotoLimited       bool
 	WorseThanLast      bool
 	UserSaidHomQua     bool
+	Locale             string
 }
 
 func webQAForCheck(check *domain.SkinCheck, facts CheckInCoachFacts, visionStatus, visionRaw string, out *CoachStructuredOutput) webQA {
@@ -52,6 +53,7 @@ func webQAForCheck(check *domain.SkinCheck, facts CheckInCoachFacts, visionStatu
 		PhotoLimited:       limited,
 		WorseThanLast:      skinTrendWorse(facts, scoreOf(out)) && prevOK && !limited,
 		UserSaidHomQua:     strings.Contains(strings.ToLower(note), "hôm qua"),
+		Locale:             CheckLocale(check),
 	}
 }
 
@@ -184,6 +186,83 @@ func inventedNoteClaim(low string) bool {
 		}
 	}
 	return false
+}
+
+// indexFakeNoteClaim finds «mày/bạn (có|đã)? ghi|ghi chú|nói|bảo|kể là|rằng».
+// «bạn bè» does not match, and «mày nhớ ghi chú» does not either.
+func indexFakeNoteClaim(s string) int {
+	low := strings.ToLower(s)
+	best := -1
+	for _, who := range []string{"mày", "bạn"} {
+		from := 0
+		for {
+			rel, size := findPhrase(low[from:], who)
+			if rel < 0 {
+				break
+			}
+			idx := from + rel
+			if previousWord(low, idx) == "nếu" {
+				from = idx + size
+				continue
+			}
+			rest := strings.TrimLeft(low[idx+size:], " \t")
+			if next, ok := skipWholeWord(rest, "có"); ok {
+				rest = next
+			} else if next, ok := skipWholeWord(rest, "đã"); ok {
+				rest = next
+			}
+			for _, verb := range []string{"ghi chú", "ghi", "nói", "bảo", "kể"} {
+				next, ok := skipWholeWord(rest, verb)
+				if !ok {
+					continue
+				}
+				if _, ok := skipWholeWord(next, "là"); ok {
+					if best < 0 || idx < best {
+						best = idx
+					}
+					break
+				}
+				if _, ok := skipWholeWord(next, "rằng"); ok {
+					if best < 0 || idx < best {
+						best = idx
+					}
+					break
+				}
+			}
+			from = idx + size
+		}
+	}
+	return best
+}
+
+func previousWord(s string, idx int) string {
+	head := strings.TrimRight(s[:idx], " \t")
+	if head == "" {
+		return ""
+	}
+	i := len(head)
+	for i > 0 {
+		r, n := utf8.DecodeLastRuneInString(head[:i])
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			break
+		}
+		i -= n
+	}
+	return head[i:]
+}
+
+func skipWholeWord(s, word string) (string, bool) {
+	if !strings.HasPrefix(s, word) {
+		return s, false
+	}
+	after := s[len(word):]
+	if after != "" {
+		r, _ := utf8.DecodeRuneInString(after)
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return s, false
+		}
+	}
+	return strings.TrimLeft(after, " \t"), true
 }
 
 // stripInvalidComparison removes a whole sentence that compares the skin with
@@ -488,4 +567,541 @@ func dedupeReassurance(fields []polishField, allow bool) {
 			return
 		}
 	}
+}
+
+// applyWebVIPost is the Vietnamese web pass. English and Android never call it.
+func applyWebVIPost(out *CoachStructuredOutput, zones []polishZone, scores []polishScore, qa webQA) {
+	if out == nil {
+		return
+	}
+	rewrite := func(s string) string {
+		return viRewrite(s, false, qa)
+	}
+	hadSituation := strings.TrimSpace(out.SituationAnalysis) != ""
+	out.SituationAnalysis = rewrite(out.SituationAnalysis)
+	out.SummaryNotes = rewrite(out.SummaryNotes)
+	out.ConcernAlignment = rewrite(out.ConcernAlignment)
+	out.MedicalDisclaimer = rewrite(out.MedicalDisclaimer)
+	for i := range out.Strengths {
+		out.Strengths[i] = rewrite(out.Strengths[i])
+	}
+	for i := range out.RoutineHints {
+		out.RoutineHints[i] = rewrite(out.RoutineHints[i])
+	}
+	for i := range out.AvoidOrPatch {
+		out.AvoidOrPatch[i] = rewrite(out.AvoidOrPatch[i])
+	}
+	for i := range out.SafetyReminders {
+		out.SafetyReminders[i] = rewrite(out.SafetyReminders[i])
+	}
+	for i := range out.Improvements {
+		out.Improvements[i].Tip = rewrite(out.Improvements[i].Tip)
+		out.Improvements[i].Why = rewrite(out.Improvements[i].Why)
+	}
+	for i := range out.CareSuggestions {
+		out.CareSuggestions[i].Step = rewrite(out.CareSuggestions[i].Step)
+		out.CareSuggestions[i].Why = rewrite(out.CareSuggestions[i].Why)
+		out.CareSuggestions[i].SafetyNote = rewrite(out.CareSuggestions[i].SafetyNote)
+	}
+	for i := range zones {
+		zones[i].note = viRewrite(zones[i].note, zoneSevere(zones[i].severity), qa)
+	}
+	for i := range scores {
+		scores[i].val = rewrite(scores[i].val)
+	}
+	explained := false
+	out.ConcernAlignment = glossMiliaOnce(out.ConcernAlignment, &explained)
+	explained = false
+	for i := range zones {
+		zones[i].note = glossMiliaOnce(zones[i].note, &explained)
+	}
+	out.SituationAnalysis = insertCuaMay(out.SituationAnalysis, screenMayCount(out, zones, scores))
+	if hadSituation && strings.TrimSpace(out.SituationAnalysis) == "" {
+		out.SituationAnalysis = neutralMainSentence
+	}
+}
+
+func applyWebVIDetail(d *dto.SkinCoachDetail, qa webQA) {
+	if d == nil {
+		return
+	}
+	rewrite := func(s string) string {
+		return viRewrite(s, false, qa)
+	}
+	hadSituation := strings.TrimSpace(d.SituationSummary) != ""
+	d.SituationSummary = rewrite(d.SituationSummary)
+	d.SummaryNotes = rewrite(d.SummaryNotes)
+	d.ConcernAlignment = rewrite(d.ConcernAlignment)
+	d.MedicalDisclaimer = rewrite(d.MedicalDisclaimer)
+	d.PhotoLimitedNote = rewrite(d.PhotoLimitedNote)
+	d.Strengths = rewriteList(d.Strengths, rewrite)
+	d.RoutineHints = rewriteList(d.RoutineHints, rewrite)
+	d.AvoidOrPatch = rewriteList(d.AvoidOrPatch, rewrite)
+	d.SafetyReminders = rewriteList(d.SafetyReminders, rewrite)
+	for i := range d.Improvements {
+		d.Improvements[i].Tip = rewrite(d.Improvements[i].Tip)
+		d.Improvements[i].Why = rewrite(d.Improvements[i].Why)
+	}
+	for i := range d.CareSuggestions {
+		d.CareSuggestions[i].Step = rewrite(d.CareSuggestions[i].Step)
+		d.CareSuggestions[i].Why = rewrite(d.CareSuggestions[i].Why)
+		d.CareSuggestions[i].SafetyNote = rewrite(d.CareSuggestions[i].SafetyNote)
+	}
+	for i := range d.ZoneNotes {
+		d.ZoneNotes[i].Note = viRewrite(d.ZoneNotes[i].Note, zoneSevere(d.ZoneNotes[i].Severity), qa)
+	}
+	if d.SkinScoreNotes != nil {
+		n := d.SkinScoreNotes
+		n.Overall = rewrite(n.Overall)
+		n.Hydration = rewrite(n.Hydration)
+		n.Clarity = rewrite(n.Clarity)
+		n.Barrier = rewrite(n.Barrier)
+	}
+	explained := false
+	d.ConcernAlignment = glossMiliaOnce(d.ConcernAlignment, &explained)
+	explained = false
+	for i := range d.ZoneNotes {
+		d.ZoneNotes[i].Note = glossMiliaOnce(d.ZoneNotes[i].Note, &explained)
+	}
+	d.SituationSummary = insertCuaMay(d.SituationSummary, detailMayCount(d))
+	if hadSituation && strings.TrimSpace(d.SituationSummary) == "" {
+		d.SituationSummary = neutralMainSentence
+	}
+}
+
+func rewriteList(items []string, rewrite func(string) string) []string {
+	for i := range items {
+		items[i] = rewrite(items[i])
+	}
+	return items
+}
+
+func detailMayCount(d *dto.SkinCoachDetail) int {
+	n := countWord(d.SituationSummary, "mày")
+	n += countWord(d.ConcernAlignment, "mày")
+	n += countWord(d.MedicalDisclaimer, "mày")
+	for _, s := range d.RoutineHints {
+		n += countWord(s, "mày")
+	}
+	for _, s := range d.AvoidOrPatch {
+		n += countWord(s, "mày")
+	}
+	for _, s := range d.SafetyReminders {
+		n += countWord(s, "mày")
+	}
+	for _, item := range d.Improvements {
+		n += countWord(item.Tip, "mày") + countWord(item.Why, "mày")
+	}
+	for _, item := range d.CareSuggestions {
+		n += countWord(item.Step, "mày") + countWord(item.Why, "mày") + countWord(item.SafetyNote, "mày")
+	}
+	for _, z := range d.ZoneNotes {
+		n += countWord(z.Note, "mày")
+	}
+	if d.SkinScoreNotes != nil {
+		n += countWord(d.SkinScoreNotes.Overall, "mày")
+		n += countWord(d.SkinScoreNotes.Hydration, "mày")
+		n += countWord(d.SkinScoreNotes.Clarity, "mày")
+		n += countWord(d.SkinScoreNotes.Barrier, "mày")
+	}
+	return n
+}
+
+func viRewrite(s string, severe bool, qa webQA) string {
+	if qa.NoteKnown && !qa.HasUserNote {
+		s = stripVIInventedNote(s)
+	}
+	return dropFalseUnclear(softenAssertedGroup(plainPatchTest(s)), severe)
+}
+
+func stripVIInventedNote(s string) string {
+	parts := splitSentences(s)
+	kept := make([]string, 0, len(parts))
+	for _, sentence := range parts {
+		next, drop := trimFakeNoteClause(sentence)
+		if drop {
+			continue
+		}
+		kept = append(kept, next)
+	}
+	return strings.TrimSpace(strings.Join(kept, ""))
+}
+
+// trimFakeNoteClause removes a made-up user quote.
+// A leading clause that ends with «, và» or «, nhưng» is cut and the rest is
+// capitalized. Any other sentence that matches is dropped. «Bác sĩ nói là…» stays.
+func trimFakeNoteClause(sentence string) (string, bool) {
+	if strings.Contains(strings.ToLower(sentence), "bác sĩ nói là") {
+		return sentence, false
+	}
+	idx := indexFakeNoteClaim(sentence)
+	if idx < 0 {
+		return sentence, false
+	}
+	lead := len(sentence) - len(strings.TrimLeft(sentence, " \t"))
+	if idx == lead {
+		if next, ok := cutLeadingFakeClause(sentence, idx); ok {
+			if strings.TrimSpace(next) == "" {
+				return "", true
+			}
+			return next, false
+		}
+	}
+	return "", true
+}
+
+func cutLeadingFakeClause(sentence string, from int) (string, bool) {
+	rest := sentence[from:]
+	low := strings.ToLower(rest)
+	best, bestEnd := -1, 0
+	for _, conj := range []string{"và", "nhưng"} {
+		search := 0
+		for search < len(low) {
+			i := strings.Index(low[search:], ",")
+			if i < 0 {
+				break
+			}
+			i += search
+			afterComma := low[i+len(","):]
+			spaces := len(afterComma) - len(strings.TrimLeft(afterComma, " \t"))
+			word := strings.TrimLeft(afterComma, " \t")
+			next, ok := skipWholeWord(word, conj)
+			if ok {
+				end := i + len(",") + spaces + len(conj)
+				if best < 0 || i < best {
+					best, bestEnd = i, end
+				}
+				break
+			}
+			_ = next
+			search = i + 1
+		}
+	}
+	if best < 0 {
+		return "", false
+	}
+	after := strings.TrimLeft(rest[bestEnd:], " \t")
+	return sentence[:from] + capitalizeFirst(after), true
+}
+
+func zoneSevere(sev string) bool {
+	switch strings.ToLower(strings.TrimSpace(sev)) {
+	case "moderate", "pronounced":
+		return true
+	default:
+		return false
+	}
+}
+
+func screenMayCount(out *CoachStructuredOutput, zones []polishZone, scores []polishScore) int {
+	n := countWord(out.SituationAnalysis, "mày")
+	n += countWord(out.ConcernAlignment, "mày")
+	n += countWord(out.MedicalDisclaimer, "mày")
+	for _, s := range out.RoutineHints {
+		n += countWord(s, "mày")
+	}
+	for _, s := range out.AvoidOrPatch {
+		n += countWord(s, "mày")
+	}
+	for _, s := range out.SafetyReminders {
+		n += countWord(s, "mày")
+	}
+	for _, item := range out.Improvements {
+		n += countWord(item.Tip, "mày") + countWord(item.Why, "mày")
+	}
+	for _, item := range out.CareSuggestions {
+		n += countWord(item.Step, "mày") + countWord(item.Why, "mày") + countWord(item.SafetyNote, "mày")
+	}
+	for _, z := range zones {
+		n += countWord(z.note, "mày")
+	}
+	for _, sc := range scores {
+		n += countWord(sc.val, "mày")
+	}
+	return n
+}
+
+func countWord(s, word string) int {
+	n := 0
+	for {
+		idx, size := findPhrase(s, word)
+		if idx < 0 {
+			return n
+		}
+		n++
+		s = s[idx+size:]
+	}
+}
+
+func insertCuaMay(s string, screenMay int) string {
+	parts := splitSentences(s)
+	if len(parts) == 0 || screenMay >= 2 || countWord(parts[0], "mày") > 0 {
+		return s
+	}
+	first := parts[0]
+	if idx, size, ok := firstZoneName(first); ok {
+		if followingWordIs(first[idx+size:], "của") {
+			return s
+		}
+		parts[0] = first[:idx+size] + " của mày" + first[idx+size:]
+		return strings.Join(parts, "")
+	}
+	if idx, size := findPhrase(first, "da mặt"); idx >= 0 {
+		if followingWordIs(first[idx+size:], "của") {
+			return s
+		}
+		parts[0] = first[:idx+size] + " của mày" + first[idx+size:]
+		return strings.Join(parts, "")
+	}
+	idx, size := findPhrase(first, "hôm nay da")
+	if idx < 0 || followingWordIs(first[idx+size:], "của") {
+		return s
+	}
+	parts[0] = first[:idx+size] + " của mày" + first[idx+size:]
+	return strings.Join(parts, "")
+}
+
+func firstZoneName(s string) (int, int, bool) {
+	bestI, bestN := -1, 0
+	for _, name := range []string{
+		"hai bên má",
+		"vùng má trái", "vùng má phải",
+		"má trái", "má phải",
+		"quanh miệng", "vùng chữ t",
+		"vùng trán", "vùng mũi", "vùng cằm",
+		"trán", "mũi", "cằm", "má",
+	} {
+		idx, size := findPhrase(s, name)
+		if idx < 0 {
+			continue
+		}
+		if bestI < 0 || idx < bestI || (idx == bestI && size > bestN) {
+			bestI, bestN = idx, size
+		}
+	}
+	if bestI < 0 {
+		return 0, 0, false
+	}
+	return bestI, bestN, true
+}
+
+func followingWordIs(s, word string) bool {
+	s = strings.TrimLeft(s, " \t")
+	idx, size := findPhrase(s, word)
+	return idx == 0 && size > 0
+}
+
+func dropFalseUnclear(s string, severe bool) string {
+	parts := splitSentences(s)
+	changed := false
+	for i, sentence := range parts {
+		before, punct, ok := trailingUnclear(sentence)
+		if !ok {
+			continue
+		}
+		if !severe && !sentenceHasVisibleSign(strings.ToLower(before)) {
+			continue
+		}
+		parts[i] = before + punct
+		changed = true
+	}
+	if !changed {
+		return s
+	}
+	return strings.Join(parts, "")
+}
+
+func sentenceHasVisibleSign(low string) bool {
+	for _, sign := range []string{"mụn viêm", "ửng đỏ", "nốt", "đỏ", "sưng", "mụn", "thâm", "sần"} {
+		if strings.Contains(low, sign) {
+			return true
+		}
+	}
+	return false
+}
+
+// trailingUnclear matches only ", chưa rõ ràng" at the end of a sentence.
+// Mid-sentence, a sentence that starts with the phrase, or a phrase with no
+// comma stays as written. punct is the period or exclamation that was kept.
+func trailingUnclear(sentence string) (before, punct string, ok bool) {
+	trimmed := strings.TrimRight(sentence, " \t")
+	low := strings.ToLower(trimmed)
+	idx := strings.LastIndex(low, "chưa rõ ràng")
+	if idx < 0 {
+		return "", "", false
+	}
+	after := strings.TrimSpace(low[idx+len("chưa rõ ràng"):])
+	if after != "" && after != "." && after != "!" {
+		return "", "", false
+	}
+	head := strings.TrimRight(trimmed[:idx], " \t")
+	if !strings.HasSuffix(head, ",") {
+		return "", "", false
+	}
+	head = strings.TrimRight(strings.TrimSuffix(head, ","), " \t")
+	if after == "!" {
+		punct = "!"
+	} else if after == "." {
+		punct = "."
+	}
+	return head, punct, true
+}
+
+func softenAssertedGroup(s string) string {
+	type pair struct{ from string }
+	prefixes := []string{"đó là dấu hiệu của ", "đó là dấu hiệu ", "đó là "}
+	low := strings.ToLower(s)
+	for _, prefix := range prefixes {
+		from := 0
+		for {
+			idx := strings.Index(low[from:], prefix)
+			if idx < 0 {
+				break
+			}
+			idx += from
+			xStart := idx + len(prefix)
+			xEnd := xStart
+			for xEnd < len(s) {
+				r, n := utf8.DecodeRuneInString(s[xEnd:])
+				if r == ',' || r == '.' || r == '!' || r == '?' || r == ';' || r == '—' {
+					break
+				}
+				xEnd += n
+			}
+			x := strings.ToLower(s[xStart:xEnd])
+			if !strings.Contains(x, "mụn ẩn") && !strings.Contains(x, "milia") {
+				from = xEnd
+				continue
+			}
+			repl := "trông giống " + strings.TrimSpace(s[xStart:xEnd])
+			if strings.HasPrefix(prefix, "đó là dấu hiệu") {
+				repl = "trông giống dấu hiệu " + strings.TrimSpace(s[xStart:xEnd])
+			}
+			if atSentenceStart(s, idx) {
+				repl = capitalizeFirst(repl)
+			}
+			s = s[:idx] + repl + s[xEnd:]
+			low = strings.ToLower(s)
+			from = idx + len(repl)
+		}
+	}
+	return s
+}
+
+func glossMiliaOnce(s string, done *bool) string {
+	if done == nil || *done || strings.TrimSpace(s) == "" {
+		return s
+	}
+	idx, size := findPhrase(s, "milia")
+	if idx < 0 {
+		return s
+	}
+	*done = true
+	if alreadyExplained(s, idx, size, "hạt nhỏ trắng dưới da") || strings.Contains(strings.ToLower(s), "hạt nhỏ dưới da") {
+		return s
+	}
+	return s[:idx+size] + " (hạt nhỏ trắng dưới da)" + s[idx+size:]
+}
+
+func plainPatchTest(s string) string {
+	low := strings.ToLower(s)
+	for {
+		iPatch := indexFold(low, "patch-test")
+		iSpace := indexFold(low, "patch test")
+		idx, n := iPatch, len("patch-test")
+		if iPatch < 0 || (iSpace >= 0 && iSpace < iPatch) {
+			idx, n = iSpace, len("patch test")
+		}
+		if idx < 0 {
+			break
+		}
+		rest := s[idx+n:]
+		trimmed := strings.TrimLeft(rest, " ")
+		if strings.HasPrefix(strings.ToLower(trimmed), "(") {
+			end := strings.Index(trimmed, ")")
+			if end >= 0 {
+				inside := strings.TrimSpace(trimmed[1:end])
+				if r, _ := utf8.DecodeRuneInString(s[idx:]); unicode.IsUpper(r) {
+					inside = capitalizeFirst(inside)
+				}
+				gap := len(rest) - len(trimmed)
+				s = s[:idx] + inside + s[idx+n+gap+end+1:]
+				low = strings.ToLower(s)
+				continue
+			}
+		}
+		s = s[:idx] + matchVoiceCase(s[idx:idx+n], "thử trước ở một vùng nhỏ") + s[idx+n:]
+		low = strings.ToLower(s)
+	}
+	s = replaceFold(s, "thử trước ở một vùng nhỏ trước ở vùng nhỏ", "thử trước ở một vùng nhỏ")
+	s = dropExtraPatchTruoc(s)
+	return squeezeSpaces(s)
+}
+
+func dropExtraPatchTruoc(s string) string {
+	const phrase = "thử trước ở một vùng nhỏ"
+	var b strings.Builder
+	low := strings.ToLower(s)
+	for {
+		i := strings.Index(low, phrase)
+		if i < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		end := i + len(phrase)
+		rest := s[end:]
+		lowRest := low[end:]
+		spaces := 0
+		for spaces < len(lowRest) && (lowRest[spaces] == ' ' || lowRest[spaces] == '\t') {
+			spaces++
+		}
+		word := lowRest[spaces:]
+		next, ok := skipWholeWord(word, "trước")
+		afterTruoc := strings.TrimLeft(next, " \t")
+		_, followedByKhi := skipWholeWord(afterTruoc, "khi")
+		followedByO := strings.HasPrefix(afterTruoc, "ở")
+		if ok && followedByKhi {
+			b.WriteString(s[:i])
+			b.WriteString(dropInnerTruoc(s[i:end]))
+			s = rest
+			low = lowRest
+			continue
+		}
+		if ok && !followedByO {
+			b.WriteString(s[:end])
+			skipped := spaces + len("trước")
+			s = rest[skipped:]
+			low = lowRest[skipped:]
+			continue
+		}
+		b.WriteString(s[:end])
+		s = rest
+		low = lowRest
+	}
+}
+
+func dropInnerTruoc(phrase string) string {
+	low := strings.ToLower(phrase)
+	i := strings.Index(low, "trước")
+	if i < 0 {
+		return phrase
+	}
+	end := i + len("trước")
+	if end < len(phrase) && (phrase[end] == ' ' || phrase[end] == '\t') {
+		end++
+	}
+	return phrase[:i] + phrase[end:]
+}
+
+func atSentenceStart(s string, idx int) bool {
+	head := strings.TrimRight(strings.TrimLeft(s[:idx], " \t\"'«“”"), " \t")
+	if head == "" {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(head)
+	return r == '.' || r == '!' || r == '?' || r == '…'
+}
+
+func indexFold(low, phrase string) int {
+	return strings.Index(low, strings.ToLower(phrase))
 }
