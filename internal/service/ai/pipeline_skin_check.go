@@ -163,10 +163,8 @@ func runSkinCheckCoachAfterVision(
 	if check != nil {
 		clientKind = check.ClientKind
 	}
-	if IsAndroidCoachVoice(clientKind) && SanitizeAndroidCoachOutput(parsed) {
-		slog.Warn("skin-check: android voice safety net rewrote coach text", "check_id", check.ID)
-	} else if SanitizeWebCoachOutput(parsed) {
-		slog.Warn("skin-check: web voice guard rewrote coach text", "check_id", check.ID)
+	if applyCoachVoiceGuard(parsed, clientKind, skinTrendWorse(facts, parsed.Score)) {
+		slog.Warn("skin-check: voice guard rewrote coach text", "check_id", check.ID, "prompt_family", promptFamilyForCoachLog(clientKind))
 	}
 	if ApplyCheckInAdviceGuard(parsed, facts, clientKind) {
 		slog.Info("skin-check: advice guard rewrote coach text",
@@ -255,6 +253,24 @@ func PipelineModelVersion(visionModel, visionStatus, coachModel, coachProvider s
 		ver += "+android"
 	}
 	return ver
+}
+
+// applyCoachVoiceGuard runs one sanitizer. Android never falls through to the
+// web polish, even when the Android sanitizer leaves the text unchanged.
+func applyCoachVoiceGuard(out *CoachStructuredOutput, clientKind string, worseThanLast bool) bool {
+	if IsAndroidCoachVoice(clientKind) {
+		return SanitizeAndroidCoachOutput(out)
+	}
+	return sanitizeWebFull(out, worseThanLast)
+}
+
+// skinTrendWorse is true only when today's score is lower than the newest
+// saved check-in score. Prose such as "hơn lần trước" is not a trend.
+func skinTrendWorse(facts CheckInCoachFacts, today float64) bool {
+	if today <= 0 || len(facts.History) == 0 || facts.History[0].Score == nil {
+		return false
+	}
+	return today < *facts.History[0].Score
 }
 
 func promptFamilyForCoachLog(clientKind string) string {

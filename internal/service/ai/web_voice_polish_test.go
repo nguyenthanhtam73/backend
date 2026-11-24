@@ -3,31 +3,87 @@ package ai
 import (
 	"strings"
 	"testing"
+
+	"github.com/dadiary/backend/internal/dto"
 )
 
-func TestWebScreen_MayBudgetAndConsistentVoice(t *testing.T) {
-	out := &CoachStructuredOutput{
-		SituationAnalysis: "Da mày hôm nay mày thấy mày ổn, mày đừng lo, mày cứ thở.",
-		SummaryNotes:      "Chúng ta sẽ xem lại ngày mai.",
-		ConcernAlignment:  "Da mày vẫn da mày.",
+func TestAndroidVoiceGuard_DoesNotRunWebPolish(t *testing.T) {
+	const in = "Hôm nay da bạn ổn…"
+	out := &CoachStructuredOutput{SituationAnalysis: in}
+	if applyCoachVoiceGuard(out, "android", true) {
+		t.Fatal("android sanitizer reported a change")
 	}
-	if !polishWebCoachScreen(out) {
-		t.Fatal("expected a rewrite")
+	if out.SituationAnalysis != in {
+		t.Fatalf("got %q", out.SituationAnalysis)
 	}
-	blob := out.SituationAnalysis + "\n" + out.SummaryNotes + "\n" + out.ConcernAlignment
-	if strings.Contains(blob, "chúng ta") || strings.Contains(strings.ToLower(blob), "ta sẽ") {
-		t.Fatalf("plural we survived: %s", blob)
+}
+
+func TestMayIsNotDeleted(t *testing.T) {
+	for _, in := range []string{"Mày ơi…", "Tao với mày cùng theo dõi"} {
+		out := &CoachStructuredOutput{SituationAnalysis: in}
+		polishWebCoachScreen(out)
+		if out.SituationAnalysis != in {
+			t.Fatalf("%q became %q", in, out.SituationAnalysis)
+		}
 	}
-	if strings.Count(strings.ToLower(blob), "mày") > 2 {
-		t.Fatalf("more than 2 mày: %s", blob)
+}
+
+func TestJudgingPhrasesStay(t *testing.T) {
+	for _, in := range []string{"Da trông mệt hơn", "Mắt trông mệt", "Nhớ rửa sạch"} {
+		out := &CoachStructuredOutput{SituationAnalysis: in}
+		polishWebCoachScreen(out)
+		if out.SituationAnalysis != in {
+			t.Fatalf("%q became %q", in, out.SituationAnalysis)
+		}
 	}
-	if !CoachProseHasTaoMay(blob) {
-		t.Fatalf("screen lost tao/mày: %s", blob)
+}
+
+func TestSmoothSkinNegationStays(t *testing.T) {
+	const in = "Da mịn màng, không có mụn ẩn"
+	out := &CoachStructuredOutput{SituationAnalysis: in}
+	polishWebCoachScreen(out)
+	if out.SituationAnalysis != in {
+		t.Fatalf("got %q", out.SituationAnalysis)
 	}
-	quiet := &CoachStructuredOutput{SituationAnalysis: "Da đang lên vài nốt."}
-	polishWebCoachScreen(quiet)
-	if !CoachProseHasTaoMay(quiet.SituationAnalysis) {
-		t.Fatalf("worse-skin style empty voice stayed at 0: %q", quiet.SituationAnalysis)
+}
+
+func TestImprovementIsNotWorseSkin(t *testing.T) {
+	const in = "Da ẩm hơn lần trước"
+	out := &CoachStructuredOutput{SituationAnalysis: in}
+	polishWebCoachScreen(out)
+	if out.SituationAnalysis != in || strings.Contains(out.SituationAnalysis, "Không sao đâu") {
+		t.Fatalf("got %q", out.SituationAnalysis)
+	}
+}
+
+func TestEnglishFilterSkipsProductNames(t *testing.T) {
+	for _, in := range []string{"Klairs Redness Solutions", "Red Cica", "Red Ginseng"} {
+		if got := ToVietnameseSkinWords(in); got != in {
+			t.Fatalf("%q became %q", in, got)
+		}
+		out := &CoachStructuredOutput{ProductSuggestions: []dto.ProductSuggestion{{Reason: in}}}
+		polishWebCoachScreen(out)
+		if out.ProductSuggestions[0].Reason != in {
+			t.Fatalf("product %q became %q", in, out.ProductSuggestions[0].Reason)
+		}
+	}
+}
+
+func TestChungTaBecomesTaoVoiMay(t *testing.T) {
+	if got := replaceChungTa("chúng ta"); got != "tao với mày" {
+		t.Fatalf("chúng ta -> %q", got)
+	}
+	if got := replaceChungTa("chúng mình"); got != "tao với mày" || strings.Contains(got, "tớ") {
+		t.Fatalf("chúng mình -> %q", got)
+	}
+}
+
+func TestNoInjectedTaoSentence(t *testing.T) {
+	const in = "Da đang lên vài nốt."
+	out := &CoachStructuredOutput{SituationAnalysis: in}
+	polishWebCoachScreen(out)
+	if out.SituationAnalysis != in || strings.Contains(out.SituationAnalysis, "Tao thấy da hôm nay vậy đó.") {
+		t.Fatalf("got %q", out.SituationAnalysis)
 	}
 }
 
@@ -41,22 +97,6 @@ func TestToVietnameseSkinWords_LeakedZoneNote(t *testing.T) {
 	out, changed := SanitizeCheckInVisionJSON(raw, "vi")
 	if !changed || !strings.Contains(out, want) || strings.Contains(strings.ToLower(out), "swollen") {
 		t.Fatalf("vision cue not translated: %s", out)
-	}
-}
-
-func TestWebScreen_WorseSkinReassuresAndDropsJudgement(t *testing.T) {
-	out := &CoachStructuredOutput{
-		SituationAnalysis: "Da chưa sạch và trông mệt hơn lần trước. Không được rửa sạch đủ.",
-	}
-	polishWebCoachScreen(out)
-	if !strings.HasPrefix(out.SituationAnalysis, "Không sao đâu, da có hôm lên hôm xuống.") {
-		t.Fatalf("opening %q", out.SituationAnalysis)
-	}
-	low := strings.ToLower(out.SituationAnalysis)
-	for _, banned := range []string{"da chưa sạch", "rửa sạch đủ", "không được rửa sạch", "trông mệt"} {
-		if strings.Contains(low, banned) {
-			t.Fatalf("judging %q still in %q", banned, out.SituationAnalysis)
-		}
 	}
 }
 

@@ -19,9 +19,8 @@ func polishWebCoachDetail(d *dto.SkinCoachDetail) {
 	if d == nil {
 		return
 	}
-	worse := screenLooksWorse(detailTexts(d))
 	fields := detailFields(d)
-	polishFields(fields, worse)
+	polishFields(fields, false)
 	d.ClarifyQuestions = capFollowUpQuestions(d.ClarifyQuestions)
 }
 
@@ -30,18 +29,24 @@ func polishWebCoachScreen(out *CoachStructuredOutput) bool {
 	if out == nil {
 		return false
 	}
+	return sanitizeWebCoachOutput(out, false)
+}
+
+func sanitizeWebCoachOutput(out *CoachStructuredOutput, worseThanLast bool) bool {
+	if out == nil {
+		return false
+	}
 	before := coachSnapshot(out)
-	worse := screenLooksWorse(coachTexts(out))
 	fields := coachFields(out)
 	zones := decodePolishZones(out.ZoneNotesRaw)
 	for i := range zones {
-		fields = append(fields, polishField{text: &zones[i].note})
+		fields = append(fields, polishField{text: &zones[i].note, zoneNote: true})
 	}
 	scores := decodePolishScores(out.SkinScoreNotesRaw)
 	for i := range scores {
 		fields = append(fields, polishField{text: &scores[i].val})
 	}
-	polishFields(fields, worse)
+	polishFields(fields, worseThanLast)
 	out.ZoneNotesRaw = encodePolishZones(out.ZoneNotesRaw, zones)
 	out.SkinScoreNotesRaw = encodePolishScores(out.SkinScoreNotesRaw, scores)
 	return coachSnapshot(out) != before
@@ -132,9 +137,10 @@ func encodePolishScores(raw json.RawMessage, scores []polishScore) json.RawMessa
 }
 
 type polishField struct {
-	text    *string
-	keepMay bool
-	opening bool
+	text     *string
+	keepMay  bool
+	opening  bool
+	zoneNote bool
 }
 
 func polishFields(fields []polishField, worse bool) {
@@ -143,24 +149,11 @@ func polishFields(fields []polishField, worse bool) {
 			continue
 		}
 		*f.text = polishOneSentence(*f.text)
+		if f.zoneNote {
+			*f.text = ToVietnameseSkinWords(*f.text)
+		}
 	}
 	applyFirstGlosses(fields)
-	budget := 2
-	for _, f := range fields {
-		if f.text == nil || !f.keepMay {
-			continue
-		}
-		*f.text = spendMayBudget(*f.text, &budget)
-	}
-	for _, f := range fields {
-		if f.text == nil || f.keepMay {
-			continue
-		}
-		*f.text = spendMayBudget(*f.text, &budget)
-	}
-	if !screenHasTaoMay(fields) {
-		ensureGentleTao(fields)
-	}
 	if worse {
 		reassureOpening(fields)
 	}
@@ -168,9 +161,7 @@ func polishFields(fields []polishField, worse bool) {
 
 func polishOneSentence(s string) string {
 	s = applyTypos(s)
-	s = ToVietnameseSkinWords(s)
 	s = replaceChungTa(s)
-	s = replaceJudging(s)
 	s = softenSmoothSkinClaim(s)
 	return s
 }
@@ -208,7 +199,7 @@ func ToVietnameseSkinWords(s string) string {
 		{"red", "đỏ"},
 	}
 	for _, p := range phrases {
-		s = replacePhrase(s, p.from, p.to)
+		s = replacePhraseSkipCapital(s, p.from, p.to)
 	}
 	return squeezeSpaces(s)
 }
@@ -221,7 +212,8 @@ func squeezeSpaces(s string) string {
 }
 
 func replaceChungTa(s string) string {
-	s = replacePhrase(s, "chúng ta", "tao")
+	s = replacePhrase(s, "chúng mình", "tao với mày")
+	s = replacePhrase(s, "chúng ta", "tao với mày")
 	return replaceTaSe(s)
 }
 
@@ -269,20 +261,6 @@ func nextWordIs(parts []voiceChunk, i int, want string) bool {
 	return false
 }
 
-func replaceJudging(s string) string {
-	for _, pair := range []struct{ from, to string }{
-		{"không được rửa sạch đủ", "còn dầu"},
-		{"không được rửa sạch", "còn dầu"},
-		{"rửa sạch đủ", "sạch dầu"},
-		{"da chưa sạch", "da còn dầu"},
-		{"trông mệt hơn", "hôm nay da lên hơn"},
-		{"trông mệt", "hôm nay da lên"},
-	} {
-		s = replaceFold(s, pair.from, pair.to)
-	}
-	return s
-}
-
 func softenSmoothSkinClaim(s string) string {
 	sentences := splitSentences(s)
 	changed := false
@@ -298,6 +276,9 @@ func softenSmoothSkinClaim(s string) string {
 		if strings.Contains(low, "nốt") || strings.Contains(low, "hạt") || strings.Contains(low, "cục") || strings.Contains(low, "sần") {
 			continue
 		}
+		if closedComedoneNegated(low) {
+			continue
+		}
 		next := sentence
 		for _, from := range []string{"đây là mụn ẩn", "là mụn ẩn", "có mụn ẩn", "mụn ẩn"} {
 			next = replaceFold(next, from, "có vài nốt nhỏ, chưa chắc")
@@ -311,6 +292,20 @@ func softenSmoothSkinClaim(s string) string {
 		return s
 	}
 	return strings.Join(sentences, "")
+}
+
+func closedComedoneNegated(low string) bool {
+	idx := strings.Index(low, "mụn ẩn")
+	if idx < 0 {
+		return false
+	}
+	prefix := strings.TrimSpace(low[:idx])
+	for _, neg := range []string{"không có", "không", "chưa"} {
+		if strings.HasSuffix(prefix, neg) {
+			return true
+		}
+	}
+	return false
 }
 
 func applyFirstGlosses(fields []polishField) {
@@ -373,71 +368,6 @@ func alreadyExplained(s string, idx, size int, say string) bool {
 	return strings.Contains(strings.ToLower(window), strings.ToLower(say))
 }
 
-func spendMayBudget(s string, budget *int) string {
-	parts := splitVoiceChunks(norm.NFC.String(s))
-	next, _ := voiceNextWords(parts)
-	var b strings.Builder
-	prev := ""
-	changed := false
-	for i, part := range parts {
-		if part.word && strings.ToLower(part.text) == "mày" && !keepEyebrowMay("mày", prev, next[i]) {
-			if *budget > 0 {
-				*budget--
-				b.WriteString(part.text)
-				prev = "mày"
-				continue
-			}
-			changed = true
-			cur := b.String()
-			low := strings.ToLower(strings.TrimRight(cur, " "))
-			if strings.HasSuffix(low, "của") {
-				cur = strings.TrimRight(cur, " ")
-				cur = cur[:len(cur)-len("của")]
-				b.Reset()
-				b.WriteString(cur)
-			}
-			prev = prev
-			continue
-		}
-		b.WriteString(part.text)
-		if part.word {
-			prev = strings.ToLower(part.text)
-		}
-	}
-	if !changed {
-		return s
-	}
-	return polishVoiceSpacing(b.String())
-}
-
-func screenHasTaoMay(fields []polishField) bool {
-	var b strings.Builder
-	for _, f := range fields {
-		if f.text == nil {
-			continue
-		}
-		b.WriteString(*f.text)
-		b.WriteByte('\n')
-	}
-	return CoachProseHasTaoMay(b.String())
-}
-
-func ensureGentleTao(fields []polishField) {
-	const line = "Tao thấy da hôm nay vậy đó."
-	for _, f := range fields {
-		if f.text == nil || !f.keepMay {
-			continue
-		}
-		cur := strings.TrimSpace(*f.text)
-		if cur == "" {
-			*f.text = line
-			return
-		}
-		*f.text = line + " " + cur
-		return
-	}
-}
-
 func reassureOpening(fields []polishField) {
 	const line = "Không sao đâu, da có hôm lên hôm xuống."
 	for _, f := range fields {
@@ -455,16 +385,6 @@ func reassureOpening(fields []polishField) {
 		*f.text = line + " " + cur
 		return
 	}
-}
-
-func screenLooksWorse(texts []string) bool {
-	blob := strings.ToLower(strings.Join(texts, "\n"))
-	for _, cue := range []string{"hơn lần trước", "xấu hơn", "nặng hơn", "trông mệt"} {
-		if strings.Contains(blob, cue) {
-			return true
-		}
-	}
-	return false
 }
 
 func capFollowUpQuestions(qs []string) []string {
@@ -592,7 +512,7 @@ func detailFields(d *dto.SkinCoachDetail) []polishField {
 		fields = append(fields, stringListFields(item.Benefits)...)
 	}
 	for i := range d.ZoneNotes {
-		fields = append(fields, polishField{text: &d.ZoneNotes[i].Note})
+		fields = append(fields, polishField{text: &d.ZoneNotes[i].Note, zoneNote: true})
 	}
 	if d.SkinScoreNotes != nil {
 		n := d.SkinScoreNotes
@@ -644,7 +564,15 @@ func replaceFold(s, from, to string) string {
 	}
 }
 
+func replacePhraseSkipCapital(s, phrase, repl string) string {
+	return replacePhraseOpt(s, phrase, repl, true)
+}
+
 func replacePhrase(s, phrase, repl string) string {
+	return replacePhraseOpt(s, phrase, repl, false)
+}
+
+func replacePhraseOpt(s, phrase, repl string, skipCapital bool) string {
 	if phrase == "" {
 		return s
 	}
@@ -654,6 +582,14 @@ func replacePhrase(s, phrase, repl string) string {
 		if idx < 0 {
 			b.WriteString(s)
 			return b.String()
+		}
+		if skipCapital {
+			r, _ := utf8.DecodeRuneInString(s[idx:])
+			if unicode.IsUpper(r) {
+				b.WriteString(s[:idx+size])
+				s = s[idx+size:]
+				continue
+			}
 		}
 		b.WriteString(s[:idx])
 		if repl != "" {
