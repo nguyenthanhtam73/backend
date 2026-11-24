@@ -371,6 +371,24 @@ func TestQA_TreatBecomesDacTri(t *testing.T) {
 	if got := plainLoanwords(titled); got != "Đặc trị mụn buổi tối thôi nha." {
 		t.Fatalf("%q -> %q", titled, got)
 	}
+	if got := plainLoanwords("để check da"); got != "để kiểm tra da" {
+		t.Fatalf("check %q", got)
+	}
+	if plainLoanwords("check-up") != "check-up" || plainLoanwords("check-list") != "check-list" {
+		t.Fatal("hyphenated check was rewritten")
+	}
+	if plainLoanwords("…/check?x=1") != "…/check?x=1" {
+		t.Fatal("link check was rewritten")
+	}
+	if got := plainLoanwords("Check da"); got != "Kiểm tra da" {
+		t.Fatalf("Check %q", got)
+	}
+	if plainLoanwords("check-in") != "check-in" || plainLoanwords("Check-in") != "Check-in" {
+		t.Fatal("check-in was rewritten")
+	}
+	if got := plainLoanwords("Đừng nặn, đừng tự lẻ."); got != "Đừng nặn, đừng tự chích." || strings.Contains(got, "tự nặn") {
+		t.Fatalf("tự lẻ %q", got)
+	}
 	for _, keep := range []string{"Routine", "Toner", "check-in", "treatment"} {
 		if plainLoanwords(keep) != keep {
 			t.Fatalf("%q changed", keep)

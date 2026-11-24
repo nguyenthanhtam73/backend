@@ -218,7 +218,7 @@ func filterZoneNotes(in []dto.CoachZoneNote, allowed map[string]struct{}, locale
 		if !noteSaysLooksLike(note) && !goodSkinNote(note) {
 			continue
 		}
-		note = rewriteBarrierWording(note)
+		note = capitalizeFirst(rewriteBarrierWording(note))
 		sev, _ := canonicalSeverity(n.Severity)
 		out = append(out, dto.CoachZoneNote{Zone: zone, Note: note, Severity: sev})
 		if len(out) >= maxZoneNotes {
@@ -353,11 +353,33 @@ func capitalizeFirst(s string) string {
 	if s == "" {
 		return s
 	}
-	r, size := utf8.DecodeRuneInString(s)
-	if r == utf8.RuneError || size == 0 {
-		return s
+	i := 0
+	for i < len(s) {
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError || size == 0 {
+			return s
+		}
+		if unicode.IsSpace(r) || isOpeningQuoteOrBracket(r) {
+			i += size
+			continue
+		}
+		if !unicode.IsLetter(r) {
+			return s
+		}
+		return s[:i] + string(unicode.ToUpper(r)) + s[i+size:]
 	}
-	return string(unicode.ToUpper(r)) + s[size:]
+	return s
+}
+
+func isOpeningQuoteOrBracket(r rune) bool {
+	switch r {
+	case '"', '\'', '`', '«', '»', '“', '”', '‘', '’', '‹', '›',
+		'(', ')', '[', ']', '{', '}', '<', '>',
+		'「', '」', '『', '』', '【', '】':
+		return true
+	default:
+		return false
+	}
 }
 
 // leftoverEnglish reports an ASCII word that is not an unaccented Vietnamese

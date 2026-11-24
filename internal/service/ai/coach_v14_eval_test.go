@@ -44,18 +44,34 @@ func TestCoachPromptVersion_v34(t *testing.T) {
 	}
 }
 
-func TestCoachPromptVersion_v36(t *testing.T) {
-	if CoachDailyPromptVersion != 36 {
-		t.Fatalf("expected CoachDailyPromptVersion == 36, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v37(t *testing.T) {
+	if CoachDailyPromptVersion != 37 {
+		t.Fatalf("expected CoachDailyPromptVersion == 37, got %d", CoachDailyPromptVersion)
 	}
 	web := GetCoachPrompt("intermediate")
-	for _, frag := range []string{"khoảng **1–2 lần**", "da hôm nay", "hai bên má", "làn da"} {
+	for _, frag := range []string{
+		"khoảng **1–2 lần**", "da hôm nay", "hai bên má", "làn da",
+		"PHẢI xưng «mày» đúng một lần",
+		"Hôm nay má trái của mày đang nổi khá nhiều mụn đỏ, thương ghê.",
+		"(hạt nhỏ trắng dưới da)",
+		"đó là mụn ẩn hoặc milia",
+		"chưa rõ ràng",
+	} {
 		if !strings.Contains(web, frag) {
 			t.Fatalf("web prompt missing %q", frag)
 		}
 	}
 	if strings.Count(web, "da mình") != 1 || !strings.Contains(web, "CẤM «da mình»") {
 		t.Fatal("web prompt must forbid da mình and not suggest it")
+	}
+	webRetry := coachOutputRetryPromptForVoice("", "", 1, "")
+	const wantRetry = "- MUST open situation_analysis with something visible and say «mày» exactly once in that first sentence, e.g. \"Hôm nay má trái của mày …\" OR \"Hôm nay vùng … của mày …\". No swearing, no sarcasm."
+	if !strings.Contains(webRetry, wantRetry) {
+		t.Fatalf("web retry %q", webRetry)
+	}
+	androidRetry := coachOutputRetryPromptForVoice("", "", 1, "android")
+	if !strings.Contains(androidRetry, "- MUST open situation_analysis with \"Mình thấy hôm nay…\"") {
+		t.Fatal("android retry opener changed")
 	}
 	android := GetCoachPromptForClient("intermediate", "android")
 	if strings.Contains(android, "làn da") || strings.Contains(android, "khoảng **1–2 lần**") {

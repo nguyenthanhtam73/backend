@@ -332,6 +332,8 @@ func replaceUncleanJudgement(s string) string {
 
 func plainLoanwords(s string) string {
 	s = replaceTreatWord(s)
+	s = replaceCheckWord(s)
+	s = replacePhraseKeepCase(s, "tự lẻ", "tự chích")
 	for _, pair := range []struct{ from, to string }{
 		{"makeup", "trang điểm"},
 		{"toner", "nước cân bằng da"},
@@ -351,6 +353,56 @@ func plainLoanwords(s string) string {
 func replaceTreatWord(s string) string {
 	s = replacePhraseKeepCase(s, "sau treat", "sau đó là đặc trị")
 	return replacePhraseKeepCase(s, "treat", "đặc trị")
+}
+
+// replaceCheckWord maps a standalone "check" to "kiểm tra".
+// "check-in" stays a single word.
+func replaceCheckWord(s string) string {
+	var b strings.Builder
+	for {
+		idx, size := findPhrase(s, "check")
+		if idx < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		after := s[idx+size:]
+		if after != "" {
+			next, _ := utf8.DecodeRuneInString(after)
+			if next == '-' || tokenHasLinkMark(s, idx, size) {
+				b.WriteString(s[:idx+size])
+				s = s[idx+size:]
+				continue
+			}
+		} else if tokenHasLinkMark(s, idx, size) {
+			b.WriteString(s[:idx+size])
+			s = s[idx+size:]
+			continue
+		}
+		b.WriteString(s[:idx])
+		b.WriteString(matchVoiceCase(s[idx:idx+size], "kiểm tra"))
+		s = s[idx+size:]
+	}
+}
+
+func tokenHasLinkMark(s string, idx, size int) bool {
+	start := idx
+	for start > 0 {
+		r, n := utf8.DecodeLastRuneInString(s[:start])
+		if unicode.IsSpace(r) {
+			break
+		}
+		start -= n
+	}
+	end := idx + size
+	for end < len(s) {
+		r, n := utf8.DecodeRuneInString(s[end:])
+		if unicode.IsSpace(r) {
+			break
+		}
+		end += n
+	}
+	token := s[start:end]
+	return strings.Contains(token, "/") || strings.Contains(token, ".")
 }
 
 func replaceFlash(s string) string {

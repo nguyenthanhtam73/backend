@@ -560,6 +560,20 @@ func TestFallbackZoneNotes_GoodSkinSkipsPrefix(t *testing.T) {
 			t.Fatalf("zone %s note %q", n.Zone, n.Note)
 		}
 	}
+	lower := mustRawJSON(t, []map[string]string{{
+		"zone": "chin", "note": "má trông giống một nốt đỏ.", "severity": "mild",
+	}})
+	capped, _ := NormalizeCheckInDetail(lower, nil, vision, nil, PhotoEvidenceOK, "vi", "")
+	if len(capped) != 1 || capped[0].Note != "Má trông giống một nốt đỏ." {
+		t.Fatalf("capitalize %#v", capped)
+	}
+	quoted := mustRawJSON(t, []map[string]string{{
+		"zone": "chin", "note": "«má trông giống một nốt đỏ.", "severity": "mild",
+	}})
+	quotedNotes, _ := NormalizeCheckInDetail(quoted, nil, vision, nil, PhotoEvidenceOK, "vi", "")
+	if len(quotedNotes) != 1 || quotedNotes[0].Note != "«Má trông giống một nốt đỏ." {
+		t.Fatalf("quoted %#v", quotedNotes)
+	}
 	rough := mustRawJSON(t, []map[string]string{{
 		"zone": "chin", "note": "Trông giống da mịn màng, hơi sần.", "severity": "mild",
 	}})
