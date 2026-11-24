@@ -44,6 +44,10 @@ func TestQA_ReviewSentencesThroughPolish(t *testing.T) {
 		"Nếu thấy đỡ rát thì cứ giữ routine như lần trước nha.",
 		"Lần trước mày dùng kem gì mà đỡ khô vậy?",
 		"Lần sau chụp giống lần trước để dễ so hơn nha.",
+		"Lần sau rửa mặt nhẹ hơn lần trước nha.",
+		"Mày vẫn rửa mặt như hôm qua là được.",
+		"Thoa kem dày hơn hôm qua nha.",
+		"Hôm qua mày ngủ muộn thì tối nay ngủ sớm hơn nha.",
 	} {
 		if got := stripInvalidComparison(keep); got != keep {
 			t.Fatalf("%q -> %q", keep, got)
@@ -66,10 +70,34 @@ func TestQA_ReviewSentencesThroughPolish(t *testing.T) {
 		"Má trái kém lần trước.",
 		"Da đỡ hơn lần trước.",
 		"Má trái đỡ sưng rồi, lần trước to hơn.",
+		"Da đỏ hơn lần trước nha.",
+		"So với lần trước da đỡ hơn nha.",
+		"Da mày kém lần trước nha.",
+		"Da đỡ hơn lần trước là được rồi.",
+		"Má trái đỡ sưng hơn hôm qua rồi đó nha.",
 	} {
 		if got := stripInvalidComparison(drop); got != "" {
 			t.Fatalf("%q -> %q", drop, got)
 		}
+	}
+	const echoed = "Hôm nay đỏ hơn hôm qua."
+	if got := stripInvalidComparison(echoed); got != "" {
+		t.Fatalf("without a user note %q -> %q", echoed, got)
+	}
+	echo := &CoachStructuredOutput{SituationAnalysis: echoed}
+	sanitizeWebCoachOutput(echo, webQA{GuardComparison: true, PreviousComparable: false, UserSaidHomQua: true})
+	if echo.SituationAnalysis != echoed {
+		t.Fatalf("user said hôm qua: %q -> %q", echoed, echo.SituationAnalysis)
+	}
+	anchored := &CoachStructuredOutput{SituationAnalysis: "Hôm qua đỏ hơn lần trước."}
+	sanitizeWebCoachOutput(anchored, webQA{GuardComparison: true, PreviousComparable: false, UserSaidHomQua: true})
+	if strings.TrimSpace(anchored.SituationAnalysis) == "Hôm qua đỏ hơn lần trước." {
+		t.Fatalf("other time anchor kept: %q", anchored.SituationAnalysis)
+	}
+	still := &CoachStructuredOutput{SituationAnalysis: "Da ổn. Má trái kém lần trước."}
+	sanitizeWebCoachOutput(still, webQA{GuardComparison: true, PreviousComparable: false, UserSaidHomQua: true})
+	if still.SituationAnalysis != "Da ổn." {
+		t.Fatalf("lần trước still compared: %q", still.SituationAnalysis)
 	}
 }
 
@@ -326,6 +354,27 @@ func TestQA_MayCountRewritesNaturally(t *testing.T) {
 	}
 	if !strings.Contains(plainLoanwords("Mình đang stressed."), "căng thẳng") {
 		t.Fatal("stressed missing plain Vietnamese")
+	}
+}
+
+func TestQA_TreatBecomesDacTri(t *testing.T) {
+	const in = "(và sau treat nếu có)"
+	got := plainLoanwords(in)
+	if got != "(và sau đó là đặc trị nếu có)" {
+		t.Fatalf("%q -> %q", in, got)
+	}
+	full := plainLoanwords("Lớp mỏng sau rửa mặt (và sau treat nếu có).")
+	if full != "Lớp mỏng sau rửa mặt (và sau đó là đặc trị nếu có)." {
+		t.Fatalf("sentence %q", full)
+	}
+	const titled = "Treat mụn buổi tối thôi nha."
+	if got := plainLoanwords(titled); got != "Đặc trị mụn buổi tối thôi nha." {
+		t.Fatalf("%q -> %q", titled, got)
+	}
+	for _, keep := range []string{"Routine", "Toner", "check-in", "treatment"} {
+		if plainLoanwords(keep) != keep {
+			t.Fatalf("%q changed", keep)
+		}
 	}
 }
 

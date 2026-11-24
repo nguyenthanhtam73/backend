@@ -209,7 +209,13 @@ func filterZoneNotes(in []dto.CoachZoneNote, allowed map[string]struct{}, locale
 			continue
 		}
 		note := strings.TrimSpace(n.Note)
-		if note == "" || !noteSaysLooksLike(note) || noteNamesDisease(note) || (!en && leftoverEnglish(note)) {
+		if note == "" || noteNamesDisease(note) || (!en && leftoverEnglish(note)) {
+			continue
+		}
+		if !en {
+			note = softenGoodSkinNote(note)
+		}
+		if !noteSaysLooksLike(note) && !goodSkinNote(note) {
 			continue
 		}
 		note = rewriteBarrierWording(note)
@@ -268,10 +274,7 @@ func fallbackZoneNotes(zones []visionZone, locale string) []dto.CoachZoneNote {
 			if leftoverEnglish(note) {
 				continue
 			}
-			if !noteSaysLooksLike(note) {
-				note = "Trông giống " + note
-			}
-			note = ensureSentencePeriod(note)
+			note = normalizeZoneLooksLike(note)
 		} else if !noteSaysLooksLike(note) {
 			note = ensureSentencePeriod("Looks like " + cue)
 		} else {
@@ -283,6 +286,78 @@ func fallbackZoneNotes(zones []visionZone, locale string) []dto.CoachZoneNote {
 		return nil
 	}
 	return out
+}
+
+// normalizeZoneLooksLike adds "Trông giống " only for a visible sign.
+// A note that the skin looks fine is capitalized and keeps no prefix.
+func normalizeZoneLooksLike(note string) string {
+	note = strings.TrimSpace(note)
+	body := stripLooksLikePrefix(note)
+	if goodSkinNote(body) {
+		return ensureSentencePeriod(capitalizeFirst(body))
+	}
+	if !noteSaysLooksLike(note) {
+		note = "Trông giống " + note
+	}
+	return ensureSentencePeriod(note)
+}
+
+func softenGoodSkinNote(note string) string {
+	body := stripLooksLikePrefix(note)
+	if !goodSkinNote(body) {
+		return note
+	}
+	return ensureSentencePeriod(capitalizeFirst(body))
+}
+
+func stripLooksLikePrefix(note string) string {
+	note = strings.TrimSpace(note)
+	const prefix = "trông giống "
+	if strings.HasPrefix(strings.ToLower(note), prefix) {
+		return strings.TrimSpace(note[len(prefix):])
+	}
+	return note
+}
+
+func goodSkinNote(note string) bool {
+	low := strings.ToLower(strings.TrimSpace(stripLooksLikePrefix(note)))
+	if low == "" {
+		return false
+	}
+	fine := strings.Contains(low, "mịn màng") ||
+		strings.Contains(low, "không thấy mụn") ||
+		strings.Contains(low, "không có mụn") ||
+		strings.Contains(low, "không có dấu hiệu") ||
+		strings.Contains(low, "không thấy dấu hiệu")
+	return fine && !positiveVisibleSign(low)
+}
+
+func positiveVisibleSign(low string) bool {
+	cleaned := low
+	for _, neg := range []string{
+		"không có dấu hiệu mụn", "không thấy dấu hiệu mụn",
+		"không thấy mụn", "không có mụn", "chưa thấy mụn", "chưa có mụn",
+	} {
+		cleaned = strings.ReplaceAll(cleaned, neg, " ")
+	}
+	for _, sign := range []string{"lỗ chân lông", "kích ứng", "nốt", "mụn", "đỏ", "thâm", "sưng", "khô", "bong", "dầu", "sần", "chấm", "ửng", "hạt"} {
+		if strings.Contains(cleaned, sign) {
+			return true
+		}
+	}
+	return false
+}
+
+func capitalizeFirst(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	r, size := utf8.DecodeRuneInString(s)
+	if r == utf8.RuneError || size == 0 {
+		return s
+	}
+	return string(unicode.ToUpper(r)) + s[size:]
 }
 
 // leftoverEnglish reports an ASCII word that is not an unaccented Vietnamese
@@ -299,14 +374,32 @@ func leftoverEnglish(s string) bool {
 	return false
 }
 
+// englishLeakWords catches short English words that look like Vietnamese
+// syllables (oily, pore, tone). Plurals are listed too. Checked only when
+// the language is not English.
+var englishLeakWords = map[string]struct{}{
+	"acne": {}, "blackhead": {}, "blackheads": {}, "bump": {}, "bumps": {},
+	"dry": {}, "enlarged": {}, "flake": {}, "flaking": {}, "flaky": {},
+	"fold": {}, "folds": {}, "hyperpigmentation": {}, "indicating": {},
+	"inflamed": {}, "inflammation": {}, "inflammatory": {}, "mole": {}, "moles": {},
+	"nasolabial": {}, "near": {}, "nose": {}, "noses": {}, "oily": {},
+	"pale": {}, "papule": {}, "pigment": {}, "pigmentation": {}, "pore": {}, "pores": {},
+	"post": {}, "pustule": {}, "red": {}, "redness": {}, "sheen": {}, "small": {},
+	"spot": {}, "spots": {}, "swollen": {}, "texture": {}, "tiny": {}, "tone": {}, "tones": {},
+	"visible": {}, "whitehead": {}, "whiteheads": {},
+}
+
 func englishToken(word string) bool {
 	if allCapsAbbrev(word) {
+		return true
+	}
+	low := strings.ToLower(word)
+	if _, ok := englishLeakWords[low]; ok {
 		return true
 	}
 	if !asciiLetters(word) || len(word) < 3 {
 		return false
 	}
-	low := strings.ToLower(word)
 	if strings.ContainsAny(low, "fjwz") {
 		return true
 	}
