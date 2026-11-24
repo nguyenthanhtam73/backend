@@ -116,6 +116,8 @@ func generateDailyFeedback(ctx context.Context, cfg *config.Config, userContextM
 	}
 	if IsAndroidCoachVoice(clientKind) && SanitizeAndroidCoachOutput(out) {
 		slog.Warn("daily-feedback: android voice safety net rewrote coach text")
+	} else if SanitizeWebCoachOutput(out) {
+		slog.Warn("daily-feedback: web voice guard rewrote coach text")
 	}
 	return out, nil
 }

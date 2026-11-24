@@ -20,18 +20,17 @@ func TestGetCoachPromptForClient_WebUnchanged(t *testing.T) {
 
 	beginner := GetCoachPrompt("beginner")
 	for _, frag := range []string{
-		"Đm da mày hôm nay…",
-		"tao / mày / con / thằng này / bà này",
-		"không đổi sang \"mình/bạn\" làm mặc định",
-		"Được dùng vl/đm nhưng đừng dày đặc",
-		"Mày thấy hôm nay vùng má trái lỗ chân lông to vl",
+		"tao / mày",
+		"1–2 lần",
+		"KHÔNG chép nguyên văn",
+		"nhẹ tay hơn",
 	} {
 		if !strings.Contains(beginner, frag) {
 			t.Fatalf("web beginner prompt missing %q", frag)
 		}
 	}
-	if !strings.Contains(GetCoachPrompt("intermediate"), "bựa full") {
-		t.Fatal("web intermediate prompt missing bựa full")
+	if strings.Contains(GetCoachPrompt("intermediate"), "bựa full") {
+		t.Fatal("web intermediate prompt still has the old sarcastic block")
 	}
 	if coachOutputSchemaForClient("") != CoachOutputJSONSchemaBlock {
 		t.Fatal("empty client must keep the web schema block")
@@ -39,24 +38,24 @@ func TestGetCoachPromptForClient_WebUnchanged(t *testing.T) {
 	if coachOutputSchemaForClient("web") != CoachOutputJSONSchemaBlock {
 		t.Fatal("web client must keep the web schema block")
 	}
-	if !strings.Contains(CoachOutputJSONSchemaBlock, "Đm da mày hôm nay…") {
-		t.Fatal("web schema block lost the crude opener")
+	if strings.Contains(CoachOutputJSONSchemaBlock, "Đm da mày hôm nay…") {
+		t.Fatal("web schema block still has the crude opener")
 	}
-	if !strings.Contains(CoachOutputJSONSchemaBlock, "tao muốn xem mày có chịu làm không") {
-		t.Fatal("web schema block lost the crude summary example")
+	if strings.Contains(CoachOutputJSONSchemaBlock, "tao muốn xem mày có chịu làm không") {
+		t.Fatal("web schema block still has the crude summary example")
 	}
 
 	webMsg := buildSkinCheckCoachUserMessage(&domain.SkinCheck{ClientKind: domain.RefreshClientWeb}, nil, "", "", "ok", "TODAY", CheckInCoachFacts{})
-	if !strings.Contains(webMsg, "Đm da mày hôm nay…") {
-		t.Fatal("web user message lost the crude schema opener")
+	if strings.Contains(webMsg, "Đm da mày hôm nay…") {
+		t.Fatal("web user message still requires the crude opener")
 	}
 	sys, user := buildDailyFeedbackPrompt("Hôm nay da ổn", "beginner")
 	sys2, user2 := buildDailyFeedbackPromptForClient("Hôm nay da ổn", "beginner", "")
 	if sys != sys2 || user != user2 {
 		t.Fatal("daily feedback web prompt changed")
 	}
-	if !strings.Contains(user, "Đm da mày hôm nay…") {
-		t.Fatal("web daily feedback schema lost the crude opener")
+	if strings.Contains(user, "Đm da mày hôm nay…") {
+		t.Fatal("web daily feedback schema still has the crude opener")
 	}
 }
 

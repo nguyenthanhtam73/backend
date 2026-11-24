@@ -165,6 +165,8 @@ func runSkinCheckCoachAfterVision(
 	}
 	if IsAndroidCoachVoice(clientKind) && SanitizeAndroidCoachOutput(parsed) {
 		slog.Warn("skin-check: android voice safety net rewrote coach text", "check_id", check.ID)
+	} else if SanitizeWebCoachOutput(parsed) {
+		slog.Warn("skin-check: web voice guard rewrote coach text", "check_id", check.ID)
 	}
 	if ApplyCheckInAdviceGuard(parsed, facts, clientKind) {
 		slog.Info("skin-check: advice guard rewrote coach text",
