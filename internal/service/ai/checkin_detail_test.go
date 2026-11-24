@@ -502,20 +502,53 @@ func TestSavedZone_NoPhotoMetaUsesSameSwap(t *testing.T) {
 	}
 }
 
-func TestFallbackZoneNotes_EnglishBecomesPlainVietnamese(t *testing.T) {
+func TestFallbackZoneNotes_KeepsUnaccentedVietnamese(t *testing.T) {
 	t.Parallel()
-	const want = "Trông giống một điểm trên ảnh."
-	for _, cue := range []string{
+	for _, note := range []string{
+		"da hơi khô ở hai bên cằm",
+		"vài nốt sau mũi",
+		"vết thâm cho thấy mụn cũ",
+	} {
+		if leftoverEnglish(note) {
+			t.Fatalf("flagged English: %q", note)
+		}
+		vision := `{"zone_observations":[{"zone":"chin","cue":"` + note + `","severity":"mild"}]}`
+		notes, _ := NormalizeCheckInDetail(nil, nil, vision, nil, PhotoEvidenceOK, "vi", "")
+		want := "Trông giống " + note + "."
+		if len(notes) != 1 || notes[0].Note != want {
+			t.Fatalf("%q -> %#v", note, notes)
+		}
+	}
+}
+
+func TestFallbackZoneNotes_EnglishIsDropped(t *testing.T) {
+	t.Parallel()
+	cues := []string{
 		"Trông giống enlarged pores visible",
 		"dry flaking near nasolabial folds",
 		"oily sheen",
 		"post-inflammatory hyperpigmentation spots",
-	} {
+	}
+	for _, cue := range cues {
 		vision := `{"zone_observations":[{"zone":"chin","cue":"` + cue + `","severity":"mild"}]}`
 		notes, _ := NormalizeCheckInDetail(nil, nil, vision, nil, PhotoEvidenceOK, "vi", "")
-		if len(notes) != 1 || notes[0].Note != want {
+		if len(notes) != 0 || strings.Contains(joinNotes(notes), "Trông giống một điểm trên ảnh") {
 			t.Fatalf("%q -> %#v", cue, notes)
 		}
+	}
+	var zones strings.Builder
+	zones.WriteString(`{"zone_observations":[`)
+	for i, cue := range cues {
+		if i > 0 {
+			zones.WriteString(",")
+		}
+		zones.WriteString(`{"zone":"chin","cue":"` + cue + `","severity":"mild"}`)
+	}
+	zones.WriteString(`]}`)
+	labels := map[string]any{}
+	ApplyCheckInDetail(labels, nil, zones.String(), nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientWeb, "vi")
+	if notes, ok := labels["zone_notes"]; ok {
+		t.Fatalf("all English notes should leave an empty zone list, got %#v", notes)
 	}
 }
 

@@ -208,7 +208,7 @@ func filterZoneNotes(in []dto.CoachZoneNote, allowed map[string]struct{}) []dto.
 			continue
 		}
 		note := strings.TrimSpace(n.Note)
-		if note == "" || !noteSaysLooksLike(note) || noteNamesDisease(note) {
+		if note == "" || !noteSaysLooksLike(note) || noteNamesDisease(note) || leftoverEnglish(note) {
 			continue
 		}
 		note = rewriteBarrierWording(note)
@@ -264,11 +264,11 @@ func fallbackZoneNotes(zones []visionZone, locale string) []dto.CoachZoneNote {
 		note := cue
 		if !en {
 			note = ToVietnameseSkinWords(note)
+			if leftoverEnglish(note) {
+				continue
+			}
 			if !noteSaysLooksLike(note) {
 				note = "Trông giống " + note
-			}
-			if leftoverEnglish(note) {
-				note = plainZoneFallback
 			}
 			note = ensureSentencePeriod(note)
 		} else if !noteSaysLooksLike(note) {
@@ -278,30 +278,36 @@ func fallbackZoneNotes(zones []visionZone, locale string) []dto.CoachZoneNote {
 		}
 		out = append(out, dto.CoachZoneNote{Zone: z.Zone, Note: note, Severity: z.Severity})
 	}
+	if len(out) == 0 {
+		return nil
+	}
 	return out
 }
 
-// plainZoneFallback replaces a fallback note that still contains English
-// words after translation. It does not name a condition.
-const plainZoneFallback = "Trông giống một điểm trên ảnh."
+// englishLeakWords are English tokens that survive the Vietnamese rewrite.
+// Unaccented Vietnamese words (hai, sau, cho, khi, nay, con, tay, mai, cao)
+// are not in this list, so a real Vietnamese note is kept.
+var englishLeakWords = map[string]struct{}{
+	"acne": {}, "blackhead": {}, "bump": {}, "bumps": {}, "dry": {},
+	"enlarged": {}, "flake": {}, "flaking": {}, "flaky": {}, "fold": {}, "folds": {},
+	"hyperpigmentation": {}, "indicating": {}, "inflamed": {}, "inflammation": {},
+	"inflammatory": {}, "nasolabial": {}, "near": {}, "oily": {}, "papule": {},
+	"pigment": {}, "pigmentation": {}, "pore": {}, "pores": {}, "post": {},
+	"pustule": {}, "red": {}, "redness": {}, "sheen": {}, "small": {},
+	"spot": {}, "spots": {}, "swollen": {}, "texture": {}, "visible": {},
+	"whitehead": {},
+}
 
 func leftoverEnglish(s string) bool {
 	for _, part := range splitVoiceChunks(s) {
-		if !part.word || len(part.text) < 3 || !asciiLetters(part.text) {
+		if !part.word {
 			continue
 		}
-		return true
-	}
-	return false
-}
-
-func asciiLetters(s string) bool {
-	for _, r := range s {
-		if r < 'A' || (r > 'Z' && r < 'a') || r > 'z' {
-			return false
+		if _, ok := englishLeakWords[strings.ToLower(part.text)]; ok {
+			return true
 		}
 	}
-	return s != ""
+	return false
 }
 
 func ensureSentencePeriod(s string) string {

@@ -200,18 +200,43 @@ func stripInvalidComparison(s string) string {
 }
 
 func skinComparisonSentence(low string) bool {
+	if questionSentence(low) || strings.Contains(low, "như lần trước") {
+		return false
+	}
 	if strings.Contains(low, "so với lần trước") {
 		return true
 	}
-	if strings.Contains(low, "hơn lần trước") || strings.Contains(low, "kém lần trước") || strings.Contains(low, "lần trước to hơn") {
+	if strings.Contains(low, "hơn lần trước") || strings.Contains(low, "kém lần trước") {
 		return true
 	}
-	// "Má trái đỡ sưng rồi, lần trước to hơn." compares the skin.
-	// Retake advice such as "chụp giống lần trước" does not.
-	if strings.Contains(low, "đỡ") && strings.Contains(low, "lần trước") && !strings.Contains(low, "chụp") {
+	// "lần trước to/nhỏ/đỏ hơn", including "lần trước to hơn".
+	return lastTimeThenMore(low)
+}
+
+func questionSentence(low string) bool {
+	trimmed := strings.TrimSpace(low)
+	if strings.HasSuffix(trimmed, "?") || strings.HasSuffix(trimmed, "？") {
+		return true
+	}
+	if strings.Contains(low, "gì") || strings.Contains(low, "chưa?") || strings.HasSuffix(strings.TrimRight(trimmed, ".!"), "chưa") || strings.HasSuffix(strings.TrimRight(trimmed, ".!"), "không") {
 		return true
 	}
 	return false
+}
+
+// lastTimeThenMore matches "lần trước to hơn" and the same shape with another adjective.
+func lastTimeThenMore(low string) bool {
+	idx := strings.Index(low, "lần trước")
+	if idx < 0 {
+		return false
+	}
+	rest := strings.TrimSpace(low[idx+len("lần trước"):])
+	fields := strings.Fields(rest)
+	if len(fields) < 2 {
+		return false
+	}
+	second := strings.Trim(fields[1], ".,!;:")
+	return second == "hơn"
 }
 
 // replaceUncleanJudgement replaces a whole sentence that says the skin looks

@@ -1,6 +1,7 @@
 package ai
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -37,6 +38,20 @@ func TestQA_ReviewSentencesThroughPolish(t *testing.T) {
 	}
 	if got := stripInvalidComparison("Da đỡ hơn lần trước."); got != "" {
 		t.Fatalf("đỡ hơn lần trước stayed %q", got)
+	}
+	for _, keep := range []string{
+		"Lần trước mày bảo hay rát, hôm nay đỡ chưa?",
+		"Nếu thấy đỡ rát thì cứ giữ routine như lần trước nha.",
+		"Lần trước mày dùng kem gì mà đỡ khô vậy?",
+	} {
+		if got := stripInvalidComparison(keep); got != keep {
+			t.Fatalf("%q -> %q", keep, got)
+		}
+		out := &CoachStructuredOutput{SituationAnalysis: keep}
+		sanitizeWebCoachOutput(out, webQA{GuardComparison: true, PreviousComparable: false})
+		if out.SituationAnalysis != keep {
+			t.Fatalf("polish %q -> %q", keep, out.SituationAnalysis)
+		}
 	}
 }
 
@@ -223,6 +238,39 @@ func TestQA_MainFieldDoesNotGoEmpty(t *testing.T) {
 	sanitizeWebCoachOutput(kept, webQA{GuardComparison: true, PreviousComparable: false})
 	if kept.SituationAnalysis != "Da ổn." {
 		t.Fatalf("mixed -> %q", kept.SituationAnalysis)
+	}
+}
+
+func TestQA_EmptyImprovementsDropped(t *testing.T) {
+	qa := webQA{GuardComparison: true, PreviousComparable: false}
+	mixed := &CoachStructuredOutput{Improvements: []struct {
+		Tip string `json:"tip"`
+		Why string `json:"why"`
+	}{
+		{Tip: "Má trái đỡ sưng rồi, lần trước to hơn.", Why: "So với lần trước da đỏ hơn."},
+		{Tip: "Rửa mặt dịu.", Why: "Da đang đỏ."},
+	}}
+	sanitizeWebCoachOutput(mixed, qa)
+	if len(mixed.Improvements) != 1 || mixed.Improvements[0].Tip != "Rửa mặt dịu." || mixed.Improvements[0].Why != "Da đang đỏ." {
+		t.Fatalf("mixed %#v", mixed.Improvements)
+	}
+	all := &CoachStructuredOutput{Improvements: []struct {
+		Tip string `json:"tip"`
+		Why string `json:"why"`
+	}{
+		{Tip: "Má trái đỡ sưng rồi, lần trước to hơn.", Why: "So với lần trước da đỏ hơn."},
+		{Tip: "So với lần trước, vùng này trông sưng hơn.", Why: "Da đỡ hơn lần trước."},
+	}}
+	sanitizeWebCoachOutput(all, qa)
+	if all.Improvements == nil {
+		t.Fatal("all-empty improvements became null")
+	}
+	if len(all.Improvements) != 0 {
+		t.Fatalf("all-empty %#v", all.Improvements)
+	}
+	raw, err := json.Marshal(all.Improvements)
+	if err != nil || string(raw) != "[]" {
+		t.Fatalf("json %s err %v", raw, err)
 	}
 }
 

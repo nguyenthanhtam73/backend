@@ -22,6 +22,7 @@ func polishWebCoachDetail(d *dto.SkinCoachDetail) {
 	fields := detailFields(d)
 	polishFields(fields, webQA{})
 	d.ClarifyQuestions = capFollowUpQuestions(d.ClarifyQuestions)
+	d.Improvements = dropEmptyDetailImprovements(d.Improvements)
 }
 
 // polishWebCoachScreen rewrites one generated web coach result. Android does not call it.
@@ -48,6 +49,7 @@ func sanitizeWebCoachOutput(out *CoachStructuredOutput, qa webQA) bool {
 		fields = append(fields, polishField{text: &scores[i].val})
 	}
 	polishFields(fields, qa)
+	dropEmptyCoachImprovements(out)
 	out.ZoneNotesRaw = encodePolishZones(out.ZoneNotesRaw, zones, qa)
 	out.SkinScoreNotesRaw = encodePolishScores(out.SkinScoreNotesRaw, scores)
 	return coachSnapshot(out) != before
@@ -445,6 +447,37 @@ func capFollowUpQuestions(qs []string) []string {
 		return nil
 	}
 	return out
+}
+
+func dropEmptyCoachImprovements(out *CoachStructuredOutput) {
+	if out == nil || len(out.Improvements) == 0 {
+		return
+	}
+	kept := make([]struct {
+		Tip string `json:"tip"`
+		Why string `json:"why"`
+	}, 0, len(out.Improvements))
+	for _, item := range out.Improvements {
+		if strings.TrimSpace(item.Tip) == "" && strings.TrimSpace(item.Why) == "" {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	out.Improvements = kept
+}
+
+func dropEmptyDetailImprovements(items []dto.CoachImprovementItem) []dto.CoachImprovementItem {
+	if len(items) == 0 {
+		return items
+	}
+	kept := make([]dto.CoachImprovementItem, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Tip) == "" && strings.TrimSpace(item.Why) == "" {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return kept
 }
 
 func coachFields(out *CoachStructuredOutput) []polishField {
