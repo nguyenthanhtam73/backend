@@ -44,9 +44,22 @@ func TestCoachPromptVersion_v34(t *testing.T) {
 	}
 }
 
-func TestCoachPromptVersion_v35(t *testing.T) {
-	if CoachDailyPromptVersion != 35 {
-		t.Fatalf("expected CoachDailyPromptVersion == 35, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v36(t *testing.T) {
+	if CoachDailyPromptVersion != 36 {
+		t.Fatalf("expected CoachDailyPromptVersion == 36, got %d", CoachDailyPromptVersion)
+	}
+	web := GetCoachPrompt("intermediate")
+	for _, frag := range []string{"khoảng **1–2 lần**", "da hôm nay", "hai bên má", "làn da"} {
+		if !strings.Contains(web, frag) {
+			t.Fatalf("web prompt missing %q", frag)
+		}
+	}
+	if strings.Count(web, "da mình") != 1 || !strings.Contains(web, "CẤM «da mình»") {
+		t.Fatal("web prompt must forbid da mình and not suggest it")
+	}
+	android := GetCoachPromptForClient("intermediate", "android")
+	if strings.Contains(android, "làn da") || strings.Contains(android, "khoảng **1–2 lần**") {
+		t.Fatal("android prompt picked up the web mày-count rule")
 	}
 }
 
