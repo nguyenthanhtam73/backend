@@ -10,7 +10,7 @@ import (
 func TestAndroidVoiceGuard_DoesNotRunWebPolish(t *testing.T) {
 	const in = "Hôm nay da bạn ổn…"
 	out := &CoachStructuredOutput{SituationAnalysis: in}
-	if applyCoachVoiceGuard(out, "android", true) {
+	if applyCoachVoiceGuard(out, "android", webQA{WorseThanLast: true}) {
 		t.Fatal("android sanitizer reported a change")
 	}
 	if out.SituationAnalysis != in {
@@ -56,8 +56,8 @@ func TestSmoothSkinNegationStays(t *testing.T) {
 		}
 	}
 	positive := softenSmoothSkinClaim("Da mịn màng, đây là mụn ẩn.")
-	if strings.Contains(positive, "mụn ẩn") || !strings.Contains(positive, "có vài nốt nhỏ, chưa chắc") {
-		t.Fatalf("positive claim stayed %q", positive)
+	if strings.Contains(positive, "mụn ẩn") || strings.Contains(positive, "có vài nốt nhỏ") {
+		t.Fatalf("positive bump sentence should be dropped, got %q", positive)
 	}
 }
 
@@ -168,8 +168,8 @@ func TestTyposAndSmoothSkin(t *testing.T) {
 	}
 	out := &CoachStructuredOutput{SituationAnalysis: "Da mịn màng, đây là mụn ẩn."}
 	polishWebCoachScreen(out)
-	if strings.Contains(out.SituationAnalysis, "mụn ẩn") || !strings.Contains(out.SituationAnalysis, "có vài nốt nhỏ, chưa chắc") {
-		t.Fatalf("smooth skin still concluded mụn ẩn: %q", out.SituationAnalysis)
+	if strings.Contains(out.SituationAnalysis, "mụn ẩn") || strings.Contains(out.SituationAnalysis, "có vài nốt nhỏ") {
+		t.Fatalf("smooth bump sentence should be dropped: %q", out.SituationAnalysis)
 	}
 	bumps := polishOneSentence("Nốt tròn mịn, trông giống mụn ẩn.")
 	if !strings.Contains(bumps, "mụn ẩn") {

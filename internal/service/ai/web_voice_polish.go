@@ -20,8 +20,9 @@ func polishWebCoachDetail(d *dto.SkinCoachDetail) {
 		return
 	}
 	fields := detailFields(d)
-	polishFields(fields, false)
+	polishFields(fields, webQA{})
 	d.ClarifyQuestions = capFollowUpQuestions(d.ClarifyQuestions)
+	d.Improvements = dropEmptyDetailImprovements(d.Improvements)
 }
 
 // polishWebCoachScreen rewrites one generated web coach result. Android does not call it.
@@ -29,10 +30,10 @@ func polishWebCoachScreen(out *CoachStructuredOutput) bool {
 	if out == nil {
 		return false
 	}
-	return sanitizeWebCoachOutput(out, false)
+	return sanitizeWebCoachOutput(out, webQA{})
 }
 
-func sanitizeWebCoachOutput(out *CoachStructuredOutput, worseThanLast bool) bool {
+func sanitizeWebCoachOutput(out *CoachStructuredOutput, qa webQA) bool {
 	if out == nil {
 		return false
 	}
@@ -40,19 +41,22 @@ func sanitizeWebCoachOutput(out *CoachStructuredOutput, worseThanLast bool) bool
 	fields := coachFields(out)
 	zones := decodePolishZones(out.ZoneNotesRaw)
 	for i := range zones {
-		fields = append(fields, polishField{text: &zones[i].note, zoneNote: true})
+		skip := qa.KeepZone != "" && strings.EqualFold(zones[i].zone, qa.KeepZone)
+		fields = append(fields, polishField{text: &zones[i].note, zoneNote: true, skipCheek: skip})
 	}
 	scores := decodePolishScores(out.SkinScoreNotesRaw)
 	for i := range scores {
 		fields = append(fields, polishField{text: &scores[i].val})
 	}
-	polishFields(fields, worseThanLast)
-	out.ZoneNotesRaw = encodePolishZones(out.ZoneNotesRaw, zones)
+	polishFields(fields, qa)
+	dropEmptyCoachImprovements(out)
+	out.ZoneNotesRaw = encodePolishZones(out.ZoneNotesRaw, zones, qa)
 	out.SkinScoreNotesRaw = encodePolishScores(out.SkinScoreNotesRaw, scores)
 	return coachSnapshot(out) != before
 }
 
 type polishZone struct {
+	zone string
 	note string
 }
 
@@ -68,12 +72,13 @@ func decodePolishZones(raw json.RawMessage) []polishZone {
 	}
 	out := make([]polishZone, len(items))
 	for i, item := range items {
+		out[i].zone, _ = item["zone"].(string)
 		out[i].note, _ = item["note"].(string)
 	}
 	return out
 }
 
-func encodePolishZones(raw json.RawMessage, zones []polishZone) json.RawMessage {
+func encodePolishZones(raw json.RawMessage, zones []polishZone, qa webQA) json.RawMessage {
 	if len(zones) == 0 {
 		return raw
 	}
@@ -83,9 +88,18 @@ func encodePolishZones(raw json.RawMessage, zones []polishZone) json.RawMessage 
 	}
 	changed := false
 	for i := range items {
-		prev, _ := items[i]["note"].(string)
-		if prev != zones[i].note {
+		prevNote, _ := items[i]["note"].(string)
+		prevZone, _ := items[i]["zone"].(string)
+		zone := zones[i].zone
+		if qa.SwapCheeks && !strings.EqualFold(zone, qa.KeepZone) {
+			zone = flipZoneKey(zone)
+		}
+		if prevNote != zones[i].note {
 			items[i]["note"] = zones[i].note
+			changed = true
+		}
+		if zone != prevZone {
+			items[i]["zone"] = zone
 			changed = true
 		}
 	}
@@ -137,13 +151,25 @@ func encodePolishScores(raw json.RawMessage, scores []polishScore) json.RawMessa
 }
 
 type polishField struct {
-	text     *string
-	keepMay  bool
-	opening  bool
-	zoneNote bool
+	text      *string
+	keepMay   bool
+	opening   bool
+	main      bool
+	zoneNote  bool
+	skipCheek bool
 }
 
-func polishFields(fields []polishField, worse bool) {
+// neutralMainSentence stands in when the only sentence of the main paragraph
+// was removed. An empty situation analysis is dropped at save time.
+const neutralMainSentence = "Tao xem ảnh hôm nay rồi nha mày."
+
+func polishFields(fields []polishField, qa webQA) {
+	original := make([]string, len(fields))
+	for i, f := range fields {
+		if f.text != nil {
+			original[i] = *f.text
+		}
+	}
 	for _, f := range fields {
 		if f.text == nil {
 			continue
@@ -154,14 +180,21 @@ func polishFields(fields []polishField, worse bool) {
 		}
 	}
 	applyFirstGlosses(fields)
-	if worse {
-		reassureOpening(fields)
+	applyWebQA(fields, qa)
+	for i, f := range fields {
+		if f.text == nil || !f.main {
+			continue
+		}
+		if strings.TrimSpace(original[i]) != "" && strings.TrimSpace(*f.text) == "" {
+			*f.text = neutralMainSentence
+		}
 	}
 }
 
 func polishOneSentence(s string) string {
 	s = applyTypos(s)
 	s = replaceChungTa(s)
+	s = preferBenSide(s)
 	s = softenSmoothSkinClaim(s)
 	return s
 }
@@ -183,6 +216,7 @@ func ToVietnameseSkinWords(s string) string {
 		return s
 	}
 	phrases := []struct{ from, to string }{
+		{"small red bump", "nốt đỏ nhỏ"},
 		{"red, swollen bump indicating", "nốt đỏ sưng"},
 		{"red swollen bump indicating", "nốt đỏ sưng"},
 		{"red, swollen bump", "nốt đỏ sưng"},
@@ -264,44 +298,52 @@ func nextWordIs(parts []voiceChunk, i int, want string) bool {
 func softenSmoothSkinClaim(s string) string {
 	sentences := splitSentences(s)
 	changed := false
-	for i, sentence := range sentences {
+	kept := make([]string, 0, len(sentences))
+	for _, sentence := range sentences {
 		low := strings.ToLower(sentence)
-		if !strings.Contains(low, "mụn ẩn") {
-			continue
-		}
 		smooth := strings.Contains(low, "mịn màng") || strings.Contains(low, "da mịn") || strings.Contains(low, "bề mặt mịn") || strings.Contains(low, "da đang mịn")
-		if !smooth {
-			continue
-		}
-		if strings.Contains(low, "nốt") || strings.Contains(low, "hạt") || strings.Contains(low, "cục") || strings.Contains(low, "sần") {
-			continue
-		}
-		if closedComedoneNegated(low) {
-			continue
-		}
-		next := sentence
-		next = replaceFold(next, " là mụn ẩn", " có vài nốt nhỏ, chưa chắc")
-		next = replaceFold(next, "có mụn ẩn", "có vài nốt nhỏ, chưa chắc")
-		if next != sentence {
-			sentences[i] = next
+		if smooth && positiveBumpClaim(low) && !bumpNegated(low) && !describesVisibleBump(low) {
 			changed = true
+			continue
 		}
+		kept = append(kept, sentence)
 	}
 	if !changed {
 		return s
 	}
-	return strings.Join(sentences, "")
+	return strings.TrimSpace(strings.Join(kept, ""))
 }
 
-func closedComedoneNegated(low string) bool {
-	idx := strings.Index(low, "mụn ẩn")
-	if idx < 0 {
+func positiveBumpClaim(low string) bool {
+	return strings.Contains(low, "mụn ẩn") || strings.Contains(low, "milia")
+}
+
+// describesVisibleBump reports a sentence that names a bump the photo shows.
+// Those sentences stay even when the skin is also called smooth.
+func describesVisibleBump(low string) bool {
+	for _, word := range []string{"nốt", "cục", "sần"} {
+		if strings.Contains(low, word) {
+			return true
+		}
+	}
+	if !strings.Contains(low, "hạt") {
 		return false
 	}
-	prefix := low[:idx]
-	for _, neg := range []string{"không thấy", "chưa thấy", "không phải", "không có", "không", "chưa", "chẳng"} {
-		if strings.Contains(prefix, neg) {
-			return true
+	// "hạt milia" names milia. It is not a bump the photo shows.
+	return strings.Contains(strings.ReplaceAll(low, "hạt milia", ""), "hạt")
+}
+
+func bumpNegated(low string) bool {
+	for _, term := range []string{"milia", "mụn ẩn"} {
+		idx := strings.Index(low, term)
+		if idx < 0 {
+			continue
+		}
+		prefix := low[:idx]
+		for _, neg := range []string{"không thấy", "chưa thấy", "không phải", "không có", "không", "chưa", "chẳng"} {
+			if strings.Contains(prefix, neg) {
+				return true
+			}
 		}
 	}
 	return false
@@ -407,9 +449,40 @@ func capFollowUpQuestions(qs []string) []string {
 	return out
 }
 
+func dropEmptyCoachImprovements(out *CoachStructuredOutput) {
+	if out == nil || len(out.Improvements) == 0 {
+		return
+	}
+	kept := make([]struct {
+		Tip string `json:"tip"`
+		Why string `json:"why"`
+	}, 0, len(out.Improvements))
+	for _, item := range out.Improvements {
+		if strings.TrimSpace(item.Tip) == "" && strings.TrimSpace(item.Why) == "" {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	out.Improvements = kept
+}
+
+func dropEmptyDetailImprovements(items []dto.CoachImprovementItem) []dto.CoachImprovementItem {
+	if len(items) == 0 {
+		return items
+	}
+	kept := make([]dto.CoachImprovementItem, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Tip) == "" && strings.TrimSpace(item.Why) == "" {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	return kept
+}
+
 func coachFields(out *CoachStructuredOutput) []polishField {
 	fields := []polishField{
-		{text: &out.SituationAnalysis, keepMay: true, opening: true},
+		{text: &out.SituationAnalysis, keepMay: true, opening: true, main: true},
 		{text: &out.SummaryNotes, keepMay: true},
 		{text: &out.ConcernAlignment},
 		{text: &out.MedicalDisclaimer},
@@ -469,7 +542,7 @@ func coachSnapshot(out *CoachStructuredOutput) string {
 
 func detailFields(d *dto.SkinCoachDetail) []polishField {
 	fields := []polishField{
-		{text: &d.SituationSummary, keepMay: true, opening: true},
+		{text: &d.SituationSummary, keepMay: true, opening: true, main: true},
 		{text: &d.SummaryNotes, keepMay: true},
 		{text: &d.ConcernAlignment},
 		{text: &d.MedicalDisclaimer},

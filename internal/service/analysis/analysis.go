@@ -367,6 +367,8 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	ev := ai.ClassifyCheckInPhotoEvidence(visionStatus, visionRaw)
 	ai.ApplyPhotoEvidenceToScores(labels, ev)
 	ai.ApplyCheckInDetail(labels, parsed, visionRaw, o.PhotoContext, ev, o.ClientKind, ai.CheckLocale(o))
+	// Zone keys saved here are the user's cheeks, after the mirror correction.
+	labels["cheek_coords"] = "user"
 	if n, ok := labels["photo_limited_note"].(string); ok {
 		// Technical tokens come off for every client. Pronouns stay unless this
 		// check is the Android voice, which still uses its own filter.

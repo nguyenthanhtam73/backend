@@ -26,10 +26,12 @@ Không có block CHECK_IN_STATE thì bỏ qua mục này.
 
 // CheckInHistoryFact is one older check-in the coach may compare against.
 type CheckInHistoryFact struct {
-	Date  string
-	Score *float64
-	Tags  string
-	Note  string
+	Date          string
+	Score         *float64
+	Tags          string
+	Note          string
+	PhotoEvidence string
+	Zones         []string
 }
 
 // CheckInCoachFacts is the user's real check-in state. Zero value means
@@ -104,6 +106,7 @@ func HistoryFactsFromChecks(rows []domain.SkinCheck) []CheckInHistoryFact {
 		if score, ok := overallScore(row.Analysis); ok {
 			fact.Score = &score
 		}
+		fact.PhotoEvidence, fact.Zones = priorPhotoFacts(row)
 		out = append(out, fact)
 	}
 	return out
@@ -736,6 +739,42 @@ func formatScoreNumber(v float64) string {
 	s = strings.TrimRight(s, "0")
 	s = strings.TrimRight(s, ".")
 	return s
+}
+
+func priorPhotoFacts(row domain.SkinCheck) (string, []string) {
+	a := row.Analysis
+	if a == nil || len(a.SkinScores) == 0 {
+		return "", nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal(a.SkinScores, &m); err != nil {
+		return "", nil
+	}
+	evidence, _ := m["photo_evidence"].(string)
+	var zones []string
+	if raw, ok := m["zone_notes"].([]any); ok {
+		for _, item := range raw {
+			obj, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			zone, _ := obj["zone"].(string)
+			zone = strings.TrimSpace(zone)
+			if zone != "" {
+				zones = append(zones, zone)
+			}
+		}
+	}
+	coords, _ := m["cheek_coords"].(string)
+	// Saved rows tagged cheek_coords=user are already the user's cheeks.
+	// Older rows are image edges. Map those the same way as today's photo
+	// so a comparison does not mix the two coordinate systems.
+	if strings.TrimSpace(coords) != "user" && ShouldSwapCheeks(dto.DecodePhotoContext(row.PhotoContext)) {
+		for i, zone := range zones {
+			zones[i] = flipZoneKey(zone)
+		}
+	}
+	return strings.TrimSpace(evidence), zones
 }
 
 func overallScore(a *domain.SkinAnalysis) (float64, bool) {

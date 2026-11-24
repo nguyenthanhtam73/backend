@@ -108,4 +108,8 @@ package ai
 // at least one tao or mày, no «chúng ta». One follow-up question. Worse skin
 // opens with reassurance. Vision notes stay Vietnamese. Android prompt file
 // is unchanged.
-const CoachDailyPromptVersion = 34
+//
+// v35 (2026-11-24) — Web QA. Don't invent a user note. Map má trái/phải to the
+// user's own face using front vs rear camera. Compare with last time only when
+// that photo was clear and the same area. Android prompt file is unchanged.
+const CoachDailyPromptVersion = 35

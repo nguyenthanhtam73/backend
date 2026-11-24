@@ -32,10 +32,17 @@ func (e *PhotoContextError) Error() string {
 
 // PhotoMetaImage is one uploaded photo's framing. Index is the 0-based position
 // in images[] so a dropped entry does not shift the photos after it.
+// Camera is "front" or "rear" when the client knows which lens took the photo.
+// Mirrored is set only when the client knows the saved image was flipped.
+// Cheek mapping swaps unless Mirrored is true: an unmirrored photo, front or
+// rear, shows the user's left cheek on the image's right. A close-up of a
+// zone the user picked is not swapped.
 type PhotoMetaImage struct {
-	Index int    `json:"index"`
-	Kind  string `json:"kind"`
-	Zone  string `json:"zone,omitempty"`
+	Index    int    `json:"index"`
+	Kind     string `json:"kind"`
+	Zone     string `json:"zone,omitempty"`
+	Camera   string `json:"camera,omitempty"`
+	Mirrored *bool  `json:"mirrored,omitempty"`
 }
 
 // SkinContextInput is what the user reports about touch, timing, and pain.
@@ -145,6 +152,20 @@ func parsePhotoMeta(raw string, imageCount int) ([]PhotoMetaImage, error) {
 		img := PhotoMetaImage{Index: i, Kind: kind}
 		if zone != "" {
 			img.Zone = zone
+		}
+		if cam, ok := jsonStringField(obj["camera"]); ok {
+			switch strings.ToLower(strings.TrimSpace(cam)) {
+			case "front", "user", "selfie":
+				img.Camera = "front"
+			case "rear", "back", "environment":
+				img.Camera = "rear"
+			}
+		}
+		if rawMir, ok := obj["mirrored"]; ok {
+			var mirrored bool
+			if json.Unmarshal(rawMir, &mirrored) == nil {
+				img.Mirrored = &mirrored
+			}
 		}
 		out = append(out, img)
 	}

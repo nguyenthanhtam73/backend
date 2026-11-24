@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/dadiary/backend/internal/dto"
 	"golang.org/x/text/unicode/norm"
@@ -45,13 +46,14 @@ var diseasePhrases = []string{
 // whole — the text is never cut down to make it pass. evidenceKind skip clears
 // zone notes. When the coach sent none and the photo is readable, notes are
 // built from the vision zones.
-func NormalizeCheckInDetail(zoneRaw, scoreRaw json.RawMessage, visionRaw string, photoCtx json.RawMessage, evidenceKind, locale string) ([]dto.CoachZoneNote, *dto.SkinCoachScoreNotes) {
-	allowed := allowedCheckInZones(visionRaw, photoCtx)
-	notes := filterZoneNotes(decodeZoneNotes(zoneRaw), allowed)
+func NormalizeCheckInDetail(zoneRaw, scoreRaw json.RawMessage, visionRaw string, photoCtx json.RawMessage, evidenceKind, locale, clientKind string) ([]dto.CoachZoneNote, *dto.SkinCoachScoreNotes) {
+	zones := cheekZonesForSave(visionRaw, photoCtx, clientKind)
+	allowed := allowedCheckInZones(zones, photoCtx)
+	notes := filterZoneNotes(decodeZoneNotes(zoneRaw), allowed, locale)
 	if evidenceKind == PhotoEvidenceSkip {
 		notes = nil
 	} else if len(notes) == 0 && evidenceKind == PhotoEvidenceOK {
-		notes = filterZoneNotes(fallbackZoneNotes(visionRaw, locale), allowed)
+		notes = filterZoneNotes(fallbackZoneNotes(zones, locale), allowed, locale)
 	}
 	return notes, filterScoreNotes(decodeScoreNotes(scoreRaw))
 }
@@ -72,7 +74,7 @@ func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, vi
 		zoneRaw = parsed.ZoneNotesRaw
 		scoreRaw = parsed.SkinScoreNotesRaw
 	}
-	notes, scoreNotes := NormalizeCheckInDetail(zoneRaw, scoreRaw, visionRaw, photoCtx, ev.Kind, locale)
+	notes, scoreNotes := NormalizeCheckInDetail(zoneRaw, scoreRaw, visionRaw, photoCtx, ev.Kind, locale, clientKind)
 	notes = sanitizePublicZoneNotes(notes)
 	scoreNotes = sanitizePublicScoreNotes(scoreNotes)
 	android := IsAndroidCoachVoice(clientKind)
@@ -106,9 +108,30 @@ func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, vi
 	if obs := visibleObservationStrings(visionRaw); len(obs) > 0 {
 		labels["visible_observations"] = obs
 	}
-	if zones := zoneObservationValues(visionRaw); len(zones) > 0 {
+	if zones := cheekZonesForSave(visionRaw, photoCtx, clientKind); len(zones) > 0 {
 		labels["vision_zone_observations"] = zones
 	}
+}
+
+// cheekZonesForSave maps the image-reading step's cheek keys onto the user's
+// face before the zone filter and before fallback notes. It uses
+// ShouldSwapCheeks, including when web sends no photo_meta (that function
+// swaps). A user-picked zone close-up stays as labeled. Android keeps the
+// keys the coach wrote. This runs at save time and does not rewrite a row
+// that was already stored.
+func cheekZonesForSave(visionRaw string, photoCtx json.RawMessage, clientKind string) []visionZone {
+	zones := zoneObservationValues(visionRaw)
+	if IsAndroidCoachVoice(clientKind) || len(zones) == 0 {
+		return zones
+	}
+	doc := dto.DecodePhotoContext(photoCtx)
+	if !ShouldSwapCheeks(doc) {
+		return zones
+	}
+	for i := range zones {
+		zones[i].Zone = flipZoneKey(zones[i].Zone)
+	}
+	return zones
 }
 
 func decodeZoneNotes(raw json.RawMessage) []dto.CoachZoneNote {
@@ -171,10 +194,11 @@ func jsonStringValue(raw json.RawMessage) (string, bool) {
 	return s, true
 }
 
-func filterZoneNotes(in []dto.CoachZoneNote, allowed map[string]struct{}) []dto.CoachZoneNote {
+func filterZoneNotes(in []dto.CoachZoneNote, allowed map[string]struct{}, locale string) []dto.CoachZoneNote {
 	if len(in) == 0 {
 		return nil
 	}
+	en := strings.EqualFold(strings.TrimSpace(locale), "en")
 	out := make([]dto.CoachZoneNote, 0, len(in))
 	for _, n := range in {
 		zone, ok := canonicalZone(n.Zone)
@@ -185,7 +209,7 @@ func filterZoneNotes(in []dto.CoachZoneNote, allowed map[string]struct{}) []dto.
 			continue
 		}
 		note := strings.TrimSpace(n.Note)
-		if note == "" || !noteSaysLooksLike(note) || noteNamesDisease(note) {
+		if note == "" || !noteSaysLooksLike(note) || noteNamesDisease(note) || (!en && leftoverEnglish(note)) {
 			continue
 		}
 		note = rewriteBarrierWording(note)
@@ -227,8 +251,7 @@ func keepScoreSentence(s string) string {
 	return rewriteBarrierWording(s)
 }
 
-func fallbackZoneNotes(visionRaw, locale string) []dto.CoachZoneNote {
-	zones := zoneObservationValues(visionRaw)
+func fallbackZoneNotes(zones []visionZone, locale string) []dto.CoachZoneNote {
 	if len(zones) == 0 {
 		return nil
 	}
@@ -240,16 +263,122 @@ func fallbackZoneNotes(visionRaw, locale string) []dto.CoachZoneNote {
 			continue
 		}
 		note := cue
-		if !noteSaysLooksLike(note) {
-			if en {
-				note = "Looks like " + cue
-			} else {
-				note = "Trông giống " + cue
+		if !en {
+			note = ToVietnameseSkinWords(note)
+			if leftoverEnglish(note) {
+				continue
 			}
+			if !noteSaysLooksLike(note) {
+				note = "Trông giống " + note
+			}
+			note = ensureSentencePeriod(note)
+		} else if !noteSaysLooksLike(note) {
+			note = ensureSentencePeriod("Looks like " + cue)
+		} else {
+			note = ensureSentencePeriod(note)
 		}
 		out = append(out, dto.CoachZoneNote{Zone: z.Zone, Note: note, Severity: z.Severity})
 	}
+	if len(out) == 0 {
+		return nil
+	}
 	return out
+}
+
+// leftoverEnglish reports an ASCII word that is not an unaccented Vietnamese
+// syllable. English users are not checked: their notes are allowed to be English.
+func leftoverEnglish(s string) bool {
+	for _, part := range splitVoiceChunks(s) {
+		if !part.word {
+			continue
+		}
+		if englishToken(part.text) {
+			return true
+		}
+	}
+	return false
+}
+
+func englishToken(word string) bool {
+	if allCapsAbbrev(word) {
+		return true
+	}
+	if !asciiLetters(word) || len(word) < 3 {
+		return false
+	}
+	low := strings.ToLower(word)
+	if strings.ContainsAny(low, "fjwz") {
+		return true
+	}
+	if strings.ContainsRune("sdkxlr", rune(low[len(low)-1])) {
+		return true
+	}
+	return hasNonVietnameseCluster(low)
+}
+
+func allCapsAbbrev(word string) bool {
+	if len(word) < 2 {
+		return false
+	}
+	for _, r := range word {
+		if r < 'A' || r > 'Z' {
+			return false
+		}
+	}
+	return true
+}
+
+func asciiLetters(word string) bool {
+	if word == "" {
+		return false
+	}
+	for _, r := range word {
+		if r < 'A' || (r > 'Z' && r < 'a') || r > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
+func hasNonVietnameseCluster(low string) bool {
+	const vowels = "aeiouy"
+	run := ""
+	flush := func() bool {
+		bad := len(run) >= 2 && !vietnameseConsonantGroup(run)
+		run = ""
+		return bad
+	}
+	for _, r := range low {
+		if strings.ContainsRune(vowels, r) {
+			if flush() {
+				return true
+			}
+			continue
+		}
+		run += string(r)
+	}
+	return flush()
+}
+
+func vietnameseConsonantGroup(g string) bool {
+	switch g {
+	case "ch", "gh", "gi", "kh", "ng", "ngh", "nh", "ph", "qu", "th", "tr":
+		return true
+	default:
+		return false
+	}
+}
+
+func ensureSentencePeriod(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	r, _ := utf8.DecodeLastRuneInString(s)
+	if r == '.' || r == '!' || r == '?' || r == '…' {
+		return s
+	}
+	return s + "."
 }
 
 func noteSaysLooksLike(note string) bool {
@@ -330,9 +459,9 @@ func canonicalSeverity(sev string) (string, bool) {
 	return sev, true
 }
 
-func allowedCheckInZones(visionRaw string, photoCtx json.RawMessage) map[string]struct{} {
+func allowedCheckInZones(zones []visionZone, photoCtx json.RawMessage) map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, z := range zoneObservationValues(visionRaw) {
+	for _, z := range zones {
 		if zone, ok := canonicalZone(z.Zone); ok {
 			out[zone] = struct{}{}
 		}
