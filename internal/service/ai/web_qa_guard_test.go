@@ -43,6 +43,7 @@ func TestQA_ReviewSentencesThroughPolish(t *testing.T) {
 		"Lần trước mày bảo hay rát, hôm nay đỡ chưa?",
 		"Nếu thấy đỡ rát thì cứ giữ routine như lần trước nha.",
 		"Lần trước mày dùng kem gì mà đỡ khô vậy?",
+		"Lần sau chụp giống lần trước để dễ so hơn nha.",
 	} {
 		if got := stripInvalidComparison(keep); got != keep {
 			t.Fatalf("%q -> %q", keep, got)
@@ -51,6 +52,23 @@ func TestQA_ReviewSentencesThroughPolish(t *testing.T) {
 		sanitizeWebCoachOutput(out, webQA{GuardComparison: true, PreviousComparable: false})
 		if out.SituationAnalysis != keep {
 			t.Fatalf("polish %q -> %q", keep, out.SituationAnalysis)
+		}
+	}
+	for _, drop := range []string{
+		"Da đỡ hơn lần trước, không có gì lạ.",
+		"Hôm nay đỏ hơn hôm qua.",
+		"So với tuần trước, da khô hơn.",
+		"Da đỡ đỏ hơn hôm trước rồi.",
+		"Lần trước da đỏ hơn.",
+		"Lần trước nốt to hơn nhiều.",
+		"Má trái vẫn đỏ như lần trước.",
+		"So với lần trước, vùng này trông sưng hơn.",
+		"Má trái kém lần trước.",
+		"Da đỡ hơn lần trước.",
+		"Má trái đỡ sưng rồi, lần trước to hơn.",
+	} {
+		if got := stripInvalidComparison(drop); got != "" {
+			t.Fatalf("%q -> %q", drop, got)
 		}
 	}
 }

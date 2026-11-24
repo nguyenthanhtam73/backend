@@ -200,43 +200,53 @@ func stripInvalidComparison(s string) string {
 }
 
 func skinComparisonSentence(low string) bool {
-	if questionSentence(low) || strings.Contains(low, "như lần trước") {
+	if questionSentence(low) || photoTakingSentence(low) || keepLikeLastTimeAdvice(low) {
 		return false
 	}
-	if strings.Contains(low, "so với lần trước") {
+	if strings.Contains(low, "so với lần trước") || strings.Contains(low, "kém lần trước") {
 		return true
 	}
-	if strings.Contains(low, "hơn lần trước") || strings.Contains(low, "kém lần trước") {
-		return true
+	if !comparisonTimeWord(low) {
+		return false
 	}
-	// "lần trước to/nhỏ/đỏ hơn", including "lần trước to hơn".
-	return lastTimeThenMore(low)
+	return strings.Contains(low, "hơn") || stillLikeBefore(low)
 }
 
-func questionSentence(low string) bool {
-	trimmed := strings.TrimSpace(low)
-	if strings.HasSuffix(trimmed, "?") || strings.HasSuffix(trimmed, "？") {
-		return true
-	}
-	if strings.Contains(low, "gì") || strings.Contains(low, "chưa?") || strings.HasSuffix(strings.TrimRight(trimmed, ".!"), "chưa") || strings.HasSuffix(strings.TrimRight(trimmed, ".!"), "không") {
-		return true
+func comparisonTimeWord(low string) bool {
+	for _, word := range []string{"hôm qua", "hôm trước", "tuần trước", "lần trước"} {
+		if strings.Contains(low, word) {
+			return true
+		}
 	}
 	return false
 }
 
-// lastTimeThenMore matches "lần trước to hơn" and the same shape with another adjective.
-func lastTimeThenMore(low string) bool {
-	idx := strings.Index(low, "lần trước")
-	if idx < 0 {
-		return false
+func stillLikeBefore(low string) bool {
+	i := strings.Index(low, "vẫn")
+	return i >= 0 && strings.Contains(low[i:], "như")
+}
+
+func photoTakingSentence(low string) bool {
+	return strings.Contains(low, "chụp")
+}
+
+func keepLikeLastTimeAdvice(low string) bool {
+	i := strings.Index(low, "giữ")
+	return i >= 0 && strings.Contains(low[i:], "như lần trước")
+}
+
+func questionSentence(low string) bool {
+	trimmed := strings.TrimSpace(low)
+	if strings.Contains(trimmed, "?") || strings.Contains(trimmed, "？") {
+		return true
 	}
-	rest := strings.TrimSpace(low[idx+len("lần trước"):])
-	fields := strings.Fields(rest)
-	if len(fields) < 2 {
-		return false
+	end := strings.TrimRight(trimmed, " \t.!…")
+	for _, suf := range []string{"gì vậy", "gì thế", "gì không", "chưa"} {
+		if strings.HasSuffix(end, suf) {
+			return true
+		}
 	}
-	second := strings.Trim(fields[1], ".,!;:")
-	return second == "hơn"
+	return false
 }
 
 // replaceUncleanJudgement replaces a whole sentence that says the skin looks

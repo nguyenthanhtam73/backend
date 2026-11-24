@@ -508,6 +508,7 @@ func TestFallbackZoneNotes_KeepsUnaccentedVietnamese(t *testing.T) {
 		"da hơi khô ở hai bên cằm",
 		"vài nốt sau mũi",
 		"vết thâm cho thấy mụn cũ",
+		"mun tham kho nhe rat o mat mui da hai sau cho",
 	} {
 		if leftoverEnglish(note) {
 			t.Fatalf("flagged English: %q", note)
@@ -518,6 +519,38 @@ func TestFallbackZoneNotes_KeepsUnaccentedVietnamese(t *testing.T) {
 		if len(notes) != 1 || notes[0].Note != want {
 			t.Fatalf("%q -> %#v", note, notes)
 		}
+	}
+	blackhead := `{"zone_observations":[{"zone":"nose","cue":"vài blackhead ở mũi","severity":"mild"}]}`
+	notes, _ := NormalizeCheckInDetail(nil, nil, blackhead, nil, PhotoEvidenceOK, "vi", "")
+	if len(notes) != 1 || notes[0].Note != "Trông giống vài đầu đen ở mũi." || strings.Contains(notes[0].Note, "blackhead") {
+		t.Fatalf("blackhead -> %#v", notes)
+	}
+}
+
+func TestFallbackZoneNotes_EnglishLocaleKeepsEnglish(t *testing.T) {
+	t.Parallel()
+	const want = "Looks like a small red bump."
+	vision := `{"zone_observations":[{"zone":"chin","cue":"a small red bump","severity":"mild"}]}`
+	notes, _ := NormalizeCheckInDetail(nil, nil, vision, nil, PhotoEvidenceOK, "en", "")
+	if len(notes) != 1 || notes[0].Note != want {
+		t.Fatalf("en fallback %#v", notes)
+	}
+	raw := mustRawJSON(t, []map[string]string{{
+		"zone": "chin", "note": want, "severity": "mild",
+	}})
+	kept, _ := NormalizeCheckInDetail(raw, nil, vision, nil, PhotoEvidenceOK, "en", "")
+	if len(kept) != 1 || kept[0].Note != want {
+		t.Fatalf("en note %#v", kept)
+	}
+	web := map[string]any{}
+	ApplyCheckInDetail(web, &CoachStructuredOutput{ZoneNotesRaw: raw}, vision, nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientWeb, "en")
+	if _, ok := web["zone_notes"]; !ok {
+		t.Fatal("en web zone list was null")
+	}
+	android := map[string]any{}
+	ApplyCheckInDetail(android, &CoachStructuredOutput{ZoneNotesRaw: raw}, vision, nil, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientAndroid, "en")
+	if _, ok := android["zone_notes"]; !ok {
+		t.Fatal("en android zone list was null")
 	}
 }
 
@@ -534,6 +567,21 @@ func TestFallbackZoneNotes_EnglishIsDropped(t *testing.T) {
 		notes, _ := NormalizeCheckInDetail(nil, nil, vision, nil, PhotoEvidenceOK, "vi", "")
 		if len(notes) != 0 || strings.Contains(joinNotes(notes), "Trông giống một điểm trên ảnh") {
 			t.Fatalf("%q -> %#v", cue, notes)
+		}
+	}
+	for _, cue := range []string{
+		"vài blackheads ở mũi",
+		"da hơi greasy",
+		"comedones on chin",
+		"dark marks",
+		"whiteheads",
+		"irritated skin",
+		"PIH",
+	} {
+		vision := `{"zone_observations":[{"zone":"chin","cue":"` + cue + `","severity":"mild"}]}`
+		notes, _ := NormalizeCheckInDetail(nil, nil, vision, nil, PhotoEvidenceOK, "vi", "")
+		if len(notes) != 0 {
+			t.Fatalf("%q leaked %#v", cue, notes)
 		}
 	}
 	var zones strings.Builder
