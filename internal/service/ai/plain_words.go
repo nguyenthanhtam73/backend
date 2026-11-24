@@ -10,8 +10,10 @@ const plainWordsUserRule = `
 
 ## Lời thường (BẮT BUỘC — mọi câu người dùng đọc)
 Viết để người mới hiểu ngay, không cần tra từ.
-- Không viết trần các từ này: hàng rào da, hạ kích, barrier, ceramides, niacinamide, BHA, retinoid, kích ứng ngược, purging.
+- Không viết trần các từ này: hàng rào da, hạ kích, barrier, kích ứng ngược, purging.
+- Giữ tên hoạt chất (niacinamide, BHA, AHA, retinoid, retinol, ceramide) và luôn thêm một cụm ngắn nói nó làm gì.
 - «ít làm mỏng hàng rào da» → «ít làm da khô rát, dễ bị kích ứng».
-- Tên thành phần chỉ được xuất hiện cùng một ý nó làm gì bằng lời thường. Ví dụ: «ceramide — chất giữ ẩm, giúp da đỡ khô rát».
+- Ceramide: «giúp lớp ngoài da giữ nước, đỡ khô rát».
+- BHA: «BHA (tẩy da chết trong lỗ chân lông)».
 - Không viết hàng rào da. Nói da khô rát, da dễ bị kích ứng, hoặc lớp ngoài da đang yếu.
 `

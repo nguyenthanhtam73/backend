@@ -41,12 +41,24 @@ func TestPlainWordsRule_InUserFacingPrompts(t *testing.T) {
 	if !strings.Contains(android, "mình / bạn") || strings.Contains(android, "tao / mày / con") {
 		t.Fatal("android pronouns changed")
 	}
+	if !strings.Contains(plainWordsUserRule, "giúp lớp ngoài da giữ nước, đỡ khô rát") {
+		t.Fatal("ceramide gloss drifted")
+	}
+	if !strings.Contains(plainWordsUserRule, "Giữ tên hoạt chất") {
+		t.Fatal("active names must stay, with a plain phrase")
+	}
 }
 
 func TestHardcodedUserFacingCopy_NoUnexplainedJargon(t *testing.T) {
 	banned := []string{
-		"hàng rào", "hạ kích", "barrier", "ceramides", "niacinamide",
-		"bha", "retinoid", "kích ứng ngược", "purging",
+		"hàng rào", "hạ kích", "barrier", "kích ứng ngược", "purging",
+	}
+	// Active names stay. A line that uses one must also say what it does.
+	explained := []struct{ name, phrase string }{
+		{"bha", "tẩy da chết trong lỗ chân lông"},
+		{"niacinamide", "làm gì"},
+		{"retinoid", "làm gì"},
+		{"ceramide", "giữ nước"},
 	}
 	var lines []string
 	raw, err := os.ReadFile("affiliate_catalog.json")
@@ -80,6 +92,11 @@ func TestHardcodedUserFacingCopy_NoUnexplainedJargon(t *testing.T) {
 		for _, word := range banned {
 			if strings.Contains(low, word) {
 				t.Errorf("user-facing copy %q contains %q", line, word)
+			}
+		}
+		for _, active := range explained {
+			if strings.Contains(low, active.name) && !strings.Contains(low, active.phrase) {
+				t.Errorf("user-facing copy %q names %q without saying what it does", line, active.name)
 			}
 		}
 	}
