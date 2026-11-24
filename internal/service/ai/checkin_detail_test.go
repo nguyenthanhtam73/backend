@@ -527,6 +527,32 @@ func TestFallbackZoneNotes_KeepsUnaccentedVietnamese(t *testing.T) {
 	}
 }
 
+func TestFallbackZoneNotes_GoodSkinSkipsPrefix(t *testing.T) {
+	t.Parallel()
+	vision := `{"zone_observations":[{"zone":"chin","cue":"da mịn màng, không thấy mụn","severity":"mild"}]}`
+	notes, _ := NormalizeCheckInDetail(nil, nil, vision, nil, PhotoEvidenceOK, "vi", "")
+	if len(notes) != 1 || notes[0].Note != "Da mịn màng, không thấy mụn." {
+		t.Fatalf("good skin %#v", notes)
+	}
+	raw := mustRawJSON(t, []map[string]string{{
+		"zone": "chin", "note": "Trông giống da mịn màng, không có dấu hiệu mụn.", "severity": "mild",
+	}})
+	kept, _ := NormalizeCheckInDetail(raw, nil, vision, nil, PhotoEvidenceOK, "vi", "")
+	if len(kept) != 1 || kept[0].Note != "Da mịn màng, không có dấu hiệu mụn." {
+		t.Fatalf("stripped prefix %#v", kept)
+	}
+	sign := `{"zone_observations":[{"zone":"chin","cue":"nốt đỏ nhỏ","severity":"mild"}]}`
+	signed, _ := NormalizeCheckInDetail(nil, nil, sign, nil, PhotoEvidenceOK, "vi", "")
+	if len(signed) != 1 || signed[0].Note != "Trông giống nốt đỏ nhỏ." {
+		t.Fatalf("sign %#v", signed)
+	}
+	same := `{"zone_observations":[{"zone":"chin","cue":"da mịn màng, không thấy mụn","severity":"mild"},{"zone":"forehead","cue":"da mịn màng, không thấy mụn","severity":"mild"}]}`
+	once, _ := NormalizeCheckInDetail(nil, nil, same, nil, PhotoEvidenceOK, "vi", "")
+	if len(once) != 1 || once[0].Note != "Da mịn màng, không thấy mụn." {
+		t.Fatalf("deduped %#v", once)
+	}
+}
+
 func TestFallbackZoneNotes_EnglishLocaleKeepsEnglish(t *testing.T) {
 	t.Parallel()
 	const want = "Looks like a small red bump."

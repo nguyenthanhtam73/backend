@@ -206,14 +206,18 @@ func stripInvalidComparisonWhen(s string, userSaidHomQua bool) string {
 }
 
 func skinComparisonSentence(low string, userSaidHomQua bool) bool {
-	if questionSentence(low) || photoTakingSentence(low) || keepLikeLastTimeAdvice(low) || adviceSentence(low) {
-		return false
-	}
-	if userSaidHomQua && strings.Contains(low, "hôm qua") {
-		return false
-	}
+	// These are fabricated comparisons even when the sentence ends in "nha".
 	if strings.Contains(low, "so với lần trước") || strings.Contains(low, "kém lần trước") {
 		return true
+	}
+	if userSaidHomQua && strings.Contains(low, "hôm qua") && !otherTimeAnchor(low) {
+		return false
+	}
+	if adviceSentence(low) && !skinSelfComparison(low) {
+		return false
+	}
+	if questionSentence(low) || photoTakingSentence(low) || keepLikeLastTimeAdvice(low) {
+		return false
 	}
 	if !comparisonTimeWord(low) {
 		return false
@@ -221,12 +225,49 @@ func skinComparisonSentence(low string, userSaidHomQua bool) bool {
 	return strings.Contains(low, "hơn") || stillLikeBefore(low)
 }
 
+// adviceSentence is care advice, not a trailing "nha" on a skin comparison.
+// The marker has to sit with a user-action verb.
 func adviceSentence(low string) bool {
+	if !adviceMarker(low) {
+		return false
+	}
+	for _, verb := range []string{"rửa", "thoa", "bôi", "ngủ", "uống", "dùng", "đắp", "tránh", "chụp", "giữ"} {
+		if _, n := findPhrase(low, verb); n > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func adviceMarker(low string) bool {
 	if _, n := findPhrase(low, "nha"); n > 0 {
 		return true
 	}
 	_, n := findPhrase(low, "là được")
 	return n > 0
+}
+
+func skinSelfComparison(low string) bool {
+	if !strings.Contains(low, "hơn") {
+		if _, n := findPhrase(low, "đỡ"); n == 0 {
+			return false
+		}
+	}
+	for _, part := range []string{"da", "má", "nốt", "mụn", "vùng"} {
+		if _, n := findPhrase(low, part); n > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func otherTimeAnchor(low string) bool {
+	for _, word := range []string{"lần trước", "hôm trước", "tuần trước"} {
+		if strings.Contains(low, word) {
+			return true
+		}
+	}
+	return false
 }
 
 func comparisonTimeWord(low string) bool {
@@ -290,6 +331,7 @@ func replaceUncleanJudgement(s string) string {
 }
 
 func plainLoanwords(s string) string {
+	s = replaceTreatWord(s)
 	for _, pair := range []struct{ from, to string }{
 		{"makeup", "trang điểm"},
 		{"toner", "nước cân bằng da"},
@@ -301,6 +343,14 @@ func plainLoanwords(s string) string {
 		s = replacePhraseSkipCapital(s, pair.from, pair.to)
 	}
 	return replaceFlash(s)
+}
+
+// replaceTreatWord rewrites the English step name in Vietnamese web copy.
+// "sau treat" becomes "sau đó là đặc trị". "treatment", "Routine", "Toner",
+// and "check-in" are left alone.
+func replaceTreatWord(s string) string {
+	s = replacePhrase(s, "sau treat", "sau đó là đặc trị")
+	return replacePhrase(s, "treat", "đặc trị")
 }
 
 func replaceFlash(s string) string {
