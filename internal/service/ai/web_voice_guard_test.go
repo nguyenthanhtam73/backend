@@ -11,6 +11,25 @@ import (
 	"github.com/google/uuid"
 )
 
+func TestUserFacingPrompts_NoTartPersona(t *testing.T) {
+	blobs := []string{
+		GetCoachPrompt("beginner"),
+		GetCoachPrompt("intermediate"),
+		OnboardingSkinVisionPrompt(),
+		OnboardingCoachSystemPrompt(),
+		AdminSkinReviewSystemPrompt(),
+		AdminSkinReviewCompactSystemPrompt(),
+		adminSkinReviewUserText("vi", false, ""),
+		adminSkinReviewSuggestAnswerSystemPrompt("vi"),
+		StarterRoutineSystemPrompt(),
+	}
+	for _, blob := range blobs {
+		if strings.Contains(blob, "đanh đá") || strings.Contains(blob, "chanh chua") {
+			t.Fatalf("user-facing prompt still has the tart persona:\n%s", blob[:min(180, len(blob))])
+		}
+	}
+}
+
 func TestWebCoachPrompt_NoProfanityAndMayCap(t *testing.T) {
 	blobs := []string{
 		GetCoachPrompt("beginner"),
@@ -182,7 +201,7 @@ func TestSanitizeWebStarterRoutine_AllFields(t *testing.T) {
 }
 
 func TestAndroidCoachPrompt_GoldenUnchanged(t *testing.T) {
-	// Hash of coach_prompt_polite.go output on main. This PR must not edit that file.
+	// Hash of the android prompt after the public-copy ban is appended. This PR must not edit coach_prompt_polite.go.
 	want := map[string]string{
 		"beginner":     androidPromptHash("beginner"),
 		"intermediate": androidPromptHash("intermediate"),
@@ -212,8 +231,8 @@ func TestAndroidCoachPrompt_GoldenUnchanged(t *testing.T) {
 const (
 	// SHA-256 of GetCoachPromptForClient on the untouched polite prompt.
 	// Filled after the first hash run if these placeholders fail.
-	goldenAndroidIntermediateHash = "ff06f689ec6f9262e87403639e8e342f81d72ca8bcee7a5bbf9e735b174c855c"
-	goldenAndroidBeginnerHash     = "bb7960655c03219edd80b94fcdf1cbd00cdec73ee99c441e00564c953f64697a"
+	goldenAndroidIntermediateHash = "3b307b325182719017d7ced27bda15a134c2d55f06ee620bbc7f2fe65e137b4a"
+	goldenAndroidBeginnerHash     = "99763606ba51b453048c8c4e31d448236cd4630cd3cf16cb32c1577f6ad79b70"
 )
 
 func androidPromptHash(skill string) string {

@@ -35,14 +35,14 @@ func SanitizePublicCopy(s string) string {
 	toks := tokenizePublicCopy(s)
 	drop := decimalLeakFlags(toks)
 	var b strings.Builder
-	droppedPrefix := false
-	kept := false
+	sentenceStart := true
+	droppedAtSentence := false
 	changed := false
 	for i, tok := range toks {
 		if drop[i] || tok.kind == "snake" || tok.kind == "score" {
 			changed = true
-			if !kept {
-				droppedPrefix = true
+			if sentenceStart {
+				droppedAtSentence = true
 			}
 			continue
 		}
@@ -50,22 +50,27 @@ func SanitizePublicCopy(s string) string {
 		case "space":
 			b.WriteString(tok.text)
 		case "punct":
-			if !kept && droppedPrefix && leadingConnectorPunct(tok.text) {
+			if sentenceStart && droppedAtSentence && leadingConnectorPunct(tok.text) {
 				changed = true
 				continue
 			}
 			b.WriteString(tok.text)
+			if chunkEndsSentence(tok.text) {
+				sentenceStart = true
+				droppedAtSentence = false
+			}
 		default:
-			if !kept && droppedPrefix && isViConnector(tok.text) {
+			if sentenceStart && droppedAtSentence && isViConnector(tok.text) {
 				changed = true
 				continue
 			}
 			text := tok.text
-			if !kept && droppedPrefix {
+			if sentenceStart && droppedAtSentence {
 				text = capitalizeSentenceStart(text)
 			}
 			b.WriteString(text)
-			kept = true
+			sentenceStart = false
+			droppedAtSentence = false
 		}
 	}
 	if !changed {
