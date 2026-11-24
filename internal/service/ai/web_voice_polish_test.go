@@ -45,6 +45,20 @@ func TestSmoothSkinNegationStays(t *testing.T) {
 	if out.SituationAnalysis != in {
 		t.Fatalf("got %q", out.SituationAnalysis)
 	}
+	for _, sentence := range []string{
+		"Da mịn, chưa thấy mụn ẩn",
+		"không thấy mụn ẩn rõ",
+		"không phải mụn ẩn",
+	} {
+		got := softenSmoothSkinClaim(sentence)
+		if got != sentence {
+			t.Fatalf("%q became %q", sentence, got)
+		}
+	}
+	positive := softenSmoothSkinClaim("Da mịn màng, đây là mụn ẩn.")
+	if strings.Contains(positive, "mụn ẩn") || !strings.Contains(positive, "có vài nốt nhỏ, chưa chắc") {
+		t.Fatalf("positive claim stayed %q", positive)
+	}
 }
 
 func TestImprovementIsNotWorseSkin(t *testing.T) {
@@ -75,6 +89,9 @@ func TestChungTaBecomesTaoVoiMay(t *testing.T) {
 	}
 	if got := replaceChungTa("chúng mình"); got != "tao với mày" || strings.Contains(got, "tớ") {
 		t.Fatalf("chúng mình -> %q", got)
+	}
+	if got := replaceChungTa("Chúng mình làm từ từ"); got != "Tao với mày làm từ từ" {
+		t.Fatalf("Chúng mình làm từ từ -> %q", got)
 	}
 }
 

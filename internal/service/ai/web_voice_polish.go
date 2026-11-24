@@ -212,8 +212,8 @@ func squeezeSpaces(s string) string {
 }
 
 func replaceChungTa(s string) string {
-	s = replacePhrase(s, "chúng mình", "tao với mày")
-	s = replacePhrase(s, "chúng ta", "tao với mày")
+	s = replacePhraseKeepCase(s, "chúng mình", "tao với mày")
+	s = replacePhraseKeepCase(s, "chúng ta", "tao với mày")
 	return replaceTaSe(s)
 }
 
@@ -280,9 +280,8 @@ func softenSmoothSkinClaim(s string) string {
 			continue
 		}
 		next := sentence
-		for _, from := range []string{"đây là mụn ẩn", "là mụn ẩn", "có mụn ẩn", "mụn ẩn"} {
-			next = replaceFold(next, from, "có vài nốt nhỏ, chưa chắc")
-		}
+		next = replaceFold(next, " là mụn ẩn", " có vài nốt nhỏ, chưa chắc")
+		next = replaceFold(next, "có mụn ẩn", "có vài nốt nhỏ, chưa chắc")
 		if next != sentence {
 			sentences[i] = next
 			changed = true
@@ -299,9 +298,9 @@ func closedComedoneNegated(low string) bool {
 	if idx < 0 {
 		return false
 	}
-	prefix := strings.TrimSpace(low[:idx])
-	for _, neg := range []string{"không có", "không", "chưa"} {
-		if strings.HasSuffix(prefix, neg) {
+	prefix := low[:idx]
+	for _, neg := range []string{"không thấy", "chưa thấy", "không phải", "không có", "không", "chưa", "chẳng"} {
+		if strings.Contains(prefix, neg) {
 			return true
 		}
 	}
@@ -561,6 +560,23 @@ func replaceFold(s, from, to string) string {
 		b.WriteString(to)
 		s = s[i+len(from):]
 		lowS = lowS[i+len(lowFrom):]
+	}
+}
+
+func replacePhraseKeepCase(s, phrase, repl string) string {
+	if phrase == "" {
+		return s
+	}
+	var b strings.Builder
+	for {
+		idx, size := findPhrase(s, phrase)
+		if idx < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:idx])
+		b.WriteString(matchVoiceCase(s[idx:idx+size], repl))
+		s = s[idx+size:]
 	}
 }
 
