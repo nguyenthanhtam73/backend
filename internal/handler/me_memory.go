@@ -11,15 +11,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// MeMemoryHandler serves GET /api/v1/me/memory — a read-only debug/inspect
-// endpoint that returns the same long-term memory block we inject into AI
-// coach prompts (plus a small diagnostic block).
-//
-// Why we expose this:
-//   - The frontend can show users "what does the AI know about me?" which
-//     builds trust and helps surface bad data quickly.
-//   - Backend devs can verify the prompt loop end-to-end without touching
-//     the DB. `?fresh=1` forces a cache-miss rebuild for ground truth.
+// MeMemoryHandler serves GET /api/v1/me/memory.
+// The body is the user-facing summary only. The coach prompt stays on the
+// model path and is not returned here.
 type MeMemoryHandler struct {
 	svc *usermemory.Service
 }
