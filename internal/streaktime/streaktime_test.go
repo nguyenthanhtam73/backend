@@ -33,6 +33,36 @@ func TestDateOf_NotRawUTCTruncation(t *testing.T) {
 	}
 }
 
+func TestRoutineCareDay_RollsAt0400(t *testing.T) {
+	loc := Location
+	vn := func(y int, m time.Month, d, hour, min int) time.Time {
+		return time.Date(y, m, d, hour, min, 0, 0, loc)
+	}
+	cases := []struct {
+		at   time.Time
+		want string
+	}{
+		{vn(2026, 11, 5, 0, 0), "2026-11-04"},
+		{vn(2026, 11, 5, 3, 59), "2026-11-04"},
+		{vn(2026, 11, 5, 4, 0), "2026-11-05"},
+		{vn(2026, 11, 5, 16, 0), "2026-11-05"},
+		{vn(2026, 11, 5, 23, 30), "2026-11-05"},
+	}
+	for _, tc := range cases {
+		if got := RoutineCareDay(tc.at).Format("2006-01-02"); got != tc.want {
+			t.Fatalf("%s care day %s want %s", tc.at.In(loc).Format(time.RFC3339), got, tc.want)
+		}
+	}
+	// 00:30 Vietnam is the next check-in day. The evening routine is not.
+	justAfterMidnight := vn(2026, 11, 5, 0, 30)
+	if DateOf(justAfterMidnight).Format("2006-01-02") != "2026-11-05" {
+		t.Fatal("check-in day stays on the civil midnight")
+	}
+	if RoutineCareDay(justAfterMidnight).Format("2006-01-02") != "2026-11-04" {
+		t.Fatal("00:30 still belongs to the previous routine day")
+	}
+}
+
 func TestNow_AndTodayString_UseVietnamLocation(t *testing.T) {
 	now := Now()
 	if now.Location().String() != Location.String() {

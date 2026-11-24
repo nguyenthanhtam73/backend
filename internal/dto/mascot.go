@@ -52,6 +52,9 @@ type MascotResponse struct {
 	// source is the stored grant source, or "treeType/stage" for a tree piece
 	// (for example "leaf/7"). granted_at is RFC3339.
 	OwnedItems []MascotOwnedItem `json:"owned_items"`
+	// DailyQuest is today's private-room chest. It is omitted when the quest
+	// store is not attached. Existing clients ignore the field.
+	DailyQuest *DailyQuestStatus `json:"daily_quest,omitempty"`
 }
 
 // MascotOwnedItem is one row the caller holds in user_mascot_items.

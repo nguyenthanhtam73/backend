@@ -69,6 +69,11 @@ func deleteUserRoomSharedRows(tx *gorm.DB, userID uuid.UUID) error {
 			return err
 		}
 	}
+	if tx.Migrator().HasTable(&domain.DailyQuestClaim{}) {
+		if err := tx.Where("user_id = ?", userID).Delete(&domain.DailyQuestClaim{}).Error; err != nil {
+			return err
+		}
+	}
 	if tx.Migrator().HasTable(&domain.UserCoinLedger{}) {
 		if err := tx.Where("user_id = ?", userID).Delete(&domain.UserCoinLedger{}).Error; err != nil {
 			return err

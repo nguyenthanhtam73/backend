@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"time"
+
 	"github.com/dadiary/backend/internal/config"
 	"github.com/dadiary/backend/internal/domain"
 	"github.com/dadiary/backend/internal/dto"
@@ -13,18 +15,28 @@ import (
 )
 
 // MascotHandler serves GET /api/v1/me/mascot, PUT /api/v1/me/mascot/loadout,
-// POST /api/v1/me/mascot/glow/seen, POST /api/v1/me/mascot/intro, and
-// DELETE /api/v1/me/mascot/intro.
+// POST /api/v1/me/mascot/glow/seen, POST /api/v1/me/mascot/intro,
+// DELETE /api/v1/me/mascot/intro, and POST /api/v1/mascot/daily-quest/claim.
 type MascotHandler struct {
-	svc  *mascotuc.Service
-	cfg  *config.Config
-	shop *repository.XuShopRepository
+	svc      *mascotuc.Service
+	cfg      *config.Config
+	shop     *repository.XuShopRepository
+	quests   *repository.DailyQuestRepository
+	questNow func() time.Time
 }
 
 // AttachShop sells regular pieces for xu. The same Bé Da gate covers it.
 func (h *MascotHandler) AttachShop(shop *repository.XuShopRepository) {
 	if h != nil {
 		h.shop = shop
+	}
+}
+
+// AttachDailyQuest credits the private-room morning and evening chests and
+// adds daily_quest on GET /api/v1/me/mascot. Nil leaves that field off.
+func (h *MascotHandler) AttachDailyQuest(quests *repository.DailyQuestRepository) {
+	if h != nil {
+		h.quests = quests
 	}
 }
 
@@ -88,6 +100,17 @@ func (h *MascotHandler) Get(c *fiber.Ctx) error {
 	view, err := h.svc.Get(c.UserContext(), uid)
 	if err != nil {
 		return writeMascotErr(c, err)
+	}
+	if h.quests != nil {
+		status, err := h.quests.Status(c.UserContext(), uid, h.questClock())
+		if err != nil {
+			return writeMascotErr(c, err)
+		}
+		view.DailyQuest = &dto.DailyQuestStatus{
+			Morning: dto.DailyQuestSession{Done: status.Morning.Done, Claimed: status.Morning.Claimed},
+			Evening: dto.DailyQuestSession{Done: status.Evening.Done, Claimed: status.Evening.Claimed},
+			Amounts: dto.DailyQuestAmountView(),
+		}
 	}
 	return response.JSON(c, fiber.StatusOK, view)
 }

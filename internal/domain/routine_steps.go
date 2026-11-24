@@ -30,7 +30,16 @@ func RoutineAllStepsDone(morning, evening json.RawMessage) bool {
 // one of those steps is ticked. The other session may be empty or still open.
 // An empty checklist is not done. This is the room care-streak day.
 func RoutineSessionDone(morning, evening json.RawMessage) bool {
-	return routineSessionComplete(morning) || routineSessionComplete(evening)
+	return RoutineOneSessionDone(morning) || RoutineOneSessionDone(evening)
+}
+
+// RoutineOneSessionDone reports whether one stored session (the morning JSON
+// or the evening JSON) is fully ticked. An empty checklist is not done. A
+// legacy list of strings is not done. Blank steps are ignored. The daily
+// quest chest uses this for the session being claimed. RoutineSessionDone
+// is the same predicate on either side.
+func RoutineOneSessionDone(raw json.RawMessage) bool {
+	return routineSessionComplete(raw)
 }
 
 func routineSessionComplete(raw json.RawMessage) bool {
