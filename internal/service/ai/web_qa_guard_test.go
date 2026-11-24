@@ -810,6 +810,67 @@ func TestWebVI_FirstCheckInAndCareTitles(t *testing.T) {
 	}
 }
 
+func TestWebVI_ImprovementVoice(t *testing.T) {
+	qa := webQA{Locale: "vi"}
+	real := &CoachStructuredOutput{Improvements: []struct {
+		Tip string `json:"tip"`
+		Why string `json:"why"`
+	}{{
+		Why: "Cứ giữ nhịp khi da đang ổn và mình muốn giữ nó như vậy.",
+		Tip: "Bạn nên thoa kem mỏng.",
+	}}}
+	sanitizeWebCoachOutput(real, qa)
+	if real.Improvements[0].Why != "Cứ giữ nhịp khi da đang ổn và muốn giữ da như vậy." {
+		t.Fatalf("why %q", real.Improvements[0].Why)
+	}
+	if strings.Contains(real.Improvements[0].Why, "mày") || strings.Contains(real.Improvements[0].Why, "mình") {
+		t.Fatalf("why voice %q", real.Improvements[0].Why)
+	}
+	if real.Improvements[0].Tip != "Nên thoa kem mỏng." {
+		t.Fatalf("tip %q", real.Improvements[0].Tip)
+	}
+
+	only := &CoachStructuredOutput{
+		SituationAnalysis: "Hôm nay da mày ổn.",
+		Improvements: []struct {
+			Tip string `json:"tip"`
+			Why string `json:"why"`
+		}{{Tip: "Da mày sẽ ổn."}, {Why: "Da mày đang dầu."}},
+	}
+	sanitizeWebCoachOutput(only, qa)
+	if only.Improvements[0].Tip != "Da sẽ ổn." || only.Improvements[1].Why != "Da đang dầu." {
+		t.Fatalf("improvements counted? %#v", only.Improvements)
+	}
+	if only.SituationAnalysis != "Hôm nay da mày ổn." {
+		t.Fatalf("opening %q", only.SituationAnalysis)
+	}
+
+	hidden := &CoachStructuredOutput{
+		SituationAnalysis: "Hôm nay da đang ổn.",
+		CareSuggestions:   []CoachCareSuggestion{{Step: "Dưỡng ẩm", Why: "Giữ ẩm."}},
+		Improvements: []struct {
+			Tip string `json:"tip"`
+			Why string `json:"why"`
+		}{{Tip: "Da mày sẽ ổn."}, {Why: "Da mày đang dầu."}},
+	}
+	sanitizeWebCoachOutput(hidden, qa)
+	if hidden.Improvements[0].Tip != "Da mày sẽ ổn." || hidden.Improvements[1].Why != "Da mày đang dầu." {
+		t.Fatalf("hidden improvements were capped %#v", hidden.Improvements)
+	}
+	if hidden.SituationAnalysis != "Hôm nay da của mày đang ổn." {
+		t.Fatalf("hidden mày blocked the opening %q", hidden.SituationAnalysis)
+	}
+
+	en := &CoachStructuredOutput{Improvements: []struct {
+		Tip string `json:"tip"`
+		Why string `json:"why"`
+	}{{Why: "Cứ giữ nhịp khi da đang ổn và mình muốn giữ nó như vậy."}}}
+	sanitizeWebCoachOutput(en, webQA{Locale: "en"})
+	if en.Improvements[0].Why != "Cứ giữ nhịp khi da đang ổn và mình muốn giữ nó như vậy." {
+		t.Fatalf("en %q", en.Improvements[0].Why)
+	}
+}
+
 func TestQA_AndroidPromptHashUnchanged(t *testing.T) {
 	if androidPromptHash("intermediate") != goldenAndroidIntermediateHash {
 		t.Fatalf("android intermediate hash changed: %s", androidPromptHash("intermediate"))

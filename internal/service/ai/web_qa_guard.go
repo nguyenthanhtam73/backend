@@ -2,6 +2,7 @@ package ai
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -595,8 +596,8 @@ func applyWebVIPost(out *CoachStructuredOutput, zones []polishZone, scores []pol
 		out.SafetyReminders[i] = rewrite(out.SafetyReminders[i])
 	}
 	for i := range out.Improvements {
-		out.Improvements[i].Tip = rewrite(out.Improvements[i].Tip)
-		out.Improvements[i].Why = rewrite(out.Improvements[i].Why)
+		out.Improvements[i].Tip = webImprovementVoice(rewrite(out.Improvements[i].Tip))
+		out.Improvements[i].Why = webImprovementVoice(rewrite(out.Improvements[i].Why))
 	}
 	for i := range out.CareSuggestions {
 		out.CareSuggestions[i].Step = rewrite(out.CareSuggestions[i].Step)
@@ -649,8 +650,8 @@ func applyWebVIDetail(d *dto.SkinCoachDetail, qa webQA) {
 	d.AvoidOrPatch = rewriteList(d.AvoidOrPatch, rewrite)
 	d.SafetyReminders = rewriteList(d.SafetyReminders, rewrite)
 	for i := range d.Improvements {
-		d.Improvements[i].Tip = rewrite(d.Improvements[i].Tip)
-		d.Improvements[i].Why = rewrite(d.Improvements[i].Why)
+		d.Improvements[i].Tip = webImprovementVoice(rewrite(d.Improvements[i].Tip))
+		d.Improvements[i].Why = webImprovementVoice(rewrite(d.Improvements[i].Why))
 	}
 	for i := range d.CareSuggestions {
 		d.CareSuggestions[i].Step = rewrite(d.CareSuggestions[i].Step)
@@ -711,8 +712,10 @@ func detailMayCount(d *dto.SkinCoachDetail) int {
 	for _, s := range d.SafetyReminders {
 		n += countWord(s, "mày")
 	}
-	for _, item := range d.Improvements {
-		n += countWord(item.Tip, "mày") + countWord(item.Why, "mày")
+	if len(d.CareSuggestions) == 0 {
+		for _, item := range d.Improvements {
+			n += countWord(item.Tip, "mày") + countWord(item.Why, "mày")
+		}
 	}
 	for _, item := range d.CareSuggestions {
 		n += countWord(item.Step, "mày") + countWord(item.Why, "mày") + countWord(item.SafetyNote, "mày")
@@ -853,8 +856,10 @@ func screenMayCount(out *CoachStructuredOutput, zones []polishZone, scores []pol
 	for _, s := range out.SafetyReminders {
 		n += countWord(s, "mày")
 	}
-	for _, item := range out.Improvements {
-		n += countWord(item.Tip, "mày") + countWord(item.Why, "mày")
+	if len(out.CareSuggestions) == 0 {
+		for _, item := range out.Improvements {
+			n += countWord(item.Tip, "mày") + countWord(item.Why, "mày")
+		}
 	}
 	for _, item := range out.CareSuggestions {
 		n += countWord(item.Step, "mày") + countWord(item.Why, "mày") + countWord(item.SafetyNote, "mày")
@@ -1154,6 +1159,133 @@ func atSentenceStart(s string, idx int) bool {
 
 func indexFold(low, phrase string) int {
 	return strings.Index(low, strings.ToLower(phrase))
+}
+
+// webImprovementVoice puts an improvement tip or why into the web tao/mày
+// voice. A polite subject is dropped instead of being rewritten as «mày».
+func webImprovementVoice(s string) string {
+	s = swapBoundedPhrase(s, "mình muốn giữ nó như vậy", "muốn giữ da như vậy")
+	s = swapBoundedPhrase(s, "bạn muốn giữ nó như vậy", "muốn giữ da như vậy")
+	return dropPoliteSubject(s)
+}
+
+func swapBoundedPhrase(s, from, to string) string {
+	var b strings.Builder
+	for {
+		idx, size := findPhrase(s, from)
+		if idx < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		b.WriteString(s[:idx])
+		b.WriteString(matchVoiceCase(s[idx:idx+size], to))
+		s = s[idx+size:]
+	}
+}
+
+func dropPoliteSubject(s string) string {
+	type hit struct{ at, size int }
+	var hits []hit
+	for _, word := range []string{"mình", "bạn"} {
+		from := 0
+		for {
+			rel, size := findPhrase(s[from:], word)
+			if rel < 0 {
+				break
+			}
+			hits = append(hits, hit{from + rel, size})
+			from += rel + size
+		}
+	}
+	sort.Slice(hits, func(i, j int) bool { return hits[i].at > hits[j].at })
+	for _, h := range hits {
+		if !politeSubject(s, h.at, h.size) {
+			continue
+		}
+		s = removeSubject(s, h.at, h.size)
+	}
+	return squeezeSpaces(s)
+}
+
+func politeSubject(s string, at, size int) bool {
+	word := strings.ToLower(s[at : at+size])
+	if word == "bạn" && nextPlainWord(s, at+size) == "bè" {
+		return false
+	}
+	prev, boundary := plainWordBefore(s, at)
+	if word == "mình" && prev == "một" {
+		return false
+	}
+	if boundary {
+		return true
+	}
+	switch prev {
+	case "và", "nhưng", "thì", "nếu", "khi", "vì", "nên", "để", "mà", "rồi", "hay", "hoặc":
+		return true
+	default:
+		return false
+	}
+}
+
+func plainWordBefore(s string, at int) (string, bool) {
+	head := strings.TrimRight(s[:at], " \t")
+	if head == "" {
+		return "", true
+	}
+	r, _ := utf8.DecodeLastRuneInString(head)
+	if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+		return "", true
+	}
+	return strings.ToLower(previousWord(head+" ", len(head)+1)), false
+}
+
+func nextPlainWord(s string, at int) string {
+	rest := strings.TrimLeft(s[at:], " \t")
+	i := 0
+	for i < len(rest) {
+		r, n := utf8.DecodeRuneInString(rest[i:])
+		if !unicode.IsLetter(r) && !unicode.IsDigit(r) {
+			break
+		}
+		i += n
+	}
+	return strings.ToLower(rest[:i])
+}
+
+func removeSubject(s string, at, size int) string {
+	_, boundary := plainWordBefore(s, at)
+	end := at + size
+	start := at
+	if start > 0 && (s[start-1] == ' ' || s[start-1] == '\t') {
+		start--
+	} else if end < len(s) && (s[end] == ' ' || s[end] == '\t') {
+		end++
+	}
+	out := s[:start] + s[end:]
+	if !boundary {
+		return out
+	}
+	return capitalizeAt(out, start)
+}
+
+func capitalizeAt(s string, at int) string {
+	if at < 0 || at >= len(s) {
+		return s
+	}
+	rest := s[at:]
+	i := 0
+	for i < len(rest) {
+		r, n := utf8.DecodeRuneInString(rest[i:])
+		if unicode.IsSpace(r) {
+			i += n
+			continue
+		}
+		if !unicode.IsLetter(r) {
+			return s
+		}
+		return s[:at+i] + string(unicode.ToUpper(r)) + rest[i+n:]
+	}
+	return s
 }
 
 type careRef struct {
@@ -1461,8 +1593,10 @@ func outputMaySlots(out *CoachStructuredOutput, zones []polishZone, scores []pol
 	slots = append(slots, listSlots(out.RoutineHints, mayOther)...)
 	slots = append(slots, listSlots(out.AvoidOrPatch, mayOther)...)
 	slots = append(slots, listSlots(out.SafetyReminders, mayOther)...)
-	for i := range out.Improvements {
-		slots = append(slots, maySlot{&out.Improvements[i].Tip, mayOther}, maySlot{&out.Improvements[i].Why, mayOther})
+	if len(out.CareSuggestions) == 0 {
+		for i := range out.Improvements {
+			slots = append(slots, maySlot{&out.Improvements[i].Tip, mayOther}, maySlot{&out.Improvements[i].Why, mayOther})
+		}
 	}
 	for i := range out.CareSuggestions {
 		item := &out.CareSuggestions[i]
@@ -1488,8 +1622,10 @@ func detailMaySlots(d *dto.SkinCoachDetail) []maySlot {
 	slots = append(slots, listSlots(d.RoutineHints, mayOther)...)
 	slots = append(slots, listSlots(d.AvoidOrPatch, mayOther)...)
 	slots = append(slots, listSlots(d.SafetyReminders, mayOther)...)
-	for i := range d.Improvements {
-		slots = append(slots, maySlot{&d.Improvements[i].Tip, mayOther}, maySlot{&d.Improvements[i].Why, mayOther})
+	if len(d.CareSuggestions) == 0 {
+		for i := range d.Improvements {
+			slots = append(slots, maySlot{&d.Improvements[i].Tip, mayOther}, maySlot{&d.Improvements[i].Why, mayOther})
+		}
 	}
 	for i := range d.CareSuggestions {
 		item := &d.CareSuggestions[i]
