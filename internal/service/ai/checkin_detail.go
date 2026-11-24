@@ -218,7 +218,7 @@ func filterZoneNotes(in []dto.CoachZoneNote, allowed map[string]struct{}, locale
 		if !noteSaysLooksLike(note) && !goodSkinNote(note) {
 			continue
 		}
-		note = rewriteBarrierWording(note)
+		note = capitalizeFirst(rewriteBarrierWording(note))
 		sev, _ := canonicalSeverity(n.Severity)
 		out = append(out, dto.CoachZoneNote{Zone: zone, Note: note, Severity: sev})
 		if len(out) >= maxZoneNotes {

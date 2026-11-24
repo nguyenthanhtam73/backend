@@ -44,12 +44,19 @@ func TestCoachPromptVersion_v34(t *testing.T) {
 	}
 }
 
-func TestCoachPromptVersion_v36(t *testing.T) {
-	if CoachDailyPromptVersion != 36 {
-		t.Fatalf("expected CoachDailyPromptVersion == 36, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v37(t *testing.T) {
+	if CoachDailyPromptVersion != 37 {
+		t.Fatalf("expected CoachDailyPromptVersion == 37, got %d", CoachDailyPromptVersion)
 	}
 	web := GetCoachPrompt("intermediate")
-	for _, frag := range []string{"khoảng **1–2 lần**", "da hôm nay", "hai bên má", "làn da"} {
+	for _, frag := range []string{
+		"khoảng **1–2 lần**", "da hôm nay", "hai bên má", "làn da",
+		"PHẢI xưng «mày» đúng một lần",
+		"Hôm nay má trái của mày đang nổi khá nhiều mụn đỏ, thương ghê.",
+		"(hạt nhỏ trắng dưới da)",
+		"đó là mụn ẩn hoặc milia",
+		"chưa rõ ràng",
+	} {
 		if !strings.Contains(web, frag) {
 			t.Fatalf("web prompt missing %q", frag)
 		}

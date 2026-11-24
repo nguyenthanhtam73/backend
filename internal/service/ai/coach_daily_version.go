@@ -116,4 +116,9 @@ package ai
 // v36 (2026-11-24) — Web voice only. Each screen uses «mày» about 1–2 times;
 // the rest of the screen speaks naturally («da hôm nay», «hai bên má»). No
 // post-filter on «mày». Android prompt file is unchanged.
-const CoachDailyPromptVersion = 36
+//
+// v37 (2026-11-24) — Web prompt only. The first sentence of situation_analysis
+// addresses the user with «mày» once. Milia is explained in plain words.
+// Naming a spot uses «trông giống» / «có thể là». A clear clarity note does
+// not add «chưa rõ ràng». Android prompt file is unchanged.
+const CoachDailyPromptVersion = 37
