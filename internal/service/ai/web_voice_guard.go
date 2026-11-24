@@ -3,7 +3,6 @@ package ai
 import (
 	"encoding/json"
 	"strings"
-	"unicode"
 
 	"github.com/dadiary/backend/internal/dto"
 	"golang.org/x/text/unicode/norm"
@@ -14,11 +13,17 @@ func init() {
 	dto.CleanWebProfanity = SanitizeWebCoachText
 }
 
-// webProfanityDrop keys are folded (no diacritics, đ→d). tao/mày stay.
-// The Android sanitizer is a separate path and is not used here.
-var webProfanityDrop = map[string]struct{}{
-	"dm": {}, "dit": {}, "du": {}, "deo": {}, "dech": {},
-	"vl": {}, "vcl": {}, "vkl": {}, "vai": {}, "lon": {}, "det": {}, "cc": {},
+// webProfanityExact matches accented swears with their diacritics kept.
+// Case-insensitive and NFC only. tao/mày stay.
+var webProfanityExact = map[string]struct{}{
+	"đm": {}, "địt": {}, "đụ": {}, "đéo": {}, "đếch": {},
+	"lồn": {}, "vãi": {}, "đệt": {},
+}
+
+// webProfanityPlain matches slang that is unaccented by nature.
+// đcm and đmm fold only the letter đ onto dcm and dmm.
+var webProfanityPlain = map[string]struct{}{
+	"dm": {}, "vl": {}, "vcl": {}, "vkl": {}, "cc": {},
 	"dcm": {}, "dmm": {}, "cmn": {}, "clgt": {},
 }
 
@@ -157,8 +162,7 @@ func replaceWebVoiceTokens(s string) (string, bool) {
 			kept = true
 			continue
 		}
-		key := foldProfanityKey(part.text)
-		if _, drop := webProfanityDrop[key]; drop {
+		if isWebProfanity(part.text) {
 			changed = true
 			if !kept {
 				droppedPrefix = true
@@ -198,17 +202,15 @@ func webLeadingPunct(s string) bool {
 	return true
 }
 
-func foldProfanityKey(s string) string {
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, "đ", "d")
-	var b strings.Builder
-	for _, r := range norm.NFD.String(s) {
-		if unicode.Is(unicode.Mn, r) {
-			continue
-		}
-		b.WriteRune(r)
+func isWebProfanity(token string) bool {
+	key := strings.ToLower(norm.NFC.String(token))
+	if _, ok := webProfanityExact[key]; ok {
+		return true
 	}
-	return b.String()
+	// Fold only đ. Other diacritics stay, so vài, lông, dư, and đeo are kept.
+	plain := strings.ReplaceAll(key, "đ", "d")
+	_, ok := webProfanityPlain[plain]
+	return ok
 }
 
 func cleanWebZoneNotes(raw json.RawMessage, changed *bool) json.RawMessage {

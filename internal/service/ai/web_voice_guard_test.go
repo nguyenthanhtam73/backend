@@ -93,6 +93,28 @@ func TestSanitizeWebCoachOutput_DropsProfanityKeepsNumbers(t *testing.T) {
 	if got := SanitizeWebCoachText("Retinol 0.025 hoặc 0.05"); got != "Retinol 0.025 hoặc 0.05" {
 		t.Fatalf("strength changed: %q", got)
 	}
+	if got := SanitizeWebCoachText("Đéo được nặn"); !strings.Contains(strings.ToLower(got), "được") || strings.Contains(strings.ToLower(got), "đéo") {
+		t.Fatalf("đéo left or sentence broken: %q", got)
+	}
+	if got := SanitizeWebCoachText("Da vcl đỏ"); strings.Contains(strings.ToLower(got), "vcl") {
+		t.Fatalf("vcl left: %q", got)
+	}
+	for _, in := range []string{
+		"Có vài nốt ở má",
+		"Lỗ chân lông lớn",
+		"Da dư dầu",
+		"Dữ liệu chưa đủ",
+		"Dù bận",
+		"Đeo khẩu trang vải",
+		"Kem dẻo",
+		"Vai và lưng có mụn",
+		"vải",
+		"đeo",
+	} {
+		if got := SanitizeWebCoachText(in); got != in {
+			t.Fatalf("ordinary word changed: %q → %q", in, got)
+		}
+	}
 }
 
 func TestReadPathStripsStoredProfanity(t *testing.T) {
