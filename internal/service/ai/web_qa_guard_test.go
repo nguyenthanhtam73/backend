@@ -614,6 +614,133 @@ func TestWebVI_ProdPhrases(t *testing.T) {
 	}
 }
 
+func TestWebVI_MayCapScreens(t *testing.T) {
+	const (
+		clearSit = "Hôm nay da mày nhìn khá ổn — hai bên má mịn màng, không thấy mụn đỏ hay thâm nổi bật. Lớp ngoài da trông đều, không bóng dầu hay khô rát. Đây là nền tốt để mày xây dựng routine chăm sóc hàng ngày."
+		clearCon = "Da mày hôm nay trông khá ổn — mịn màng, không viêm hay khô rát."
+		zone     = "Trông giống da mịn màng, không có dấu hiệu nổi bật."
+		acneSit  = "Hôm nay vùng má trái của mày có khá nhiều mụn viêm đỏ, bề mặt da cũng không đều."
+		acneCon  = "Vùng má trái đang có mụn viêm đỏ rõ ràng và bề mặt da không đều. Tao khuyên tập trung vào làm dịu và dưỡng ẩm trước, để da phục hồi trước khi dùng bất kỳ chất trị mụn nào."
+		acneWhy  = "Rau má làm dịu — ưu tiên khi da đang viêm đỏ sưng như vùng má mày hôm nay."
+	)
+	qa := webQA{Locale: "vi", NoteKnown: true, HasUserNote: false}
+	clear := &CoachStructuredOutput{
+		SituationAnalysis: clearSit,
+		ConcernAlignment:  clearCon,
+		SkinScoreNotesRaw: []byte(`{"overall":"` + clearCon + `"}`),
+		ZoneNotesRaw: []byte(`[{"zone":"right_cheek","note":"` + zone + `","severity":"mild"},` +
+			`{"zone":"left_cheek","note":"` + zone + `","severity":"mild"}]`),
+		CareSuggestions: []CoachCareSuggestion{
+			{SafetyNote: "Không cần rửa quá mạnh — da mày không cần điều đó."},
+			{SafetyNote: "Chọn kem nhẹ nếu da mày dễ bóng dầu."},
+		},
+		RoutineHints: []string{"Mỗi ngày: Uống đủ nước, ngủ đủ giấc — da sẽ cảm ơn mày."},
+		AvoidOrPatch: []string{"Tránh các sản phẩm có mùi thơm hoặc cồn cao nếu da mày nhạy cảm."},
+		ProductGuidance: []dto.ProductGuidanceItem{{
+			Why: "SPF50 hàng ngày là bước quan trọng nhất để bảo vệ da mày khỏi tia UV, giúp da luôn khỏe mạnh.",
+		}},
+	}
+	sanitizeWebCoachOutput(clear, qa)
+	if clear.SituationAnalysis != "Hôm nay da mày nhìn khá ổn — hai bên má mịn màng, không thấy mụn đỏ hay thâm nổi bật. Lớp ngoài da trông đều, không bóng dầu hay khô rát. Đây là nền tốt để mày xây dựng thói quen chăm da hàng ngày." {
+		t.Fatalf("clear situation %q", clear.SituationAnalysis)
+	}
+	if clear.ConcernAlignment != "Da hôm nay trông khá ổn — mịn màng, không viêm hay khô rát." {
+		t.Fatalf("clear concern %q", clear.ConcernAlignment)
+	}
+	var scores map[string]string
+	if err := json.Unmarshal(clear.SkinScoreNotesRaw, &scores); err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(scores["overall"]) != "" {
+		t.Fatalf("overall still shown %q", scores["overall"])
+	}
+	var zones []map[string]string
+	if err := json.Unmarshal(clear.ZoneNotesRaw, &zones); err != nil {
+		t.Fatal(err)
+	}
+	for i, z := range zones {
+		if z["note"] != "Da mịn màng, không có dấu hiệu nổi bật." {
+			t.Fatalf("zone %d %q", i, z["note"])
+		}
+	}
+	if clear.CareSuggestions[0].SafetyNote != "Không cần rửa quá mạnh — da không cần điều đó." {
+		t.Fatalf("care0 %q", clear.CareSuggestions[0].SafetyNote)
+	}
+	if clear.CareSuggestions[1].SafetyNote != "Chọn kem nhẹ nếu da dễ bóng dầu." {
+		t.Fatalf("care1 %q", clear.CareSuggestions[1].SafetyNote)
+	}
+	if clear.RoutineHints[0] != "Mỗi ngày: Uống đủ nước, ngủ đủ giấc — da sẽ khoẻ hơn." {
+		t.Fatalf("routine %q", clear.RoutineHints[0])
+	}
+	if clear.AvoidOrPatch[0] != "Tránh các sản phẩm có mùi thơm hoặc cồn cao nếu da nhạy cảm." {
+		t.Fatalf("avoid %q", clear.AvoidOrPatch[0])
+	}
+	if clear.ProductGuidance[0].Why != "SPF50 hàng ngày là bước quan trọng nhất để bảo vệ da khỏi tia UV, giúp da luôn khỏe mạnh." {
+		t.Fatalf("product %q", clear.ProductGuidance[0].Why)
+	}
+	if n := screenMayCount(clear, decodePolishZones(clear.ZoneNotesRaw), decodePolishScores(clear.SkinScoreNotesRaw)); n > 2 {
+		t.Fatalf("clear mày %d", n)
+	}
+
+	acne := &CoachStructuredOutput{
+		SituationAnalysis: acneSit,
+		ConcernAlignment:  acneCon,
+		ProductGuidance:   []dto.ProductGuidanceItem{{Why: acneWhy}},
+	}
+	sanitizeWebCoachOutput(acne, qa)
+	if acne.SituationAnalysis != acneSit {
+		t.Fatalf("acne situation %q", acne.SituationAnalysis)
+	}
+	if acne.ConcernAlignment != "Vùng má trái đang có mụn viêm đỏ rõ ràng và bề mặt da không đều. Tao khuyên tập trung vào làm dịu và dưỡng ẩm, để da phục hồi trước khi dùng bất kỳ chất trị mụn nào." {
+		t.Fatalf("acne concern %q", acne.ConcernAlignment)
+	}
+	if acne.ProductGuidance[0].Why != acneWhy {
+		t.Fatalf("acne product %q", acne.ProductGuidance[0].Why)
+	}
+	if n := screenMayCount(acne, nil, nil); n != 2 {
+		t.Fatalf("acne mày %d", n)
+	}
+
+	spot := &CoachStructuredOutput{ZoneNotesRaw: []byte(`[{"zone":"forehead","note":"Trông giống mụn viêm đỏ."}]`)}
+	sanitizeWebCoachOutput(spot, qa)
+	if err := json.Unmarshal(spot.ZoneNotesRaw, &zones); err != nil {
+		t.Fatal(err)
+	}
+	if zones[0]["note"] != "Trông giống mụn viêm đỏ." {
+		t.Fatalf("spot note %q", zones[0]["note"])
+	}
+	none := &CoachStructuredOutput{SituationAnalysis: "Bề mặt hôm nay đều."}
+	sanitizeWebCoachOutput(none, qa)
+	if none.SituationAnalysis != "Bề mặt hôm nay đều." {
+		t.Fatalf("inserted %q", none.SituationAnalysis)
+	}
+	subject := &CoachStructuredOutput{
+		SituationAnalysis: "Hôm nay da mày ổn. Da mày sẽ ổn.",
+		AvoidOrPatch:      []string{"Nhớ mày nghỉ."},
+		ConcernAlignment:  "Da mày đang dầu.",
+	}
+	sanitizeWebCoachOutput(subject, qa)
+	if subject.AvoidOrPatch[0] != "Nhớ mày nghỉ." {
+		t.Fatalf("subject dropped %q", subject.AvoidOrPatch[0])
+	}
+	if strings.Contains(subject.ConcernAlignment, "bạn") || strings.Contains(subject.SituationAnalysis, "bạn") {
+		t.Fatalf("substituted bạn %q %q", subject.SituationAnalysis, subject.ConcernAlignment)
+	}
+	en := &CoachStructuredOutput{SituationAnalysis: clearSit, ConcernAlignment: clearCon}
+	sanitizeWebCoachOutput(en, webQA{Locale: "en"})
+	if en.SituationAnalysis != clearSit || en.ConcernAlignment != clearCon {
+		t.Fatalf("en changed %q %q", en.SituationAnalysis, en.ConcernAlignment)
+	}
+	android := &CoachStructuredOutput{SituationAnalysis: clearSit, ConcernAlignment: acneCon}
+	applyCoachVoiceGuard(android, "android", qa)
+	if strings.Contains(android.SituationAnalysis, "thói quen chăm da") || !strings.Contains(android.SituationAnalysis, "xây dựng routine chăm sóc") {
+		t.Fatalf("android rewrote the routine phrase %q", android.SituationAnalysis)
+	}
+	if !strings.Contains(android.ConcernAlignment, "dưỡng ẩm trước, để") {
+		t.Fatalf("android dropped trước %q", android.ConcernAlignment)
+	}
+}
+
 func TestQA_AndroidPromptHashUnchanged(t *testing.T) {
 	if androidPromptHash("intermediate") != goldenAndroidIntermediateHash {
 		t.Fatalf("android intermediate hash changed: %s", androidPromptHash("intermediate"))
