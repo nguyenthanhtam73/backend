@@ -8,6 +8,29 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 )
 
+func TestQA_ReviewSentencesThroughPolish(t *testing.T) {
+	note := "Nhớ ghi chú lại cảm giác da tối nay nha."
+	if got := stripInventedUserNote(note); got != note {
+		t.Fatalf("advice dropped: %q", got)
+	}
+	out := &CoachStructuredOutput{SituationAnalysis: note}
+	sanitizeWebCoachOutput(out, webQA{NoteKnown: true, HasUserNote: false})
+	if out.SituationAnalysis != note {
+		t.Fatalf("polish dropped advice: %q", out.SituationAnalysis)
+	}
+
+	cmp := &CoachStructuredOutput{SituationAnalysis: "So với lần trước, vùng này trông sưng hơn."}
+	sanitizeWebCoachOutput(cmp, webQA{GuardComparison: true, PreviousComparable: false})
+	if strings.TrimSpace(cmp.SituationAnalysis) != "" {
+		t.Fatalf("comparison survived %q", cmp.SituationAnalysis)
+	}
+	trunc := &CoachStructuredOutput{SituationAnalysis: "Má trái kém lần trước."}
+	sanitizeWebCoachOutput(trunc, webQA{GuardComparison: true, PreviousComparable: false, SwapCheeks: true})
+	if strings.TrimSpace(trunc.SituationAnalysis) != "" || strings.Contains(trunc.SituationAnalysis, "má phải") {
+		t.Fatalf("fragment %q", trunc.SituationAnalysis)
+	}
+}
+
 func TestQA_InventedUserNote(t *testing.T) {
 	const in = "Mày ghi chú là mụn ẩn"
 	if got := stripInventedUserNote(in); strings.Contains(got, "ghi chú") || strings.Contains(got, "mày ghi") {
@@ -17,27 +40,37 @@ func TestQA_InventedUserNote(t *testing.T) {
 	if strings.Contains(kept, "ghi chú") || !strings.Contains(kept, "Da ổn") {
 		t.Fatalf("mixed note %q", kept)
 	}
-	if got := stripInventedUserNote("Mày ghi da hôm nay ổn."); strings.Contains(strings.ToLower(got), "mày ghi") {
-		t.Fatalf("mày ghi stayed %q", got)
+	if got := stripInventedUserNote("Mày ghi da hôm nay ổn."); got != "Mày ghi da hôm nay ổn." {
+		t.Fatalf("ordinary mày ghi changed %q", got)
 	}
 }
 
 func TestQA_CameraFrontAndRear(t *testing.T) {
-	if MapFrameCheek("left", "front") != "right" || MapFrameCheek("right", "front") != "left" {
-		t.Fatal("front camera should flip")
+	// Unmirrored front and rear both show the user's left cheek on the image's right.
+	if MapFrameCheek("left", false) != "right" || MapFrameCheek("right", false) != "left" {
+		t.Fatal("unmirrored photo should swap")
 	}
-	if MapFrameCheek("left", "rear") != "left" || MapFrameCheek("right", "rear") != "right" {
-		t.Fatal("rear camera should keep the image edge")
+	if MapFrameCheek("left", true) != "left" || MapFrameCheek("right", true) != "right" {
+		t.Fatal("mirrored file should keep the image edge")
 	}
-	if MapFrameCheek("left", "") != "right" {
-		t.Fatal("unknown camera defaults to a mirrored front selfie")
+	for _, phrase := range []string{"má bên trái", "phía trái cằm", "bên trái trán"} {
+		got := FlipFrameCheeks(phrase)
+		if strings.Contains(got, "trái") || !strings.Contains(got, "phải") {
+			t.Fatalf("%q -> %q", phrase, got)
+		}
 	}
-	front := FlipFrameCheeks("Nốt ở má trái, zone left_cheek.")
-	if !strings.Contains(front, "má phải") || !strings.Contains(front, "right_cheek") || strings.Contains(front, "má trái") {
-		t.Fatalf("front flip %q", front)
+	raw := `[{"zone":"left_cheek","note":"má trái đỏ"}]`
+	out := &CoachStructuredOutput{ZoneNotesRaw: []byte(raw)}
+	sanitizeWebCoachOutput(out, webQA{SwapCheeks: true, Camera: "rear"})
+	text := string(out.ZoneNotesRaw)
+	if !strings.Contains(text, `"zone":"right_cheek"`) || !strings.Contains(text, "má phải") || strings.Contains(text, "left_cheek") || strings.Contains(text, "má trái") {
+		t.Fatalf("zone key and note diverged: %s", text)
 	}
-	if MapFrameCheek("left", "rear") != "left" {
-		t.Fatal("rear prose and keys stay on the image edge")
+	closeup := &CoachStructuredOutput{ZoneNotesRaw: []byte(raw)}
+	sanitizeWebCoachOutput(closeup, webQA{SwapCheeks: false, KeepZone: "left_cheek"})
+	kept := string(closeup.ZoneNotesRaw)
+	if !strings.Contains(kept, `"zone":"left_cheek"`) || !strings.Contains(kept, "má trái") {
+		t.Fatalf("user-picked close-up was swapped: %s", kept)
 	}
 }
 
@@ -78,16 +111,20 @@ func TestQA_SmoothSkinDoesNotClaimBumps(t *testing.T) {
 			t.Fatalf("%q became %q", in, got)
 		}
 	}
-	positive := softenSmoothSkinClaim("Da mịn màng, đây là mụn ẩn.")
-	if strings.Contains(positive, "mụn ẩn") || !strings.Contains(positive, "có vài nốt nhỏ, chưa chắc") {
-		t.Fatalf("positive %q", positive)
+	for _, in := range []string{
+		"Da mịn màng, có milia ở hai má.",
+		"Da mịn màng, mụn ẩn hoặc milia.",
+	} {
+		got := softenSmoothSkinClaim(in)
+		if strings.Contains(strings.ToLower(got), "milia") || strings.Contains(got, "có có") || strings.Contains(got, "có vài nốt nhỏ") {
+			t.Fatalf("%q became %q", in, got)
+		}
 	}
-	milia := softenSmoothSkinClaim("Da mịn màng, trông giống milia.")
-	if strings.Contains(strings.ToLower(milia), "milia") {
-		t.Fatalf("smooth skin still claims milia: %q", milia)
+	if got := softenSmoothSkinClaim("không thấy milia"); got != "không thấy milia" {
+		t.Fatalf("negated milia %q", got)
 	}
-	judged := replaceUncleanJudgement("Kem này làm da trông không sạch.")
-	if strings.Contains(judged, "không sạch") || !strings.Contains(judged, "làm nốt dễ thấy hơn") {
+	judged := replaceUncleanJudgement("Dầu làm da trông không sạch.")
+	if strings.Contains(judged, "nốt") || !strings.Contains(judged, "dễ bóng dầu") {
 		t.Fatalf("judging %q", judged)
 	}
 }
@@ -111,25 +148,21 @@ func TestQA_ReassuranceOnceAndNotOnBlur(t *testing.T) {
 }
 
 func TestQA_MayCountRewritesNaturally(t *testing.T) {
-	opening := "Có một nốt mới ở má."
-	fields := []polishField{{text: &opening, opening: true}}
-	balanceMay(fields)
-	if *fields[0].text != "Tao thấy Có một nốt mới ở má." && *fields[0].text != "Tao thấy có một nốt mới ở má." {
-		if !strings.Contains(*fields[0].text, "Tao thấy") || strings.Contains(*fields[0].text, "Tao thấy da hôm nay vậy đó") {
-			t.Fatalf("new pimple voice %q", *fields[0].text)
+	for _, in := range []string{"Có một nốt mới ở má.", "Da hôm nay ổn.", "So với da hôm nay ổn."} {
+		out := &CoachStructuredOutput{SituationAnalysis: in}
+		sanitizeWebCoachOutput(out, webQA{})
+		if strings.HasPrefix(out.SituationAnalysis, "Tao thấy") {
+			t.Fatalf("prefix injected into %q", out.SituationAnalysis)
+		}
+		if out.SituationAnalysis != in {
+			t.Fatalf("%q became %q", in, out.SituationAnalysis)
 		}
 	}
-	many := "Da mày đỏ. Da mày sưng. Da mày ngứa. Mày ơi đừng nặn."
-	mfields := []polishField{{text: &many, opening: true}}
-	balanceMay(mfields)
-	if strings.Count(strings.ToLower(*mfields[0].text), "mày") > 2 {
-		t.Fatalf("still too many mày: %q", *mfields[0].text)
+	if strings.Contains(plainLoanwords("Mình đang stressed."), "stressed") {
+		t.Fatal("stressed was not translated")
 	}
-	if !strings.Contains(*mfields[0].text, "Mày ơi") && !strings.Contains(*mfields[0].text, "mày ơi") {
-		t.Fatalf("cut the opener: %q", *mfields[0].text)
-	}
-	if strings.Contains(strings.ToLower(replaceChungTa("chúng ta cùng làm")), "chúng ta") {
-		t.Fatal("chúng ta stayed")
+	if !strings.Contains(plainLoanwords("Mình đang stressed."), "căng thẳng") {
+		t.Fatal("stressed missing plain Vietnamese")
 	}
 }
 

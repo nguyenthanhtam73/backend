@@ -6,10 +6,8 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 )
 
-// ResolveCamera reads photo_meta.camera.
-// "rear" / "back" / "environment" is the rear lens and is not mirrored.
-// Anything else, including a missing field, is "front": a check-in face photo
-// is a mirrored selfie unless the client says the rear camera was used.
+// ResolveCamera reads photo_meta.camera. It does not decide whether to swap
+// cheeks. Swap unless the image is known to be mirrored; see ShouldSwapCheeks.
 func ResolveCamera(doc dto.StoredPhotoContext) string {
 	for _, img := range doc.Images {
 		switch strings.ToLower(strings.TrimSpace(img.Camera)) {
@@ -22,17 +20,50 @@ func ResolveCamera(doc dto.StoredPhotoContext) string {
 	return "front"
 }
 
-// MapFrameCheek turns the left or right edge of the saved image into the
-// user's own cheek. The model is asked to name the edge it sees.
-// A front-camera selfie is mirrored, so the left edge is the user's right
-// cheek and the label is swapped. A rear-camera photo is not mirrored, so
-// the label stays.
-func MapFrameCheek(frameSide, camera string) string {
+// ShouldSwapCheeks reports whether image-left/right must be flipped onto the
+// user's face. An unmirrored photo — rear camera, or a front camera that was
+// not flipped — shows the user's left cheek on the image's right, so the
+// label is swapped. The swap is skipped only when mirrored is true, or when
+// every photo is a close-up of a zone the user picked.
+func ShouldSwapCheeks(doc dto.StoredPhotoContext) bool {
+	if len(doc.Images) == 0 {
+		return true
+	}
+	closeups := 0
+	others := 0
+	for _, img := range doc.Images {
+		if img.Mirrored != nil && *img.Mirrored {
+			return false
+		}
+		if img.Kind == dto.PhotoKindCloseup && img.Zone != "" && img.Zone != "other" {
+			closeups++
+		} else {
+			others++
+		}
+	}
+	return !(closeups > 0 && others == 0)
+}
+
+// UserPickedCloseupZone is the zone on a close-up the user chose.
+// Empty when the check is not that kind of photo.
+func UserPickedCloseupZone(doc dto.StoredPhotoContext) string {
+	for _, img := range doc.Images {
+		if img.Kind == dto.PhotoKindCloseup && img.Zone != "" && img.Zone != "other" {
+			return img.Zone
+		}
+	}
+	return ""
+}
+
+// MapFrameCheek maps an image edge to the user's cheek.
+// mirrored false swaps (user's left is on the image's right).
+// mirrored true keeps the edge (the file is already a mirror).
+func MapFrameCheek(frameSide string, mirrored bool) string {
 	side := strings.ToLower(strings.TrimSpace(frameSide))
 	if side != "left" && side != "right" {
 		return side
 	}
-	if strings.ToLower(strings.TrimSpace(camera)) == "rear" {
+	if mirrored {
 		return side
 	}
 	if side == "left" {
@@ -41,30 +72,55 @@ func MapFrameCheek(frameSide, camera string) string {
 	return "left"
 }
 
-// FlipFrameCheeks swaps má trái/phải and left_cheek/right_cheek.
-// Call it once for a front-camera photo. Do not call it for rear.
+// FlipFrameCheeks swaps left/right cheek words and zone keys, preserving case.
+// Phrases such as "má bên trái", "phía trái cằm", and "bên trái trán" swap too.
 func FlipFrameCheeks(s string) string {
 	if s == "" {
 		return s
 	}
-	const (
-		lt = "\x00LT\x00"
-		rt = "\x00RT\x00"
-		lk = "\x00LK\x00"
-		rk = "\x00RK\x00"
-	)
-	replacer := strings.NewReplacer(
-		"má trái", lt, "Má trái", lt, "MÁ TRÁI", lt,
-		"má phải", rt, "Má phải", rt, "MÁ PHẢI", rt,
-		"left_cheek", lk,
-		"right_cheek", rk,
-	)
-	s = replacer.Replace(s)
-	s = strings.NewReplacer(
-		lt, "má phải",
-		rt, "má trái",
-		lk, "right_cheek",
-		rk, "left_cheek",
-	).Replace(s)
-	return s
+	type pair struct{ from, to string }
+	pairs := []pair{
+		{"má bên trái", "má bên phải"},
+		{"Má bên trái", "Má bên phải"},
+		{"má bên phải", "má bên trái"},
+		{"Má bên phải", "Má bên trái"},
+		{"phía trái", "phía phải"},
+		{"Phía trái", "Phía phải"},
+		{"phía phải", "phía trái"},
+		{"Phía phải", "Phía trái"},
+		{"bên trái", "bên phải"},
+		{"Bên trái", "Bên phải"},
+		{"bên phải", "bên trái"},
+		{"Bên phải", "Bên trái"},
+		{"má trái", "má phải"},
+		{"Má trái", "Má phải"},
+		{"má phải", "má trái"},
+		{"Má phải", "Má trái"},
+		{"left_cheek", "right_cheek"},
+		{"right_cheek", "left_cheek"},
+	}
+	const mark = "\x00"
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		matched := false
+		for n, p := range pairs {
+			if strings.HasPrefix(s[i:], p.from) {
+				b.WriteString(mark)
+				b.WriteString(strings.Repeat("x", n))
+				b.WriteString(mark)
+				i += len(p.from)
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			b.WriteByte(s[i])
+			i++
+		}
+	}
+	out := b.String()
+	for n, p := range pairs {
+		out = strings.ReplaceAll(out, mark+strings.Repeat("x", n)+mark, p.to)
+	}
+	return out
 }

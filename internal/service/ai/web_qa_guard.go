@@ -16,39 +16,56 @@ type webQA struct {
 	NoteKnown          bool
 	HasUserNote        bool
 	Camera             string
+	SwapCheeks         bool
+	KeepZone           string
 	GuardComparison    bool
 	PreviousComparable bool
 	PhotoLimited       bool
 	WorseThanLast      bool
-	BalanceVoice       bool
 }
 
 func webQAForCheck(check *domain.SkinCheck, facts CheckInCoachFacts, visionStatus, visionRaw string, out *CoachStructuredOutput) webQA {
 	note := ""
-	cam := "front"
+	doc := dto.StoredPhotoContext{}
 	if check != nil {
 		note = strings.TrimSpace(check.UserNote)
-		cam = ResolveCamera(dto.DecodePhotoContext(check.PhotoContext))
+		doc = dto.DecodePhotoContext(check.PhotoContext)
 	}
 	ev := ClassifyCheckInPhotoEvidence(visionStatus, visionRaw)
 	limited := ev.Kind != PhotoEvidenceOK
-	todayZones := zonesInOutput(out)
-	if cam == "front" {
-		for i, zone := range todayZones {
-			todayZones[i] = flipZoneKey(zone)
-		}
+	swap := ShouldSwapCheeks(doc)
+	keep := ""
+	if !swap {
+		keep = UserPickedCloseupZone(doc)
 	}
+	todayZones := userSideZones(zonesInOutput(out), swap, keep)
 	prevOK := previousComparable(facts, todayZones)
 	return webQA{
 		NoteKnown:          true,
 		HasUserNote:        note != "",
-		Camera:             cam,
+		Camera:             ResolveCamera(doc),
+		SwapCheeks:         swap,
+		KeepZone:           keep,
 		GuardComparison:    true,
 		PreviousComparable: prevOK,
 		PhotoLimited:       limited,
 		WorseThanLast:      skinTrendWorse(facts, scoreOf(out)) && prevOK && !limited,
-		BalanceVoice:       true,
 	}
+}
+
+func userSideZones(zones []string, swap bool, keep string) []string {
+	if !swap {
+		return zones
+	}
+	out := make([]string, len(zones))
+	for i, zone := range zones {
+		if keep != "" && strings.EqualFold(zone, keep) {
+			out[i] = zone
+			continue
+		}
+		out[i] = flipZoneKey(zone)
+	}
+	return out
 }
 
 func flipZoneKey(zone string) string {
@@ -120,19 +137,16 @@ func applyWebQA(fields []polishField, qa webQA) {
 		if qa.NoteKnown && !qa.HasUserNote {
 			s = stripInventedUserNote(s)
 		}
-		if qa.Camera == "front" {
-			s = FlipFrameCheeks(s)
-		}
 		if qa.GuardComparison && !qa.PreviousComparable {
 			s = stripInvalidComparison(s)
+		}
+		if qa.SwapCheeks && !f.skipCheek {
+			s = FlipFrameCheeks(s)
 		}
 		s = replaceUncleanJudgement(s)
 		s = plainLoanwords(s)
 		s = moveHedgeToClauseEnd(s)
 		*f.text = s
-	}
-	if qa.BalanceVoice {
-		balanceMay(fields)
 	}
 	dedupeReassurance(fields, reassuranceAllowed(qa))
 }
@@ -141,13 +155,13 @@ func reassuranceAllowed(qa webQA) bool {
 	return qa.WorseThanLast && qa.PreviousComparable && !qa.PhotoLimited
 }
 
-// stripInventedUserNote removes a sentence that claims the user wrote a note.
+// stripInventedUserNote drops only a claim that the user already wrote a note.
+// Advice such as "Nhớ ghi chú lại…" stays.
 func stripInventedUserNote(s string) string {
 	parts := splitSentences(s)
 	kept := make([]string, 0, len(parts))
 	for _, sentence := range parts {
-		low := strings.ToLower(sentence)
-		if strings.Contains(low, "ghi chú") || strings.Contains(low, "mày ghi") || strings.Contains(low, "bạn ghi") {
+		if inventedNoteClaim(strings.ToLower(sentence)) {
 			continue
 		}
 		kept = append(kept, sentence)
@@ -155,20 +169,35 @@ func stripInventedUserNote(s string) string {
 	return strings.TrimSpace(strings.Join(kept, ""))
 }
 
-// stripInvalidComparison drops "so với lần trước" style claims.
-func stripInvalidComparison(s string) string {
-	for _, phrase := range []string{
-		" so với lần trước",
-		" hơn lần trước",
-		" kém lần trước",
-	} {
-		s = replaceFold(s, phrase, "")
+func inventedNoteClaim(low string) bool {
+	if strings.Contains(low, "theo ghi chú") {
+		return true
 	}
-	return squeezeSpaces(s)
+	for _, who := range []string{"mày ghi chú", "bạn ghi chú"} {
+		if strings.Contains(low, who+" là") || strings.Contains(low, who+" rằng") {
+			return true
+		}
+	}
+	return false
+}
+
+// stripInvalidComparison removes a whole sentence that compares with last time.
+// It does not cut a phrase out of the middle and leave a fragment.
+func stripInvalidComparison(s string) string {
+	parts := splitSentences(s)
+	kept := make([]string, 0, len(parts))
+	for _, sentence := range parts {
+		low := strings.ToLower(sentence)
+		if strings.Contains(low, "lần trước") && (strings.Contains(low, "hơn") || strings.Contains(low, "kém") || strings.Contains(low, "đỡ") || strings.Contains(low, "sưng") || strings.Contains(low, "tốt") || strings.Contains(low, "xấu")) {
+			continue
+		}
+		kept = append(kept, sentence)
+	}
+	return strings.TrimSpace(strings.Join(kept, ""))
 }
 
 func replaceUncleanJudgement(s string) string {
-	return replaceFold(s, "làm da trông không sạch", "làm nốt dễ thấy hơn")
+	return replaceFold(s, "làm da trông không sạch", "dễ bóng dầu")
 }
 
 func plainLoanwords(s string) string {
@@ -176,6 +205,7 @@ func plainLoanwords(s string) string {
 		{"makeup", "trang điểm"},
 		{"toner", "nước cân bằng da"},
 		{"serum", "tinh chất"},
+		{"stressed", "căng thẳng"},
 		{"stress", "căng thẳng"},
 		{"filter", "bộ lọc màu"},
 	} {
@@ -228,95 +258,6 @@ func moveHedgeToClauseEnd(s string) string {
 		return s
 	}
 	return s[:idx] + " ở " + place + ", chưa chắc" + s[placeEnd:]
-}
-
-func balanceMay(fields []polishField) {
-	if countPronounMay(fields) == 0 && !screenHasTao(fields) {
-		for _, f := range fields {
-			if f.text == nil || !f.opening {
-				continue
-			}
-			cur := strings.TrimSpace(*f.text)
-			if cur == "" || strings.HasPrefix(cur, "Tao ") || strings.HasPrefix(cur, "Tao,") {
-				return
-			}
-			*f.text = "Tao thấy " + cur
-			return
-		}
-	}
-	for countPronounMay(fields) > 2 {
-		if !softenOneDaMay(fields) {
-			return
-		}
-	}
-}
-
-func screenHasTao(fields []polishField) bool {
-	for _, f := range fields {
-		if f.text == nil {
-			continue
-		}
-		parts := splitVoiceChunks(*f.text)
-		for _, part := range parts {
-			if part.word && strings.EqualFold(part.text, "tao") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func countPronounMay(fields []polishField) int {
-	n := 0
-	for _, f := range fields {
-		if f.text == nil {
-			continue
-		}
-		parts := splitVoiceChunks(*f.text)
-		next, _ := voiceNextWords(parts)
-		prev := ""
-		for i, part := range parts {
-			if !part.word {
-				continue
-			}
-			key := strings.ToLower(part.text)
-			if key == "mày" && !keepEyebrowMay(key, prev, next[i]) {
-				n++
-			}
-			prev = key
-		}
-	}
-	return n
-}
-
-func softenOneDaMay(fields []polishField) bool {
-	for i := len(fields) - 1; i >= 0; i-- {
-		f := fields[i]
-		if f.text == nil {
-			continue
-		}
-		if next, ok := replaceLastDaMay(*f.text); ok {
-			*f.text = next
-			return true
-		}
-	}
-	return false
-}
-
-func replaceLastDaMay(s string) (string, bool) {
-	low := strings.ToLower(s)
-	for _, from := range []string{"da của mày", "da mày"} {
-		i := strings.LastIndex(low, from)
-		if i < 0 {
-			continue
-		}
-		repl := "da"
-		if i < len(s) && s[i] == 'D' {
-			repl = "Da"
-		}
-		return s[:i] + repl + s[i+len(from):], true
-	}
-	return s, false
 }
 
 func dedupeReassurance(fields []polishField, allow bool) {

@@ -40,19 +40,21 @@ func sanitizeWebCoachOutput(out *CoachStructuredOutput, qa webQA) bool {
 	fields := coachFields(out)
 	zones := decodePolishZones(out.ZoneNotesRaw)
 	for i := range zones {
-		fields = append(fields, polishField{text: &zones[i].note, zoneNote: true})
+		skip := qa.KeepZone != "" && strings.EqualFold(zones[i].zone, qa.KeepZone)
+		fields = append(fields, polishField{text: &zones[i].note, zoneNote: true, skipCheek: skip})
 	}
 	scores := decodePolishScores(out.SkinScoreNotesRaw)
 	for i := range scores {
 		fields = append(fields, polishField{text: &scores[i].val})
 	}
 	polishFields(fields, qa)
-	out.ZoneNotesRaw = encodePolishZones(out.ZoneNotesRaw, zones)
+	out.ZoneNotesRaw = encodePolishZones(out.ZoneNotesRaw, zones, qa)
 	out.SkinScoreNotesRaw = encodePolishScores(out.SkinScoreNotesRaw, scores)
 	return coachSnapshot(out) != before
 }
 
 type polishZone struct {
+	zone string
 	note string
 }
 
@@ -68,12 +70,13 @@ func decodePolishZones(raw json.RawMessage) []polishZone {
 	}
 	out := make([]polishZone, len(items))
 	for i, item := range items {
+		out[i].zone, _ = item["zone"].(string)
 		out[i].note, _ = item["note"].(string)
 	}
 	return out
 }
 
-func encodePolishZones(raw json.RawMessage, zones []polishZone) json.RawMessage {
+func encodePolishZones(raw json.RawMessage, zones []polishZone, qa webQA) json.RawMessage {
 	if len(zones) == 0 {
 		return raw
 	}
@@ -83,9 +86,18 @@ func encodePolishZones(raw json.RawMessage, zones []polishZone) json.RawMessage 
 	}
 	changed := false
 	for i := range items {
-		prev, _ := items[i]["note"].(string)
-		if prev != zones[i].note {
+		prevNote, _ := items[i]["note"].(string)
+		prevZone, _ := items[i]["zone"].(string)
+		zone := zones[i].zone
+		if qa.SwapCheeks && !strings.EqualFold(zone, qa.KeepZone) {
+			zone = flipZoneKey(zone)
+		}
+		if prevNote != zones[i].note {
 			items[i]["note"] = zones[i].note
+			changed = true
+		}
+		if zone != prevZone {
+			items[i]["zone"] = zone
 			changed = true
 		}
 	}
@@ -137,10 +149,11 @@ func encodePolishScores(raw json.RawMessage, scores []polishScore) json.RawMessa
 }
 
 type polishField struct {
-	text     *string
-	keepMay  bool
-	opening  bool
-	zoneNote bool
+	text      *string
+	keepMay   bool
+	opening   bool
+	zoneNote  bool
+	skipCheek bool
 }
 
 func polishFields(fields []polishField, qa webQA) {
@@ -262,45 +275,37 @@ func nextWordIs(parts []voiceChunk, i int, want string) bool {
 func softenSmoothSkinClaim(s string) string {
 	sentences := splitSentences(s)
 	changed := false
-	for i, sentence := range sentences {
+	kept := make([]string, 0, len(sentences))
+	for _, sentence := range sentences {
 		low := strings.ToLower(sentence)
-		if !strings.Contains(low, "mụn ẩn") && !strings.Contains(low, "milia") {
-			continue
-		}
 		smooth := strings.Contains(low, "mịn màng") || strings.Contains(low, "da mịn") || strings.Contains(low, "bề mặt mịn") || strings.Contains(low, "da đang mịn")
-		if !smooth {
-			continue
-		}
-		if strings.Contains(low, "nốt") || strings.Contains(low, "hạt") || strings.Contains(low, "cục") || strings.Contains(low, "sần") {
-			continue
-		}
-		if closedComedoneNegated(low) {
-			continue
-		}
-		next := sentence
-		next = replaceFold(next, " là mụn ẩn", " có vài nốt nhỏ, chưa chắc")
-		next = replaceFold(next, "có mụn ẩn", "có vài nốt nhỏ, chưa chắc")
-		next = replaceFold(next, "milia", "có vài nốt nhỏ, chưa chắc")
-		if next != sentence {
-			sentences[i] = next
+		if smooth && positiveBumpClaim(low) && !bumpNegated(low) {
 			changed = true
+			continue
 		}
+		kept = append(kept, sentence)
 	}
 	if !changed {
 		return s
 	}
-	return strings.Join(sentences, "")
+	return strings.TrimSpace(strings.Join(kept, ""))
 }
 
-func closedComedoneNegated(low string) bool {
-	idx := strings.Index(low, "mụn ẩn")
-	if idx < 0 {
-		return false
-	}
-	prefix := low[:idx]
-	for _, neg := range []string{"không thấy", "chưa thấy", "không phải", "không có", "không", "chưa", "chẳng"} {
-		if strings.Contains(prefix, neg) {
-			return true
+func positiveBumpClaim(low string) bool {
+	return strings.Contains(low, "mụn ẩn") || strings.Contains(low, "milia")
+}
+
+func bumpNegated(low string) bool {
+	for _, term := range []string{"milia", "mụn ẩn"} {
+		idx := strings.Index(low, term)
+		if idx < 0 {
+			continue
+		}
+		prefix := low[:idx]
+		for _, neg := range []string{"không thấy", "chưa thấy", "không phải", "không có", "không", "chưa", "chẳng"} {
+			if strings.Contains(prefix, neg) {
+				return true
+			}
 		}
 	}
 	return false
