@@ -87,10 +87,21 @@ func AutoMigrate(db *gorm.DB) error {
 		&domain.RoomBloomShard{},
 		&domain.UserTreeReveal{},
 		&domain.TreeGiftBox{},
+		&domain.UserShopOrder{},
+		&domain.UserShopUnlock{},
 	); err != nil {
 		return err
 	}
 	if err := SeedMascotCatalog(db); err != nil {
+		return err
+	}
+	if err := SeedShopCatalog(db); err != nil {
+		return err
+	}
+	if err := backfillCoinBuckets(db); err != nil {
+		return err
+	}
+	if err := applyCoinWalletFloors(db); err != nil {
 		return err
 	}
 	if err := SeedTreeCatalog(db); err != nil {

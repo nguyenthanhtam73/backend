@@ -12,7 +12,7 @@ import (
 //
 // Outfit is a one-piece look (pajamas and the older full sets). Top and bottom
 // are separate pieces worn together: the client draws bottom, then top over it.
-// Shoes stay inside the bottom art and have no slot.
+// Tree-gift bottoms still draw their own shoes. The shoes slot is shop footwear.
 //
 // Hair is the hairstyle. HairAcc is a clip, bow, pin, or stick and is worn at
 // the same time as Hat. Earring, glasses, cheek, bracelet, and bag are one
@@ -32,6 +32,15 @@ const (
 	MascotLayerCheek     = "cheek"
 	MascotLayerBracelet  = "bracelet"
 	MascotLayerBag       = "bag"
+	// Shop pieces that are not part of a tree-gift outfit. Tree bottoms still
+	// draw their own shoes; this slot is the shop footwear.
+	MascotLayerShoes    = "shoes"
+	MascotLayerHeld     = "held"
+	MascotLayerNecklace = "necklace"
+	MascotLayerScarf    = "scarf"
+	MascotLayerGloves   = "gloves"
+	MascotLayerBubble   = "bubble"
+	MascotLayerFX       = "fx"
 )
 
 // MascotOpenToEveryone opens Góc bình yên / Bé Da to every account.
@@ -146,7 +155,8 @@ func DefaultMascotItems() []MascotItem {
 //
 // HairAcc, Hat, Earring, Glasses, Cheek, Bracelet, and Bag are one piece each
 // and can all be worn at once, including with the legacy accessory list.
-// There is no shoes slot.
+// Shoes, Held, Necklace, Scarf, Gloves, NameFrame, Sticker, Bubble, and FX
+// are the xu-shop slots. Tree-gift bottoms still include their own shoes art.
 type MascotLoadout struct {
 	Body        string   `json:"body"`
 	Hair        string   `json:"hair"`
@@ -162,6 +172,15 @@ type MascotLoadout struct {
 	Cheek       string   `json:"cheek"`
 	Bracelet    string   `json:"bracelet"`
 	Bag         string   `json:"bag"`
+	Shoes       string   `json:"shoes"`
+	Held        string   `json:"held"`
+	Necklace    string   `json:"necklace"`
+	Scarf       string   `json:"scarf"`
+	Gloves      string   `json:"gloves"`
+	NameFrame   string   `json:"name_frame"`
+	Sticker     string   `json:"sticker"`
+	Bubble      string   `json:"bubble"`
+	FX          string   `json:"fx"`
 	RoomItems   []string `json:"room_items"`
 }
 

@@ -342,7 +342,7 @@ func buyShard(tx *gorm.DB, userID uuid.UUID, typeKey, idem string, now time.Time
 	if price <= 0 {
 		return fmt.Errorf("shard price is not configured")
 	}
-	_, fresh, err := debitCoins(tx, userID, int64(price), coinID, domain.CoinReasonShardBuy, now)
+	_, fresh, err := spendCoins(tx, userID, int64(price), coinID, domain.CoinReasonShardBuy, true, now)
 	if err != nil {
 		return err
 	}

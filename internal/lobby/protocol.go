@@ -143,6 +143,8 @@ type Person struct {
 	Outfit    string `json:"outfit"`
 	Hair      string `json:"hair"`
 	Accessory string `json:"accessory"`
+	// Bubble is a chat colour art id. Empty is omitted and means the default.
+	Bubble string `json:"bubble,omitempty"`
 	// Gender is "male" when the player picked Nam. Empty means the drawn female art.
 	Gender string  `json:"gender,omitempty"`
 	X      float64 `json:"x"`

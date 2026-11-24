@@ -76,23 +76,36 @@ func (MascotRoomNudge) TableName() string { return "mascot_room_nudges" }
 // CoinReasonRoomQuestChest is the ledger reason for a room quest chest.
 const CoinReasonRoomQuestChest = "room_quest_chest"
 
+// Coin buckets. Earned xu comes from play (trees, boxes, quests). Paid xu
+// will be real-money top-up. Paid xu may be spent only on fixed-price regular
+// shop items, including regular seed pieces. It is never spent on gift boxes,
+// mystery pieces, or a random draw. There is no top-up yet, so paid stays 0.
+const (
+	CoinBucketEarned = "earned"
+	CoinBucketPaid   = "paid"
+)
+
 // UserCoinWallet is one account's coin balance.
-// Room quest chests add to Balance. There is no spend path in this batch.
+// Balance is earned_balance + paid_balance. Existing readers keep using Balance.
 type UserCoinWallet struct {
-	UserID    uuid.UUID `gorm:"type:uuid;primaryKey"`
-	Balance   int64     `gorm:"not null;default:0"`
-	UpdatedAt time.Time `gorm:"not null"`
+	UserID        uuid.UUID `gorm:"type:uuid;primaryKey"`
+	Balance       int64     `gorm:"not null;default:0"`
+	EarnedBalance int64     `gorm:"not null;default:0"`
+	PaidBalance   int64     `gorm:"not null;default:0"`
+	UpdatedAt     time.Time `gorm:"not null"`
 }
 
 func (UserCoinWallet) TableName() string { return "user_coin_wallets" }
 
-// UserCoinLedger is one coin credit. ID is the idempotency key, so the same
-// chest cannot add coins twice even if the claim insert is retried.
+// UserCoinLedger is one coin credit or debit. ID is the idempotency key.
+// Bucket is earned or paid. Credits today are earned. A debit records which
+// bucket it took from.
 type UserCoinLedger struct {
 	ID        string    `gorm:"primaryKey;size:80"`
 	UserID    uuid.UUID `gorm:"type:uuid;not null;index"`
 	Amount    int64     `gorm:"not null"`
 	Reason    string    `gorm:"size:32;not null"`
+	Bucket    string    `gorm:"size:16;not null;default:earned"`
 	CreatedAt time.Time `gorm:"not null"`
 }
 

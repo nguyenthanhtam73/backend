@@ -292,6 +292,91 @@ func TestRoomJoinOpsRateGraceAndFull(t *testing.T) {
 	}
 }
 
+func TestRoomBubbleOnHelloAndTick(t *testing.T) {
+	h, clock := testHub(t)
+	code := "BUBBLE"
+	gate := &memberGate{}
+	pink := uuid.New()
+	plain := uuid.New()
+	gate.allow(code, pink, plain)
+	h.SetRoomGate(gate)
+
+	pinkPeer := &memPeer{}
+	join := roomRaw(map[string]any{
+		"op": "join", "code": code, "nickname": "Mây Hồng",
+		"outfit": "outfit_pajamas", "hair": "hair_sleep_buns", "bubble": "kem_hong",
+		"x": 0.4, "y": 0.6, "facing": "right",
+	})
+	hello := decodeHello(t, only(t, h.Handle(pinkPeer, pink, join)))
+	if len(hello.People) != 1 || hello.People[0].Bubble != "kem_hong" {
+		t.Fatalf("hello %+v", hello.People)
+	}
+	if !strings.Contains(string(mustJSON(hello.People[0])), `"bubble":"kem_hong"`) {
+		t.Fatal("hello person omitted the colour")
+	}
+	if strings.Contains(string(only(t, h.Handle(&memPeer{}, uuid.New(), joinRaw("Sảnh", nil)))), `"bubble"`) {
+		t.Fatal("lobby hello included bubble")
+	}
+
+	plainPeer := &memPeer{}
+	plainHello := decodeHello(t, only(t, h.Handle(plainPeer, plain, roomJoinRaw("Bánh Flan", code))))
+	var sawPink, sawPlain bool
+	for _, person := range plainHello.People {
+		if person.Bubble == "kem_hong" {
+			sawPink = true
+		}
+		if person.Nickname == "Bánh Flan" {
+			sawPlain = person.Bubble == ""
+			if strings.Contains(string(mustJSON(person)), `"bubble"`) {
+				t.Fatalf("default person %s", mustJSON(person))
+			}
+		}
+	}
+	if !sawPink || !sawPlain {
+		t.Fatalf("friends %+v", plainHello.People)
+	}
+
+	pinkPeer.drain()
+	clock.Advance(time.Second)
+	h.Flush()
+	tick := decodeTick(t, pinkPeer.last())
+	var friend *Person
+	for i := range tick.Upserts {
+		if tick.Upserts[i].Nickname == "Bánh Flan" {
+			friend = &tick.Upserts[i]
+		}
+	}
+	if friend == nil || friend.Bubble != "" {
+		t.Fatalf("plain upsert %+v", tick.Upserts)
+	}
+	again := roomRaw(map[string]any{
+		"op": "join", "code": code, "nickname": "Bánh Flan",
+		"outfit": "outfit_pajamas", "hair": "hair_sleep_buns", "bubble": "dao_cam",
+		"x": 0.4, "y": 0.6, "facing": "right",
+	})
+	pinkPeer.drain()
+	_ = decodeHello(t, only(t, h.Handle(plainPeer, plain, again)))
+	clock.Advance(time.Second)
+	h.Flush()
+	tick = decodeTick(t, pinkPeer.last())
+	friend = nil
+	for i := range tick.Upserts {
+		if tick.Upserts[i].Bubble == "dao_cam" {
+			friend = &tick.Upserts[i]
+		}
+	}
+	if friend == nil || friend.Nickname != "Bánh Flan" {
+		t.Fatalf("colour upsert %+v", tick.Upserts)
+	}
+	if decodeErr(t, only(t, h.Handle(plainPeer, plain, roomRaw(map[string]any{
+		"op": "join", "code": code, "nickname": "Bánh Flan",
+		"outfit": "outfit_pajamas", "hair": "hair_sleep_buns", "bubble": "Bad Bubble",
+		"x": 0.4, "y": 0.6, "facing": "right",
+	})))).Code != CodeBadMessage {
+		t.Fatal("bad bubble was accepted")
+	}
+}
+
 func TestRoomJoinReplacesLobbyPresence(t *testing.T) {
 	h, _ := testHub(t)
 	code := "AB23CD"

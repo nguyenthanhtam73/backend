@@ -299,7 +299,7 @@ func (h *Hub) joinRoomLocked(c *connState, msg clientMsg, code string, gateErr e
 	if !ok {
 		return h.err(ChannelRoom, CodeNicknameRejected)
 	}
-	if !validItem(msg.Outfit, true) || !validItem(msg.Hair, true) || !validItem(msg.Accessory, false) {
+	if !validItem(msg.Outfit, true) || !validItem(msg.Hair, true) || !validItem(msg.Accessory, false) || !validItem(msg.Bubble, false) {
 		return h.err(ChannelRoom, CodeBadMessage)
 	}
 	x, y, posOK := h.position(msg, c.session)
@@ -329,6 +329,7 @@ func (h *Hub) joinRoomLocked(c *connState, msg clientMsg, code string, gateErr e
 		s.person.Outfit = publicOutfit(c, msg.Outfit)
 		s.person.Hair = msg.Hair
 		s.person.Accessory = msg.Accessory
+		s.person.Bubble = msg.Bubble
 		s.person.Gender = PublicGender(msg.Gender)
 		s.person.X = x
 		s.person.Y = y
@@ -368,7 +369,7 @@ func (h *Hub) joinRoomLocked(c *connState, msg clientMsg, code string, gateErr e
 	}
 	s := &session{
 		id: id, userID: c.userID, conn: c, roomCode: code,
-		person: Person{ID: id, Nickname: nick, Outfit: publicOutfit(c, msg.Outfit), Hair: msg.Hair, Accessory: msg.Accessory, Gender: PublicGender(msg.Gender), X: x, Y: y, Facing: facing, Action: action},
+		person: Person{ID: id, Nickname: nick, Outfit: publicOutfit(c, msg.Outfit), Hair: msg.Hair, Accessory: msg.Accessory, Bubble: msg.Bubble, Gender: PublicGender(msg.Gender), X: x, Y: y, Facing: facing, Action: action},
 		hide:   map[string]struct{}{},
 	}
 	if hide != nil {
