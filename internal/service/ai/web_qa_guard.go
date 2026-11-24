@@ -624,6 +624,7 @@ func applyWebVIPost(out *CoachStructuredOutput, zones []polishZone, scores []pol
 	}
 	hideDuplicateOverall(out.ConcernAlignment, scores)
 	capShownMay(outputMaySlots(out, zones, scores))
+	disambiguateCareSteps(careRefs(out.CareSuggestions), out.RoutineHints)
 	out.SituationAnalysis = insertCuaMay(out.SituationAnalysis, screenMayCount(out, zones, scores))
 	if hadSituation && strings.TrimSpace(out.SituationAnalysis) == "" {
 		out.SituationAnalysis = neutralMainSentence
@@ -683,6 +684,7 @@ func applyWebVIDetail(d *dto.SkinCoachDetail, qa webQA) {
 		hideDuplicateOverallText(d.ConcernAlignment, &d.SkinScoreNotes.Overall)
 	}
 	capShownMay(detailMaySlots(d))
+	disambiguateDetailCare(d)
 	d.SituationSummary = insertCuaMay(d.SituationSummary, detailMayCount(d))
 	if hadSituation && strings.TrimSpace(d.SituationSummary) == "" {
 		d.SituationSummary = neutralMainSentence
@@ -734,7 +736,29 @@ func viRewrite(s string, severe bool, qa webQA) string {
 	if qa.NoteKnown && !qa.HasUserNote {
 		s = stripVIInventedNote(s)
 	}
+	s = rewriteFirstCheckIn(s)
 	return dropFalseUnclear(softenAssertedGroup(plainPatchTest(s)), severe)
+}
+
+const oldFirstCheckIn = "Hôm nay là lần check-in đầu, tao chỉ nhìn ngày hôm nay"
+const newFirstCheckIn = "Lần đầu soi nên tao chỉ dựa vào ảnh hôm nay thôi nha."
+
+func rewriteFirstCheckIn(s string) string {
+	parts := splitSentences(s)
+	changed := false
+	for i, part := range parts {
+		lead := part[:len(part)-len(strings.TrimLeft(part, " \t"))]
+		body := strings.TrimRight(strings.TrimSpace(part), ".")
+		if body != oldFirstCheckIn {
+			continue
+		}
+		parts[i] = lead + newFirstCheckIn
+		changed = true
+	}
+	if !changed {
+		return s
+	}
+	return strings.Join(parts, "")
 }
 
 func stripVIInventedNote(s string) string {
@@ -1130,6 +1154,158 @@ func atSentenceStart(s string, idx int) bool {
 
 func indexFold(low, phrase string) int {
 	return strings.Index(low, strings.ToLower(phrase))
+}
+
+type careRef struct {
+	slot *string
+	step *string
+}
+
+func careRefs(items []CoachCareSuggestion) []careRef {
+	out := make([]careRef, len(items))
+	for i := range items {
+		out[i] = careRef{slot: &items[i].Slot, step: &items[i].Step}
+	}
+	return out
+}
+
+func disambiguateDetailCare(d *dto.SkinCoachDetail) {
+	if d == nil {
+		return
+	}
+	refs := make([]careRef, len(d.CareSuggestions))
+	for i := range d.CareSuggestions {
+		refs[i] = careRef{slot: &d.CareSuggestions[i].Slot, step: &d.CareSuggestions[i].Step}
+	}
+	disambiguateCareSteps(refs, d.RoutineHints)
+}
+
+// disambiguateCareSteps labels a repeated step «(sáng)» / «(tối)» only when
+// every copy has a known morning or evening, from its slot or from a
+// Sáng/Tối routine line. The slot key stays as stored.
+func disambiguateCareSteps(steps []careRef, routine []string) {
+	counts := map[string]int{}
+	for _, step := range steps {
+		if step.step == nil {
+			continue
+		}
+		title := careTitleKey(*step.step)
+		if title == "" {
+			continue
+		}
+		counts[title]++
+	}
+	routineHits := map[string][]string{}
+	for _, line := range routine {
+		period, rest, ok := routinePeriod(line)
+		if !ok {
+			continue
+		}
+		for title, n := range counts {
+			if n < 2 {
+				continue
+			}
+			if strings.Contains(rest, title) {
+				routineHits[title] = append(routineHits[title], period)
+			}
+		}
+	}
+	used := map[string]int{}
+	periodOf := map[int]string{}
+	for i, step := range steps {
+		if step.step == nil {
+			continue
+		}
+		title := careTitleKey(*step.step)
+		if counts[title] < 2 {
+			continue
+		}
+		if period, ok := careSlotPeriod(step.slot); ok {
+			periodOf[i] = period
+			continue
+		}
+		hits := routineHits[title]
+		n := used[title]
+		if n < len(hits) {
+			periodOf[i] = hits[n]
+			used[title] = n + 1
+		}
+	}
+	for title, n := range counts {
+		if n < 2 {
+			continue
+		}
+		var idxs []int
+		seen := map[string]struct{}{}
+		complete := true
+		for i, step := range steps {
+			if step.step == nil || careTitleKey(*step.step) != title {
+				continue
+			}
+			period := periodOf[i]
+			if period != "sáng" && period != "tối" {
+				complete = false
+				break
+			}
+			idxs = append(idxs, i)
+			seen[period] = struct{}{}
+		}
+		if !complete || len(seen) < 2 {
+			continue
+		}
+		for _, i := range idxs {
+			base := careTitleBase(*steps[i].step)
+			*steps[i].step = base + " (" + periodOf[i] + ")"
+		}
+	}
+}
+
+func careTitleBase(step string) string {
+	s := strings.TrimSpace(step)
+	low := strings.ToLower(s)
+	for _, suf := range []string{" (sáng)", " (tối)"} {
+		if strings.HasSuffix(low, suf) {
+			return strings.TrimSpace(s[:len(s)-len(suf)])
+		}
+	}
+	return s
+}
+
+func careTitleKey(step string) string {
+	return strings.ToLower(careTitleBase(step))
+}
+
+func careSlotPeriod(slot *string) (string, bool) {
+	if slot == nil {
+		return "", false
+	}
+	switch strings.ToLower(strings.TrimSpace(*slot)) {
+	case "morning", "sáng", "sang", "am":
+		return "sáng", true
+	case "evening", "tối", "toi", "pm", "night":
+		return "tối", true
+	default:
+		return "", false
+	}
+}
+
+func routinePeriod(line string) (string, string, bool) {
+	low := strings.ToLower(strings.TrimSpace(line))
+	for _, name := range []string{"sáng", "tối"} {
+		if !strings.HasPrefix(low, name) {
+			continue
+		}
+		rest := low[len(name):]
+		if rest != "" {
+			r, _ := utf8.DecodeRuneInString(rest)
+			if unicode.IsLetter(r) || unicode.IsDigit(r) {
+				continue
+			}
+		}
+		rest = strings.TrimLeft(rest, " \t:—–-")
+		return name, rest, true
+	}
+	return "", "", false
 }
 
 const (

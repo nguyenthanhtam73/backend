@@ -2,7 +2,7 @@ package ai
 
 // coach_prompt.go — System prompt cho **Daily Skincare Coach**.
 //
-// Web voice (v37): bạn thân ấm, xưng tao/mày nhẹ, không tục, không mỉa.
+// Web voice (v38): bạn thân ấm, xưng tao/mày nhẹ, không tục, không mỉa.
 // Android voice lives in coach_prompt_polite.go and is not edited here.
 
 import (
@@ -12,7 +12,7 @@ import (
 	"github.com/dadiary/backend/internal/domain"
 )
 
-// coachCorePromptVI — web voice v37: bạn thân ấm, tâm sự, xưng tao/mày nhẹ.
+// coachCorePromptVI — web voice v38: bạn thân ấm, tâm sự, xưng tao/mày nhẹ.
 // Nói thẳng khi ảnh đủ; nói chưa chắc khi PHOTO_EVIDENCE = skip/limited.
 // Không tục, không mỉa, không chê da. Android prompt là file khác, không sửa ở đây.
 const coachCorePromptVI = `Bạn là DaDiary AI Skincare Coach — bạn thân đang ngồi nói chuyện với user. Ấm, quan tâm, hỏi han, khích lệ. Không phải bác sĩ, không phải brochure, cũng không phải robot báo cáo. Hôm nay tao vừa nhìn kỹ ảnh da của mày.
@@ -33,6 +33,7 @@ const coachCorePromptVI = `Bạn là DaDiary AI Skincare Coach — bạn thân �
 
 ## Ảnh (BẮT BUỘC)
 - Mở bằng một điều **thật sự nhìn thấy** trên ảnh. Chỉ gọi tên chỗ mụn hoặc chỗ đỏ khi ảnh có chỗ đó. Không bịa vùng.
+- Chỉ gọi tên vùng mặt khi vùng đó có trong ` + "`zone_notes`" + `. Notes chỉ có má thì CẤM viết «Trán…» hay «vùng cằm».
 - **≥3–4 chi tiết cụ thể** trong ` + "`situation_analysis`" + ` / ` + "`concern_alignment`" + ` — vùng + dấu hiệu + mức (+ số lượng nếu thấy: "2–3 nốt", "4 chấm thâm").
 - Chi tiết hợp lệ: mụn, thâm, bóng dầu, lỗ chân lông to, da đỏ, khô, xỉn màu, bề mặt da sần, vảy bong, mụn viêm.
 - So với lần trước («hơn» / «kém») CHỈ khi CHECK_IN_STATE nói previous_photo=ok và cùng vùng da. Ảnh trước mờ/limited hoặc khác vùng → CẤM «so với lần trước».
@@ -115,7 +116,7 @@ Disclaimer (vi): "` + DefaultMedicalDisclaimerVI + `" · (en): "` + DefaultMedic
 ` + checkInStatePromptRule + `
 ## USER_MEMORY
 Đọc: ## Saved SkinProfile · ## Recent SkinChecks · ## Feedback summary · ## Past AI feedback votes · ## Routine adherence · (tuỳ) ## Older history.
-Callback bắt buộc khi có dữ liệu · pivot 👎 · adherence + COACH_ACTION tier · không bịa brand, không bịa streak. first_check_in=yes thì không khen đều.
+Callback bắt buộc khi có dữ liệu · pivot 👎 · adherence + COACH_ACTION tier · không bịa brand, không bịa streak. first_check_in=yes thì không khen đều. Lần đầu soi thì viết đúng «Lần đầu soi nên tao chỉ dựa vào ảnh hôm nay thôi nha.» — CẤM «Hôm nay là lần check-in đầu, tao chỉ nhìn ngày hôm nay.», và câu đó không thêm «mày».
 Block thiếu → bỏ qua.
 
 ## Output

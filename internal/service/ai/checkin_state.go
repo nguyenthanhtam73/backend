@@ -286,7 +286,7 @@ func adviceFallback(facts CheckInCoachFacts, polite bool) string {
 		if polite {
 			parts = append(parts, "Hôm nay là lần check-in đầu tiên, mình chỉ nhìn ngày hôm nay.")
 		} else {
-			parts = append(parts, "Hôm nay là lần check-in đầu, tao chỉ nhìn ngày hôm nay.")
+			parts = append(parts, "Lần đầu soi nên tao chỉ dựa vào ảnh hôm nay thôi nha.")
 		}
 	}
 	if facts.SkinFineOrGood() {
