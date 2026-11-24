@@ -45,13 +45,14 @@ var diseasePhrases = []string{
 // whole — the text is never cut down to make it pass. evidenceKind skip clears
 // zone notes. When the coach sent none and the photo is readable, notes are
 // built from the vision zones.
-func NormalizeCheckInDetail(zoneRaw, scoreRaw json.RawMessage, visionRaw string, photoCtx json.RawMessage, evidenceKind, locale string) ([]dto.CoachZoneNote, *dto.SkinCoachScoreNotes) {
-	allowed := allowedCheckInZones(visionRaw, photoCtx)
+func NormalizeCheckInDetail(zoneRaw, scoreRaw json.RawMessage, visionRaw string, photoCtx json.RawMessage, evidenceKind, locale, clientKind string) ([]dto.CoachZoneNote, *dto.SkinCoachScoreNotes) {
+	zones := cheekZonesForSave(visionRaw, photoCtx, clientKind)
+	allowed := allowedCheckInZones(zones, photoCtx)
 	notes := filterZoneNotes(decodeZoneNotes(zoneRaw), allowed)
 	if evidenceKind == PhotoEvidenceSkip {
 		notes = nil
 	} else if len(notes) == 0 && evidenceKind == PhotoEvidenceOK {
-		notes = filterZoneNotes(fallbackZoneNotes(visionRaw, locale), allowed)
+		notes = filterZoneNotes(fallbackZoneNotes(zones, locale), allowed)
 	}
 	return notes, filterScoreNotes(decodeScoreNotes(scoreRaw))
 }
@@ -72,7 +73,7 @@ func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, vi
 		zoneRaw = parsed.ZoneNotesRaw
 		scoreRaw = parsed.SkinScoreNotesRaw
 	}
-	notes, scoreNotes := NormalizeCheckInDetail(zoneRaw, scoreRaw, visionRaw, photoCtx, ev.Kind, locale)
+	notes, scoreNotes := NormalizeCheckInDetail(zoneRaw, scoreRaw, visionRaw, photoCtx, ev.Kind, locale, clientKind)
 	notes = sanitizePublicZoneNotes(notes)
 	scoreNotes = sanitizePublicScoreNotes(scoreNotes)
 	android := IsAndroidCoachVoice(clientKind)
@@ -106,9 +107,29 @@ func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, vi
 	if obs := visibleObservationStrings(visionRaw); len(obs) > 0 {
 		labels["visible_observations"] = obs
 	}
-	if zones := zoneObservationValues(visionRaw); len(zones) > 0 {
+	if zones := cheekZonesForSave(visionRaw, photoCtx, clientKind); len(zones) > 0 {
 		labels["vision_zone_observations"] = zones
 	}
+}
+
+// cheekZonesForSave maps the image-reading step's cheek keys onto the user's
+// face before the zone filter and before fallback notes. The rule is
+// ShouldSwapCheeks. A user-picked zone close-up stays as labeled. Android
+// keeps the keys the coach wrote. A check with no photo meta is left alone,
+// and this never rewrites a row that was already saved.
+func cheekZonesForSave(visionRaw string, photoCtx json.RawMessage, clientKind string) []visionZone {
+	zones := zoneObservationValues(visionRaw)
+	if IsAndroidCoachVoice(clientKind) || len(zones) == 0 {
+		return zones
+	}
+	doc := dto.DecodePhotoContext(photoCtx)
+	if len(doc.Images) == 0 || !ShouldSwapCheeks(doc) {
+		return zones
+	}
+	for i := range zones {
+		zones[i].Zone = flipZoneKey(zones[i].Zone)
+	}
+	return zones
 }
 
 func decodeZoneNotes(raw json.RawMessage) []dto.CoachZoneNote {
@@ -227,8 +248,7 @@ func keepScoreSentence(s string) string {
 	return rewriteBarrierWording(s)
 }
 
-func fallbackZoneNotes(visionRaw, locale string) []dto.CoachZoneNote {
-	zones := zoneObservationValues(visionRaw)
+func fallbackZoneNotes(zones []visionZone, locale string) []dto.CoachZoneNote {
 	if len(zones) == 0 {
 		return nil
 	}
@@ -240,11 +260,14 @@ func fallbackZoneNotes(visionRaw, locale string) []dto.CoachZoneNote {
 			continue
 		}
 		note := cue
+		if !en {
+			note = ToVietnameseSkinWords(note)
+		}
 		if !noteSaysLooksLike(note) {
 			if en {
 				note = "Looks like " + cue
 			} else {
-				note = "Trông giống " + cue
+				note = "Trông giống " + note
 			}
 		}
 		out = append(out, dto.CoachZoneNote{Zone: z.Zone, Note: note, Severity: z.Severity})
@@ -330,9 +353,9 @@ func canonicalSeverity(sev string) (string, bool) {
 	return sev, true
 }
 
-func allowedCheckInZones(visionRaw string, photoCtx json.RawMessage) map[string]struct{} {
+func allowedCheckInZones(zones []visionZone, photoCtx json.RawMessage) map[string]struct{} {
 	out := map[string]struct{}{}
-	for _, z := range zoneObservationValues(visionRaw) {
+	for _, z := range zones {
 		if zone, ok := canonicalZone(z.Zone); ok {
 			out[zone] = struct{}{}
 		}

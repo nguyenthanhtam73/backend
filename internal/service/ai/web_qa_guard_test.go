@@ -19,15 +19,24 @@ func TestQA_ReviewSentencesThroughPolish(t *testing.T) {
 		t.Fatalf("polish dropped advice: %q", out.SituationAnalysis)
 	}
 
-	cmp := &CoachStructuredOutput{SituationAnalysis: "So với lần trước, vùng này trông sưng hơn."}
+	cmp := &CoachStructuredOutput{SituationAnalysis: "Da ổn. So với lần trước, vùng này trông sưng hơn."}
 	sanitizeWebCoachOutput(cmp, webQA{GuardComparison: true, PreviousComparable: false})
-	if strings.TrimSpace(cmp.SituationAnalysis) != "" {
+	if cmp.SituationAnalysis != "Da ổn." {
 		t.Fatalf("comparison survived %q", cmp.SituationAnalysis)
 	}
-	trunc := &CoachStructuredOutput{SituationAnalysis: "Má trái kém lần trước."}
+	trunc := &CoachStructuredOutput{SituationAnalysis: "Da ổn. Má trái kém lần trước."}
 	sanitizeWebCoachOutput(trunc, webQA{GuardComparison: true, PreviousComparable: false, SwapCheeks: true})
-	if strings.TrimSpace(trunc.SituationAnalysis) != "" || strings.Contains(trunc.SituationAnalysis, "má phải") {
+	if trunc.SituationAnalysis != "Da ổn." || strings.Contains(trunc.SituationAnalysis, "má phải") {
 		t.Fatalf("fragment %q", trunc.SituationAnalysis)
+	}
+	const advice = "Lần sau chụp giống lần trước để dễ so hơn nha."
+	keep := &CoachStructuredOutput{SituationAnalysis: advice}
+	sanitizeWebCoachOutput(keep, webQA{GuardComparison: true, PreviousComparable: false})
+	if keep.SituationAnalysis != advice {
+		t.Fatalf("%q -> %q", advice, keep.SituationAnalysis)
+	}
+	if got := stripInvalidComparison("Da đỡ hơn lần trước."); got != "" {
+		t.Fatalf("đỡ hơn lần trước stayed %q", got)
 	}
 }
 
@@ -43,6 +52,15 @@ func TestQA_InventedUserNote(t *testing.T) {
 	if got := stripInventedUserNote("Mày ghi da hôm nay ổn."); got != "Mày ghi da hôm nay ổn." {
 		t.Fatalf("ordinary mày ghi changed %q", got)
 	}
+	const claimed = "Mày có ghi là…"
+	if got := stripInventedUserNote(claimed); got != "" {
+		t.Fatalf("%q -> %q", claimed, got)
+	}
+	mixed := &CoachStructuredOutput{SituationAnalysis: "Da ổn. Mày có ghi là…"}
+	sanitizeWebCoachOutput(mixed, webQA{NoteKnown: true, HasUserNote: false})
+	if mixed.SituationAnalysis != "Da ổn." {
+		t.Fatalf("Mày có ghi là… stayed in %q", mixed.SituationAnalysis)
+	}
 }
 
 func TestQA_CameraFrontAndRear(t *testing.T) {
@@ -57,6 +75,31 @@ func TestQA_CameraFrontAndRear(t *testing.T) {
 		got := FlipFrameCheeks(phrase)
 		if strings.Contains(got, "trái") || !strings.Contains(got, "phải") {
 			t.Fatalf("%q -> %q", phrase, got)
+		}
+	}
+	side := &CoachStructuredOutput{SituationAnalysis: "phía phải cằm"}
+	sanitizeWebCoachOutput(side, webQA{})
+	if side.SituationAnalysis != "bên phải cằm" {
+		t.Fatalf("phía phải cằm -> %q", side.SituationAnalysis)
+	}
+	left := &CoachStructuredOutput{SituationAnalysis: "phía trái cằm"}
+	sanitizeWebCoachOutput(left, webQA{})
+	if left.SituationAnalysis != "bên trái cằm" {
+		t.Fatalf("phía trái cằm -> %q", left.SituationAnalysis)
+	}
+	lean := &CoachStructuredOutput{SituationAnalysis: "nằm nghiêng bên phải"}
+	sanitizeWebCoachOutput(lean, webQA{SwapCheeks: true})
+	if lean.SituationAnalysis != "nằm nghiêng bên phải" {
+		t.Fatalf("nằm nghiêng bên phải -> %q", lean.SituationAnalysis)
+	}
+	for _, tc := range []struct{ in, want string }{
+		{"cằm trái", "cằm phải"},
+		{"cằm phải", "cằm trái"},
+		{"trán phải", "trán trái"},
+		{"trán trái", "trán phải"},
+	} {
+		if got := FlipFrameCheeks(tc.in); got != tc.want {
+			t.Fatalf("%q -> %q, want %q", tc.in, got, tc.want)
 		}
 	}
 	raw := `[{"zone":"left_cheek","note":"má trái đỏ"}]`
@@ -123,6 +166,12 @@ func TestQA_SmoothSkinDoesNotClaimBumps(t *testing.T) {
 	if got := softenSmoothSkinClaim("không thấy milia"); got != "không thấy milia" {
 		t.Fatalf("negated milia %q", got)
 	}
+	const spots = "Da mịn màng nhưng cằm có 3 nốt mụn ẩn sần rõ."
+	spotsOut := &CoachStructuredOutput{SituationAnalysis: spots}
+	sanitizeWebCoachOutput(spotsOut, webQA{})
+	if spotsOut.SituationAnalysis != spots {
+		t.Fatalf("%q -> %q", spots, spotsOut.SituationAnalysis)
+	}
 	oil := &CoachStructuredOutput{SituationAnalysis: "Dầu làm da trông không sạch."}
 	sanitizeWebCoachOutput(oil, webQA{})
 	if oil.SituationAnalysis != "Da dễ bóng dầu." {
@@ -132,6 +181,24 @@ func TestQA_SmoothSkinDoesNotClaimBumps(t *testing.T) {
 	sanitizeWebCoachOutput(other, webQA{})
 	if other.SituationAnalysis != "Da dễ bóng dầu." {
 		t.Fatalf("oil sentence repeated dầu: %q", other.SituationAnalysis)
+	}
+}
+
+func TestQA_MainFieldDoesNotGoEmpty(t *testing.T) {
+	smooth := &CoachStructuredOutput{SituationAnalysis: "Da mịn màng, đây là mụn ẩn."}
+	sanitizeWebCoachOutput(smooth, webQA{})
+	if smooth.SituationAnalysis != "Da hôm nay trông vậy." {
+		t.Fatalf("smooth-only -> %q", smooth.SituationAnalysis)
+	}
+	cmp := &CoachStructuredOutput{SituationAnalysis: "So với lần trước, vùng này trông sưng hơn."}
+	sanitizeWebCoachOutput(cmp, webQA{GuardComparison: true, PreviousComparable: false})
+	if cmp.SituationAnalysis != "Da hôm nay trông vậy." {
+		t.Fatalf("comparison-only -> %q", cmp.SituationAnalysis)
+	}
+	kept := &CoachStructuredOutput{SituationAnalysis: "Da ổn. So với lần trước da đỏ hơn."}
+	sanitizeWebCoachOutput(kept, webQA{GuardComparison: true, PreviousComparable: false})
+	if kept.SituationAnalysis != "Da ổn." {
+		t.Fatalf("mixed -> %q", kept.SituationAnalysis)
 	}
 }
 

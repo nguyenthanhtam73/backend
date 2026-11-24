@@ -152,11 +152,22 @@ type polishField struct {
 	text      *string
 	keepMay   bool
 	opening   bool
+	main      bool
 	zoneNote  bool
 	skipCheek bool
 }
 
+// neutralMainSentence stands in when the only sentence of the main paragraph
+// was removed. An empty situation analysis is dropped at save time.
+const neutralMainSentence = "Da hôm nay trông vậy."
+
 func polishFields(fields []polishField, qa webQA) {
+	original := make([]string, len(fields))
+	for i, f := range fields {
+		if f.text != nil {
+			original[i] = *f.text
+		}
+	}
 	for _, f := range fields {
 		if f.text == nil {
 			continue
@@ -168,11 +179,20 @@ func polishFields(fields []polishField, qa webQA) {
 	}
 	applyFirstGlosses(fields)
 	applyWebQA(fields, qa)
+	for i, f := range fields {
+		if f.text == nil || !f.main {
+			continue
+		}
+		if strings.TrimSpace(original[i]) != "" && strings.TrimSpace(*f.text) == "" {
+			*f.text = neutralMainSentence
+		}
+	}
 }
 
 func polishOneSentence(s string) string {
 	s = applyTypos(s)
 	s = replaceChungTa(s)
+	s = preferBenSide(s)
 	s = softenSmoothSkinClaim(s)
 	return s
 }
@@ -194,6 +214,7 @@ func ToVietnameseSkinWords(s string) string {
 		return s
 	}
 	phrases := []struct{ from, to string }{
+		{"small red bump", "nốt đỏ nhỏ"},
 		{"red, swollen bump indicating", "nốt đỏ sưng"},
 		{"red swollen bump indicating", "nốt đỏ sưng"},
 		{"red, swollen bump", "nốt đỏ sưng"},
@@ -279,7 +300,7 @@ func softenSmoothSkinClaim(s string) string {
 	for _, sentence := range sentences {
 		low := strings.ToLower(sentence)
 		smooth := strings.Contains(low, "mịn màng") || strings.Contains(low, "da mịn") || strings.Contains(low, "bề mặt mịn") || strings.Contains(low, "da đang mịn")
-		if smooth && positiveBumpClaim(low) && !bumpNegated(low) {
+		if smooth && positiveBumpClaim(low) && !bumpNegated(low) && !describesVisibleBump(low) {
 			changed = true
 			continue
 		}
@@ -293,6 +314,17 @@ func softenSmoothSkinClaim(s string) string {
 
 func positiveBumpClaim(low string) bool {
 	return strings.Contains(low, "mụn ẩn") || strings.Contains(low, "milia")
+}
+
+// describesVisibleBump reports a sentence that names a bump the photo shows.
+// Those sentences stay even when the skin is also called smooth.
+func describesVisibleBump(low string) bool {
+	for _, word := range []string{"nốt", "hạt", "cục", "sần"} {
+		if strings.Contains(low, word) {
+			return true
+		}
+	}
+	return false
 }
 
 func bumpNegated(low string) bool {
@@ -413,7 +445,7 @@ func capFollowUpQuestions(qs []string) []string {
 
 func coachFields(out *CoachStructuredOutput) []polishField {
 	fields := []polishField{
-		{text: &out.SituationAnalysis, keepMay: true, opening: true},
+		{text: &out.SituationAnalysis, keepMay: true, opening: true, main: true},
 		{text: &out.SummaryNotes, keepMay: true},
 		{text: &out.ConcernAlignment},
 		{text: &out.MedicalDisclaimer},
@@ -473,7 +505,7 @@ func coachSnapshot(out *CoachStructuredOutput) string {
 
 func detailFields(d *dto.SkinCoachDetail) []polishField {
 	fields := []polishField{
-		{text: &d.SituationSummary, keepMay: true, opening: true},
+		{text: &d.SituationSummary, keepMay: true, opening: true, main: true},
 		{text: &d.SummaryNotes, keepMay: true},
 		{text: &d.ConcernAlignment},
 		{text: &d.MedicalDisclaimer},

@@ -173,27 +173,40 @@ func inventedNoteClaim(low string) bool {
 	if strings.Contains(low, "theo ghi chú") {
 		return true
 	}
-	for _, who := range []string{"mày ghi chú", "bạn ghi chú"} {
-		if strings.Contains(low, who+" là") || strings.Contains(low, who+" rằng") {
+	for _, who := range []string{"mày", "bạn"} {
+		if strings.Contains(low, who+" có ghi là") || strings.Contains(low, who+" có ghi rằng") {
+			return true
+		}
+		if strings.Contains(low, who+" ghi chú là") || strings.Contains(low, who+" ghi chú rằng") {
 			return true
 		}
 	}
 	return false
 }
 
-// stripInvalidComparison removes a whole sentence that compares with last time.
-// It does not cut a phrase out of the middle and leave a fragment.
+// stripInvalidComparison removes a whole sentence that compares the skin with
+// last time: "so với lần trước", "hơn/kém lần trước", "đỡ … hơn lần trước".
+// Advice such as "Lần sau chụp giống lần trước…" stays.
 func stripInvalidComparison(s string) string {
 	parts := splitSentences(s)
 	kept := make([]string, 0, len(parts))
 	for _, sentence := range parts {
-		low := strings.ToLower(sentence)
-		if strings.Contains(low, "lần trước") && (strings.Contains(low, "hơn") || strings.Contains(low, "kém") || strings.Contains(low, "đỡ") || strings.Contains(low, "sưng") || strings.Contains(low, "tốt") || strings.Contains(low, "xấu")) {
+		if skinComparisonSentence(strings.ToLower(sentence)) {
 			continue
 		}
 		kept = append(kept, sentence)
 	}
 	return strings.TrimSpace(strings.Join(kept, ""))
+}
+
+func skinComparisonSentence(low string) bool {
+	if strings.Contains(low, "so với lần trước") {
+		return true
+	}
+	if strings.Contains(low, "hơn lần trước") || strings.Contains(low, "kém lần trước") {
+		return true
+	}
+	return false
 }
 
 // replaceUncleanJudgement replaces a whole sentence that says the skin looks

@@ -20,7 +20,7 @@ func TestNormalizeCheckInDetail_LenientAndDropsBadNotes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	notes, scores := NormalizeCheckInDetail(parsed.ZoneNotesRaw, parsed.SkinScoreNotesRaw, vision, photo, PhotoEvidenceOK, "vi")
+	notes, scores := NormalizeCheckInDetail(parsed.ZoneNotesRaw, parsed.SkinScoreNotesRaw, vision, photo, PhotoEvidenceOK, "vi", "")
 	if scores != nil {
 		t.Fatalf("bad score notes should drop, got %#v", scores)
 	}
@@ -51,7 +51,7 @@ func TestNormalizeCheckInDetail_LenientAndDropsBadNotes(t *testing.T) {
 		"barrier":   "Độ ẩm thấp vì eczema nên câu này bỏ cả câu.",
 		"extra":     "ignored",
 	})
-	notes, scores = NormalizeCheckInDetail(rawNotes, rawScores, vision, photo, PhotoEvidenceOK, "vi")
+	notes, scores = NormalizeCheckInDetail(rawNotes, rawScores, vision, photo, PhotoEvidenceOK, "vi", "")
 	if scores == nil || scores.Overall == "" || scores.Hydration == "" || scores.Clarity != "" || scores.Barrier != "" {
 		t.Fatalf("score notes %#v", scores)
 	}
@@ -98,7 +98,7 @@ func TestNormalizeCheckInDetail_CapsAtFiveWithoutCuttingText(t *testing.T) {
 	for i := range full {
 		items = append(items, map[string]string{"zone": zones[i], "note": full[i], "severity": "mild"})
 	}
-	notes, _ := NormalizeCheckInDetail(mustRawJSON(t, items), nil, vision, nil, PhotoEvidenceOK, "vi")
+	notes, _ := NormalizeCheckInDetail(mustRawJSON(t, items), nil, vision, nil, PhotoEvidenceOK, "vi", "")
 	if len(notes) != 5 {
 		t.Fatalf("len %d", len(notes))
 	}
@@ -114,7 +114,7 @@ func TestNormalizeCheckInDetail_SkipHasNoZoneNotes(t *testing.T) {
 	t.Parallel()
 	vision := `{"zone_observations":[{"zone":"chin","cue":"nốt nhỏ","severity":"mild"}]}`
 	raw := mustRawJSON(t, []map[string]string{{"zone": "chin", "note": "Cằm trông giống mụn ẩn.", "severity": "mild"}})
-	notes, _ := NormalizeCheckInDetail(raw, nil, vision, nil, PhotoEvidenceSkip, "vi")
+	notes, _ := NormalizeCheckInDetail(raw, nil, vision, nil, PhotoEvidenceSkip, "vi", "")
 	if len(notes) != 0 {
 		t.Fatalf("skip should clear zone notes, got %#v", notes)
 	}
@@ -368,7 +368,7 @@ func TestNoteFilter_NFCAndWordBoundaryDisease(t *testing.T) {
 			"barrier":   "Da yếu vì cham.",
 		}),
 	}
-	notes, scores := NormalizeCheckInDetail(parsed.ZoneNotesRaw, parsed.SkinScoreNotesRaw, vision, nil, PhotoEvidenceOK, "vi")
+	notes, scores := NormalizeCheckInDetail(parsed.ZoneNotesRaw, parsed.SkinScoreNotesRaw, vision, nil, PhotoEvidenceOK, "vi", "")
 	joined := norm.NFC.String(joinNotes(notes))
 	if !strings.Contains(joined, "nốt nhỏ") || strings.Contains(strings.ToLower(joined), "chàm") {
 		t.Fatalf("zone notes %q", joined)
@@ -430,6 +430,50 @@ func TestSanitizeCheckInVisionJSON_KeepsZoneObservations(t *testing.T) {
 	}
 	if strings.Contains(out, "mụn thịt") {
 		t.Fatalf("zone cue still says mụn thịt: %s", out)
+	}
+}
+
+func TestSavedZone_SwapsSingleCheekAndVietnameseNote(t *testing.T) {
+	t.Parallel()
+	vision := `{"zone_observations":[{"zone":"left_cheek","cue":"small red bump","severity":"mild"}]}`
+	photo := photoContextJSON(t, []dto.PhotoMetaImage{{Index: 0, Kind: dto.PhotoKindFullFace, Camera: "front"}}, nil)
+	labels := map[string]any{}
+	ApplyCheckInDetail(labels, &CoachStructuredOutput{}, vision, photo, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientWeb, "vi")
+	notes, _ := labels["zone_notes"].([]dto.CoachZoneNote)
+	if len(notes) != 1 || notes[0].Zone != "right_cheek" || notes[0].Note != "Trông giống nốt đỏ nhỏ" {
+		t.Fatalf(`[{"zone":"left_cheek","note":"Trông giống small red bump"}] saved as %#v`, notes)
+	}
+	stored, _ := labels["vision_zone_observations"].([]visionZone)
+	if len(stored) != 1 || stored[0].Zone != "right_cheek" {
+		t.Fatalf("stored vision zone %#v", stored)
+	}
+
+	closeup := photoContextJSON(t, []dto.PhotoMetaImage{{Index: 0, Kind: dto.PhotoKindCloseup, Zone: "left_cheek"}}, nil)
+	closeLabels := map[string]any{}
+	ApplyCheckInDetail(closeLabels, &CoachStructuredOutput{}, vision, closeup, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientWeb, "vi")
+	closeNotes, _ := closeLabels["zone_notes"].([]dto.CoachZoneNote)
+	if len(closeNotes) != 1 || closeNotes[0].Zone != "left_cheek" || closeNotes[0].Note != "Trông giống nốt đỏ nhỏ" {
+		t.Fatalf("user-picked close-up %#v", closeNotes)
+	}
+
+	parsed := &CoachStructuredOutput{ZoneNotesRaw: mustRawJSON(t, []map[string]string{{
+		"zone": "right_cheek", "note": "Má phải trông giống nốt đỏ nhỏ.", "severity": "mild",
+	}})}
+	keptLabels := map[string]any{}
+	ApplyCheckInDetail(keptLabels, parsed, vision, photo, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientWeb, "vi")
+	kept, _ := keptLabels["zone_notes"].([]dto.CoachZoneNote)
+	if len(kept) != 1 || kept[0].Zone != "right_cheek" || kept[0].Note != "Má phải trông giống nốt đỏ nhỏ." {
+		t.Fatalf("swapped coach note dropped %#v", kept)
+	}
+
+	android := &CoachStructuredOutput{ZoneNotesRaw: mustRawJSON(t, []map[string]string{{
+		"zone": "left_cheek", "note": "Má của bạn trông giống nốt đỏ nhỏ.", "severity": "mild",
+	}})}
+	androidLabels := map[string]any{}
+	ApplyCheckInDetail(androidLabels, android, vision, photo, CheckInPhotoEvidence{Kind: PhotoEvidenceOK}, domain.RefreshClientAndroid, "vi")
+	androidNotes, _ := androidLabels["zone_notes"].([]dto.CoachZoneNote)
+	if len(androidNotes) != 1 || androidNotes[0].Zone != "left_cheek" || androidNotes[0].Note != "Má của bạn trông giống nốt đỏ nhỏ." {
+		t.Fatalf("android zone changed %#v", androidNotes)
 	}
 }
 
