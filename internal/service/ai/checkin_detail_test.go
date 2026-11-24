@@ -546,10 +546,26 @@ func TestFallbackZoneNotes_GoodSkinSkipsPrefix(t *testing.T) {
 	if len(signed) != 1 || signed[0].Note != "Trông giống nốt đỏ nhỏ." {
 		t.Fatalf("sign %#v", signed)
 	}
-	same := `{"zone_observations":[{"zone":"chin","cue":"da mịn màng, không thấy mụn","severity":"mild"},{"zone":"forehead","cue":"da mịn màng, không thấy mụn","severity":"mild"}]}`
-	once, _ := NormalizeCheckInDetail(nil, nil, same, nil, PhotoEvidenceOK, "vi", "")
-	if len(once) != 1 || once[0].Note != "Da mịn màng, không thấy mụn." {
-		t.Fatalf("deduped %#v", once)
+	same := `{"zone_observations":[` +
+		`{"zone":"chin","cue":"da mịn màng, không thấy mụn","severity":"mild"},` +
+		`{"zone":"forehead","cue":"da mịn màng, không thấy mụn","severity":"mild"},` +
+		`{"zone":"nose","cue":"da mịn màng, không thấy mụn","severity":"mild"},` +
+		`{"zone":"left_cheek","cue":"da mịn màng, không thấy mụn","severity":"mild"}]}`
+	many, _ := NormalizeCheckInDetail(nil, nil, same, nil, PhotoEvidenceOK, "vi", "")
+	if len(many) != 4 {
+		t.Fatalf("same good-skin note on 4 zones -> %#v", many)
+	}
+	for _, n := range many {
+		if n.Note != "Da mịn màng, không thấy mụn." {
+			t.Fatalf("zone %s note %q", n.Zone, n.Note)
+		}
+	}
+	rough := mustRawJSON(t, []map[string]string{{
+		"zone": "chin", "note": "Trông giống da mịn màng, hơi sần.", "severity": "mild",
+	}})
+	roughNotes, _ := NormalizeCheckInDetail(rough, nil, vision, nil, PhotoEvidenceOK, "vi", "")
+	if len(roughNotes) != 1 || roughNotes[0].Note != "Trông giống da mịn màng, hơi sần." {
+		t.Fatalf("sần %#v", roughNotes)
 	}
 }
 

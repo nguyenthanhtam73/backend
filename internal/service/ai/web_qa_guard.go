@@ -349,8 +349,8 @@ func plainLoanwords(s string) string {
 // "sau treat" becomes "sau đó là đặc trị". "treatment", "Routine", "Toner",
 // and "check-in" are left alone.
 func replaceTreatWord(s string) string {
-	s = replacePhrase(s, "sau treat", "sau đó là đặc trị")
-	return replacePhrase(s, "treat", "đặc trị")
+	s = replacePhraseKeepCase(s, "sau treat", "sau đó là đặc trị")
+	return replacePhraseKeepCase(s, "treat", "đặc trị")
 }
 
 func replaceFlash(s string) string {

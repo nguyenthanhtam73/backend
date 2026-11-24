@@ -55,7 +55,7 @@ func NormalizeCheckInDetail(zoneRaw, scoreRaw json.RawMessage, visionRaw string,
 	} else if len(notes) == 0 && evidenceKind == PhotoEvidenceOK {
 		notes = filterZoneNotes(fallbackZoneNotes(zones, locale), allowed, locale)
 	}
-	return dedupeIdenticalGoodSkin(notes), filterScoreNotes(decodeScoreNotes(scoreRaw))
+	return notes, filterScoreNotes(decodeScoreNotes(scoreRaw))
 }
 
 // ApplyCheckInDetail writes the photo check-in detail into the skin_scores map.
@@ -340,7 +340,7 @@ func positiveVisibleSign(low string) bool {
 	} {
 		cleaned = strings.ReplaceAll(cleaned, neg, " ")
 	}
-	for _, sign := range []string{"lỗ chân lông", "nốt", "mụn", "đỏ", "thâm", "sưng", "khô", "bong", "dầu"} {
+	for _, sign := range []string{"lỗ chân lông", "kích ứng", "nốt", "mụn", "đỏ", "thâm", "sưng", "khô", "bong", "dầu", "sần", "chấm", "ửng", "hạt"} {
 		if strings.Contains(cleaned, sign) {
 			return true
 		}
@@ -358,19 +358,6 @@ func capitalizeFirst(s string) string {
 		return s
 	}
 	return string(unicode.ToUpper(r)) + s[size:]
-}
-
-func dedupeIdenticalGoodSkin(notes []dto.CoachZoneNote) []dto.CoachZoneNote {
-	if len(notes) < 2 || !goodSkinNote(notes[0].Note) {
-		return notes
-	}
-	first := notes[0].Note
-	for _, n := range notes[1:] {
-		if n.Note != first {
-			return notes
-		}
-	}
-	return notes[:1]
 }
 
 // leftoverEnglish reports an ASCII word that is not an unaccented Vietnamese

@@ -367,6 +367,10 @@ func TestQA_TreatBecomesDacTri(t *testing.T) {
 	if full != "Lớp mỏng sau rửa mặt (và sau đó là đặc trị nếu có)." {
 		t.Fatalf("sentence %q", full)
 	}
+	const titled = "Treat mụn buổi tối thôi nha."
+	if got := plainLoanwords(titled); got != "Đặc trị mụn buổi tối thôi nha." {
+		t.Fatalf("%q -> %q", titled, got)
+	}
 	for _, keep := range []string{"Routine", "Toner", "check-in", "treatment"} {
 		if plainLoanwords(keep) != keep {
 			t.Fatalf("%q changed", keep)
