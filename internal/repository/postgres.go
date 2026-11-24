@@ -101,6 +101,9 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := backfillCoinBuckets(db); err != nil {
 		return err
 	}
+	if err := applyCoinWalletFloors(db); err != nil {
+		return err
+	}
 	if err := SeedTreeCatalog(db); err != nil {
 		return err
 	}
