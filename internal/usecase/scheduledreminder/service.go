@@ -244,6 +244,10 @@ func (s *Service) sendPush(
 		return true, false
 	case errors.Is(err, pushuc.ErrNotFound), errors.Is(err, pushuc.ErrSenderUnavailable):
 		return false, false
+	case errors.Is(err, pushsvc.ErrVAPIDAuthFailed):
+		// Keep today's claim. Releasing it would retry this subscription
+		// on the next tick with the same rejected JWT.
+		return false, false
 	default:
 		slog.Error("scheduled_capture: push failed",
 			"user_id", userID.String(),

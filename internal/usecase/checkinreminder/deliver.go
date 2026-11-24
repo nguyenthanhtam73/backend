@@ -11,6 +11,7 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 	"github.com/dadiary/backend/internal/reminder"
 	"github.com/dadiary/backend/internal/service/email"
+	pushsvc "github.com/dadiary/backend/internal/service/push"
 	pushuc "github.com/dadiary/backend/internal/usecase/push"
 	"github.com/google/uuid"
 )
@@ -448,7 +449,10 @@ func (s *Service) deliverPush(
 	case errors.Is(err, pushuc.ErrAlreadyNotifiedToday),
 		errors.Is(err, pushuc.ErrAlreadyCheckedIn),
 		errors.Is(err, pushuc.ErrNotFound),
-		errors.Is(err, pushuc.ErrSenderUnavailable):
+		errors.Is(err, pushuc.ErrSenderUnavailable),
+		errors.Is(err, pushsvc.ErrVAPIDAuthFailed):
+		// VAPID 401/403 is not a transient push failure. Counting it as
+		// failed would unclaim the hour and retry the same subscription.
 		out.PushSkipped++
 	default:
 		out.PushFailed++

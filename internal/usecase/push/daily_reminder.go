@@ -191,6 +191,10 @@ func (s *Service) SendDailyRemindersToAll(ctx context.Context) (DailyReminderBat
 			result.SkippedNoSubscription++
 		case errors.Is(sendErr, ErrSenderUnavailable):
 			result.Skipped++
+		case errors.Is(sendErr, pushsvc.ErrVAPIDAuthFailed):
+			// 401/403 will fail the same way on the next 30-minute tick.
+			// Counting it as failed would release today's claim and resend.
+			result.Skipped++
 		default:
 			result.Failed++
 			// Continue — one bad endpoint must not abort the whole batch.
