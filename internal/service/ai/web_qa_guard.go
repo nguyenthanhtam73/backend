@@ -366,7 +366,14 @@ func replaceCheckWord(s string) string {
 			return b.String()
 		}
 		after := s[idx+size:]
-		if strings.HasPrefix(strings.ToLower(after), "-in") {
+		if after != "" {
+			next, _ := utf8.DecodeRuneInString(after)
+			if next == '-' || tokenHasLinkMark(s, idx, size) {
+				b.WriteString(s[:idx+size])
+				s = s[idx+size:]
+				continue
+			}
+		} else if tokenHasLinkMark(s, idx, size) {
 			b.WriteString(s[:idx+size])
 			s = s[idx+size:]
 			continue
@@ -375,6 +382,27 @@ func replaceCheckWord(s string) string {
 		b.WriteString(matchVoiceCase(s[idx:idx+size], "kiểm tra"))
 		s = s[idx+size:]
 	}
+}
+
+func tokenHasLinkMark(s string, idx, size int) bool {
+	start := idx
+	for start > 0 {
+		r, n := utf8.DecodeLastRuneInString(s[:start])
+		if unicode.IsSpace(r) {
+			break
+		}
+		start -= n
+	}
+	end := idx + size
+	for end < len(s) {
+		r, n := utf8.DecodeRuneInString(s[end:])
+		if unicode.IsSpace(r) {
+			break
+		}
+		end += n
+	}
+	token := s[start:end]
+	return strings.Contains(token, "/") || strings.Contains(token, ".")
 }
 
 func replaceFlash(s string) string {

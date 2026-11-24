@@ -137,7 +137,7 @@ func coachOutputRetryPromptForVoice(visionRaw, userContext string, attempt int, 
 	if polite {
 		b.WriteString("- MUST open situation_analysis with \"Mình thấy hôm nay…\" OR \"Hôm nay da bạn…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\". No tao/mày, no profanity.\n")
 	} else {
-		b.WriteString("- MUST open situation_analysis with something visible: \"Mày thấy hôm nay…\" OR \"Hôm nay vùng …\" OR \"Tao thấy …\" OR \"Có … nốt mụn/chấm thâm ở …\". No swearing, no sarcasm.\n")
+		b.WriteString("- MUST open situation_analysis with something visible and say «mày» exactly once in that first sentence, e.g. \"Hôm nay má trái của mày …\" OR \"Hôm nay vùng … của mày …\". No swearing, no sarcasm.\n")
 	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
 		if polite {

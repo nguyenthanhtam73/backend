@@ -374,6 +374,12 @@ func TestQA_TreatBecomesDacTri(t *testing.T) {
 	if got := plainLoanwords("để check da"); got != "để kiểm tra da" {
 		t.Fatalf("check %q", got)
 	}
+	if plainLoanwords("check-up") != "check-up" || plainLoanwords("check-list") != "check-list" {
+		t.Fatal("hyphenated check was rewritten")
+	}
+	if plainLoanwords("…/check?x=1") != "…/check?x=1" {
+		t.Fatal("link check was rewritten")
+	}
 	if got := plainLoanwords("Check da"); got != "Kiểm tra da" {
 		t.Fatalf("Check %q", got)
 	}

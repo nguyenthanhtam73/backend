@@ -64,6 +64,15 @@ func TestCoachPromptVersion_v37(t *testing.T) {
 	if strings.Count(web, "da mình") != 1 || !strings.Contains(web, "CẤM «da mình»") {
 		t.Fatal("web prompt must forbid da mình and not suggest it")
 	}
+	webRetry := coachOutputRetryPromptForVoice("", "", 1, "")
+	const wantRetry = "- MUST open situation_analysis with something visible and say «mày» exactly once in that first sentence, e.g. \"Hôm nay má trái của mày …\" OR \"Hôm nay vùng … của mày …\". No swearing, no sarcasm."
+	if !strings.Contains(webRetry, wantRetry) {
+		t.Fatalf("web retry %q", webRetry)
+	}
+	androidRetry := coachOutputRetryPromptForVoice("", "", 1, "android")
+	if !strings.Contains(androidRetry, "- MUST open situation_analysis with \"Mình thấy hôm nay…\"") {
+		t.Fatal("android retry opener changed")
+	}
 	android := GetCoachPromptForClient("intermediate", "android")
 	if strings.Contains(android, "làn da") || strings.Contains(android, "khoảng **1–2 lần**") {
 		t.Fatal("android prompt picked up the web mày-count rule")
