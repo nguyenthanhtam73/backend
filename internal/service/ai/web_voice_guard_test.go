@@ -234,10 +234,11 @@ func TestAndroidCoachPrompt_GoldenUnchanged(t *testing.T) {
 }
 
 const (
-	// SHA-256 of GetCoachPromptForClient on the untouched polite prompt.
-	// Filled after the first hash run if these placeholders fail.
-	goldenAndroidIntermediateHash = "3b307b325182719017d7ced27bda15a134c2d55f06ee620bbc7f2fe65e137b4a"
-	goldenAndroidBeginnerHash     = "99763606ba51b453048c8c4e31d448236cd4630cd3cf16cb32c1577f6ad79b70"
+	// SHA-256 of the android system prompt. coach_prompt_polite.go is unchanged.
+	// The bytes differ from v32 because the everyday-words rule and the
+	// ingredient gloss in PublicFacingCopyBan are appended.
+	goldenAndroidIntermediateHash = "6b1171bc64dab201ae854022b86a48b7097f5887b09c909c26bb8a5014060e6c"
+	goldenAndroidBeginnerHash     = "5142ae49ce0d74109e99c397fcfbf59532e2f02d0ab6acec04c7480fc867166c"
 )
 
 func androidPromptHash(skill string) string {
