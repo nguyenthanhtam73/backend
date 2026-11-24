@@ -425,6 +425,140 @@ func TestQA_HedgeMovesToEnd(t *testing.T) {
 	}
 }
 
+func TestWebVI_ProdPhrases(t *testing.T) {
+	const (
+		acneSit      = "Hôm nay vùng má trái đang có khá nhiều mụn viêm nổi rõ, da ửng đỏ ở chỗ đó. Bề mặt da không đều, nhìn có vẻ da đang bị kích ứng."
+		acneBar      = "Vùng má trái có khá nhiều mụn viêm, chưa rõ ràng."
+		acneSafe     = "Thay đổi một sản phẩm mới tại một thời điểm — patch-test (thử trước ở một vùng nhỏ) trước ở vùng nhỏ nếu dùng cái gì lạ."
+		clearSit     = "Hôm nay hai bên má của mày có khá nhiều nốt nhỏ màu da nổi cao, trông giống mụn ẩn hoặc milia (hạt nhỏ trắng dưới da)."
+		clearConcern = "Mày ghi là quan tâm mụn ẩn, và ảnh hôm nay thật sự có khá nhiều nốt nhỏ màu da nổi cao ở hai bên má — đó là dấu hiệu của mụn ẩn hoặc milia. Da không đỏ rõ, nên tao sẽ khuyên dịu trước, rồi sau đó mới xem xét thêm chất tẩy da chết nhẹ."
+		clearBar     = "Hai bên má có khá nhiều nốt nhỏ màu da nổi cao — đó là dấu hiệu mụn ẩn hoặc milia, không phải mụn đỏ sưng."
+		zoneNote     = "Nhiều nốt nhỏ màu da nổi cao, trông giống mụn ẩn hoặc milia."
+	)
+	qa := webQA{Locale: "vi", NoteKnown: true, HasUserNote: false}
+	acne := &CoachStructuredOutput{
+		SituationAnalysis: acneSit,
+		SafetyReminders:   []string{acneSafe},
+		SkinScoreNotesRaw: []byte(`{"clarity":"` + acneBar + `"}`),
+	}
+	sanitizeWebCoachOutput(acne, qa)
+	if acne.SituationAnalysis != "Hôm nay vùng má trái của mày đang có khá nhiều mụn viêm nổi rõ, da ửng đỏ ở chỗ đó. Bề mặt da không đều, nhìn có vẻ da đang bị kích ứng." {
+		t.Fatalf("acne situation %q", acne.SituationAnalysis)
+	}
+	if len(acne.SafetyReminders) != 1 || acne.SafetyReminders[0] != "Thay đổi một sản phẩm mới tại một thời điểm — thử trước ở một vùng nhỏ nếu dùng cái gì lạ." {
+		t.Fatalf("acne safety %q", acne.SafetyReminders)
+	}
+	var scores map[string]string
+	if err := json.Unmarshal(acne.SkinScoreNotesRaw, &scores); err != nil {
+		t.Fatal(err)
+	}
+	if scores["clarity"] != "Vùng má trái có khá nhiều mụn viêm." {
+		t.Fatalf("acne bar %q", scores["clarity"])
+	}
+
+	clear := &CoachStructuredOutput{
+		SituationAnalysis: clearSit,
+		ConcernAlignment:  clearConcern,
+		SkinScoreNotesRaw: []byte(`{"clarity":"` + clearBar + `"}`),
+		ZoneNotesRaw: []byte(`[{"zone":"right_cheek","note":"` + zoneNote + `","severity":"mild"},` +
+			`{"zone":"left_cheek","note":"` + zoneNote + `","severity":"mild"}]`),
+	}
+	sanitizeWebCoachOutput(clear, qa)
+	if clear.SituationAnalysis != clearSit {
+		t.Fatalf("clear situation changed %q", clear.SituationAnalysis)
+	}
+	if clear.ConcernAlignment != "Da không đỏ rõ, nên tao sẽ khuyên dịu trước, rồi sau đó mới xem xét thêm chất tẩy da chết nhẹ." {
+		t.Fatalf("clear concern %q", clear.ConcernAlignment)
+	}
+	if err := json.Unmarshal(clear.SkinScoreNotesRaw, &scores); err != nil {
+		t.Fatal(err)
+	}
+	if scores["clarity"] != "Hai bên má có khá nhiều nốt nhỏ màu da nổi cao — trông giống dấu hiệu mụn ẩn hoặc milia, không phải mụn đỏ sưng." {
+		t.Fatalf("clear bar %q", scores["clarity"])
+	}
+	var zones []map[string]string
+	if err := json.Unmarshal(clear.ZoneNotesRaw, &zones); err != nil {
+		t.Fatal(err)
+	}
+	if len(zones) != 2 {
+		t.Fatalf("zones %#v", zones)
+	}
+	if zones[0]["note"] != "Nhiều nốt nhỏ màu da nổi cao, trông giống mụn ẩn hoặc milia (hạt nhỏ trắng dưới da)." {
+		t.Fatalf("first zone %q", zones[0]["note"])
+	}
+	if zones[1]["note"] != zoneNote {
+		t.Fatalf("second zone %q", zones[1]["note"])
+	}
+
+	keptZone := "Hôm nay má trái của bạn đang đỏ."
+	zoneOut := &CoachStructuredOutput{SituationAnalysis: keptZone}
+	sanitizeWebCoachOutput(zoneOut, qa)
+	if zoneOut.SituationAnalysis != keptZone {
+		t.Fatalf("của stayed %q", zoneOut.SituationAnalysis)
+	}
+	already := &CoachStructuredOutput{SituationAnalysis: "Hôm nay da của mày đang ổn. Mai tính tiếp."}
+	sanitizeWebCoachOutput(already, qa)
+	if already.SituationAnalysis != "Hôm nay da của mày đang ổn. Mai tính tiếp." {
+		t.Fatalf("already mày %q", already.SituationAnalysis)
+	}
+	da := &CoachStructuredOutput{SituationAnalysis: "Hôm nay da đang ổn. Mai tính tiếp."}
+	sanitizeWebCoachOutput(da, qa)
+	if da.SituationAnalysis != "Hôm nay da của mày đang ổn. Mai tính tiếp." {
+		t.Fatalf("hôm nay da %q", da.SituationAnalysis)
+	}
+	two := &CoachStructuredOutput{
+		SituationAnalysis: "Hôm nay da đang ổn.",
+		SummaryNotes:      "Tao nhắn mày một câu. Rồi mày xem lại.",
+	}
+	sanitizeWebCoachOutput(two, qa)
+	if two.SituationAnalysis != "Hôm nay da đang ổn." {
+		t.Fatalf("screen already has mày %q", two.SituationAnalysis)
+	}
+	en := &CoachStructuredOutput{SituationAnalysis: acneSit}
+	sanitizeWebCoachOutput(en, webQA{Locale: "en"})
+	if en.SituationAnalysis != acneSit {
+		t.Fatalf("en changed %q", en.SituationAnalysis)
+	}
+	doctor := &CoachStructuredOutput{SituationAnalysis: "Bác sĩ nói là nên dịu thôi."}
+	sanitizeWebCoachOutput(doctor, qa)
+	if doctor.SituationAnalysis != "Bác sĩ nói là nên dịu thôi." {
+		t.Fatalf("doctor %q", doctor.SituationAnalysis)
+	}
+	severe := &CoachStructuredOutput{ZoneNotesRaw: []byte(`[{"zone":"forehead","note":"Da hôm nay ổn, chưa rõ ràng.","severity":"moderate"}]`)}
+	sanitizeWebCoachOutput(severe, qa)
+	var sevZones []map[string]string
+	if err := json.Unmarshal(severe.ZoneNotesRaw, &sevZones); err != nil {
+		t.Fatal(err)
+	}
+	if len(sevZones) != 1 || sevZones[0]["note"] != "Da hôm nay ổn." {
+		t.Fatalf("severe unclear %v", sevZones)
+	}
+	explained := &CoachStructuredOutput{ZoneNotesRaw: []byte(`[{"zone":"right_cheek","note":"Trông giống milia (hạt nhỏ trắng dưới da)."}]`)}
+	sanitizeWebCoachOutput(explained, qa)
+	var explainedZones []map[string]string
+	if err := json.Unmarshal(explained.ZoneNotesRaw, &explainedZones); err != nil {
+		t.Fatal(err)
+	}
+	if explainedZones[0]["note"] != "Trông giống milia (hạt nhỏ trắng dưới da)." {
+		t.Fatalf("milia doubled %q", explainedZones[0]["note"])
+	}
+	android := &CoachStructuredOutput{SituationAnalysis: acneSit, SafetyReminders: []string{acneSafe}}
+	applyCoachVoiceGuard(android, "android", qa)
+	if android.SituationAnalysis != acneSit || android.SafetyReminders[0] != acneSafe {
+		t.Fatalf("android changed %q %q", android.SituationAnalysis, android.SafetyReminders)
+	}
+	noted := &CoachStructuredOutput{ConcernAlignment: "Mày ghi là quan tâm mụn ẩn."}
+	sanitizeWebCoachOutput(noted, webQA{Locale: "vi", NoteKnown: true, HasUserNote: true})
+	if noted.ConcernAlignment != "Mày ghi là quan tâm mụn ẩn." {
+		t.Fatalf("real note %q", noted.ConcernAlignment)
+	}
+	only := &CoachStructuredOutput{SituationAnalysis: "Mày ghi là quan tâm mụn ẩn."}
+	sanitizeWebCoachOutput(only, qa)
+	if only.SituationAnalysis != "Tao xem ảnh hôm nay rồi nha mày." {
+		t.Fatalf("empty fallback %q", only.SituationAnalysis)
+	}
+}
+
 func TestQA_AndroidPromptHashUnchanged(t *testing.T) {
 	if androidPromptHash("intermediate") != goldenAndroidIntermediateHash {
 		t.Fatalf("android intermediate hash changed: %s", androidPromptHash("intermediate"))

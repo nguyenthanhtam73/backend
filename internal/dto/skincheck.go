@@ -188,7 +188,7 @@ func NewCreateSkinCheckResponse(c *domain.SkinCheck, a *domain.SkinAnalysis, pub
 		PhotoMeta:       photoMeta,
 		SkinContext:     skinCtx,
 	}
-	as := mapSkinAnalysisSummary(a, c.ClientKind)
+	as := mapSkinAnalysisSummary(a, c.ClientKind, WebPolishFromCheck(c))
 	return CreateSkinCheckResponse{
 		Check:     sum,
 		Analysis:  as,
@@ -197,7 +197,7 @@ func NewCreateSkinCheckResponse(c *domain.SkinCheck, a *domain.SkinAnalysis, pub
 }
 
 // mapSkinAnalysisSummary maps DB JSON columns to a stable API shape for the mobile client.
-func mapSkinAnalysisSummary(a *domain.SkinAnalysis, clientKind string) SkinAnalysisSummary {
+func mapSkinAnalysisSummary(a *domain.SkinAnalysis, clientKind string, polish ...WebCoachPolish) SkinAnalysisSummary {
 	if a == nil {
 		return SkinAnalysisSummary{}
 	}
@@ -214,7 +214,7 @@ func mapSkinAnalysisSummary(a *domain.SkinAnalysis, clientKind string) SkinAnaly
 			ErrorMessage: strings.TrimSpace(a.ErrorMessage),
 		}
 	case domain.AnalysisStatusCompleted:
-		out.Coach = buildCoachDetailFromDomain(a, clientKind)
+		out.Coach = buildCoachDetailFromDomain(a, clientKind, polish...)
 	default:
 		// pending / processing — coach omitted (short window if client polls later)
 	}
@@ -252,7 +252,7 @@ func AnalysisPending(check *domain.SkinCheck, a *domain.SkinAnalysis, pipelineDo
 	return msg == "" || msg == usermsg.Generic
 }
 
-func buildCoachDetailFromDomain(a *domain.SkinAnalysis, clientKind string) *SkinCoachDetail {
+func buildCoachDetailFromDomain(a *domain.SkinAnalysis, clientKind string, polish ...WebCoachPolish) *SkinCoachDetail {
 	if a == nil {
 		return nil
 	}
@@ -331,7 +331,11 @@ func buildCoachDetailFromDomain(a *domain.SkinAnalysis, clientKind string) *Skin
 	cleanPublicCoachDetail(d)
 	cleanWebProfanityDetail(d)
 	if PolishWebCoachDetail != nil && domain.NormalizeRefreshClient(clientKind) != domain.RefreshClientAndroid {
-		PolishWebCoachDetail(d)
+		var opt WebCoachPolish
+		if len(polish) > 0 {
+			opt = polish[0]
+		}
+		PolishWebCoachDetail(d, opt)
 	}
 	return d
 }

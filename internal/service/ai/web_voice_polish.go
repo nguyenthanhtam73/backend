@@ -15,14 +15,18 @@ func init() {
 }
 
 // polishWebCoachDetail is the read path for a web screen. Android checks skip it.
-func polishWebCoachDetail(d *dto.SkinCoachDetail) {
+func polishWebCoachDetail(d *dto.SkinCoachDetail, opt dto.WebCoachPolish) {
 	if d == nil {
 		return
 	}
 	fields := detailFields(d)
-	polishFields(fields, webQA{})
+	qa := webQA{Locale: opt.Locale, NoteKnown: opt.NoteKnown, HasUserNote: opt.HasUserNote}
+	polishFields(fields, qa)
 	d.ClarifyQuestions = capFollowUpQuestions(d.ClarifyQuestions)
 	d.Improvements = dropEmptyDetailImprovements(d.Improvements)
+	if strings.EqualFold(strings.TrimSpace(opt.Locale), "vi") {
+		applyWebVIDetail(d, qa)
+	}
 }
 
 // polishWebCoachScreen rewrites one generated web coach result. Android does not call it.
@@ -50,14 +54,18 @@ func sanitizeWebCoachOutput(out *CoachStructuredOutput, qa webQA) bool {
 	}
 	polishFields(fields, qa)
 	dropEmptyCoachImprovements(out)
+	if strings.EqualFold(strings.TrimSpace(qa.Locale), "vi") {
+		applyWebVIPost(out, zones, scores, qa)
+	}
 	out.ZoneNotesRaw = encodePolishZones(out.ZoneNotesRaw, zones, qa)
 	out.SkinScoreNotesRaw = encodePolishScores(out.SkinScoreNotesRaw, scores)
 	return coachSnapshot(out) != before
 }
 
 type polishZone struct {
-	zone string
-	note string
+	zone     string
+	note     string
+	severity string
 }
 
 type polishScore struct {
@@ -74,6 +82,7 @@ func decodePolishZones(raw json.RawMessage) []polishZone {
 	for i, item := range items {
 		out[i].zone, _ = item["zone"].(string)
 		out[i].note, _ = item["note"].(string)
+		out[i].severity, _ = item["severity"].(string)
 	}
 	return out
 }

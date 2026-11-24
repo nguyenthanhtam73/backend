@@ -1,15 +1,57 @@
 package dto
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+
+	"github.com/dadiary/backend/internal/domain"
+)
 
 // CleanWebProfanity rewrites one sentence before it is sent to a client.
 // internal/service/ai installs the swear filter at init. Numbers and
 // pronouns are left alone. Stored rows are not written back.
 var CleanWebProfanity = func(s string) string { return s }
 
+// WebPolishFromCheck is what the web screen may use from a stored check.
+// A missing check is Vietnamese with no user note.
+func WebPolishFromCheck(c *domain.SkinCheck) WebCoachPolish {
+	if c == nil {
+		return WebCoachPolish{Locale: "vi", NoteKnown: true}
+	}
+	return WebCoachPolish{
+		Locale:      UILocale(c.ClimateContext),
+		NoteKnown:   true,
+		HasUserNote: strings.TrimSpace(c.UserNote) != "",
+	}
+}
+
+// UILocale is vi unless climate_context says ui_locale=en.
+func UILocale(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return "vi"
+	}
+	var m map[string]any
+	if json.Unmarshal(raw, &m) != nil || m == nil {
+		return "vi"
+	}
+	v, _ := m["ui_locale"].(string)
+	if strings.EqualFold(strings.TrimSpace(v), "en") {
+		return "en"
+	}
+	return "vi"
+}
+
+// WebCoachPolish is the bit of the check the web read path may use.
+// Locale is vi or en. NoteKnown is true when the stored user note was loaded.
+type WebCoachPolish struct {
+	Locale      string
+	NoteKnown   bool
+	HasUserNote bool
+}
+
 // PolishWebCoachDetail rewrites a whole web screen (mày budget, one question,
 // Vietnamese notes). Android checks do not call it. ai installs it at init.
-var PolishWebCoachDetail = func(*SkinCoachDetail) {}
+var PolishWebCoachDetail = func(*SkinCoachDetail, WebCoachPolish) {}
 
 func cleanWebProfanityDetail(d *SkinCoachDetail) {
 	if d == nil || CleanWebProfanity == nil {

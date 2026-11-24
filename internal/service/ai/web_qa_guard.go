@@ -23,6 +23,7 @@ type webQA struct {
 	PhotoLimited       bool
 	WorseThanLast      bool
 	UserSaidHomQua     bool
+	Locale             string
 }
 
 func webQAForCheck(check *domain.SkinCheck, facts CheckInCoachFacts, visionStatus, visionRaw string, out *CoachStructuredOutput) webQA {
@@ -52,6 +53,7 @@ func webQAForCheck(check *domain.SkinCheck, facts CheckInCoachFacts, visionStatu
 		PhotoLimited:       limited,
 		WorseThanLast:      skinTrendWorse(facts, scoreOf(out)) && prevOK && !limited,
 		UserSaidHomQua:     strings.Contains(strings.ToLower(note), "hôm qua"),
+		Locale:             CheckLocale(check),
 	}
 }
 
@@ -184,6 +186,35 @@ func inventedNoteClaim(low string) bool {
 		}
 	}
 	return false
+}
+
+// viInventedNoteClaim drops a sentence that pretends the user wrote a note.
+// "Bác sĩ nói là…" is a real quote and stays.
+func viInventedNoteClaim(low string) bool {
+	if strings.Contains(low, "bác sĩ nói là") {
+		return false
+	}
+	if inventedNoteClaim(low) {
+		return true
+	}
+	if !personInSentence(low) {
+		return false
+	}
+	for _, claim := range []string{"ghi là", "nói là", "bảo là", "kể là", "ghi chú"} {
+		if strings.Contains(low, claim) {
+			return true
+		}
+	}
+	return false
+}
+
+func personInSentence(low string) bool {
+	_, n := findPhrase(low, "mày")
+	if n > 0 {
+		return true
+	}
+	_, n = findPhrase(low, "bạn")
+	return n > 0
 }
 
 // stripInvalidComparison removes a whole sentence that compares the skin with
@@ -488,4 +519,400 @@ func dedupeReassurance(fields []polishField, allow bool) {
 			return
 		}
 	}
+}
+
+// applyWebVIPost is the Vietnamese web pass. English and Android never call it.
+func applyWebVIPost(out *CoachStructuredOutput, zones []polishZone, scores []polishScore, qa webQA) {
+	if out == nil {
+		return
+	}
+	rewrite := func(s string) string {
+		return viRewrite(s, false, qa)
+	}
+	hadSituation := strings.TrimSpace(out.SituationAnalysis) != ""
+	out.SituationAnalysis = rewrite(out.SituationAnalysis)
+	out.SummaryNotes = rewrite(out.SummaryNotes)
+	out.ConcernAlignment = rewrite(out.ConcernAlignment)
+	out.MedicalDisclaimer = rewrite(out.MedicalDisclaimer)
+	for i := range out.Strengths {
+		out.Strengths[i] = rewrite(out.Strengths[i])
+	}
+	for i := range out.RoutineHints {
+		out.RoutineHints[i] = rewrite(out.RoutineHints[i])
+	}
+	for i := range out.AvoidOrPatch {
+		out.AvoidOrPatch[i] = rewrite(out.AvoidOrPatch[i])
+	}
+	for i := range out.SafetyReminders {
+		out.SafetyReminders[i] = rewrite(out.SafetyReminders[i])
+	}
+	for i := range out.Improvements {
+		out.Improvements[i].Tip = rewrite(out.Improvements[i].Tip)
+		out.Improvements[i].Why = rewrite(out.Improvements[i].Why)
+	}
+	for i := range out.CareSuggestions {
+		out.CareSuggestions[i].Step = rewrite(out.CareSuggestions[i].Step)
+		out.CareSuggestions[i].Why = rewrite(out.CareSuggestions[i].Why)
+		out.CareSuggestions[i].SafetyNote = rewrite(out.CareSuggestions[i].SafetyNote)
+	}
+	for i := range zones {
+		zones[i].note = viRewrite(zones[i].note, zoneSevere(zones[i].severity), qa)
+	}
+	for i := range scores {
+		scores[i].val = rewrite(scores[i].val)
+	}
+	explained := false
+	out.ConcernAlignment = glossMiliaOnce(out.ConcernAlignment, &explained)
+	explained = false
+	for i := range zones {
+		zones[i].note = glossMiliaOnce(zones[i].note, &explained)
+	}
+	out.SituationAnalysis = insertCuaMay(out.SituationAnalysis, screenMayCount(out, zones, scores))
+	if hadSituation && strings.TrimSpace(out.SituationAnalysis) == "" {
+		out.SituationAnalysis = neutralMainSentence
+	}
+}
+
+func applyWebVIDetail(d *dto.SkinCoachDetail, qa webQA) {
+	if d == nil {
+		return
+	}
+	rewrite := func(s string) string {
+		return viRewrite(s, false, qa)
+	}
+	hadSituation := strings.TrimSpace(d.SituationSummary) != ""
+	d.SituationSummary = rewrite(d.SituationSummary)
+	d.SummaryNotes = rewrite(d.SummaryNotes)
+	d.ConcernAlignment = rewrite(d.ConcernAlignment)
+	d.MedicalDisclaimer = rewrite(d.MedicalDisclaimer)
+	d.PhotoLimitedNote = rewrite(d.PhotoLimitedNote)
+	d.Strengths = rewriteList(d.Strengths, rewrite)
+	d.RoutineHints = rewriteList(d.RoutineHints, rewrite)
+	d.AvoidOrPatch = rewriteList(d.AvoidOrPatch, rewrite)
+	d.SafetyReminders = rewriteList(d.SafetyReminders, rewrite)
+	for i := range d.Improvements {
+		d.Improvements[i].Tip = rewrite(d.Improvements[i].Tip)
+		d.Improvements[i].Why = rewrite(d.Improvements[i].Why)
+	}
+	for i := range d.CareSuggestions {
+		d.CareSuggestions[i].Step = rewrite(d.CareSuggestions[i].Step)
+		d.CareSuggestions[i].Why = rewrite(d.CareSuggestions[i].Why)
+		d.CareSuggestions[i].SafetyNote = rewrite(d.CareSuggestions[i].SafetyNote)
+	}
+	for i := range d.ZoneNotes {
+		d.ZoneNotes[i].Note = viRewrite(d.ZoneNotes[i].Note, zoneSevere(d.ZoneNotes[i].Severity), qa)
+	}
+	if d.SkinScoreNotes != nil {
+		n := d.SkinScoreNotes
+		n.Overall = rewrite(n.Overall)
+		n.Hydration = rewrite(n.Hydration)
+		n.Clarity = rewrite(n.Clarity)
+		n.Barrier = rewrite(n.Barrier)
+	}
+	explained := false
+	d.ConcernAlignment = glossMiliaOnce(d.ConcernAlignment, &explained)
+	explained = false
+	for i := range d.ZoneNotes {
+		d.ZoneNotes[i].Note = glossMiliaOnce(d.ZoneNotes[i].Note, &explained)
+	}
+	d.SituationSummary = insertCuaMay(d.SituationSummary, detailMayCount(d))
+	if hadSituation && strings.TrimSpace(d.SituationSummary) == "" {
+		d.SituationSummary = neutralMainSentence
+	}
+}
+
+func rewriteList(items []string, rewrite func(string) string) []string {
+	for i := range items {
+		items[i] = rewrite(items[i])
+	}
+	return items
+}
+
+func detailMayCount(d *dto.SkinCoachDetail) int {
+	n := countWord(d.SituationSummary, "mày") + countWord(d.SummaryNotes, "mày") + countWord(d.ConcernAlignment, "mày") + countWord(d.MedicalDisclaimer, "mày")
+	for _, s := range d.Strengths {
+		n += countWord(s, "mày")
+	}
+	for _, s := range d.RoutineHints {
+		n += countWord(s, "mày")
+	}
+	for _, s := range d.AvoidOrPatch {
+		n += countWord(s, "mày")
+	}
+	for _, s := range d.SafetyReminders {
+		n += countWord(s, "mày")
+	}
+	for _, item := range d.Improvements {
+		n += countWord(item.Tip, "mày") + countWord(item.Why, "mày")
+	}
+	for _, z := range d.ZoneNotes {
+		n += countWord(z.Note, "mày")
+	}
+	if d.SkinScoreNotes != nil {
+		n += countWord(d.SkinScoreNotes.Overall, "mày")
+		n += countWord(d.SkinScoreNotes.Hydration, "mày")
+		n += countWord(d.SkinScoreNotes.Clarity, "mày")
+		n += countWord(d.SkinScoreNotes.Barrier, "mày")
+	}
+	return n
+}
+
+func viRewrite(s string, severe bool, qa webQA) string {
+	if qa.NoteKnown && !qa.HasUserNote {
+		s = stripVIInventedNote(s)
+	}
+	return dropFalseUnclear(softenAssertedGroup(plainPatchTest(s)), severe)
+}
+
+func stripVIInventedNote(s string) string {
+	parts := splitSentences(s)
+	kept := make([]string, 0, len(parts))
+	for _, sentence := range parts {
+		if viInventedNoteClaim(strings.ToLower(sentence)) {
+			continue
+		}
+		kept = append(kept, sentence)
+	}
+	return strings.TrimSpace(strings.Join(kept, ""))
+}
+
+func zoneSevere(sev string) bool {
+	switch strings.ToLower(strings.TrimSpace(sev)) {
+	case "moderate", "pronounced":
+		return true
+	default:
+		return false
+	}
+}
+
+func screenMayCount(out *CoachStructuredOutput, zones []polishZone, scores []polishScore) int {
+	n := countWord(out.SituationAnalysis, "mày")
+	n += countWord(out.SummaryNotes, "mày")
+	n += countWord(out.ConcernAlignment, "mày")
+	n += countWord(out.MedicalDisclaimer, "mày")
+	for _, s := range out.Strengths {
+		n += countWord(s, "mày")
+	}
+	for _, s := range out.RoutineHints {
+		n += countWord(s, "mày")
+	}
+	for _, s := range out.AvoidOrPatch {
+		n += countWord(s, "mày")
+	}
+	for _, s := range out.SafetyReminders {
+		n += countWord(s, "mày")
+	}
+	for _, item := range out.Improvements {
+		n += countWord(item.Tip, "mày") + countWord(item.Why, "mày")
+	}
+	for _, z := range zones {
+		n += countWord(z.note, "mày")
+	}
+	for _, sc := range scores {
+		n += countWord(sc.val, "mày")
+	}
+	return n
+}
+
+func countWord(s, word string) int {
+	n := 0
+	for {
+		idx, size := findPhrase(s, word)
+		if idx < 0 {
+			return n
+		}
+		n++
+		s = s[idx+size:]
+	}
+}
+
+func insertCuaMay(s string, screenMay int) string {
+	parts := splitSentences(s)
+	if len(parts) == 0 || screenMay >= 2 || countWord(parts[0], "mày") > 0 {
+		return s
+	}
+	first := parts[0]
+	if idx, size, ok := firstZoneName(first); ok {
+		if followingWordIs(first[idx+size:], "của") {
+			return s
+		}
+		parts[0] = first[:idx+size] + " của mày" + first[idx+size:]
+		return strings.Join(parts, "")
+	}
+	idx, size := findPhrase(first, "hôm nay da")
+	if idx < 0 || followingWordIs(first[idx+size:], "của") {
+		return s
+	}
+	parts[0] = first[:idx+size] + " của mày" + first[idx+size:]
+	return strings.Join(parts, "")
+}
+
+func firstZoneName(s string) (int, int, bool) {
+	bestI, bestN := -1, 0
+	for _, name := range []string{
+		"hai bên má",
+		"vùng má trái", "vùng má phải",
+		"má trái", "má phải",
+		"quanh miệng", "vùng chữ t",
+		"vùng trán", "vùng mũi", "vùng cằm",
+		"trán", "mũi", "cằm", "má",
+	} {
+		idx, size := findPhrase(s, name)
+		if idx < 0 {
+			continue
+		}
+		if bestI < 0 || idx < bestI || (idx == bestI && size > bestN) {
+			bestI, bestN = idx, size
+		}
+	}
+	if bestI < 0 {
+		return 0, 0, false
+	}
+	return bestI, bestN, true
+}
+
+func followingWordIs(s, word string) bool {
+	s = strings.TrimLeft(s, " \t")
+	idx, size := findPhrase(s, word)
+	return idx == 0 && size > 0
+}
+
+func dropFalseUnclear(s string, severe bool) string {
+	parts := splitSentences(s)
+	changed := false
+	for i, sentence := range parts {
+		low := strings.ToLower(sentence)
+		if !strings.Contains(low, "chưa rõ ràng") {
+			continue
+		}
+		if !severe && !sentenceHasVisibleSign(low) {
+			continue
+		}
+		parts[i] = stripUnclearPhrase(sentence)
+		changed = true
+	}
+	if !changed {
+		return s
+	}
+	return strings.Join(parts, "")
+}
+
+func sentenceHasVisibleSign(low string) bool {
+	for _, sign := range []string{"mụn viêm", "ửng đỏ", "nốt", "đỏ", "sưng", "mụn", "thâm", "sần"} {
+		if strings.Contains(low, sign) {
+			return true
+		}
+	}
+	return false
+}
+
+func stripUnclearPhrase(s string) string {
+	low := strings.ToLower(s)
+	idx := strings.Index(low, "chưa rõ ràng")
+	if idx < 0 {
+		return s
+	}
+	start := idx
+	j := idx
+	for j > 0 {
+		r, n := utf8.DecodeLastRuneInString(s[:j])
+		if r == ' ' || r == '\t' {
+			j -= n
+			continue
+		}
+		if r == ',' || r == '，' {
+			start = j - n
+		}
+		break
+	}
+	out := s[:start] + s[idx+len("chưa rõ ràng"):]
+	return strings.TrimSpace(out)
+}
+
+func softenAssertedGroup(s string) string {
+	type pair struct{ from string }
+	prefixes := []string{"đó là dấu hiệu của ", "đó là dấu hiệu ", "đó là "}
+	low := strings.ToLower(s)
+	for _, prefix := range prefixes {
+		from := 0
+		for {
+			idx := strings.Index(low[from:], prefix)
+			if idx < 0 {
+				break
+			}
+			idx += from
+			xStart := idx + len(prefix)
+			xEnd := xStart
+			for xEnd < len(s) {
+				r, n := utf8.DecodeRuneInString(s[xEnd:])
+				if r == ',' || r == '.' || r == '!' || r == '?' || r == ';' || r == '—' {
+					break
+				}
+				xEnd += n
+			}
+			x := strings.ToLower(s[xStart:xEnd])
+			if !strings.Contains(x, "mụn ẩn") && !strings.Contains(x, "milia") {
+				from = xEnd
+				continue
+			}
+			repl := "trông giống " + strings.TrimSpace(s[xStart:xEnd])
+			if strings.HasPrefix(prefix, "đó là dấu hiệu") {
+				repl = "trông giống dấu hiệu " + strings.TrimSpace(s[xStart:xEnd])
+			}
+			s = s[:idx] + repl + s[xEnd:]
+			low = strings.ToLower(s)
+			from = idx + len(repl)
+		}
+	}
+	return s
+}
+
+func glossMiliaOnce(s string, done *bool) string {
+	if done == nil || *done || strings.TrimSpace(s) == "" {
+		return s
+	}
+	idx, size := findPhrase(s, "milia")
+	if idx < 0 {
+		return s
+	}
+	*done = true
+	if alreadyExplained(s, idx, size, "hạt nhỏ trắng dưới da") || strings.Contains(strings.ToLower(s), "hạt nhỏ dưới da") {
+		return s
+	}
+	return s[:idx+size] + " (hạt nhỏ trắng dưới da)" + s[idx+size:]
+}
+
+func plainPatchTest(s string) string {
+	low := strings.ToLower(s)
+	for {
+		iPatch := indexFold(low, "patch-test")
+		iSpace := indexFold(low, "patch test")
+		idx, n := iPatch, len("patch-test")
+		if iPatch < 0 || (iSpace >= 0 && iSpace < iPatch) {
+			idx, n = iSpace, len("patch test")
+		}
+		if idx < 0 {
+			break
+		}
+		rest := s[idx+n:]
+		trimmed := strings.TrimLeft(rest, " ")
+		if strings.HasPrefix(strings.ToLower(trimmed), "(") {
+			end := strings.Index(trimmed, ")")
+			if end >= 0 {
+				inside := strings.TrimSpace(trimmed[1:end])
+				gap := len(rest) - len(trimmed)
+				s = s[:idx] + inside + s[idx+n+gap+end+1:]
+				low = strings.ToLower(s)
+				continue
+			}
+		}
+		s = s[:idx] + matchVoiceCase(s[idx:idx+n], "thử trước ở một vùng nhỏ") + s[idx+n:]
+		low = strings.ToLower(s)
+	}
+	s = strings.ReplaceAll(s, "thử trước ở một vùng nhỏ trước ở vùng nhỏ", "thử trước ở một vùng nhỏ")
+	return squeezeSpaces(s)
+}
+
+func indexFold(low, phrase string) int {
+	return strings.Index(low, strings.ToLower(phrase))
 }
