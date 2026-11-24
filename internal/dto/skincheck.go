@@ -118,7 +118,8 @@ type SkinCoachDetail struct {
 	Confidence string `json:"confidence,omitempty"`
 	// NeedsMoreInfo is true when a follow-up would change the read.
 	NeedsMoreInfo bool `json:"needs_more_info,omitempty"`
-	// ClarifyQuestions are the follow-ups still worth asking (max 3).
+	// ClarifyQuestions are the follow-ups still worth asking (one question;
+	// retake tips for a blurry photo may stay beside it).
 	ClarifyQuestions []string `json:"clarify_questions,omitempty"`
 	ErrorMessage     string   `json:"error_message,omitempty"`
 }
@@ -187,7 +188,7 @@ func NewCreateSkinCheckResponse(c *domain.SkinCheck, a *domain.SkinAnalysis, pub
 		PhotoMeta:       photoMeta,
 		SkinContext:     skinCtx,
 	}
-	as := mapSkinAnalysisSummary(a)
+	as := mapSkinAnalysisSummary(a, c.ClientKind)
 	return CreateSkinCheckResponse{
 		Check:     sum,
 		Analysis:  as,
@@ -196,7 +197,7 @@ func NewCreateSkinCheckResponse(c *domain.SkinCheck, a *domain.SkinAnalysis, pub
 }
 
 // mapSkinAnalysisSummary maps DB JSON columns to a stable API shape for the mobile client.
-func mapSkinAnalysisSummary(a *domain.SkinAnalysis) SkinAnalysisSummary {
+func mapSkinAnalysisSummary(a *domain.SkinAnalysis, clientKind string) SkinAnalysisSummary {
 	if a == nil {
 		return SkinAnalysisSummary{}
 	}
@@ -213,7 +214,7 @@ func mapSkinAnalysisSummary(a *domain.SkinAnalysis) SkinAnalysisSummary {
 			ErrorMessage: strings.TrimSpace(a.ErrorMessage),
 		}
 	case domain.AnalysisStatusCompleted:
-		out.Coach = buildCoachDetailFromDomain(a)
+		out.Coach = buildCoachDetailFromDomain(a, clientKind)
 	default:
 		// pending / processing — coach omitted (short window if client polls later)
 	}
@@ -251,7 +252,7 @@ func AnalysisPending(check *domain.SkinCheck, a *domain.SkinAnalysis, pipelineDo
 	return msg == "" || msg == usermsg.Generic
 }
 
-func buildCoachDetailFromDomain(a *domain.SkinAnalysis) *SkinCoachDetail {
+func buildCoachDetailFromDomain(a *domain.SkinAnalysis, clientKind string) *SkinCoachDetail {
 	if a == nil {
 		return nil
 	}
@@ -329,6 +330,9 @@ func buildCoachDetailFromDomain(a *domain.SkinAnalysis) *SkinCoachDetail {
 	// swearing. Neither pass writes the row back.
 	cleanPublicCoachDetail(d)
 	cleanWebProfanityDetail(d)
+	if PolishWebCoachDetail != nil && domain.NormalizeRefreshClient(clientKind) != domain.RefreshClientAndroid {
+		PolishWebCoachDetail(d)
+	}
 	return d
 }
 

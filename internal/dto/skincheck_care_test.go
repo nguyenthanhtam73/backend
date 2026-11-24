@@ -41,7 +41,7 @@ func TestBuildCoachDetailCareSuggestionsFromSkinScores(t *testing.T) {
 			{"tip": "legacy tip", "why": "should not replace care"},
 		}),
 	}
-	d := buildCoachDetailFromDomain(a)
+	d := buildCoachDetailFromDomain(a, "")
 	if d == nil {
 		t.Fatal("nil detail")
 	}
@@ -75,7 +75,7 @@ func TestBuildCoachDetailPhotoEvidenceFromSkinScores(t *testing.T) {
 		Status:      domain.AnalysisStatusCompleted,
 		SkinScores:  ss,
 	}
-	d := buildCoachDetailFromDomain(a)
+	d := buildCoachDetailFromDomain(a, "")
 	if d.PhotoEvidence != "limited" {
 		t.Fatalf("evidence=%q", d.PhotoEvidence)
 	}
@@ -98,7 +98,7 @@ func TestBuildCoachDetailCareSuggestionsFallbackImprovements(t *testing.T) {
 			{"tip": "Tối: rửa mặt dịu", "why": "Đang viêm."},
 		}),
 	}
-	d := buildCoachDetailFromDomain(a)
+	d := buildCoachDetailFromDomain(a, "")
 	if len(d.CareSuggestions) != 2 {
 		t.Fatalf("care=%d", len(d.CareSuggestions))
 	}

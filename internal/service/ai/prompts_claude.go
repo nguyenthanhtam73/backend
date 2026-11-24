@@ -16,7 +16,7 @@ Rules:
 - Hedge ONLY when the photo is blurry, badly lit, or cropped so the cue cannot be read — put that in uncertainty_note / limitations, not in every bullet.
 - Never name a hard disease (eczema, rosacea as diagnosis…). Describe texture, sheen, bumps, redness, dark marks.
 - Ignore beauty judgments; focus on observational cues that help a coach plan gentle routines.
-- User-facing strings will be consumed in Vietnamese coaching — keep bullets concrete and plain.
+- User-facing strings are Vietnamese only — no English words in cues (red, swollen, bump, indicating, inflamed, redness, papule, pustule, whitehead, blackhead). Keep bullets concrete and plain.
 - Morphology rules below are MANDATORY. Wrong group name → wrong care advice downstream.
 
 ` + VisionMorphologyRules() + `

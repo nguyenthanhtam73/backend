@@ -25,6 +25,11 @@ type aiResultLog struct {
 	PhotoNoteTag  string
 	ClarifyCount  int
 	ClarifyKind   string
+	// PromptVersion is CoachDailyPromptVersion for this process. It is not
+	// taken from the user. PromptFamily is web or android, from the stored
+	// client kind, never a raw header.
+	PromptVersion int
+	PromptFamily  string
 }
 
 // logSkinCheckAIResult emits one structured line for a photo check-in.
@@ -52,6 +57,9 @@ func logSkinCheckAIResult(in aiResultLog) {
 // clarify_count is how many clarify_questions were stored. clarify_kind is
 // retake_tips, touch_questions, or none. Question text and photo notes are not
 // logged.
+// prompt_version is the coach prompt version running in this process.
+// prompt_family is web or android. Neither field carries a user id, email,
+// or photo URL.
 func skinCheckAIResultArgs(in aiResultLog) []any {
 	return []any{
 		"check_id", in.CheckID.String(),
@@ -66,6 +74,8 @@ func skinCheckAIResultArgs(in aiResultLog) []any {
 		"photo_note_tag", clampPhotoNoteTag(in.PhotoNoteTag),
 		"clarify_count", clampClarifyCount(in.ClarifyCount),
 		"clarify_kind", clampClarifyKind(in.ClarifyKind),
+		"prompt_version", in.PromptVersion,
+		"prompt_family", clampPromptFamily(in.PromptFamily),
 	}
 }
 
@@ -209,6 +219,24 @@ func clampClarifyKind(v string) string {
 	default:
 		return "none"
 	}
+}
+
+func clampPromptFamily(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "android":
+		return "android"
+	case "web":
+		return "web"
+	default:
+		return "web"
+	}
+}
+
+func promptFamilyForLog(clientKind string) string {
+	if ai.IsAndroidCoachVoice(clientKind) {
+		return "android"
+	}
+	return "web"
 }
 
 func clampClarifyCount(n int) int {

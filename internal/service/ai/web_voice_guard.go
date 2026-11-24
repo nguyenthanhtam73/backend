@@ -30,6 +30,10 @@ var webProfanityPlain = map[string]struct{}{
 // SanitizeWebCoachOutput drops swearing from web coach text. It keeps tao/mày
 // and does not touch numbers. Android checks do not use this function.
 func SanitizeWebCoachOutput(out *CoachStructuredOutput) bool {
+	return sanitizeWebFull(out, false)
+}
+
+func sanitizeWebFull(out *CoachStructuredOutput, worseThanLast bool) bool {
 	if out == nil {
 		return false
 	}
@@ -69,6 +73,9 @@ func SanitizeWebCoachOutput(out *CoachStructuredOutput) bool {
 	}
 	out.ZoneNotesRaw = cleanWebZoneNotes(out.ZoneNotesRaw, &changed)
 	out.SkinScoreNotesRaw = cleanWebScoreNotes(out.SkinScoreNotesRaw, &changed)
+	if sanitizeWebCoachOutput(out, worseThanLast) {
+		changed = true
+	}
 	return changed
 }
 

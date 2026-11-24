@@ -219,13 +219,15 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 			return
 		}
 		entry := aiResultLog{
-			CheckID:      skinCheckID,
-			Confidence:   confidence,
-			DeviceType:   deviceTypeForLog(deviceType, o.ClientKind),
-			PhotoPresent: true,
-			AILatencyMs:  visionMs + coachMs,
-			Outcome:      outcome,
-			Fallback:     fallback,
+			CheckID:       skinCheckID,
+			Confidence:    confidence,
+			DeviceType:    deviceTypeForLog(deviceType, o.ClientKind),
+			PhotoPresent:  true,
+			AILatencyMs:   visionMs + coachMs,
+			Outcome:       outcome,
+			Fallback:      fallback,
+			PromptVersion: ai.CoachDailyPromptVersion,
+			PromptFamily:  promptFamilyForLog(o.ClientKind),
 		}
 		if visionReady {
 			applyLowConfidenceLogFields(&entry, visionStatus, visionRaw, resultLabels)

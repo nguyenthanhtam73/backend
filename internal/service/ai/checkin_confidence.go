@@ -7,21 +7,22 @@ import (
 	"github.com/dadiary/backend/internal/dto"
 )
 
-const maxClarifyQuestions = 3
+const maxClarifyQuestions = 1
 
 // CheckInConfidence scores a photo check-in and lists follow-up questions.
 // It reuses ClassifyMorphology, MorphologyClarifyQuestions, and RetakePhotoTips.
 // No model call. Questions the user already answered in skin_context are removed.
 // A close-up drops the "fill the frame / chụp sát vùng" retake tip.
 func CheckInConfidence(ev CheckInPhotoEvidence, visionRaw string, photoCtx json.RawMessage, locale string) (level string, needsMore bool, questions []string) {
+	var retake []string
 	switch ev.Kind {
 	case PhotoEvidenceSkip:
 		level = ConfidenceLow
 	case PhotoEvidenceLimited:
 		level = ConfidenceLow
-		questions = RetakePhotoTips(locale)
+		retake = RetakePhotoTips(locale)
 		if photoIsCloseUp(photoCtx) {
-			questions = withoutCloseUpFramingTip(questions)
+			retake = withoutCloseUpFramingTip(retake)
 		}
 	default:
 		level = ConfidenceHigh
@@ -34,6 +35,7 @@ func CheckInConfidence(ev CheckInPhotoEvidence, visionRaw string, photoCtx json.
 	answered := answeredSkinCues(photoCtx)
 	levels := []string{level}
 	asked := false
+	var follow []string
 	for _, z := range zoneObservationValues(visionRaw) {
 		region := morphologyRegion(z.Zone)
 		verdict := ClassifyMorphology(MorphologyFeaturesFromProse(z.Cue, region))
@@ -44,11 +46,12 @@ func CheckInConfidence(ev CheckInPhotoEvidence, visionRaw string, photoCtx json.
 		asked = true
 		filtered := verdict
 		filtered.MissingCues = withoutAnsweredCues(verdict.MissingCues, answered)
-		questions = appendQuestions(questions, MorphologyClarifyQuestions(filtered, locale))
+		follow = appendQuestions(follow, MorphologyClarifyQuestions(filtered, locale))
 	}
-	if len(questions) > maxClarifyQuestions {
-		questions = questions[:maxClarifyQuestions]
+	if len(follow) > maxClarifyQuestions {
+		follow = follow[:maxClarifyQuestions]
 	}
+	questions = append(append([]string{}, retake...), follow...)
 	if len(questions) == 0 {
 		questions = nil
 	}
