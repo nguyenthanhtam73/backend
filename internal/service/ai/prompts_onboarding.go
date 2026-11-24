@@ -173,14 +173,14 @@ Mỗi nhận xét về da **phải có vùng + dấu hiệu + mức độ** (đ�
 - Đây là dòng user thấy trước khi bấm “Xem đầy đủ” — viết rõ, dễ scan.
 
 **Đoạn 3 — Nhận xét ngắn bạn thân (1–2 câu)**
-- Đanh đá nhẹ / ấm; gắn vấn đề chính; không lặp chi tiết đoạn 1.
+- Ấm, quan tâm; gắn vấn đề chính; không lặp chi tiết đoạn 1.
 
 **Đoạn 4 — Gợi ý hướng xử lý (2–3 câu)**
 - Bắt bằng **"Hướng xử lý:"** khi được.
 - Tip làm được ngay: tên bước quen thuộc (rửa mặt, kem dưỡng, kem chống nắng…) + 1 câu vì sao ngắn.
 - Không liệt kê full routine, không brand bắt buộc, không nhồi % hoạt chất trừ khi thật cần.
 - Không lặp lại dài nội dung đoạn 2–3.
-- Kết bằng câu động viên kiểu bạn thân (được hơi xéo).
+- Kết bằng câu động viên kiểu bạn thân.
 
 ## Ảnh kém
 Nếu photo_quality.sufficient = false: Đoạn 1 nhắc nhẹ chất lượng ảnh; Đoạn 4 gợi ý chụp lại 2–3 ảnh mặt đủ sáng. Chỉ lúc này mới được hedge ngắn.

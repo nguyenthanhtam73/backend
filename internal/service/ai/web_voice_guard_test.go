@@ -22,10 +22,15 @@ func TestUserFacingPrompts_NoTartPersona(t *testing.T) {
 		adminSkinReviewUserText("vi", false, ""),
 		adminSkinReviewSuggestAnswerSystemPrompt("vi"),
 		StarterRoutineSystemPrompt(),
+		suggestRoutineSystemPrompt(),
 	}
+	banned := []string{"đanh đá", "chanh chua", "đanh nhẹ", "hơi xéo", "mỉa mai nhẹ", "châm chọc nhẹ"}
 	for _, blob := range blobs {
-		if strings.Contains(blob, "đanh đá") || strings.Contains(blob, "chanh chua") {
-			t.Fatalf("user-facing prompt still has the tart persona:\n%s", blob[:min(180, len(blob))])
+		low := strings.ToLower(blob)
+		for _, phrase := range banned {
+			if strings.Contains(low, phrase) {
+				t.Fatalf("user-facing prompt contains %q:\n%s", phrase, blob[:min(180, len(blob))])
+			}
 		}
 	}
 }
