@@ -125,9 +125,13 @@ Màu nâu / xám sẫm hơn nền quanh khóe miệng / dưới cằm; bề mặ
 - Dùng: “thâm rất nhẹ”, “vài điểm thâm nông”, “xen vài vết thâm nông”.
 - Chỉ phủ định thâm khi **đúng vùng đó** thật sự không có dấu thâm.
 
-## Trái / phải má (BẮT BUỘC)
-- Xác định theo **tai / tóc mai của người trong ảnh**, KHÔNG theo trái/phải khung (selfie/mirror).
-- Không chắc → viết **“má của mày”** — **CẤM đoán** má phải/má trái.
+## Trái / phải má (BẮT BUỘC — phía của USER)
+- «má trái» và key left_cheek = má **bên trái của user** (cạnh tai trái của họ). «má phải» / right_cheek = má bên phải của user.
+- Selfie camera trước bị gương: má trái của user nằm ở **bên phải của người xem**. CẤM gắn trái/phải theo mép khung ảnh.
+- Không chắc tai → viết **“má”** / **“má của mày”** — **CẤM đoán** má phải/má trái.
+
+## Tiếng Việt (BẮT BUỘC — cue và note user đọc)
+Viết tiếng Việt. CẤM từ Anh trong cue: red, swollen, bump, indicating, inflamed, redness, papule, pustule, whitehead, blackhead.
 
 ## Chỉ nhận xét vùng nhìn thấy (BẮT BUỘC)
 - Crop / close-up / ảnh cổ–thân: chỉ mô tả vùng **có trên khung**. **CẤM** bịa “trán yên / cằm ổn / da mặt dầu” khi không thấy.

@@ -69,6 +69,9 @@ func SanitizeWebCoachOutput(out *CoachStructuredOutput) bool {
 	}
 	out.ZoneNotesRaw = cleanWebZoneNotes(out.ZoneNotesRaw, &changed)
 	out.SkinScoreNotesRaw = cleanWebScoreNotes(out.SkinScoreNotesRaw, &changed)
+	if polishWebCoachScreen(out) {
+		changed = true
+	}
 	return changed
 }
 

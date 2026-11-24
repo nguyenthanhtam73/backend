@@ -262,6 +262,30 @@ type checkInZoneObservation struct {
 	Severity string `json:"severity"`
 }
 
+func rewriteVisionVietnamese(p *checkInVisionPayload) bool {
+	changed := false
+	clean := func(s string) string {
+		next := ToVietnameseSkinWords(applyTypos(s))
+		if next != s {
+			changed = true
+		}
+		return next
+	}
+	p.PhotoAssessment.Lighting = clean(p.PhotoAssessment.Lighting)
+	p.PhotoAssessment.AngleClarity = clean(p.PhotoAssessment.AngleClarity)
+	p.PhotoAssessment.Limitations = clean(p.PhotoAssessment.Limitations)
+	for i, b := range p.VisibleObservations {
+		p.VisibleObservations[i] = clean(b)
+	}
+	for i, z := range p.ZoneObservations {
+		p.ZoneObservations[i].Cue = clean(z.Cue)
+	}
+	p.TextureAndOilCues = clean(p.TextureAndOilCues)
+	p.RednessCues = clean(p.RednessCues)
+	p.UncertaintyNote = clean(p.UncertaintyNote)
+	return changed
+}
+
 // SanitizeCheckInVisionJSON fixes morphology mislabels in the check-in vision JSON
 // before it reaches the coach, so care advice is not built on a wrong group.
 // Returns the (possibly rewritten) JSON and whether anything changed.
@@ -276,6 +300,11 @@ func SanitizeCheckInVisionJSON(raw, locale string) (string, bool) {
 	}
 
 	changed := false
+	if !strings.EqualFold(strings.TrimSpace(locale), "en") {
+		if rewriteVisionVietnamese(&payload) {
+			changed = true
+		}
+	}
 
 	// Check each field on its own: joining them with spaces would let a "không …" in a
 	// later field land in the same clause as an earlier cue and silently negate it.

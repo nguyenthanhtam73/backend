@@ -37,8 +37,8 @@ func TestCheckInConfidence_LookAlikeAsksUntilAnswered(t *testing.T) {
 	if !strings.Contains(joined, "cứng như hạt cát") {
 		t.Fatalf("missing firmness question: %v", qs)
 	}
-	if len(qs) > 3 {
-		t.Fatalf("more than 3 questions: %v", qs)
+	if strings.Count(joined, "?") > 1 {
+		t.Fatalf("more than 1 follow-up question: %v", qs)
 	}
 
 	answered := photoContextJSON(t, nil, &dto.SkinContextInput{Firmness: "firm", Duration: "months", Pain: "none"})

@@ -7,6 +7,10 @@ import "strings"
 // pronouns are left alone. Stored rows are not written back.
 var CleanWebProfanity = func(s string) string { return s }
 
+// PolishWebCoachDetail rewrites a whole web screen (mày budget, one question,
+// Vietnamese notes). Android checks do not call it. ai installs it at init.
+var PolishWebCoachDetail = func(*SkinCoachDetail) {}
+
 func cleanWebProfanityDetail(d *SkinCoachDetail) {
 	if d == nil || CleanWebProfanity == nil {
 		return

@@ -200,7 +200,8 @@ const VisionObservationSchemaBlock = `Return ONE JSON object only (no markdown).
   "redness_or_discoloration_cues": <string — one short sentence>,
   "uncertainty_note": <string — only when photo truly limits reading; else empty or one short clause>
 }
-zone_observations: max 5. If a hint says an image is a CLOSE-UP of one zone, only describe that zone.`
+zone_observations: max 5. If a hint says an image is a CLOSE-UP of one zone, only describe that zone.
+left_cheek / right_cheek are the USER's own left and right cheeks, not the left and right edges of the photo. A front-camera selfie is mirrored: the user's left cheek appears on the viewer's right. Write cues in Vietnamese only.`
 
 // CheckInDetailJSONFields is appended only to the photo check-in coach user message.
 // Daily feedback and other prompts do not include it. No voice words: the system
@@ -209,7 +210,7 @@ const CheckInDetailJSONFields = `Also include these photo check-in keys:
 {
   "zone_notes": [
     {
-      "zone": <"forehead"|"nose"|"left_cheek"|"right_cheek"|"chin"|"around_mouth"|"jawline"|"under_eyes"|"neck"|"other" — ONLY a zone listed in VISION zone_observations or in the close-up photo meta. Never invent a zone that is not visible.>,
+      "zone": <"forehead"|"nose"|"left_cheek"|"right_cheek"|"chin"|"around_mouth"|"jawline"|"under_eyes"|"neck"|"other" — ONLY a zone listed in VISION zone_observations or in the close-up photo meta. Never invent a zone that is not visible. left_cheek is the user's own left cheek (viewer's right on a mirrored selfie).>,
       "note": <ONE short sentence. Say only what the skin looks like, using "trông giống" (VI) or "looks like" (EN). Never name a disease or give a diagnosis. Never write "hàng rào", "hàng rào da", or "hàng rào bảo vệ" — say "lớp bảo vệ da". If the sentence would name a disease, invent a zone, or otherwise break this rule, omit this WHOLE item. Do not shorten the sentence to hide the problem.>,
       "severity": <"mild"|"moderate"|"pronounced" — how visible the sign is>
     }

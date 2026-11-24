@@ -103,4 +103,9 @@ package ai
 // v33 (2026-11-24) — Everyday words for every sentence a person reads.
 // Active ingredient names stay, each with a short plain phrase of what it
 // does. Hàng rào da, hạ kích, barrier, kích ứng ngược, and purging stay banned.
-const CoachDailyPromptVersion = 33
+//
+// v34 (2026-11-24) — Web voice polish. «mày» is 1–2 across the whole screen,
+// at least one tao or mày, no «chúng ta». One follow-up question. Worse skin
+// opens with reassurance. Vision notes stay Vietnamese. Android prompt file
+// is unchanged.
+const CoachDailyPromptVersion = 34

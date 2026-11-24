@@ -150,7 +150,7 @@ func newProgressEntry(c *domain.SkinCheck, uploadPublicPrefix string) ProgressEn
 	if c.Analysis != nil {
 		entry.Status = string(c.Analysis.Status)
 		if c.Analysis.Status == domain.AnalysisStatusCompleted {
-			coach := buildCoachDetailFromDomain(c.Analysis)
+			coach := buildCoachDetailFromDomain(c.Analysis, c.ClientKind)
 			if coach != nil {
 				entry.Gauges = coach.SkinScoreGauges
 				entry.Snippet = pickTimelineSnippet(coach)
