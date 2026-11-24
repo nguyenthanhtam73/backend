@@ -52,6 +52,7 @@ func TestCreateHTTP_ClientHeaderSelectsVoice(t *testing.T) {
 		want   string
 	}{
 		{"android", domain.RefreshClientAndroid},
+		{"android-app", domain.RefreshClientAndroid},
 		{"  android  ", domain.RefreshClientAndroid},
 		{"", domain.RefreshClientWeb},
 		{"Android", domain.RefreshClientWeb},

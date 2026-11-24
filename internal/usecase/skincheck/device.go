@@ -39,9 +39,10 @@ func DeviceTypeFromContext(ctx context.Context) string {
 
 // ClassifyDevice maps a check-in request to a coarse device class.
 //
-// The native Android app sends X-DaDiary-Client exactly "android" (the same
-// rule as refresh sessions and coach voice). A native HTTP stack (okhttp or
-// Dalvik) is also android-app, because browsers do not send those agents.
+// The native Android app sends X-DaDiary-Client: android-app on every API
+// call (older builds sent "android"). Both are the app, same as refresh
+// sessions and coach voice. A native HTTP stack (okhttp or Dalvik) is also
+// android-app, because browsers do not send those agents.
 // Other clients are classified from User-Agent: web-ios, web-android,
 // web-desktop, or unknown. iPadOS desktop mode reports a Macintosh User-Agent
 // and is counted as web-desktop.

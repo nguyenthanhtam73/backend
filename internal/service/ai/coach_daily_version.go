@@ -90,4 +90,10 @@ package ai
 // not be praised for consistency. Fine/good skin must not be asked whether a
 // sore spot will calm down. Go rewrites those lines if the model still
 // writes them.
-const CoachDailyPromptVersion = 30
+//
+// v31 (2026-11-24) — Sentences a person reads must not contain the word
+// score, a gauge decimal (0.78 / 0,78), a JSON field name, or English
+// skincare jargon. Gauge reasons (skin_score_notes) are everyday sentences.
+// Web voice stays tao/mày. Android stays mình/bạn. A read-time filter strips
+// those leaks from API responses. Stored rows are not updated.
+const CoachDailyPromptVersion = 31

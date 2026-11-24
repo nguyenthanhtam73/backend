@@ -102,7 +102,7 @@ const androidNormalModePrompt = androidCoachCorePromptVI + `
 Nói thẳng và cụ thể hơn, vẫn lịch sự **mình / bạn** — không châm chọc, không tục. ≥3–4 chi tiết ảnh · tip làm được ngay · KHÔNG jargon tiếng Anh · strengths 1–4 · improvements 2–3 · routine_hints 3–4.`
 
 func androidCoachPrompt(skillLevel string) string {
-	guard := "\n\n" + VisionMorphologyCoachGuard() + "\n\n" + CoachPublicKnowledgeGuard()
+	guard := coachPromptGuard()
 	if strings.EqualFold(strings.TrimSpace(skillLevel), "beginner") {
 		return androidBeginnerModePrompt + guard
 	}

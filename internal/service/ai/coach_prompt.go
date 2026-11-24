@@ -132,9 +132,15 @@ const MinVisionDetailCitations = 4
 // per-turn checklist instead of by a costly second generation.
 const MaxCoachValidationRetries = 0
 
+// coachPromptGuard is shared by the web and Android system prompts.
+// PublicFacingCopyBan does not change either voice.
+func coachPromptGuard() string {
+	return "\n\n" + VisionMorphologyCoachGuard() + "\n\n" + CoachPublicKnowledgeGuard() + PublicFacingCopyBan
+}
+
 // GetCoachPrompt trả system prompt cho daily coach turn.
 func GetCoachPrompt(skillLevel string) string {
-	guard := "\n\n" + VisionMorphologyCoachGuard() + "\n\n" + CoachPublicKnowledgeGuard()
+	guard := coachPromptGuard()
 	if strings.EqualFold(strings.TrimSpace(skillLevel), "beginner") {
 		return BeginnerModePrompt + guard
 	}

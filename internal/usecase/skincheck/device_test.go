@@ -30,6 +30,7 @@ func TestClassifyDevice(t *testing.T) {
 		want   string
 	}{
 		{"android header wins over a browser agent", "android", iphoneSafari, DeviceAndroidApp},
+		{"native app header android-app", "android-app", iphoneSafari, DeviceAndroidApp},
 		{"padded android header", "  android  ", "", DeviceAndroidApp},
 		{"wrong-case header is not the app", "Android", windowsChrome, DeviceWebDesktop},
 		{"dadiary-android header is not the app", "dadiary-android", androidChrome, DeviceWebAndroid},

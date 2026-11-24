@@ -73,6 +73,8 @@ func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, vi
 		scoreRaw = parsed.SkinScoreNotesRaw
 	}
 	notes, scoreNotes := NormalizeCheckInDetail(zoneRaw, scoreRaw, visionRaw, photoCtx, ev.Kind, locale)
+	notes = sanitizePublicZoneNotes(notes)
+	scoreNotes = sanitizePublicScoreNotes(scoreNotes)
 	android := IsAndroidCoachVoice(clientKind)
 	if android {
 		notes = sanitizeZoneNotes(notes)
@@ -87,6 +89,7 @@ func ApplyCheckInDetail(labels map[string]any, parsed *CoachStructuredOutput, vi
 		labels["skin_score_notes"] = scoreNotes
 	}
 	level, needs, questions := CheckInConfidence(ev, visionRaw, photoCtx, locale)
+	questions = sanitizePublicQuestions(questions)
 	if android {
 		questions = sanitizeQuestionList(questions)
 	}
@@ -422,6 +425,59 @@ func decodeVisionObject(visionRaw string) (map[string]json.RawMessage, bool) {
 		return nil, false
 	}
 	return payload, true
+}
+
+func sanitizePublicZoneNotes(in []dto.CoachZoneNote) []dto.CoachZoneNote {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]dto.CoachZoneNote, 0, len(in))
+	for _, n := range in {
+		note := strings.TrimSpace(SanitizePublicCopy(n.Note))
+		if note == "" {
+			continue
+		}
+		n.Note = note
+		out = append(out, n)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func sanitizePublicScoreNotes(in *dto.SkinCoachScoreNotes) *dto.SkinCoachScoreNotes {
+	if in == nil {
+		return nil
+	}
+	out := &dto.SkinCoachScoreNotes{
+		Overall:   strings.TrimSpace(SanitizePublicCopy(in.Overall)),
+		Hydration: strings.TrimSpace(SanitizePublicCopy(in.Hydration)),
+		Clarity:   strings.TrimSpace(SanitizePublicCopy(in.Clarity)),
+		Barrier:   strings.TrimSpace(SanitizePublicCopy(in.Barrier)),
+	}
+	if out.Overall == "" && out.Hydration == "" && out.Clarity == "" && out.Barrier == "" {
+		return nil
+	}
+	return out
+}
+
+func sanitizePublicQuestions(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, q := range in {
+		q = strings.TrimSpace(SanitizePublicCopy(q))
+		if q == "" {
+			continue
+		}
+		out = append(out, q)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func sanitizeZoneNotes(in []dto.CoachZoneNote) []dto.CoachZoneNote {
