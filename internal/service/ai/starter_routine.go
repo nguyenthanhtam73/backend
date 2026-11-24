@@ -64,7 +64,7 @@ When **skin_analysis** is present (vision + coach photo pass), ground morning/ev
 ` + affiliateStarterTail() + `
 Trả về ONE JSON object duy nhất (không markdown), đúng cấu trúc sau:
 {
-  "encouragement": "Câu khích lệ kiểu bạn thân, có thể hơi xéo",
+  "encouragement": "Câu khích lệ kiểu bạn thân",
   "skin_readback": "Tóm tắt ngắn gọn loại da + concerns + mục tiêu",
   "morning": ["Bước 1", "Bước 2", "Bước 3"],
   "evening": ["Bước 1", "Bước 2", "Bước 3"],
@@ -145,6 +145,7 @@ func GenerateStarterRoutine(ctx context.Context, cfg *config.Config, onboardingJ
 	}
 	normalizeStarterRoutine(&out)
 	attachStarterCommerce(&out, onboardingJSON, locale, userMemory)
+	SanitizeWebStarterRoutine(&out)
 	return out, nil
 }
 

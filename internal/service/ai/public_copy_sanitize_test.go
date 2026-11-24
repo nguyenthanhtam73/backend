@@ -41,6 +41,7 @@ func TestSanitizePublicCopy_StripsTechnicalTokens(t *testing.T) {
 		{"hydration: 0.78 vì da khô", "Da khô"},
 		{"Hydration: 0.78 vì da khô", "Da khô"},
 		{"overall: 0.78", ""},
+		{"Da ổn. Clarity: 0.55 vì có nốt", "Da ổn. Có nốt"},
 		{"Retinol: 0.025", "Retinol: 0.025"},
 		{"Vitamin C: 0.025", "Vitamin C: 0.025"},
 		{"BHA: 0.5", "BHA: 0.5"},

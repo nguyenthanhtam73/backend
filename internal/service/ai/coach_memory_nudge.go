@@ -54,7 +54,7 @@ func coachTurnChecklistForVoice(userContext string, hasVision bool, clientKind s
 		if polite {
 			b.WriteString("- ≥4–5 photo details (region+cue+degree/count) — MUST open \"Mình thấy hôm nay…\" OR \"Hôm nay da bạn…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; polite mình/bạn, NO tao/mày, NO profanity, NO lists/report tone.\n")
 		} else {
-			b.WriteString("- ≥4–5 photo details (region+cue+degree/count) — MUST open \"Mày thấy hôm nay…\" OR \"Đm da mày hôm nay…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh tao thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\"; NO lists/report tone.\n")
+			b.WriteString("- ≥4–5 photo details (region+cue+degree/count) — open with something actually visible (\"Mày thấy hôm nay…\" OR \"Hôm nay vùng …\" OR \"Tao thấy …\" OR \"Có … nốt mụn/chấm thâm ở …\"). Warm tao/mày, mày at most 1–2 times. NO swearing, NO sarcasm, NO lists/report tone.\n")
 		}
 		b.WriteString("- BAN ALL vague: \"da hỗn hợp\", \"da dễ nổi mụn\", \"dễ nổi mụn\", \"da hơi khô\", \"sản phẩm nhẹ nhàng\", \"chăm sóc nhẹ\".\n")
 	}
@@ -62,14 +62,14 @@ func coachTurnChecklistForVoice(userContext string, hasVision bool, clientKind s
 		if polite {
 			b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" callback in situation_analysis — warm, no teasing.\n")
 		} else {
-			b.WriteString("- HISTORY (MANDATORY): ≥1 \"So với lần trước…\" callback in situation_analysis — teasing OK.\n")
+			b.WriteString("- HISTORY (MANDATORY when ## Recent SkinChecks is present): ≥1 \"So với lần trước…\" callback — warm, no teasing. Do not invent a comparison.\n")
 		}
 	}
 	if hasVision || strings.Contains(userContext, "## Recent SkinChecks") {
 		if polite {
 			b.WriteString("- EMOTION: warm polite mình/bạn (no sarcasm, no profanity) + useful tips + kind closing — never cold/clinical/report.\n")
 		} else {
-			b.WriteString("- EMOTION: sarcastic/teasing Gen Z buddy (mỉa mai + châm chọc) + useful tips + buddy closing (may still be mildly sarcastic) — never cold/clinical/report.\n")
+			b.WriteString("- EMOTION: warm best friend (gentle tao/mày, caring, encouraging) + useful tips + kind closing — never sarcastic, crude, or cold/clinical/report.\n")
 		}
 		b.WriteString("- TIPS: concrete step+region+role — NOT vague product advice.\n")
 		if MaxCoachValidationRetries > 0 {
@@ -137,20 +137,20 @@ func coachOutputRetryPromptForVoice(visionRaw, userContext string, attempt int, 
 	if polite {
 		b.WriteString("- MUST open situation_analysis with \"Mình thấy hôm nay…\" OR \"Hôm nay da bạn…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh mình thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\". No tao/mày, no profanity.\n")
 	} else {
-		b.WriteString("- MUST open situation_analysis with \"Mày thấy hôm nay…\" OR \"Đm da mày hôm nay…\" OR \"Cái vùng … hôm nay…\" OR \"Trên ảnh tao thấy vùng …\" OR \"Có … nốt mụn/chấm thâm ở …\".\n")
+		b.WriteString("- MUST open situation_analysis with something visible: \"Mày thấy hôm nay…\" OR \"Hôm nay vùng …\" OR \"Tao thấy …\" OR \"Có … nốt mụn/chấm thâm ở …\". No swearing, no sarcasm.\n")
 	}
 	if strings.Contains(userContext, "## Recent SkinChecks") {
 		if polite {
 			b.WriteString("- MUST include \"So với lần trước…\" history callback (warm, no teasing).\n")
 		} else {
-			b.WriteString("- MUST include \"So với lần trước…\" history callback (teasing OK).\n")
+			b.WriteString("- MUST include \"So với lần trước…\" only when history is present (warm, no teasing).\n")
 		}
 	}
 	b.WriteString("- BAN: \"da hỗn hợp\", \"da dễ nổi mụn\", \"dễ nổi mụn\", \"sản phẩm nhẹ nhàng\", vague dryness without region.\n")
 	if polite {
 		b.WriteString("- Tips must be concrete (step + region + product role). Polite mình/bạn tone + useful closing. NO report tone.\n")
 	} else {
-		b.WriteString("- Tips must be concrete (step + region + product role). Sarcastic buddy tone + useful closing. NO report tone.\n")
+		b.WriteString("- Tips must be concrete (step + region + product role). Warm tao/mày + useful closing. NO report tone, NO swearing.\n")
 	}
 	if strings.TrimSpace(visionRaw) != "" {
 		b.WriteString("- Weave cues from VISION_SUMMARY_JSON — do not invent details not in photo.\n")

@@ -325,9 +325,10 @@ func buildCoachDetailFromDomain(a *domain.SkinAnalysis) *SkinCoachDetail {
 	if len(d.CareSuggestions) == 0 && len(d.Improvements) > 0 {
 		d.CareSuggestions = careSuggestionsFromImprovements(d.Improvements)
 	}
-	// Old rows keep their stored JSON. Technical tokens are removed here, on
-	// the way out, for every client. Pronouns are not rewritten.
+	// Old rows keep their stored JSON. Technical tokens come off first, then
+	// swearing. Neither pass writes the row back.
 	cleanPublicCoachDetail(d)
+	cleanWebProfanityDetail(d)
 	return d
 }
 

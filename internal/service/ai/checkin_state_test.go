@@ -148,8 +148,8 @@ func TestApplyCheckInAdviceGuard_FirstCheckInAndFineSkin(t *testing.T) {
 }
 
 func TestCoachPrompt_v30_CheckInStateGuard(t *testing.T) {
-	if CoachDailyPromptVersion != 31 {
-		t.Fatalf("prompt version = %d, want 31", CoachDailyPromptVersion)
+	if CoachDailyPromptVersion < 31 {
+		t.Fatalf("prompt version = %d, want at least 31", CoachDailyPromptVersion)
 	}
 	for _, p := range []string{
 		GetCoachPrompt("intermediate"),

@@ -96,4 +96,7 @@ package ai
 // skincare jargon. Gauge reasons (skin_score_notes) are everyday sentences.
 // Web voice stays tao/mày. Android stays mình/bạn. A read-time filter strips
 // those leaks from API responses. Stored rows are not updated.
-const CoachDailyPromptVersion = 31
+//
+// v32 (2026-11-24) — Web coach is a warm best friend: gentle tao/mày, no
+// swearing, no sarcasm. Android polite prompt is unchanged.
+const CoachDailyPromptVersion = 32

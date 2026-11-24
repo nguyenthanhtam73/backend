@@ -217,7 +217,7 @@ func outputHasRequiredVisionOpener(out *CoachStructuredOutput) bool {
 }
 
 func outputHasRequiredVisionOpenerText(situation string) bool {
-	if strings.Contains(situation, "mày thấy hôm nay") || strings.Contains(situation, "đm da mày") {
+	if strings.Contains(situation, "mày thấy hôm nay") || strings.Contains(situation, "đm da mày") || strings.Contains(situation, "hôm nay da mày") || strings.Contains(situation, "tao thấy") {
 		return true
 	}
 	if strings.Contains(situation, "trông hôm nay") {
@@ -320,6 +320,7 @@ func outputHasWarmEncouragement(text string) bool {
 	}
 	return false
 }
+
 // appear in coach output (situation_analysis + concern_alignment).
 func CountVisionDetailCitations(visionJSON string, out *CoachStructuredOutput) int {
 	if out == nil || strings.TrimSpace(visionJSON) == "" {

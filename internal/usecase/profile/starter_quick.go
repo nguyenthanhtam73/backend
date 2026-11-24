@@ -36,6 +36,7 @@ const (
 const StarterRoutineSourceAI = "ai"
 
 func starterRoutineResponseFromAI(s ai.StarterRoutine) dto.StarterRoutineResponse {
+	ai.SanitizeWebStarterRoutine(&s)
 	return dto.StarterRoutineResponse{
 		Morning:            s.Morning,
 		Evening:            s.Evening,

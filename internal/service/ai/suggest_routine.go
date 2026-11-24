@@ -113,6 +113,7 @@ func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
 			rich.Rationale = strings.TrimSpace(rich.FocusReason)
 		}
 		rich.ProductSuggestions = SanitizeProductSuggestions(rich.ProductSuggestions)
+		sanitizeSuggestedRoutine(&rich)
 		return rich, nil
 	}
 
@@ -134,7 +135,7 @@ func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
 	if strings.TrimSpace(rationale) == "" {
 		rationale = strings.TrimSpace(loose.FocusReason)
 	}
-	return SuggestedRoutine{
+	out := SuggestedRoutine{
 		Morning:            coerceSteps(loose.Morning),
 		Evening:            coerceSteps(loose.Evening),
 		Encouragement:      loose.Encouragement,
@@ -143,7 +144,41 @@ func parseSuggestedRoutine(text string) (SuggestedRoutine, error) {
 		SafetyNotes:        loose.SafetyNotes,
 		ClosingReminder:    loose.ClosingReminder,
 		ProductSuggestions: SanitizeProductSuggestions(loose.ProductSuggestions),
-	}, nil
+	}
+	sanitizeSuggestedRoutine(&out)
+	return out, nil
+}
+
+func sanitizeSuggestedRoutine(out *SuggestedRoutine) {
+	if out == nil {
+		return
+	}
+	out.Encouragement = SanitizeWebCoachText(out.Encouragement)
+	out.Rationale = SanitizeWebCoachText(out.Rationale)
+	out.FocusReason = SanitizeWebCoachText(out.FocusReason)
+	out.WeekNotes = SanitizeWebCoachText(out.WeekNotes)
+	out.SafetyNotes = SanitizeWebCoachText(out.SafetyNotes)
+	out.ClosingReminder = SanitizeWebCoachText(out.ClosingReminder)
+	for i := range out.Morning {
+		out.Morning[i].Title = SanitizeWebCoachText(out.Morning[i].Title)
+		out.Morning[i].Notes = SanitizeWebCoachText(out.Morning[i].Notes)
+	}
+	for i := range out.Evening {
+		out.Evening[i].Title = SanitizeWebCoachText(out.Evening[i].Title)
+		out.Evening[i].Notes = SanitizeWebCoachText(out.Evening[i].Notes)
+	}
+	for i := range out.ProductSuggestions {
+		item := &out.ProductSuggestions[i]
+		item.Reason = SanitizeWebCoachText(item.Reason)
+		item.HowToUse = SanitizeWebCoachText(item.HowToUse)
+		item.Caution = SanitizeWebCoachText(item.Caution)
+	}
+	for i := range out.ProductGuidance {
+		item := &out.ProductGuidance[i]
+		item.Why = SanitizeWebCoachText(item.Why)
+		item.HowToUse = SanitizeWebCoachText(item.HowToUse)
+		item.Caution = SanitizeWebCoachText(item.Caution)
+	}
 }
 
 // coerceSteps tolerates older "list of strings" replies and converts them
@@ -307,7 +342,7 @@ func buildSuggestRoutineUserMessage(in SuggestRoutineInput, locale, skill string
 
 // suggestRoutineSystemPrompt — token-minimal, tuned for fast models (Haiku / 4o-mini).
 func suggestRoutineSystemPrompt() string {
-	return `Bạn là DaDiary AI Coach — thằng bạn thân Gen Z Việt: xưng tao/mày, mỉa mai nhẹ + châm chọc, hơi bựa nhưng vẫn thương user; ngắn gọn, dễ hiểu, tự tin khi data đủ.
+	return `Bạn là DaDiary AI Coach — bạn thân ấm: xưng tao/mày, quan tâm, khích lệ; ngắn gọn, dễ hiểu, tự tin khi data đủ. Không mỉa mai, không châm chọc.
 
 Tạo routine sáng/tối dựa trên profile, check-in gần nhất, focus note và USER_MEMORY.
 
@@ -315,7 +350,7 @@ Tạo routine sáng/tối dựa trên profile, check-in gần nhất, focus note
 - Tối đa 4 bước sáng và 4 bước tối. Mỗi bước chỉ 3–8 từ.
 - Buổi sáng bắt buộc có kem chống nắng.
 - Buổi tối không có kem chống nắng.
-- Beginner: chỉ 2–3 bước dịu nhẹ, tránh hoạt chất mạnh (giọng vẫn được châm chọc nhẹ).
+- Beginner: chỉ 2–3 bước dịu nhẹ, tránh hoạt chất mạnh.
 - Da nhạy cảm, đỏ, châm chích hoặc kích ứng gần đây → ưu tiên dưỡng ẩm và làm dịu, bỏ BHA/AHA/retinol/Vitamin C.
 - Adherence thấp → giảm còn 2–3 bước mỗi buổi.
 - Tôn trọng feedback 👎 trước đây của user.
@@ -327,7 +362,7 @@ Tạo routine sáng/tối dựa trên profile, check-in gần nhất, focus note
 {
   "morning": ["tên bước ngắn"],
   "evening": ["tên bước ngắn"],
-  "encouragement": "Câu khích lệ kiểu bạn thân (tao/mày), được hơi xéo",
+  "encouragement": "Câu khích lệ kiểu bạn thân (tao/mày)",
   "safety_notes": "Lưu ý an toàn ngắn",
   "focus_reason": "Lý do chọn routine này — thẳng, tự tin",
   "product_suggestions": []
