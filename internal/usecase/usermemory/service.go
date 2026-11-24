@@ -1,7 +1,5 @@
-// Package usermemory exposes the read-only "what does the AI know about me?"
-// endpoint. The handler wraps a single call to ai.BuildUserMemoryContext and
-// attaches a small diagnostic block (char count, cache stats, history counts)
-// so debugging the prompt loop doesn't require a database client.
+// Package usermemory exposes GET /me/memory.
+// The coach still receives ai.BuildUserMemoryContext. This response does not.
 //
 // All write paths live elsewhere — this package is intentionally minimal.
 package usermemory
@@ -112,14 +110,28 @@ func (s *Service) Get(ctx context.Context, userID uuid.UUID, forceFresh bool) (d
 		stats.CacheTTLSeconds = cs.TTLSeconds
 	}
 
+	return assembleUserMemoryResponse(userID, memText, debug.CacheHit, s.summaryLines(ctx, userID), stats), nil
+}
+
+// assembleUserMemoryResponse is the JSON for GET /me/memory.
+// promptText is the block the coach receives. It is never copied into the
+// response, including when the user has saved history.
+func assembleUserMemoryResponse(userID uuid.UUID, promptText string, cached bool, summary []string, stats dto.UserMemoryStats) dto.UserMemoryResponse {
+	_ = promptText
+	if summary == nil {
+		summary = []string{}
+	}
+	if stats.SectionsPresent == nil {
+		stats.SectionsPresent = []string{}
+	}
 	return dto.UserMemoryResponse{
 		UserID:      userID.String(),
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
-		Cached:      debug.CacheHit,
-		MemoryText:  memText,
-		Summary:     s.summaryLines(ctx, userID),
+		Cached:      cached,
+		MemoryText:  "",
+		Summary:     summary,
 		Stats:       stats,
-	}, nil
+	}
 }
 
 // summaryLines is the "DaDiary nhớ gì về bạn" list. Newest check-in first.

@@ -4,13 +4,7 @@ package dto
 
 // UserMemoryResponse is what GET /me/memory returns to the authenticated user.
 //
-// This endpoint is meant for the frontend "what does the AI know about me?"
-// preview and for backend debugging. It exposes the same memory string that
-// gets injected into AI coach prompts (so devs can sanity-check the loop) plus
-// a few small diagnostic counters and cache stats.
-//
-// NOTE: We do NOT redact anything here — the data already belongs to the
-// authenticated caller. JWT middleware guarantees that.
+// The Memory page reads summary. The coach prompt is not part of this payload.
 type UserMemoryResponse struct {
 	// UserID echoes the caller — useful when this endpoint is hit from
 	// internal tooling on behalf of another user.
@@ -21,8 +15,8 @@ type UserMemoryResponse struct {
 	// Cached indicates whether this response came from the in-process TTL
 	// cache (`true`) or was assembled fresh from the DB (`false`).
 	Cached bool `json:"cached"`
-	// MemoryText is the markdown-style block exactly as injected into
-	// AI prompts. Newline-separated; safe to render in a <pre>.
+	// MemoryText stays in the JSON as "" so older Android builds that read
+	// the key keep decoding. The coach prompt is never copied here.
 	MemoryText string `json:"memory_text"`
 	// Summary is a user-readable Vietnamese list for the
 	// "DaDiary nhớ gì về bạn" screen. Newest check-in first.
