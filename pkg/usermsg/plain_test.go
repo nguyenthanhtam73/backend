@@ -44,6 +44,12 @@ func TestPlain_Patterns(t *testing.T) {
 	}
 }
 
+func TestPlain_NotEnoughCoins(t *testing.T) {
+	if got := Plain("not enough coins"); got != "Chưa đủ xu." {
+		t.Fatalf("coins: %q", got)
+	}
+}
+
 func TestPlain_UnknownEnglishIsPlain(t *testing.T) {
 	got := Plain("pq: duplicate key value violates unique constraint")
 	if got != Generic {

@@ -40,21 +40,25 @@ func TestShopErrorFields(t *testing.T) {
 			return writeShopErr(c, repository.ErrIdempotencyConflict)
 		}
 	})
-	short := shopErrBody(t, app, "short")
-	if !strings.Contains(short, `"needed":500`) || !strings.Contains(short, `"balance":100`) {
-		t.Fatal(short)
+	status, short := shopErrBody(t, app, "short")
+	if status != 409 ||
+		!strings.Contains(short, `"code":"not_enough_coins"`) ||
+		!strings.Contains(short, `"message":"Chưa đủ xu."`) ||
+		!strings.Contains(short, `"needed":500`) ||
+		!strings.Contains(short, `"balance":100`) {
+		t.Fatalf("status %d %s", status, short)
 	}
-	streak := shopErrBody(t, app, "streak")
+	_, streak := shopErrBody(t, app, "streak")
 	if !strings.Contains(streak, `"streak":12`) || !strings.Contains(streak, `"streak_required":30`) {
 		t.Fatal(streak)
 	}
-	sale := shopErrBody(t, app, "sale")
+	_, sale := shopErrBody(t, app, "sale")
 	if !strings.Contains(sale, `"reason":"mystery"`) || !strings.Contains(sale, "Món này không bán") {
 		t.Fatal(sale)
 	}
 }
 
-func shopErrBody(t *testing.T, app *fiber.App, kind string) string {
+func shopErrBody(t *testing.T, app *fiber.App, kind string) (int, string) {
 	t.Helper()
 	res, err := app.Test(httptest.NewRequest("GET", "/err?kind="+kind, nil))
 	if err != nil {
@@ -62,7 +66,7 @@ func shopErrBody(t *testing.T, app *fiber.App, kind string) string {
 	}
 	raw, _ := io.ReadAll(res.Body)
 	_ = res.Body.Close()
-	return string(raw)
+	return res.StatusCode, string(raw)
 }
 
 func TestShopBuyIgnoresClientPrice(t *testing.T) {

@@ -77,7 +77,7 @@ var exact = map[string]string{
 	"tree type is not valid":                           "Không có loại cây này.",
 	"that item can be previewed only":                  "Món này chỉ xem trước, chưa mặc được.",
 	"you need a seed to plant this tree":               "Bạn cần một hạt giống để trồng cây này.",
-	"not enough coins":                                 "Bạn chưa đủ xu.",
+	"not enough coins":                                 "Chưa đủ xu.",
 	"that item is not sold":                            "Món này không bán.",
 	"you already own that item":                        "Bạn đã có món này rồi.",
 	"that set unlocks after a 30 day check-in streak":  "Bộ này mở sau 30 ngày điểm danh liên tiếp.",
