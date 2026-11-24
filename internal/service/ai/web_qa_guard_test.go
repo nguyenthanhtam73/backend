@@ -741,6 +741,75 @@ func TestWebVI_MayCapScreens(t *testing.T) {
 	}
 }
 
+func TestWebVI_FirstCheckInAndCareTitles(t *testing.T) {
+	const before = "Hôm nay da mày trông khá ổn — mịn màng, không thấy mụn hay đỏ nổi bật ở bất kỳ vùng nào. Trán, hai bên má, và vùng cằm đều có vẻ yên tĩnh. Hôm nay là lần check-in đầu, tao chỉ nhìn ngày hôm nay."
+	const after = "Hôm nay da mày trông khá ổn — mịn màng, không thấy mụn hay đỏ nổi bật ở bất kỳ vùng nào. Trán, hai bên má, và vùng cằm đều có vẻ yên tĩnh. Lần đầu soi nên tao chỉ dựa vào ảnh hôm nay thôi nha."
+	qa := webQA{Locale: "vi"}
+	out := &CoachStructuredOutput{
+		SituationAnalysis: before,
+		CareSuggestions: []CoachCareSuggestion{
+			{Slot: "morning", Step: "Rửa mặt dịu", Why: "Bắt đầu ngày với làn da sạch, không kích ứng."},
+			{Step: "Chống nắng SPF50"},
+			{Slot: "evening", Step: "Rửa mặt dịu", Why: "Loại bỏ bụi và dầu trong ngày, chuẩn bị da cho đêm."},
+			{Step: "Dưỡng ẩm"},
+		},
+	}
+	sanitizeWebCoachOutput(out, qa)
+	if out.SituationAnalysis != after {
+		t.Fatalf("situation\n got %q\nwant %q", out.SituationAnalysis, after)
+	}
+	if strings.Contains(out.SituationAnalysis, "mày") && strings.Count(strings.ToLower(out.SituationAnalysis), "mày") != 1 {
+		t.Fatalf("mày count in %q", out.SituationAnalysis)
+	}
+	if out.CareSuggestions[0].Step != "Rửa mặt dịu (sáng)" || out.CareSuggestions[0].Slot != "morning" {
+		t.Fatalf("morning %+v", out.CareSuggestions[0])
+	}
+	if out.CareSuggestions[1].Step != "Chống nắng SPF50" {
+		t.Fatalf("spf %q", out.CareSuggestions[1].Step)
+	}
+	if out.CareSuggestions[2].Step != "Rửa mặt dịu (tối)" || out.CareSuggestions[2].Slot != "evening" {
+		t.Fatalf("evening %+v", out.CareSuggestions[2])
+	}
+	if out.CareSuggestions[3].Step != "Dưỡng ẩm" {
+		t.Fatalf("moist %q", out.CareSuggestions[3].Step)
+	}
+
+	unknown := &CoachStructuredOutput{CareSuggestions: []CoachCareSuggestion{
+		{Step: "Rửa mặt dịu", Why: "Bắt đầu ngày với làn da sạch, không kích ứng."},
+		{Step: "Rửa mặt dịu", Why: "Loại bỏ bụi và dầu trong ngày, chuẩn bị da cho đêm."},
+	}}
+	sanitizeWebCoachOutput(unknown, qa)
+	if unknown.CareSuggestions[0].Step != "Rửa mặt dịu" || unknown.CareSuggestions[1].Step != "Rửa mặt dịu" {
+		t.Fatalf("unknown order changed %#v", unknown.CareSuggestions)
+	}
+
+	byRoutine := &CoachStructuredOutput{
+		RoutineHints: []string{"Sáng: Rửa mặt dịu", "Tối: Rửa mặt dịu"},
+		CareSuggestions: []CoachCareSuggestion{
+			{Step: "Rửa mặt dịu"},
+			{Step: "Rửa mặt dịu"},
+		},
+	}
+	sanitizeWebCoachOutput(byRoutine, qa)
+	if byRoutine.CareSuggestions[0].Step != "Rửa mặt dịu (sáng)" || byRoutine.CareSuggestions[1].Step != "Rửa mặt dịu (tối)" {
+		t.Fatalf("routine order %#v", byRoutine.CareSuggestions)
+	}
+
+	en := &CoachStructuredOutput{SituationAnalysis: before}
+	sanitizeWebCoachOutput(en, webQA{Locale: "en"})
+	if en.SituationAnalysis != before {
+		t.Fatalf("en %q", en.SituationAnalysis)
+	}
+	first := CheckInCoachFacts{CountKnown: true, TotalIncludesToday: 1}
+	web := &CoachStructuredOutput{SummaryNotes: "Kiên trì vậy mai sẽ khác."}
+	if !ApplyCheckInAdviceGuard(web, first, "") {
+		t.Fatal("web first check-in was not rewritten")
+	}
+	if web.SummaryNotes != "Lần đầu soi nên tao chỉ dựa vào ảnh hôm nay thôi nha." {
+		t.Fatalf("web fallback %q", web.SummaryNotes)
+	}
+}
+
 func TestQA_AndroidPromptHashUnchanged(t *testing.T) {
 	if androidPromptHash("intermediate") != goldenAndroidIntermediateHash {
 		t.Fatalf("android intermediate hash changed: %s", androidPromptHash("intermediate"))

@@ -121,4 +121,8 @@ package ai
 // addresses the user with «mày» once. Milia is explained in plain words.
 // Naming a spot uses «trông giống» / «có thể là». A clear clarity note does
 // not add «chưa rõ ràng». Android prompt file is unchanged.
-const CoachDailyPromptVersion = 37
+//
+// v38 (2026-11-24) — Web prompt only. Name a face zone only when zone_notes
+// has it. A first check-in says «Lần đầu soi nên tao chỉ dựa vào ảnh hôm nay
+// thôi nha.» Android prompt file is unchanged.
+const CoachDailyPromptVersion = 38

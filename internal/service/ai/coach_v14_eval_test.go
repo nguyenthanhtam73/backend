@@ -44,9 +44,9 @@ func TestCoachPromptVersion_v34(t *testing.T) {
 	}
 }
 
-func TestCoachPromptVersion_v37(t *testing.T) {
-	if CoachDailyPromptVersion != 37 {
-		t.Fatalf("expected CoachDailyPromptVersion == 37, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v38(t *testing.T) {
+	if CoachDailyPromptVersion != 38 {
+		t.Fatalf("expected CoachDailyPromptVersion == 38, got %d", CoachDailyPromptVersion)
 	}
 	web := GetCoachPrompt("intermediate")
 	for _, frag := range []string{
@@ -56,6 +56,8 @@ func TestCoachPromptVersion_v37(t *testing.T) {
 		"(hạt nhỏ trắng dưới da)",
 		"đó là mụn ẩn hoặc milia",
 		"chưa rõ ràng",
+		"Notes chỉ có má thì CẤM viết «Trán…» hay «vùng cằm».",
+		"Lần đầu soi nên tao chỉ dựa vào ảnh hôm nay thôi nha.",
 	} {
 		if !strings.Contains(web, frag) {
 			t.Fatalf("web prompt missing %q", frag)
@@ -76,6 +78,9 @@ func TestCoachPromptVersion_v37(t *testing.T) {
 	android := GetCoachPromptForClient("intermediate", "android")
 	if strings.Contains(android, "làn da") || strings.Contains(android, "khoảng **1–2 lần**") {
 		t.Fatal("android prompt picked up the web mày-count rule")
+	}
+	if strings.Contains(android, "Lần đầu soi nên tao chỉ dựa vào ảnh hôm nay thôi nha.") || strings.Contains(android, "Notes chỉ có má") {
+		t.Fatal("android prompt picked up the web v38 lines")
 	}
 }
 
