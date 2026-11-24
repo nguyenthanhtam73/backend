@@ -15,6 +15,9 @@ type shopBuyBody struct {
 	IdempotencyKey string `json:"idempotency_key"`
 	ItemID         string `json:"item_id"`
 	TreeType       string `json:"tree_type"`
+	// Price and Charge are discarded. domain.QuoteShop is the only price.
+	Price  *int `json:"price"`
+	Charge *int `json:"charge"`
 }
 
 // ShopCatalog is GET /api/v1/mascot/shop.
@@ -50,6 +53,9 @@ func (h *MascotHandler) ShopBuy(c *fiber.Ctx) error {
 	if err := decodeStrict(c.Body(), &body); err != nil {
 		return response.Error(c, fiber.StatusBadRequest, "invalid_body", "body must be valid JSON")
 	}
+	// A client price never reaches the wallet. QuoteShop prices the item.
+	_ = body.Price
+	_ = body.Charge
 	receipt, err := h.shop.Buy(c.UserContext(), uid, body.ItemID, body.TreeType, body.IdempotencyKey, time.Now().UTC())
 	if err != nil {
 		return writeShopErr(c, err)

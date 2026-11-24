@@ -74,15 +74,23 @@ func TestShopBuyRejectsShortBalanceOwnedAndBlocked(t *testing.T) {
 	if !errors.As(err, &shopErr) || shopErr.Code != "not_enough_coins" || shopErr.Needed != 500 || shopErr.Balance != 100 {
 		t.Fatalf("short %+v %v", shopErr, err)
 	}
+	if coinOf(t, db, user.ID) != 100 || shopDebitCount(t, db, user.ID) != 0 {
+		t.Fatal("short buy debited xu")
+	}
 	if err := credit(db, user.ID, 400); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := repo.Buy(context.Background(), user.ID, "shop_sticker_may", "", "got", now); err != nil {
 		t.Fatal(err)
 	}
+	before := coinOf(t, db, user.ID)
+	debits := shopDebitCount(t, db, user.ID)
 	_, err = repo.Buy(context.Background(), user.ID, "shop_sticker_may", "", "again", now)
 	if !errors.As(err, &shopErr) || shopErr.Code != "already_owned" {
 		t.Fatalf("owned %v", err)
+	}
+	if coinOf(t, db, user.ID) != before || shopDebitCount(t, db, user.ID) != debits {
+		t.Fatal("owned item was charged again")
 	}
 	for _, id := range []string{domain.TreeItemSticker, domain.TreeItemClipLeaf, "acc_no_la_xanh", "spa_bonus", "spa_02_boy"} {
 		_, err = repo.Buy(context.Background(), user.ID, id, "", "block-"+id, now)
@@ -232,9 +240,45 @@ func TestShopBuyConcurrencyChargesOnce(t *testing.T) {
 		}
 		t.Fatalf("race %v", err)
 	}
-	if wins != 1 || owned != 1 || coinOf(t, db, user.ID) != 0 {
-		t.Fatalf("wins %d owned %d balance %d", wins, owned, coinOf(t, db, user.ID))
+	var grants int64
+	if err := db.Model(&domain.UserMascotItem{}).Where("user_id = ? AND item_id = ?", user.ID, "spa_01").Count(&grants).Error; err != nil {
+		t.Fatal(err)
 	}
+	if wins != 1 || owned != 1 || coinOf(t, db, user.ID) != 0 || shopDebitCount(t, db, user.ID) != 1 || grants != 1 {
+		t.Fatalf("wins %d owned %d balance %d debits %d grants %d", wins, owned, coinOf(t, db, user.ID), shopDebitCount(t, db, user.ID), grants)
+	}
+}
+
+func TestShopBuyRollsBackWhenGrantFails(t *testing.T) {
+	db := openShopDB(t)
+	user := treeUser(t, db, "rollback")
+	if err := credit(db, user.ID, 9000); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Where("id = ?", "spa_01").Delete(&domain.MascotItem{}).Error; err != nil {
+		t.Fatal(err)
+	}
+	repo := NewXuShopRepository(db)
+	_, err := repo.Buy(context.Background(), user.ID, "spa_01", "", "missing-row", time.Now().UTC())
+	if err == nil {
+		t.Fatal("grant of a missing catalog row succeeded")
+	}
+	var grants int64
+	if dbErr := db.Model(&domain.UserMascotItem{}).Where("user_id = ? AND item_id = ?", user.ID, "spa_01").Count(&grants).Error; dbErr != nil {
+		t.Fatal(dbErr)
+	}
+	if coinOf(t, db, user.ID) != 9000 || shopDebitCount(t, db, user.ID) != 0 || grants != 0 {
+		t.Fatalf("partial buy balance %d debits %d grants %d", coinOf(t, db, user.ID), shopDebitCount(t, db, user.ID), grants)
+	}
+}
+
+func shopDebitCount(t *testing.T, db *gorm.DB, userID uuid.UUID) int64 {
+	t.Helper()
+	var n int64
+	if err := db.Model(&domain.UserCoinLedger{}).Where("user_id = ? AND amount < 0", userID).Count(&n).Error; err != nil {
+		t.Fatal(err)
+	}
+	return n
 }
 
 func TestSpendCoinsKeepsPaidOffRandomDebits(t *testing.T) {
