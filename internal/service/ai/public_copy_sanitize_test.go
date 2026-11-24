@@ -31,6 +31,14 @@ func TestSanitizePublicCopy_StripsTechnicalTokens(t *testing.T) {
 		{"score 0.78", ""},
 		{"Má trông giống mụn ẩn, score 0.78.", "Má trông giống mụn ẩn."},
 		{"Da vẫn khỏe mạnh", "Da vẫn khỏe mạnh"},
+		{"Lấy 0,5 ml serum", "Lấy 0,5 ml serum"},
+		{"BHA 0.5–2%", "BHA 0.5–2%"},
+		{"BHA 0.5-2%", "BHA 0.5-2%"},
+		{"BHA 0.5 đến 2%", "BHA 0.5 đến 2%"},
+		{"Retinol 0.025 hoặc 0.05", "Retinol 0.025 hoặc 0.05"},
+		{"Gel 0.5g", "Gel 0.5g"},
+		{"Bôi 1,0 lớp", "Bôi 1,0 lớp"},
+		{"hydration: 0.78 vì da khô", "hydration: vì da khô"},
 	}
 	for _, tc := range cases {
 		got := SanitizePublicCopy(tc.in)
@@ -119,8 +127,11 @@ func TestCoachProseLeakDetectors(t *testing.T) {
 	if !CoachProseHasTaoMay(corpus) {
 		t.Fatal("mày in the note was missed")
 	}
-	if !CoachProseHasTaoMay("kẻ mày") {
-		t.Fatal("audit counts the word mày; the display filter is what keeps kẻ mày")
+	if CoachProseHasTaoMay("kẻ mày") || CoachProseHasTaoMay("lông mày") || CoachProseHasTaoMay("Vùng mày") {
+		t.Fatal("eyebrow mày must not count")
+	}
+	if !CoachProseHasTaoMay("và mày") || !CoachProseHasTaoMay("Tao thấy") {
+		t.Fatal("pronoun tao/mày must still count")
 	}
 	if !strings.Contains(corpus, "da khỏe") {
 		t.Fatalf("corpus %q", corpus)

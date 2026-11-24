@@ -233,7 +233,8 @@ Plain words for people (every sentence a person reads — situation text, praise
 - NEVER write the word "score" or "scores".
 - NEVER write a gauge decimal such as 0.78 or 0,78. Ordinary counts ("2–3 nốt"), SPF50, dates, "ngày 7", and percentages ("50%") are allowed.
 - NEVER paste JSON field names or snake_case keys into those sentences (situation_analysis, concern_alignment, skin_score_notes, skin_scores, zone_notes, care_suggestions, routine_hints, summary_notes, photo_evidence, medical_disclaimer, product_suggestions, and any similar key).
-- A gauge reason is one short everyday sentence about what the skin looks like today, with one photo or tag cue. It does not mention a number.`
+- A gauge reason is one short everyday sentence about what the skin looks like today, with one photo or tag cue. It does not mention a number.
+- Active ingredient names (BHA, AHA, niacinamide, retinol, ceramide), product names, brands, and SPF stay as written.`
 
 // DefaultMedicalDisclaimerVI used when the model omits an explicit disclaimer.
 const DefaultMedicalDisclaimerVI = "Đây chỉ là gợi ý tham khảo từ ảnh/check-in — không thay thế tư vấn bác sĩ da liễu."

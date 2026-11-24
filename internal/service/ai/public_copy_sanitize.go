@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/dadiary/backend/internal/dto"
+	"golang.org/x/text/unicode/norm"
 )
 
 func init() {
@@ -24,10 +25,6 @@ var scoreLeakPattern = regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])scores?(?:[^A-Z
 // that is a percentage ("0.5%").
 var gaugeDecimalPattern = regexp.MustCompile(`(?:^|[^0-9])0[.,][0-9]+`)
 
-// taoMayPattern matches the address words tao and mày. Used by the admin
-// count only. The public filter does not rewrite pronouns.
-var taoMayPattern = regexp.MustCompile(`(?i)(?:^|[^\p{L}\p{N}])(?:tao|mày)(?:[^\p{L}\p{N}]|$)`)
-
 var snakeFieldPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+$`)
 
 // SanitizePublicCopy strips technical tokens from one sentence a person reads.
@@ -40,13 +37,28 @@ func SanitizePublicCopy(s string) string {
 		return s
 	}
 	toks := tokenizePublicCopy(s)
+	drop := decimalLeakFlags(toks)
 	var b strings.Builder
 	droppedPrefix := false
 	kept := false
 	changed := false
-	for _, tok := range toks {
+	for i, tok := range toks {
 		switch tok.kind {
-		case "snake", "score", "gauge":
+		case "snake", "score":
+			changed = true
+			if !kept {
+				droppedPrefix = true
+			}
+		case "decimal":
+			if !drop[i] {
+				text := tok.text
+				if !kept && droppedPrefix {
+					text = capitalizeSentenceStart(text)
+				}
+				b.WriteString(text)
+				kept = true
+				continue
+			}
 			changed = true
 			if !kept {
 				droppedPrefix = true
@@ -136,7 +148,24 @@ func CoachProseHasScoreLeak(s string) bool {
 // CoachProseHasTaoMay reports whether user-facing text contains the words
 // tao or mày. The admin count uses this. The public filter does not.
 func CoachProseHasTaoMay(s string) bool {
-	return taoMayPattern.MatchString(s)
+	parts := splitVoiceChunks(norm.NFC.String(s))
+	next, _ := voiceNextWords(parts)
+	prev := ""
+	for i, part := range parts {
+		if !part.word {
+			continue
+		}
+		key := strings.ToLower(part.text)
+		if key == "tao" {
+			return true
+		}
+		// "lông mày" and "kẻ mày" are eyebrows, not the pronoun.
+		if key == "mày" && !keepEyebrowMay(key, prev, next[i]) {
+			return true
+		}
+		prev = key
+	}
+	return false
 }
 
 // UserFacingCoachCorpus joins summary_notes with the string values inside
@@ -300,12 +329,12 @@ func tokenizePublicCopy(s string) []publicTok {
 				continue
 			}
 			if text == "0" {
-				if end, percent := readGauge(s, j); end > j {
-					if percent {
-						out = append(out, publicTok{kind: "word", text: s[i:end]})
-					} else {
-						out = append(out, publicTok{kind: "gauge", text: s[i:end]})
+				if end, keep := readGauge(s, j); end > j {
+					kind := "decimal"
+					if keep {
+						kind = "word"
 					}
+					out = append(out, publicTok{kind: kind, text: s[i:end]})
 					i = end
 					continue
 				}
@@ -338,9 +367,10 @@ func isASCIIAlnum(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
 
-// readGauge consumes ".78" or ",78" after a leading 0. percent is true when
-// the decimal is a percentage ("0.5%"), which stays in the sentence.
-func readGauge(s string, zeroEnd int) (end int, percent bool) {
+// readGauge consumes ".78" or ",78" after a leading 0.
+// keep is true when the number is a dose or a percentage ("0.5g", "0,5ml",
+// "0.5%"), which is not a gauge leak.
+func readGauge(s string, zeroEnd int) (end int, keep bool) {
 	if zeroEnd >= len(s) {
 		return 0, false
 	}
@@ -357,14 +387,135 @@ func readGauge(s string, zeroEnd int) (end int, percent bool) {
 	if digits == 0 {
 		return 0, false
 	}
-	p := k
-	for p < len(s) && (s[p] == ' ' || s[p] == '\t') {
-		p++
-	}
-	if p < len(s) && s[p] == '%' {
-		return p + 1, true
+	if unitEnd := gluedDoseUnit(s, k); unitEnd > k {
+		return unitEnd, true
 	}
 	return k, false
+}
+
+func gluedDoseUnit(s string, k int) int {
+	if k >= len(s) {
+		return k
+	}
+	if s[k] == '%' {
+		return k + 1
+	}
+	end := k
+	for end < len(s) {
+		r, sz := utf8.DecodeRuneInString(s[end:])
+		if !unicode.IsLetter(r) {
+			break
+		}
+		end += sz
+	}
+	if end == k || !isDoseUnit(s[k:end]) {
+		return k
+	}
+	return end
+}
+
+func isDoseUnit(s string) bool {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "ml", "g", "mg", "cm", "mm", "lít", "lit", "giọt", "%":
+		return true
+	default:
+		return false
+	}
+}
+
+// decimalLeakFlags marks 0.xx / 0,xx tokens that sit next to "score", a
+// snake_case field name, or a "word:" label. Doses with a unit and ranges
+// (0.5–2, 0.5 đến 2) are never marked.
+func decimalLeakFlags(toks []publicTok) []bool {
+	drop := make([]bool, len(toks))
+	for i, tok := range toks {
+		if tok.kind != "decimal" {
+			continue
+		}
+		if decimalHasUnit(toks, i) || decimalInRange(toks, i) {
+			continue
+		}
+		if decimalNextToLeakLabel(toks, i) {
+			drop[i] = true
+		}
+	}
+	return drop
+}
+
+func decimalHasUnit(toks []publicTok, i int) bool {
+	next := nextContent(toks, i)
+	if next < 0 {
+		return false
+	}
+	if toks[next].kind == "punct" && strings.TrimSpace(toks[next].text) == "%" {
+		return true
+	}
+	return toks[next].kind == "word" && isDoseUnit(toks[next].text)
+}
+
+func decimalInRange(toks []publicTok, i int) bool {
+	if sideIsRange(toks, nextContent(toks, i), true) {
+		return true
+	}
+	return sideIsRange(toks, prevContent(toks, i), false)
+}
+
+func sideIsRange(toks []publicTok, j int, forward bool) bool {
+	if j < 0 {
+		return false
+	}
+	text := strings.TrimSpace(toks[j].text)
+	if text == "-" || text == "–" || text == "~" || text == "—" {
+		return true
+	}
+	if strings.EqualFold(text, "đến") {
+		return true
+	}
+	// "0.5–2" can arrive as one punctuation rune. Already covered.
+	_ = forward
+	return false
+}
+
+func decimalNextToLeakLabel(toks []publicTok, i int) bool {
+	prev := prevContent(toks, i)
+	if prev >= 0 {
+		if toks[prev].kind == "score" || toks[prev].kind == "snake" {
+			return true
+		}
+		if isColon(toks[prev].text) {
+			label := prevContent(toks, prev)
+			if label >= 0 && toks[label].kind != "punct" && toks[label].kind != "space" && toks[label].kind != "decimal" {
+				return true
+			}
+		}
+	}
+	next := nextContent(toks, i)
+	if next >= 0 && (toks[next].kind == "score" || toks[next].kind == "snake") {
+		return true
+	}
+	return false
+}
+
+func isColon(s string) bool {
+	return strings.TrimSpace(s) == ":"
+}
+
+func prevContent(toks []publicTok, i int) int {
+	for j := i - 1; j >= 0; j-- {
+		if toks[j].kind != "space" {
+			return j
+		}
+	}
+	return -1
+}
+
+func nextContent(toks []publicTok, i int) int {
+	for j := i + 1; j < len(toks); j++ {
+		if toks[j].kind != "space" {
+			return j
+		}
+	}
+	return -1
 }
 
 func leadingConnectorPunct(s string) bool {

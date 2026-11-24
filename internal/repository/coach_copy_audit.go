@@ -45,7 +45,7 @@ WHERE a.status = ?
   AND sc.deleted_at IS NULL
   AND u.deleted_at IS NULL
   AND sc.created_at >= ?
-  AND LOWER(TRIM(u.email)) NOT LIKE ?
+  AND LOWER(TRIM(COALESCE(u.email, ''))) NOT LIKE ?
 `
 
 // CountCompletedByClient groups completed checks in the window.
