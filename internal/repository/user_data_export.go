@@ -89,7 +89,7 @@ func (r *UserDataRepository) ExportBundle(
 			ImageURLs:  mediaurl.SignEach(urls),
 		}
 		if c.Analysis != nil {
-			item.CoachNotes = c.Analysis.SummaryNotes
+			item.CoachNotes = dto.CleanPublicCoachText(c.Analysis.SummaryNotes)
 		}
 		if len(c.PhotoContext) > 0 && string(c.PhotoContext) != "null" {
 			item.PhotoContext = append(json.RawMessage(nil), c.PhotoContext...)

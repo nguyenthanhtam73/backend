@@ -157,6 +157,7 @@ func TestDeviceTypeForLog(t *testing.T) {
 		{"android-app", domain.RefreshClientWeb, "android-app"},
 		{"unknown", domain.RefreshClientAndroid, "unknown"},
 		{"", domain.RefreshClientAndroid, "android-app"},
+		{"", "android-app", "android-app"},
 		{"  android  ", domain.RefreshClientAndroid, "android-app"},
 		{"https://cdn.example/uploads/a.jpg user@x.com", domain.RefreshClientWeb, "unknown"},
 		{"Mozilla/5.0 (Linux; Android 14)", "", "unknown"},

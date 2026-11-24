@@ -16,12 +16,17 @@ const (
 )
 
 // NormalizeRefreshClient maps a client marker to a stored session kind.
-// Only the exact value "android" (surrounding space trimmed) selects the app session.
+// The native app sends X-DaDiary-Client: android-app on every API call,
+// including skin checks. Older builds sent the exact value "android".
+// Both select the app session (long refresh TTL and the polite coach voice).
+// Anything else, including a different capitalisation, is a web session.
 func NormalizeRefreshClient(raw string) string {
-	if strings.TrimSpace(raw) == RefreshClientAndroid {
+	switch strings.TrimSpace(raw) {
+	case RefreshClientAndroid, "android-app":
 		return RefreshClientAndroid
+	default:
+		return RefreshClientWeb
 	}
-	return RefreshClientWeb
 }
 
 // RefreshSession is a server-tracked refresh token (jti + hash) so logout can revoke.

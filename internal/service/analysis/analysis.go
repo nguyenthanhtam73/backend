@@ -365,16 +365,17 @@ func (s *Service) Process(ctx context.Context, skinCheckID uuid.UUID, deviceType
 	ev := ai.ClassifyCheckInPhotoEvidence(visionStatus, visionRaw)
 	ai.ApplyPhotoEvidenceToScores(labels, ev)
 	ai.ApplyCheckInDetail(labels, parsed, visionRaw, o.PhotoContext, ev, o.ClientKind, ai.CheckLocale(o))
-	if ai.IsAndroidCoachVoice(o.ClientKind) {
-		// Coach prose is already rewritten in the prompt pipeline. The photo note
-		// is copied from vision after that, so scrub it here before the row is saved.
-		if n, ok := labels["photo_limited_note"].(string); ok {
-			cleaned := strings.TrimSpace(ai.SanitizeAndroidVoiceText(n))
-			if cleaned == "" {
-				delete(labels, "photo_limited_note")
-			} else {
-				labels["photo_limited_note"] = cleaned
-			}
+	if n, ok := labels["photo_limited_note"].(string); ok {
+		// Technical tokens come off for every client. Pronouns stay unless this
+		// check is the Android voice, which still uses its own filter.
+		cleaned := strings.TrimSpace(ai.SanitizePublicCopy(n))
+		if ai.IsAndroidCoachVoice(o.ClientKind) {
+			cleaned = strings.TrimSpace(ai.SanitizeAndroidVoiceText(cleaned))
+		}
+		if cleaned == "" {
+			delete(labels, "photo_limited_note")
+		} else {
+			labels["photo_limited_note"] = cleaned
 		}
 	}
 	resultLabels = labels

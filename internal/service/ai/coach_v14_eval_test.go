@@ -29,9 +29,36 @@ func TestCoachPrompt_v24_SarcasticBuddyTone(t *testing.T) {
 	}
 }
 
-func TestCoachPromptVersion_v30(t *testing.T) {
-	if CoachDailyPromptVersion != 30 {
-		t.Fatalf("expected CoachDailyPromptVersion == 30, got %d", CoachDailyPromptVersion)
+func TestCoachPromptVersion_v31(t *testing.T) {
+	if CoachDailyPromptVersion != 31 {
+		t.Fatalf("expected CoachDailyPromptVersion == 31, got %d", CoachDailyPromptVersion)
+	}
+}
+
+func TestCoachPrompt_v31_BansTechnicalCopy(t *testing.T) {
+	for _, p := range []string{
+		GetCoachPrompt("beginner"),
+		GetCoachPrompt("intermediate"),
+		GetCoachPromptForClient("beginner", "android"),
+		CoachOutputJSONSchemaBlock,
+		coachOutputJSONSchemaBlockAndroid,
+		CheckInDetailJSONFields,
+	} {
+		if !strings.Contains(p, `NEVER write the word "score"`) {
+			t.Fatal("prompt or schema lost the score ban")
+		}
+		if !strings.Contains(p, "0,78") || !strings.Contains(p, "situation_analysis") {
+			t.Fatal("prompt or schema lost the decimal or field-name ban")
+		}
+	}
+	if strings.Contains(CheckInDetailJSONFields, "why the overall score is where it is") {
+		t.Fatal("gauge-reason instructions still ask the model to explain the score")
+	}
+	if !strings.Contains(GetCoachPrompt("intermediate"), "tao / mày") {
+		t.Fatal("web voice changed")
+	}
+	if strings.Contains(GetCoachPromptForClient("intermediate", "android"), "Đm da mày") {
+		t.Fatal("android voice changed")
 	}
 }
 

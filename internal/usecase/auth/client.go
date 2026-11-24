@@ -11,8 +11,9 @@ import (
 const ClientHeader = "X-DaDiary-Client"
 
 // ResolveClientKind prefers a non-empty ClientHeader. When the header is
-// absent, the JSON "client" field is used. Anything other than the exact
-// value android is a web session.
+// absent, the JSON "client" field is used. "android" and "android-app"
+// (the value the native app sends on every request) are app sessions.
+// Anything else is a web session.
 func ResolveClientKind(headerValue, bodyValue string) string {
 	if header := strings.TrimSpace(headerValue); header != "" {
 		return domain.NormalizeRefreshClient(header)

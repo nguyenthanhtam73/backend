@@ -172,6 +172,9 @@ func parseCoachStructuredOutput(text, label string) (*CoachStructuredOutput, err
 	}
 	out.ProductSuggestions = SanitizeProductSuggestions(out.ProductSuggestions)
 	NormalizeCareSuggestions(&out)
+	// Technical tokens are stripped for every client before the row is stored.
+	// Pronouns stay; the Android voice filter still runs later for that client.
+	SanitizePublicCoachOutput(&out)
 	LogCoachOutput(label, "", &out)
 	return &out, nil
 }

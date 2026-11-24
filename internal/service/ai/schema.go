@@ -81,7 +81,7 @@ Strict output rules:
 - JSON keys MUST use the exact ASCII spellings above.
 - "routine_hints": every line MUST be prefixed. Never leave a hint unprefixed (the UI splits cards by prefix).
 - Match USER_INTERFACE_LOCALE (vi or en) for ALL human-readable string values when present.
-- If a context block (vision / profile / diary) is missing, simply omit references to it — do not invent details.`
+- If a context block (vision / profile / diary) is missing, simply omit references to it — do not invent details.` + PublicFacingCopyBan
 
 // coachOutputJSONSchemaBlockAndroid is the Play-store schema block. Same keys,
 // caps, and evidence rules as CoachOutputJSONSchemaBlock; only the voice examples change.
@@ -165,7 +165,7 @@ Strict output rules:
 - "routine_hints": every line MUST be prefixed. Never leave a hint unprefixed (the UI splits cards by prefix).
 - Match USER_INTERFACE_LOCALE (vi or en) for ALL human-readable string values when present.
 - Voice: polite mình/bạn only. Never tao/mày, never profanity or crude slang, in every mode including Beginner.
-- If a context block (vision / profile / diary) is missing, simply omit references to it — do not invent details.`
+- If a context block (vision / profile / diary) is missing, simply omit references to it — do not invent details.` + PublicFacingCopyBan
 
 // coachOutputSchemaForClient returns the user-message schema block for a skin check.
 // Web (and any non-android kind) is CoachOutputJSONSchemaBlock, unchanged.
@@ -214,15 +214,27 @@ const CheckInDetailJSONFields = `Also include these photo check-in keys:
     }
   ],
   "skin_score_notes": {
-    "overall": <ONE short sentence: why the overall score is where it is today. Cite one photo or tag cue. Add a short "chưa chắc" clause when PHOTO_EVIDENCE is limited or skip.>,
-    "hydration": <ONE short sentence: why the hydration score is where it is today. Same rules as overall.>,
-    "clarity": <ONE short sentence: why the clarity score is where it is today. Same rules as overall.>,
-    "barrier": <ONE short sentence: why the lớp bảo vệ da score is where it is today. Same rules as overall. Say "lớp bảo vệ da", never "hàng rào" / "hàng rào da" / "hàng rào bảo vệ".>
+    "overall": <ONE short everyday sentence about how the skin looks today. Cite one photo or tag cue. No number. Add a short "chưa chắc" clause when PHOTO_EVIDENCE is limited or skip.>,
+    "hydration": <ONE short everyday sentence about moisture. Same rules as overall.>,
+    "clarity": <ONE short everyday sentence about how clear the skin looks. Same rules as overall.>,
+    "barrier": <ONE short everyday sentence about lớp bảo vệ da. Same rules as overall. Say "lớp bảo vệ da", never "hàng rào" / "hàng rào da" / "hàng rào bảo vệ".>
   }
 }
 zone_notes: max 5, one short sentence each. Empty array when PHOTO_EVIDENCE=skip.
-skin_score_notes: all 4 keys, including overall. One short sentence each. Do not put these sentences under the numeric skin_scores keys.
-Never write "hàng rào", "hàng rào da", or "hàng rào bảo vệ" in zone_notes, skin_score_notes, or clarify questions. Use "lớp bảo vệ da" (the app's name for that score). Do not write "lớp bảo vệ da da".`
+skin_score_notes: all 4 keys, including overall. One short everyday sentence each. Do not put these sentences under the numeric gauge keys.
+Never write "hàng rào", "hàng rào da", or "hàng rào bảo vệ" in zone notes, gauge reasons, or clarify questions. Say "lớp bảo vệ da", never "hàng rào" / "hàng rào da" / "hàng rào bảo vệ". Do not write "lớp bảo vệ da da".` + PublicFacingCopyBan
+
+// PublicFacingCopyBan tells the model that sentences a person reads stay in
+// everyday words. JSON keys above stay as specified; this ban is about the
+// string values. Web voice and Android voice are unchanged.
+const PublicFacingCopyBan = `
+Plain words for people (every sentence a person reads — situation text, praise, tips, care steps, routine lines, summary, concern text, safety lines, zone notes, gauge reasons, follow-up questions):
+- Plain everyday language. No English skincare jargon (jawline, texture, barrier, acne, pore, redness, inflammation, hydration). Use the everyday word.
+- NEVER write the word "score" or "scores".
+- NEVER write a gauge decimal such as 0.78 or 0,78. Ordinary counts ("2–3 nốt"), SPF50, dates, "ngày 7", and percentages ("50%") are allowed.
+- NEVER paste JSON field names or snake_case keys into those sentences (situation_analysis, concern_alignment, skin_score_notes, skin_scores, zone_notes, care_suggestions, routine_hints, summary_notes, photo_evidence, medical_disclaimer, product_suggestions, and any similar key).
+- A gauge reason is one short everyday sentence about what the skin looks like today, with one photo or tag cue. It does not mention a number.
+- Active ingredient names (BHA, AHA, niacinamide, retinol, ceramide), product names, brands, and SPF stay as written.`
 
 // DefaultMedicalDisclaimerVI used when the model omits an explicit disclaimer.
 const DefaultMedicalDisclaimerVI = "Đây chỉ là gợi ý tham khảo từ ảnh/check-in — không thay thế tư vấn bác sĩ da liễu."

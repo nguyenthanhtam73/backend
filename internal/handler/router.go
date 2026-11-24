@@ -26,6 +26,7 @@ import (
 	authuc "github.com/dadiary/backend/internal/usecase/auth"
 	betasignupuc "github.com/dadiary/backend/internal/usecase/betasignup"
 	checkinreminderuc "github.com/dadiary/backend/internal/usecase/checkinreminder"
+	coachcopyaudituc "github.com/dadiary/backend/internal/usecase/coachcopyaudit"
 	dashboarduc "github.com/dadiary/backend/internal/usecase/dashboard"
 	feedbackuc "github.com/dadiary/backend/internal/usecase/feedback"
 	funneleventuc "github.com/dadiary/backend/internal/usecase/funnelevent"
@@ -486,6 +487,9 @@ func Router(app *fiber.App, cfg *config.Config, db *gorm.DB, tok *token.Service,
 		// Same admin gate as funnel-stats. Response is counts only.
 		adminStatsH := NewAdminStatsHandler(adminstatsuc.NewService(userRepo))
 		api.Get("/admin/stats/registrations-by-source", jwt, admin, adminStatsH.RegistrationsBySource)
+		// Stored coach prose, counts only. SELECT. Emails ending @example.com
+		// are left out. days defaults to 7.
+		api.Get("/admin/coach-copy-audit", jwt, admin, NewAdminCoachCopyHandler(coachcopyaudituc.NewService(db)).Get)
 
 		// Admin Skin Review — deep observations-only AI (bypasses Free quota;
 		// no AILimiter — gated by RequireSkinReview: full admin OR skin-review list).
