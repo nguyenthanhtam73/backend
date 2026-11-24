@@ -27,6 +27,8 @@ func TestSkinCheckAIResultArgs_AllowlistAndNoPrivateText(t *testing.T) {
 		PhotoNoteTag:  "ảnh hơi mờ " + poisonedNote,
 		ClarifyCount:  -8,
 		ClarifyKind:   "retake_tips " + poisonedAgent,
+		PromptVersion: 34,
+		PromptFamily:  poisonedNote,
 	}
 
 	args := skinCheckAIResultArgs(in)
@@ -41,6 +43,7 @@ func TestSkinCheckAIResultArgs_AllowlistAndNoPrivateText(t *testing.T) {
 	wantKeys := []string{
 		"check_id", "confidence", "device_type", "photo_present", "ai_latency_ms", "outcome", "fallback",
 		"photo_evidence", "low_reason_path", "photo_note_tag", "clarify_count", "clarify_kind",
+		"prompt_version", "prompt_family",
 	}
 	if strings.Join(keys, ",") != strings.Join(wantKeys, ",") {
 		t.Fatalf("keys %v", keys)
@@ -50,6 +53,9 @@ func TestSkinCheckAIResultArgs_AllowlistAndNoPrivateText(t *testing.T) {
 	}
 	if args[15] != "unknown" || args[17] != "none" || args[19] != "none" || args[21] != 0 || args[23] != "none" {
 		t.Fatalf("clamped reason args %#v", args)
+	}
+	if args[25] != 34 || args[27] != "web" {
+		t.Fatalf("prompt fields %#v", args[25:])
 	}
 
 	for _, handler := range []func(*bytes.Buffer) slog.Handler{
@@ -84,6 +90,8 @@ func TestSkinCheckAIResultArgs_KeepsValidMeasurementFields(t *testing.T) {
 		PhotoNoteTag:  " BLUR ",
 		ClarifyCount:  3,
 		ClarifyKind:   " RETAKE_TIPS ",
+		PromptVersion: 34,
+		PromptFamily:  "android",
 	})
 	var buf bytes.Buffer
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("skin_check_ai_result", args...)
@@ -101,6 +109,8 @@ func TestSkinCheckAIResultArgs_KeepsValidMeasurementFields(t *testing.T) {
 		`"photo_note_tag":"blur"`,
 		`"clarify_count":3`,
 		`"clarify_kind":"retake_tips"`,
+		`"prompt_version":34`,
+		`"prompt_family":"android"`,
 		id.String(),
 	} {
 		if !strings.Contains(line, want) {
@@ -144,6 +154,32 @@ func TestLogSkinCheckAIResult_SkipsWhenNoPhoto(t *testing.T) {
 	})
 	if buf.Len() != 0 {
 		t.Fatalf("logged a check-in with no photo: %s", buf.String())
+	}
+}
+
+func TestPromptFamilyForLog(t *testing.T) {
+	if promptFamilyForLog(domain.RefreshClientAndroid) != "android" || promptFamilyForLog("android-app") != "android" {
+		t.Fatal("android family")
+	}
+	if promptFamilyForLog("") != "web" || promptFamilyForLog(domain.RefreshClientWeb) != "web" || promptFamilyForLog("user@x.com") != "web" {
+		t.Fatal("web family")
+	}
+	for _, outcome := range []string{"completed", "failed"} {
+		var buf bytes.Buffer
+		args := skinCheckAIResultArgs(aiResultLog{
+			CheckID:       uuid.MustParse("dddddddd-eeee-ffff-0000-111111111111"),
+			PhotoPresent:  true,
+			Outcome:       outcome,
+			Fallback:      outcome == "failed",
+			PromptVersion: 34,
+			PromptFamily:  "web",
+		})
+		slog.New(slog.NewJSONHandler(&buf, nil)).Info("skin_check_ai_result", args...)
+		line := buf.String()
+		assertNoPrivateLogText(t, line)
+		if !strings.Contains(line, `"outcome":"`+outcome+`"`) || !strings.Contains(line, `"prompt_version":34`) || !strings.Contains(line, `"prompt_family":"web"`) {
+			t.Fatalf("%s line missing prompt fields: %s", outcome, line)
+		}
 	}
 }
 

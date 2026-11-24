@@ -186,6 +186,8 @@ func runSkinCheckCoachAfterVision(
 		"coach_provider", coachResult.Provider,
 		"coach_model", coachResult.Model,
 		"coach_fallback", coachResult.Fallback,
+		"prompt_version", CoachDailyPromptVersion,
+		"prompt_family", promptFamilyForCoachLog(clientKind),
 	)
 	return parsed, ver, nil
 }
@@ -253,6 +255,13 @@ func PipelineModelVersion(visionModel, visionStatus, coachModel, coachProvider s
 		ver += "+android"
 	}
 	return ver
+}
+
+func promptFamilyForCoachLog(clientKind string) string {
+	if IsAndroidCoachVoice(clientKind) {
+		return "android"
+	}
+	return "web"
 }
 
 func fallbackSuffix(fallback bool) string {
