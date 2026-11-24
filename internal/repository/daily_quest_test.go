@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	"gorm.io/gorm/schema"
 )
 
 func TestDailyQuestClaimPaysOnce(t *testing.T) {
@@ -327,6 +328,45 @@ func TestDailyQuestStatusUsesCareDay(t *testing.T) {
 	}
 	if !status.Morning.Done || !status.Morning.Claimed || status.Evening.Done || status.Evening.Claimed {
 		t.Fatalf("status %+v", status)
+	}
+}
+
+func TestDailyQuestClaimModelMatchesMigration047(t *testing.T) {
+	parsed, err := schema.Parse(&domain.DailyQuestClaim{}, &sync.Map{}, schema.NamingStrategy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pk []string
+	for _, field := range parsed.PrimaryFields {
+		pk = append(pk, field.DBName)
+	}
+	if len(pk) != 3 || pk[0] != "user_id" || pk[1] != "day" || pk[2] != "session" {
+		t.Fatalf("primary key %v", pk)
+	}
+	checks := parsed.ParseCheckConstraints()
+	wantChecks := map[string]string{
+		"daily_quest_claims_coins_check":   "coins >= 0",
+		"daily_quest_claims_bonus_check":   "bonus >= 0",
+		"daily_quest_claims_session_check": "session IN ('morning', 'evening')",
+	}
+	for name, expr := range wantChecks {
+		got, ok := checks[name]
+		if !ok || got.Constraint != expr {
+			t.Fatalf("check %s = %#v", name, got)
+		}
+	}
+	var fk *schema.Constraint
+	for _, rel := range parsed.Relationships.Relations {
+		if rel.Name != "User" {
+			continue
+		}
+		fk = rel.ParseConstraint()
+	}
+	if fk == nil || fk.Name != "daily_quest_claims_user_id_fkey" || fk.OnDelete != "CASCADE" {
+		t.Fatalf("fk %#v", fk)
+	}
+	if len(fk.ForeignKeys) != 1 || fk.ForeignKeys[0].DBName != "user_id" {
+		t.Fatalf("fk columns %#v", fk.ForeignKeys)
 	}
 }
 

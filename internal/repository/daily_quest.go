@@ -242,12 +242,13 @@ func lockDailyQuestUser(tx *gorm.DB, userID uuid.UUID) error {
 		return fmt.Errorf("user required")
 	}
 	if tx.Dialector != nil && tx.Dialector.Name() == "postgres" {
-		var id uuid.UUID
-		err := tx.Raw(`SELECT id FROM users WHERE id = ? FOR UPDATE`, userID).Scan(&id).Error
+		// id comes back as text. Scanning into uuid.UUID treats it as bytes.
+		var id string
+		err := tx.Raw(`SELECT id::text FROM users WHERE id = ? FOR UPDATE`, userID).Scan(&id).Error
 		if err != nil {
 			return err
 		}
-		if id == uuid.Nil {
+		if id == "" {
 			return fmt.Errorf("user required")
 		}
 		return nil

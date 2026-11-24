@@ -160,6 +160,26 @@ func TestDeleteAccount_PostgresFKAndSchema(t *testing.T) {
 	if err := db.Create(otherCheck).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Create(&domain.DailyQuestClaim{
+		UserID:    user.ID,
+		Day:       "2026-11-04",
+		Session:   domain.DailyQuestSessionMorning,
+		Coins:     domain.DailyQuestMorningCoins,
+		Bonus:     0,
+		CreatedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&domain.DailyQuestClaim{
+		UserID:    other.ID,
+		Day:       "2026-11-04",
+		Session:   domain.DailyQuestSessionEvening,
+		Coins:     domain.DailyQuestEveningCoins,
+		Bonus:     domain.DailyQuestBonusCoins,
+		CreatedAt: time.Now().UTC(),
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
 
 	repo := NewUserDataRepository(db)
 	if _, err := repo.DeleteAccount(t.Context(), user.ID); !errors.Is(err, ErrAccountDeletionSchema) {
@@ -175,6 +195,13 @@ func TestDeleteAccount_PostgresFKAndSchema(t *testing.T) {
 	}
 	if pending.UserID != user.ID || pending.InvoiceNumber != invoice || pending.CustomData == "" {
 		t.Fatalf("order changed before schema was ready: %+v", pending)
+	}
+	var claimsBefore int64
+	if err := db.Model(&domain.DailyQuestClaim{}).Where("user_id = ?", user.ID).Count(&claimsBefore).Error; err != nil {
+		t.Fatal(err)
+	}
+	if claimsBefore != 1 {
+		t.Fatalf("daily quest claim missing before deletion: %d", claimsBefore)
 	}
 
 	if err := ApplyAccountDeletionSchema(db); err != nil {
@@ -206,6 +233,7 @@ func TestDeleteAccount_PostgresFKAndSchema(t *testing.T) {
 		{"subscriptions", &domain.Subscription{}, "user_id = ?", user.ID},
 		{"refresh_sessions", &domain.RefreshSession{}, "user_id = ?", user.ID},
 		{"push_click_events", &domain.PushClickEvent{}, "user_id = ?", user.ID},
+		{"daily_quest_claims", &domain.DailyQuestClaim{}, "user_id = ?", user.ID},
 	} {
 		var n int64
 		if err := db.Unscoped().Model(count.model).Where(count.where, count.arg).Count(&n).Error; err != nil {
@@ -214,6 +242,13 @@ func TestDeleteAccount_PostgresFKAndSchema(t *testing.T) {
 		if n != 0 {
 			t.Fatalf("%s left: %d", count.name, n)
 		}
+	}
+	var otherClaims int64
+	if err := db.Model(&domain.DailyQuestClaim{}).Where("user_id = ?", other.ID).Count(&otherClaims).Error; err != nil {
+		t.Fatal(err)
+	}
+	if otherClaims != 1 {
+		t.Fatalf("other account daily quest claims %d", otherClaims)
 	}
 	var saved domain.PaymentOrder
 	if err := db.First(&saved, "id = ?", order.ID).Error; err != nil {
