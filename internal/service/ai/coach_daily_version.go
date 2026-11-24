@@ -112,4 +112,8 @@ package ai
 // v35 (2026-11-24) — Web QA. Don't invent a user note. Map má trái/phải to the
 // user's own face using front vs rear camera. Compare with last time only when
 // that photo was clear and the same area. Android prompt file is unchanged.
-const CoachDailyPromptVersion = 35
+//
+// v36 (2026-11-24) — Web voice only. Each screen uses «mày» about 1–2 times;
+// the rest of the screen speaks naturally («da mình», «hai bên má»). No
+// post-filter on «mày». Android prompt file is unchanged.
+const CoachDailyPromptVersion = 36
