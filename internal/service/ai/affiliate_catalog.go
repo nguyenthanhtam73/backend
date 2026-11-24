@@ -75,7 +75,7 @@ const AffiliateRecommendationRulesBlock = `## Affiliate product picks (product_s
 - Routine steps stay generic roles; product_suggestions is the ONLY branded slot.
 - Skip affiliate picks when: stinging/redness flare, user 👎 affiliate picks often, wardrobe already complete, or no catalog item clearly fits.
 - **Routine suggest:** if today's routine or tags show missing SPF / recent sun → product_suggestions SHOULD prioritize step/category "spf" from catalog (one pick max).
-- Never invent products, brands, prices, or links. Empty array [] is valid and often best.`
+- Never invent products, brands, prices, or links. Empty array [] is valid and often best.` + plainWordsUserRule
 
 // AppendAffiliateCoachContext injects catalog + rules into an AI user message.
 func AppendAffiliateCoachContext(b *strings.Builder) {

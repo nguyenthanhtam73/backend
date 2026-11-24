@@ -126,7 +126,7 @@ JSON:
 		exampleKeepWhy,
 		examplePauseWhy,
 		exampleCoconutGloss,
-	)
+	) + plainWordsUserRule
 }
 
 // Cabinet insight sampling. Temperature 0 and a fixed seed keep the same

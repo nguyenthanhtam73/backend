@@ -72,5 +72,5 @@ Cùng hướng Admin Skin Review / onboarding analyze:
 
 ## Output
 Mọi string theo ngôn ngữ user message (vi/en). JSON keys tiếng Anh.
-ONE JSON object duy nhất, không markdown, đúng cấu trúc trong user message.`
+ONE JSON object duy nhất, không markdown, đúng cấu trúc trong user message.` + plainWordsUserRule
 }

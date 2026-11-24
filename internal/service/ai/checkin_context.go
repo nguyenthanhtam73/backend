@@ -344,7 +344,7 @@ func coachUserInterfaceLocaleDirective(check *domain.SkinCheck) string {
 	case "vi":
 		return "USER_INTERFACE_LOCALE: vi — The DaDiary app UI is Vietnamese for a friendly, beginner-leaning audience. Write **every** human-readable string in your JSON (strengths, situation_analysis, improvements.tip/why, routine_hints, avoid_or_patch, safety_reminders, medical_disclaimer, concern_alignment, summary_notes) in **natural, warm, conversational Vietnamese**. Prefer everyday words: 'lớp bảo vệ da' (instead of 'barrier'), 'kem chống nắng' (instead of 'SPF' alone), 'da khô bên trong' (instead of 'dehydrated'), 'da dễ nổi mụn' (instead of 'acne-prone'), 'thử trước trên vùng da nhỏ' (instead of 'patch test'), 'tẩy da chết' (instead of 'exfoliant'). When you must use a technical term, add a short Vietnamese explanation in parentheses on first mention. JSON keys stay English."
 	case "en":
-		return "USER_INTERFACE_LOCALE: en — The app UI is English. Write **every** human-readable string in your JSON in **natural, warm English** that a beginner could follow. Prefer 'sunscreen' over 'SPF' alone, 'skin barrier' over 'barrier' on first mention, and explain technical ingredients briefly the first time. JSON keys stay English."
+		return "USER_INTERFACE_LOCALE: en — The app UI is English. Write **every** human-readable string in your JSON in **natural, warm English** that a beginner could follow. Prefer 'sunscreen' over 'SPF' alone. Do not say 'barrier' or 'skin barrier'; say the skin feels dry and gets irritated easily. An ingredient name only appears next to what it does in plain words. JSON keys stay English."
 	default:
 		return ""
 	}

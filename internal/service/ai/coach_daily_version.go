@@ -99,4 +99,8 @@ package ai
 //
 // v32 (2026-11-24) — Web coach is a warm best friend: gentle tao/mày, no
 // swearing, no sarcasm. Android polite prompt is unchanged.
-const CoachDailyPromptVersion = 32
+//
+// v33 (2026-11-24) — Everyday words for every sentence a person reads.
+// Active ingredient names stay, each with a short plain phrase of what it
+// does. Hàng rào da, hạ kích, barrier, kích ứng ngược, and purging stay banned.
+const CoachDailyPromptVersion = 33
