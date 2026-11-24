@@ -188,33 +188,61 @@ func inventedNoteClaim(low string) bool {
 	return false
 }
 
-// viInventedNoteClaim drops a sentence that pretends the user wrote a note.
-// "Bác sĩ nói là…" is a real quote and stays.
-func viInventedNoteClaim(low string) bool {
-	if strings.Contains(low, "bác sĩ nói là") {
-		return false
-	}
-	if inventedNoteClaim(low) {
-		return true
-	}
-	if !personInSentence(low) {
-		return false
-	}
-	for _, claim := range []string{"ghi là", "nói là", "bảo là", "kể là", "ghi chú"} {
-		if strings.Contains(low, claim) {
-			return true
+// indexFakeNoteClaim finds «mày/bạn (có|đã)? ghi|ghi chú|nói|bảo|kể là|rằng».
+// «bạn bè» does not match, and «mày nhớ ghi chú» does not either.
+func indexFakeNoteClaim(s string) int {
+	low := strings.ToLower(s)
+	best := -1
+	for _, who := range []string{"mày", "bạn"} {
+		from := 0
+		for {
+			rel, size := findPhrase(low[from:], who)
+			if rel < 0 {
+				break
+			}
+			idx := from + rel
+			rest := strings.TrimLeft(low[idx+size:], " \t")
+			if next, ok := skipWholeWord(rest, "có"); ok {
+				rest = next
+			} else if next, ok := skipWholeWord(rest, "đã"); ok {
+				rest = next
+			}
+			for _, verb := range []string{"ghi chú", "ghi", "nói", "bảo", "kể"} {
+				next, ok := skipWholeWord(rest, verb)
+				if !ok {
+					continue
+				}
+				if _, ok := skipWholeWord(next, "là"); ok {
+					if best < 0 || idx < best {
+						best = idx
+					}
+					break
+				}
+				if _, ok := skipWholeWord(next, "rằng"); ok {
+					if best < 0 || idx < best {
+						best = idx
+					}
+					break
+				}
+			}
+			from = idx + size
 		}
 	}
-	return false
+	return best
 }
 
-func personInSentence(low string) bool {
-	_, n := findPhrase(low, "mày")
-	if n > 0 {
-		return true
+func skipWholeWord(s, word string) (string, bool) {
+	if !strings.HasPrefix(s, word) {
+		return s, false
 	}
-	_, n = findPhrase(low, "bạn")
-	return n > 0
+	after := s[len(word):]
+	if after != "" {
+		r, _ := utf8.DecodeRuneInString(after)
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			return s, false
+		}
+	}
+	return strings.TrimLeft(after, " \t"), true
 }
 
 // stripInvalidComparison removes a whole sentence that compares the skin with
@@ -629,10 +657,9 @@ func rewriteList(items []string, rewrite func(string) string) []string {
 }
 
 func detailMayCount(d *dto.SkinCoachDetail) int {
-	n := countWord(d.SituationSummary, "mày") + countWord(d.SummaryNotes, "mày") + countWord(d.ConcernAlignment, "mày") + countWord(d.MedicalDisclaimer, "mày")
-	for _, s := range d.Strengths {
-		n += countWord(s, "mày")
-	}
+	n := countWord(d.SituationSummary, "mày")
+	n += countWord(d.ConcernAlignment, "mày")
+	n += countWord(d.MedicalDisclaimer, "mày")
 	for _, s := range d.RoutineHints {
 		n += countWord(s, "mày")
 	}
@@ -644,6 +671,9 @@ func detailMayCount(d *dto.SkinCoachDetail) int {
 	}
 	for _, item := range d.Improvements {
 		n += countWord(item.Tip, "mày") + countWord(item.Why, "mày")
+	}
+	for _, item := range d.CareSuggestions {
+		n += countWord(item.Step, "mày") + countWord(item.Why, "mày") + countWord(item.SafetyNote, "mày")
 	}
 	for _, z := range d.ZoneNotes {
 		n += countWord(z.Note, "mày")
@@ -668,12 +698,70 @@ func stripVIInventedNote(s string) string {
 	parts := splitSentences(s)
 	kept := make([]string, 0, len(parts))
 	for _, sentence := range parts {
-		if viInventedNoteClaim(strings.ToLower(sentence)) {
+		next, drop := trimFakeNoteClause(sentence)
+		if drop {
 			continue
 		}
-		kept = append(kept, sentence)
+		kept = append(kept, next)
 	}
 	return strings.TrimSpace(strings.Join(kept, ""))
+}
+
+// trimFakeNoteClause removes a made-up user quote.
+// A leading clause that ends with «, và» or «, nhưng» is cut and the rest is
+// capitalized. Any other sentence that matches is dropped. «Bác sĩ nói là…» stays.
+func trimFakeNoteClause(sentence string) (string, bool) {
+	if strings.Contains(strings.ToLower(sentence), "bác sĩ nói là") {
+		return sentence, false
+	}
+	idx := indexFakeNoteClaim(sentence)
+	if idx < 0 {
+		return sentence, false
+	}
+	lead := len(sentence) - len(strings.TrimLeft(sentence, " \t"))
+	if idx == lead {
+		if next, ok := cutLeadingFakeClause(sentence, idx); ok {
+			if strings.TrimSpace(next) == "" {
+				return "", true
+			}
+			return next, false
+		}
+	}
+	return "", true
+}
+
+func cutLeadingFakeClause(sentence string, from int) (string, bool) {
+	rest := sentence[from:]
+	low := strings.ToLower(rest)
+	best, bestEnd := -1, 0
+	for _, conj := range []string{"và", "nhưng"} {
+		search := 0
+		for search < len(low) {
+			i := strings.Index(low[search:], ",")
+			if i < 0 {
+				break
+			}
+			i += search
+			afterComma := low[i+len(","):]
+			spaces := len(afterComma) - len(strings.TrimLeft(afterComma, " \t"))
+			word := strings.TrimLeft(afterComma, " \t")
+			next, ok := skipWholeWord(word, conj)
+			if ok {
+				end := i + len(",") + spaces + len(conj)
+				if best < 0 || i < best {
+					best, bestEnd = i, end
+				}
+				break
+			}
+			_ = next
+			search = i + 1
+		}
+	}
+	if best < 0 {
+		return "", false
+	}
+	after := strings.TrimLeft(rest[bestEnd:], " \t")
+	return sentence[:from] + capitalizeFirst(after), true
 }
 
 func zoneSevere(sev string) bool {
@@ -687,12 +775,8 @@ func zoneSevere(sev string) bool {
 
 func screenMayCount(out *CoachStructuredOutput, zones []polishZone, scores []polishScore) int {
 	n := countWord(out.SituationAnalysis, "mày")
-	n += countWord(out.SummaryNotes, "mày")
 	n += countWord(out.ConcernAlignment, "mày")
 	n += countWord(out.MedicalDisclaimer, "mày")
-	for _, s := range out.Strengths {
-		n += countWord(s, "mày")
-	}
 	for _, s := range out.RoutineHints {
 		n += countWord(s, "mày")
 	}
@@ -704,6 +788,9 @@ func screenMayCount(out *CoachStructuredOutput, zones []polishZone, scores []pol
 	}
 	for _, item := range out.Improvements {
 		n += countWord(item.Tip, "mày") + countWord(item.Why, "mày")
+	}
+	for _, item := range out.CareSuggestions {
+		n += countWord(item.Step, "mày") + countWord(item.Why, "mày") + countWord(item.SafetyNote, "mày")
 	}
 	for _, z := range zones {
 		n += countWord(z.note, "mày")
@@ -733,6 +820,13 @@ func insertCuaMay(s string, screenMay int) string {
 	}
 	first := parts[0]
 	if idx, size, ok := firstZoneName(first); ok {
+		if followingWordIs(first[idx+size:], "của") {
+			return s
+		}
+		parts[0] = first[:idx+size] + " của mày" + first[idx+size:]
+		return strings.Join(parts, "")
+	}
+	if idx, size := findPhrase(first, "da mặt"); idx >= 0 {
 		if followingWordIs(first[idx+size:], "của") {
 			return s
 		}
@@ -781,14 +875,14 @@ func dropFalseUnclear(s string, severe bool) string {
 	parts := splitSentences(s)
 	changed := false
 	for i, sentence := range parts {
-		low := strings.ToLower(sentence)
-		if !strings.Contains(low, "chưa rõ ràng") {
+		before, punct, ok := trailingUnclear(sentence)
+		if !ok {
 			continue
 		}
-		if !severe && !sentenceHasVisibleSign(low) {
+		if !severe && !sentenceHasVisibleSign(strings.ToLower(before)) {
 			continue
 		}
-		parts[i] = stripUnclearPhrase(sentence)
+		parts[i] = before + punct
 		changed = true
 	}
 	if !changed {
@@ -806,27 +900,31 @@ func sentenceHasVisibleSign(low string) bool {
 	return false
 }
 
-func stripUnclearPhrase(s string) string {
-	low := strings.ToLower(s)
-	idx := strings.Index(low, "chưa rõ ràng")
+// trailingUnclear matches only ", chưa rõ ràng" at the end of a sentence.
+// Mid-sentence, a sentence that starts with the phrase, or a phrase with no
+// comma stays as written. punct is the period or exclamation that was kept.
+func trailingUnclear(sentence string) (before, punct string, ok bool) {
+	trimmed := strings.TrimRight(sentence, " \t")
+	low := strings.ToLower(trimmed)
+	idx := strings.LastIndex(low, "chưa rõ ràng")
 	if idx < 0 {
-		return s
+		return "", "", false
 	}
-	start := idx
-	j := idx
-	for j > 0 {
-		r, n := utf8.DecodeLastRuneInString(s[:j])
-		if r == ' ' || r == '\t' {
-			j -= n
-			continue
-		}
-		if r == ',' || r == '，' {
-			start = j - n
-		}
-		break
+	after := strings.TrimSpace(low[idx+len("chưa rõ ràng"):])
+	if after != "" && after != "." && after != "!" {
+		return "", "", false
 	}
-	out := s[:start] + s[idx+len("chưa rõ ràng"):]
-	return strings.TrimSpace(out)
+	head := strings.TrimRight(trimmed[:idx], " \t")
+	if !strings.HasSuffix(head, ",") {
+		return "", "", false
+	}
+	head = strings.TrimRight(strings.TrimSuffix(head, ","), " \t")
+	if after == "!" {
+		punct = "!"
+	} else if after == "." {
+		punct = "."
+	}
+	return head, punct, true
 }
 
 func softenAssertedGroup(s string) string {
@@ -858,6 +956,9 @@ func softenAssertedGroup(s string) string {
 			repl := "trông giống " + strings.TrimSpace(s[xStart:xEnd])
 			if strings.HasPrefix(prefix, "đó là dấu hiệu") {
 				repl = "trông giống dấu hiệu " + strings.TrimSpace(s[xStart:xEnd])
+			}
+			if atSentenceStart(s, idx) {
+				repl = capitalizeFirst(repl)
 			}
 			s = s[:idx] + repl + s[xEnd:]
 			low = strings.ToLower(s)
@@ -900,6 +1001,9 @@ func plainPatchTest(s string) string {
 			end := strings.Index(trimmed, ")")
 			if end >= 0 {
 				inside := strings.TrimSpace(trimmed[1:end])
+				if r, _ := utf8.DecodeRuneInString(s[idx:]); unicode.IsUpper(r) {
+					inside = capitalizeFirst(inside)
+				}
 				gap := len(rest) - len(trimmed)
 				s = s[:idx] + inside + s[idx+n+gap+end+1:]
 				low = strings.ToLower(s)
@@ -909,8 +1013,50 @@ func plainPatchTest(s string) string {
 		s = s[:idx] + matchVoiceCase(s[idx:idx+n], "thử trước ở một vùng nhỏ") + s[idx+n:]
 		low = strings.ToLower(s)
 	}
-	s = strings.ReplaceAll(s, "thử trước ở một vùng nhỏ trước ở vùng nhỏ", "thử trước ở một vùng nhỏ")
+	s = replaceFold(s, "thử trước ở một vùng nhỏ trước ở vùng nhỏ", "thử trước ở một vùng nhỏ")
+	s = dropExtraPatchTruoc(s)
 	return squeezeSpaces(s)
+}
+
+func dropExtraPatchTruoc(s string) string {
+	const phrase = "thử trước ở một vùng nhỏ"
+	var b strings.Builder
+	low := strings.ToLower(s)
+	for {
+		i := strings.Index(low, phrase)
+		if i < 0 {
+			b.WriteString(s)
+			return b.String()
+		}
+		end := i + len(phrase)
+		b.WriteString(s[:end])
+		rest := s[end:]
+		lowRest := low[end:]
+		spaces := 0
+		for spaces < len(lowRest) && (lowRest[spaces] == ' ' || lowRest[spaces] == '\t') {
+			spaces++
+		}
+		word := lowRest[spaces:]
+		next, ok := skipWholeWord(word, "trước")
+		followedByO := strings.HasPrefix(strings.TrimLeft(next, " \t"), "ở")
+		if ok && !followedByO {
+			skipped := spaces + len("trước")
+			s = rest[skipped:]
+			low = lowRest[skipped:]
+			continue
+		}
+		s = rest
+		low = lowRest
+	}
+}
+
+func atSentenceStart(s string, idx int) bool {
+	head := strings.TrimRight(strings.TrimLeft(s[:idx], " \t\"'«“”"), " \t")
+	if head == "" {
+		return true
+	}
+	r, _ := utf8.DecodeLastRuneInString(head)
+	return r == '.' || r == '!' || r == '?' || r == '…'
 }
 
 func indexFold(low, phrase string) int {

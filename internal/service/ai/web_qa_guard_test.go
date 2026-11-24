@@ -440,6 +440,9 @@ func TestWebVI_ProdPhrases(t *testing.T) {
 		SituationAnalysis: acneSit,
 		SafetyReminders:   []string{acneSafe},
 		SkinScoreNotesRaw: []byte(`{"clarity":"` + acneBar + `"}`),
+		// Not shown on the web screen. Four «mày» here used to block the opening.
+		SummaryNotes: "Mày chụp đủ sáng. Mày giữ góc ổn.",
+		Strengths:    []string{"Mày không nặn.", "Mày kiên nhẫn."},
 	}
 	sanitizeWebCoachOutput(acne, qa)
 	if acne.SituationAnalysis != "Hôm nay vùng má trái của mày đang có khá nhiều mụn viêm nổi rõ, da ửng đỏ ở chỗ đó. Bề mặt da không đều, nhìn có vẻ da đang bị kích ứng." {
@@ -455,6 +458,9 @@ func TestWebVI_ProdPhrases(t *testing.T) {
 	if scores["clarity"] != "Vùng má trái có khá nhiều mụn viêm." {
 		t.Fatalf("acne bar %q", scores["clarity"])
 	}
+	if acne.SummaryNotes != "Mày chụp đủ sáng. Mày giữ góc ổn." || len(acne.Strengths) != 2 {
+		t.Fatalf("hidden fields changed %q %#v", acne.SummaryNotes, acne.Strengths)
+	}
 
 	clear := &CoachStructuredOutput{
 		SituationAnalysis: clearSit,
@@ -467,7 +473,8 @@ func TestWebVI_ProdPhrases(t *testing.T) {
 	if clear.SituationAnalysis != clearSit {
 		t.Fatalf("clear situation changed %q", clear.SituationAnalysis)
 	}
-	if clear.ConcernAlignment != "Da không đỏ rõ, nên tao sẽ khuyên dịu trước, rồi sau đó mới xem xét thêm chất tẩy da chết nhẹ." {
+	const clearConcernOut = "Ảnh hôm nay thật sự có khá nhiều nốt nhỏ màu da nổi cao ở hai bên má — trông giống dấu hiệu mụn ẩn hoặc milia (hạt nhỏ trắng dưới da). Da không đỏ rõ, nên tao sẽ khuyên dịu trước, rồi sau đó mới xem xét thêm chất tẩy da chết nhẹ."
+	if clear.ConcernAlignment != clearConcernOut {
 		t.Fatalf("clear concern %q", clear.ConcernAlignment)
 	}
 	if err := json.Unmarshal(clear.SkinScoreNotesRaw, &scores); err != nil {
@@ -511,8 +518,41 @@ func TestWebVI_ProdPhrases(t *testing.T) {
 		SummaryNotes:      "Tao nhắn mày một câu. Rồi mày xem lại.",
 	}
 	sanitizeWebCoachOutput(two, qa)
-	if two.SituationAnalysis != "Hôm nay da đang ổn." {
-		t.Fatalf("screen already has mày %q", two.SituationAnalysis)
+	if two.SituationAnalysis != "Hôm nay da của mày đang ổn." {
+		t.Fatalf("hidden mày blocked the opening %q", two.SituationAnalysis)
+	}
+	visible := &CoachStructuredOutput{
+		SituationAnalysis: "Hôm nay da đang ổn.",
+		SafetyReminders:   []string{"Nhớ mày. Rồi mày xem."},
+	}
+	sanitizeWebCoachOutput(visible, qa)
+	if visible.SituationAnalysis != "Hôm nay da đang ổn." {
+		t.Fatalf("visible mày still inserted %q", visible.SituationAnalysis)
+	}
+	face := &CoachStructuredOutput{SituationAnalysis: "Hôm nay da mặt hơi khô."}
+	sanitizeWebCoachOutput(face, qa)
+	if face.SituationAnalysis != "Hôm nay da mặt của mày hơi khô." {
+		t.Fatalf("da mặt %q", face.SituationAnalysis)
+	}
+	if got := softenAssertedGroup("Đó là mụn ẩn hoặc milia."); got != "Trông giống mụn ẩn hoặc milia." {
+		t.Fatalf("sentence start %q", got)
+	}
+	patch := &CoachStructuredOutput{SafetyReminders: []string{"Patch test trước nha."}}
+	sanitizeWebCoachOutput(patch, qa)
+	if patch.SafetyReminders[0] != "Thử trước ở một vùng nhỏ nha." {
+		t.Fatalf("patch trước %q", patch.SafetyReminders[0])
+	}
+	for _, keep := range []string{
+		"Ảnh hơi tối nên mụn chưa rõ ràng.",
+		"Chưa rõ ràng có mụn hay không.",
+		"Ranh giới vùng đỏ chưa rõ ràng, chụp lại nha.",
+		"Mày nhớ ghi chú lại cảm giác da mỗi tối nha.",
+		"Bạn bè nói là kem này tốt.",
+	} {
+		got := viRewrite(keep, false, qa)
+		if got != keep {
+			t.Fatalf("kept %q -> %q", keep, got)
+		}
 	}
 	en := &CoachStructuredOutput{SituationAnalysis: acneSit}
 	sanitizeWebCoachOutput(en, webQA{Locale: "en"})
